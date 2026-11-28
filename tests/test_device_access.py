@@ -1,5 +1,5 @@
 """The device channel (covey/core/device_access.py) and ``covey device`` (covey/core/device_cli.py) over a real device
-program under a temporary HOME (core/device_transport.py LocalTransport): the guards G1-G3, G5-G7, the audit, the jobs,
+program under a temporary HOME (core/device_transport.py LocalTransport): the guards G1-G7, the audit, the jobs,
 and the turn's two ends in app/repos_turn.py. No ssh, no real device."""
 from __future__ import annotations
 
@@ -384,6 +384,166 @@ class CommandLineTest(ChannelCase):
     def test_the_covey_command_forwards_device(self):
         from covey.core import home
         self.assertIn('device) shift; exec "{python}" -B "{bin}/covey_device.py"', home.SHIM_TEXT)
+
+
+DANGEROUS = [
+    ["rm", "-rf", "build"], ["rm", "-r", "x"], ["/bin/rm", "-Rf", "/"], ["rm", "--recursive", "x"], ["sudo", "rm", "-rf", "/opt/x"],
+    ["sudo", "-u", "root", "rm", "-fr", "x"], ["env", "FOO=1", "rm", "-r", "x"], ["timeout", "10", "rm", "-rf", "x"],
+    ["nohup", "kill", "123"], ["sh", "-c", "cd ~/p && rm -rf build"], ["bash", "-lc", "make; git push --force origin main"],
+    ["/bin/sh", "-c", "echo $(rm -rf x)"], ["sh", "-c", "echo `pkill python`"], ["kill", "-9", "123"], ["pkill", "-f", "train.py"],
+    ["killall", "python"], ["systemctl", "restart", "nginx"], ["systemctl", "--user", "stop", "x"],
+    ["sudo", "systemctl", "disable", "--now", "x"], ["launchctl", "unload", "x.plist"], ["launchctl", "bootout", "gui/501/x"],
+    ["reboot"], ["shutdown", "-h", "now"], ["poweroff"], ["docker", "rm", "-f", "c1"], ["docker", "stop", "c1"],
+    ["docker", "system", "prune", "-af"], ["docker", "container", "rm", "x"], ["docker", "compose", "down"],
+    ["docker-compose", "down"], ["podman", "rmi", "img"], ["git", "push", "-f"], ["git", "push", "origin", "+main"],
+    ["git", "push", "--force-with-lease"], ["git", "push", "origin", ":old"], ["git", "push", "--delete", "origin", "x"],
+    ["git", "reset", "--hard", "HEAD~1"], ["git", "-C", "/x", "reset", "--hard"], ["git", "clean", "-fdx"],
+    ["git", "branch", "-D", "x"], ["apt", "remove", "x"], ["sudo", "apt-get", "purge", "-y", "x"], ["brew", "uninstall", "x"],
+    ["pip", "uninstall", "-y", "torch"], ["python3", "-m", "pip", "uninstall", "x"], ["conda", "env", "remove", "-n", "x"],
+    ["npm", "uninstall", "-g", "x"], ["yum", "reinstall", "x"], ["find", ".", "-name", "*.o", "-delete"],
+    ["find", ".", "-exec", "rm", "-rf", "{}", ";"], ["xargs", "-I", "{}", "rm", "-rf", "{}"], ["sh", "-c", "ls | xargs rm -rf"],
+    ["ssh", "other", "rm -rf /x"], ["eval", "rm -rf x"], ["mkfs.ext4", "/dev/sdb"], ["dd", "if=/dev/zero", "of=/dev/sda"],
+    ["crontab", "-r"], ["kubectl", "delete", "pod", "x"], ["sh", "-c", "if true; then rm -rf x; fi"],
+    ["sh", "-c", "for f in *; do rm -rf $f; done"], ["sh", "-ec", "FOO=1 sudo -E rm -rf x"], ["bash", "-c", "rm -rf 'unclosed"],
+    ["watch", "-n", "1", "pkill", "x"], ["uv", "pip", "uninstall", "x"], ["pacman", "-Rns", "x"],
+]
+SAFE = [
+    ["ls", "-la"], ["rm", "x.o"], ["rm", "-f", "x.o"], ["make", "test"], ["git", "push"], ["git", "push", "origin", "main"],
+    ["git", "push", "-u", "origin", "feat"], ["git", "reset", "HEAD~1"], ["git", "clean", "-n"], ["git", "clean", "-nfd"],
+    ["git", "status"], ["git", "branch", "-d", "x"], ["kill", "-0", "123"], ["kill", "-l"], ["pgrep", "python"],
+    ["systemctl", "status", "nginx"], ["systemctl", "is-active", "x"], ["launchctl", "list"], ["docker", "ps"],
+    ["docker", "run", "--rm", "img"], ["docker", "build", "-t", "x", "."], ["docker", "compose", "up", "-d"], ["apt", "install", "x"],
+    ["pip", "install", "-e", "."], ["npm", "uninstall", "x"], ["npm", "install"], ["sh", "-c", "cd ~/p && make -j8 2>&1 | tail -n 50"],
+    ["bash", "-lc", "python train.py > log.txt 2>&1"], ["find", ".", "-maxdepth", "2", "-name", "*.py"], ["sh", "-c", "echo rm -rf x"],
+    ["python", "-c", "print(1)"], ["command", "-v", "rm"], ["nvidia-smi"], ["shutdown", "-c"], ["sh", "script.sh"],
+    ["tar", "czf", "a.tgz", "dir"], ["sh", "-c", "grep -r foo . > out.txt"], ["service", "nginx", "status"], ["brew", "install", "x"],
+]
+OTHER_TOPIC = "0123456789abcdef0123456789abcdef"
+
+
+class DangerTest(ChannelCase):
+    """G4 (主人 D9D2G ``--approved``, T930 设计第 8 节): a dangerous ``run`` or ``job start`` is refused until the owner himself
+    answered a question of this topic; ``--approved <答案号>`` is checked against the Bridge's question records."""
+
+    def question(self, token, qid="wipe_build", *, topic=TOPIC, party="owner", status="answered", answers=("删吧（推荐）",),
+                 kind="answer", channel="card"):
+        record = {"token": token, "topic_id": topic, "chat_id": "oc_owner", "status": status, "created_at": time.time() - 60,
+                  "questions": [{"id": "other", "question": "别的"}, {"id": qid, "question": "删掉 gpu1 上的 build？"}],
+                  "answers": {"other": {"answers": ["随便"]}, qid: {"answers": list(answers)}},
+                  "answer_by": {"party": party, "channel": channel} if party else {}, "response_kind": kind}
+        if status == "answered":
+            record["answered_at"] = time.time()
+        folder = self.state / "questions"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{token}.json").write_text(json.dumps(record, ensure_ascii=False))
+        return record
+
+    def build(self):
+        work = self.device_home / "proj"
+        (work / "build").mkdir(parents=True, exist_ok=True)
+        (work / "build" / "a.o").write_text("x")
+        return work
+
+    def test_danger_reads_through_wrappers_and_shells_and_lets_ordinary_commands_be(self):
+        self.assertEqual([argv for argv in DANGEROUS if not access.danger(argv)], [])
+        self.assertEqual([(argv, access.danger(argv)) for argv in SAFE if access.danger(argv)], [])
+        self.assertEqual(access.danger(["sudo", "rm", "-rf", "/x"]), "rm -r（递归删除）")
+        self.assertIn("git push", access.danger(["sh", "-c", "git push -f origin main"]))
+
+    def test_a_dangerous_run_is_refused_until_the_owner_answered_and_runs_with_his_answer(self):
+        work = self.build()
+        ch = self.channel()
+        with self.assertRaises(access.Refused) as caught:
+            ch.run("gpu1", ["rm", "-rf", "build"], cwd=str(work))
+        self.assertIn("先用问题卡问主人", str(caught.exception))
+        self.assertIn("--approved", str(caught.exception))
+        self.assertTrue((work / "build").is_dir())  # Never asked of the device.
+        refused = self.audit()[-1]
+        self.assertEqual((refused["op"], refused["danger"]), ("run", "rm -r（递归删除）"))
+        self.question("a1b2c3d4e5f60718")
+        found = ch.run("gpu1", ["rm", "-rf", "build"], cwd=str(work), approved="wipe_build")
+        self.assertEqual(found["code"], 0)
+        self.assertFalse((work / "build").exists())
+        end = [row for row in self.audit() if row.get("phase") == "end"][-1]
+        self.assertEqual({key: end["approved"][key] for key in ("answer", "question", "index", "id", "channel", "said", "danger")},
+                         {"answer": "wipe_build", "question": "a1b2c3d4e5f60718", "index": 2, "id": "wipe_build", "channel": "card",
+                          "said": "删吧（推荐）", "danger": "rm -r（递归删除）"})
+        self.assertIn("主人已同意（wipe_build）", access.trace_text(self.audit()))
+
+    def test_the_answer_number_may_be_the_records_token_or_token_and_index(self):
+        work = self.build()
+        self.question("a1b2c3d4e5f60718")
+        ch = self.channel()
+        for given in ("a1b2c3d4e5f60718-2", "a1b2c3d4e5f60718"):
+            (work / "build").mkdir(exist_ok=True)
+            self.assertEqual(ch.run("gpu1", ["rm", "-r", "build"], cwd=str(work), approved=given)["code"], 0)
+        with self.assertRaisesRegex(access.Refused, "选了不回答"):
+            self.question("b1b2c3d4e5f60718", answers=["用户选择不回答此题（不表示同意或授权）"])
+            ch.run("gpu1", ["rm", "-r", "build"], cwd=str(work), approved="b1b2c3d4e5f60718-2")
+
+    def test_a_forged_foreign_or_not_owners_answer_lets_nothing_run(self):
+        work = self.build()
+        ch = self.channel()
+        cases = [
+            ("no_such_question", None, "本话题里没有 id 是「no_such_question」的问题"),
+            ("c1b2c3d4e5f60718", dict(topic=OTHER_TOPIC), "不是本话题的问题"),
+            ("ffffffffffffffff", None, "没有答案号 ffffffffffffffff"),
+            ("lead_said", dict(party="lead"), "不是主人本人答的（负责人答的）"),
+            ("butler_said", dict(party="butler", channel="tool"), "不是主人本人答的（管家答的）"),
+            ("member_said", dict(party=""), "不是主人本人答的（不是主人的人答的）"),
+            ("waiting", dict(status="pending"), "主人还没答"),
+            ("set_aside", dict(status="set_aside", kind="set_aside"), "主人还没答"),
+            ("feedback", dict(kind="feedback"), "只写了补充说明"),
+            ("skipped", dict(answers=["用户选择不回答此题（不表示同意或授权）"]), "选了不回答"),
+        ]
+        for number, (given, made, words) in enumerate(cases):
+            with self.subTest(given=given):
+                if made is not None:
+                    token = given if access.QUESTION_TOKEN.fullmatch(given) else "%015x%d" % (number, number % 10)
+                    self.question(token, given, **made)
+                with self.assertRaises(access.Refused) as caught:
+                    ch.run("gpu1", ["rm", "-rf", "build"], cwd=str(work), approved=given)
+                self.assertIn(words, str(caught.exception))
+                self.assertTrue((work / "build").is_dir())
+                self.assertEqual(self.audit()[-1].get("approved"), given)
+
+    def test_the_latest_owners_answer_of_the_id_counts_and_a_topics_terminal_has_none(self):
+        work = self.build()
+        self.question("d1b2c3d4e5f60718", party="lead")
+        self.question("e1b2c3d4e5f60718")  # Answered later, by the owner.
+        self.assertEqual(self.channel().run("gpu1", ["rm", "-rf", "build"], cwd=str(work), approved="wipe_build")["code"], 0)
+        terminal = access.Channel(access.turn_from_env({"COVEY_STATE": str(self.state)}), config=self.config, connect=self.connect)
+        with self.assertRaisesRegex(access.Refused, "不在话题的任务里"):
+            terminal.run("gpu1", ["pkill", "-f", "x"], approved="wipe_build")
+        self.assertEqual(terminal.run("gpu1", ["echo", "ok"])["out"], "ok\n")  # Nothing dangerous: as before.
+
+    def test_a_dangerous_job_is_refused_too_and_a_read_only_device_refuses_it_before(self):
+        ch = self.channel()
+        with self.assertRaisesRegex(access.Refused, "先用问题卡问主人"):
+            ch.job_start("gpu1", sh="sleep 1; systemctl restart nginx")
+        self.assertEqual(self.audit()[-1]["danger"], "systemctl restart（停、重启或关掉服务）")
+        self.question("f1b2c3d4e5f60718", "restart_it")
+        started = ch.job_start("gpu1", ["sh", "-c", "kill -HUP 999999 || true"], approved="restart_it")
+        self.assertTrue(started["job"].startswith("job-"))
+        row = [row for row in self.audit() if row.get("op") == "job start" and row.get("job")][-1]
+        self.assertEqual(row["approved"]["id"], "restart_it")
+        with self.assertRaisesRegex(access.Refused, "只读"):
+            ch.run("peer", ["rm", "-rf", "/tmp/x"], approved="restart_it")
+
+    def test_the_command_line_says_how_to_ask_and_takes_approved_before_the_command(self):
+        work = self.build()
+        self.turn()
+        cli = CommandLineTest.cli
+        code, _, err = cli(self, "run", "gpu1", "--dir", str(work), "--", "rm", "-rf", "build")
+        self.assertEqual(code, device_cli.REFUSED)
+        self.assertIn("--approved <那道题的 id>", err)
+        self.question("a9b2c3d4e5f60718")
+        code, _, err = cli(self, "run", "gpu1", "--dir", str(work), "--approved", "wipe_build", "--", "rm", "-rf", "build")
+        self.assertEqual(code, 0, err)
+        self.assertFalse((work / "build").exists())
+        code, out, err = cli(self, "job", "start", "gpu1", "--approved", "wipe_build", "--", "kill", "-HUP", "999999")
+        self.assertEqual(code, 0, err)
+        self.assertIn("已在 gpu1 上起任务", out)
 
 
 class TurnEndsTest(ChannelCase):

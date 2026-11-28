@@ -4,8 +4,9 @@ Task and question cards offer 🔁 换配置, which opens the switch card (cards
 换配置 is an ordinary one): Harness, provider and model selects, the budget (and its work mode), then 确认更换 or 取消 (a card sent before the home start also has the workspace and run mode rows; it
 still moves the topic: ``place``). Confirming a new model, budget, work mode or place
 rebinds the topic under a new binding revision; a new place (an old card's) is another configured workspace or the other
-run mode, a worktree made then from the workspace's current commit (the old one stays). Pending questions of
-the old binding are cancelled, and cards of earlier jobs can no longer start jobs.
+run mode, a worktree made then from the workspace's current commit (the old one stays); a workspace on a device only for a
+topic already on one (主人 D2Y4T: TO_DEVICE). Pending questions of the old binding are cancelled, and cards of earlier jobs can
+no longer start jobs.
 
 A click from a relay card at the private chat's top level (cards/topic_actions.py RELAY: a 做完了 relay's 换配置, a 停住了
 relay's 换个模型, app/relay_stops.py) opens the card there, a message of its own under the relay that names the topic and
@@ -60,6 +61,8 @@ SELECTS = frozenset({HARNESS, PROVIDER, MODEL, BUDGET, WORK_MODE, WORKSPACE, RUN
 # mark what differs from the topic and 确认更换 is greyed out while nothing does (a budget alone left it grey).
 RECORDED = frozenset({BUDGET, WORK_MODE, WORKSPACE, RUN_MODE})
 KINDS = frozenset({OPEN, CONFIRM, CANCEL, PAGE} | SELECTS)
+# An older card's workspace on a device for a topic here (主人 D2Y4T): refused, as the page's 换配置 refuses it (app/web_switch.py).
+TO_DEVICE = "换配置不能把话题换到设备上：执行设备入口已下线，话题配置没有改变；要用别的设备，在话题里用 covey device"
 REBUILD_FAILED = "选项没有刷新成功，卡片上的选项可能还是之前的。请重新选一次，再点确认更换。"
 NO_OTHER_HARNESS = "现在没有别的 Harness 能接着做（没启用、刚报过限流或额度用完）；可以稍后再试，或点「换个模型」。"
 # What a switch confirmed at the top level says comes next: a top-level message is the butler's, a reply to this card the topic's.
@@ -432,6 +435,9 @@ class HarnessSwitch(CardActionQueue):
                     record = self.make_worktree(ctx, path, record, place)
                     place = self.place(target, record)
                 if isinstance(place, dict) and devices.is_device_value(place.get("workdir") or ""):
+                    if not devices.is_device_value(str(topic.get("workdir") or "")):
+                        # An older card's workspace on a device (主人 D2Y4T): only a topic already on one moves there.
+                        raise ValueError(TO_DEVICE)
                     alias = place["workdir"].split(":", 1)[0]
                     if not self.topics.runtime.access.allows_device(chat, alias):
                         raise ValueError(f"设备 {alias} 不允许在这个聊天里使用（devices.json 的 spaces）")

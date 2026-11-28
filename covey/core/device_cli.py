@@ -33,8 +33,12 @@ EPILOG = """\
 只读设备（devices.json 的 access 不是 write）和只读的轮次只能 list、ls、stat、get 和只读命令（不经 shell）：
   {commands}
   git 只能 {git}；find 要带 -maxdepth（≤{depth}）、不能 -exec/-delete；tail 不能 -f；put、job 一律不行。
+危险命令（rm -r、kill/pkill、systemctl/launchctl stop|restart|disable、reboot、docker rm|stop、git push --force、
+git reset --hard、卸载包等，sudo、env、sh -c 里的也算）run 和 job start 都先拦下：先用问题卡问主人（这道题给一个 id），
+主人同意后带 --approved <那道题的 id> 重跑；只认本话题里主人本人的回答。
 退出码：run 的是设备上命令的（超时 124）；3 被护栏拦下；4 设备没有答复；2 命令行写错。
 """
+APPROVED_HELP = "危险命令要主人先答应：本话题问题卡里主人答过的那道题的 id（答案号）"
 
 
 def parser() -> argparse.ArgumentParser:
@@ -53,7 +57,7 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("alias", help="设备别名")
     run.add_argument("--dir", default=None, help="设备上的工作目录（默认设备的家目录）")
     run.add_argument("--timeout", type=float, default=access.RUN_SECONDS, help="最多等几秒（默认 120，最多 3600）")
-    run.add_argument("--approved", default="", help="主人回答的问题号（危险命令要先问主人；这一版只记下来）")
+    run.add_argument("--approved", default="", help=APPROVED_HELP)
     run.add_argument("argv", nargs=argparse.REMAINDER, help="-- 命令 参数…")
     ls = sub("ls", "列设备上的目录")
     ls.add_argument("alias")
@@ -75,6 +79,7 @@ def parser() -> argparse.ArgumentParser:
     job.add_argument("alias")
     job.add_argument("rest", nargs=argparse.REMAINDER, help="start：-- 命令…；log：任务号 [偏移]；status、stop：任务号")
     job.add_argument("--dir", default=None, help="start 时设备上的工作目录")
+    job.add_argument("--approved", default="", help=APPROVED_HELP)
     return top
 
 
@@ -175,7 +180,7 @@ def run(args, channel) -> int:
 def job(args, channel) -> int:
     rest = list(args.rest or [])
     if args.action == "start":
-        found = channel.job_start(args.alias, _command(args, rest), cwd=args.dir)
+        found = channel.job_start(args.alias, _command(args, rest), cwd=args.dir, approved=getattr(args, "approved", ""))
         _say(args, found, f"已在 {args.alias} 上起任务 {found['job']}（进程组 {found.get('pgid')}）。"
                           f"看输出：covey device job log {args.alias} {found['job']}；停：covey device job stop {args.alias} {found['job']}")
         return 0

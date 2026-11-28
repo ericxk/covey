@@ -391,24 +391,13 @@ def workspace_spaces(env):
 
 
 def device_note(env, value) -> str:
-    """What workspaces_list says of a workspace on a device (COVEY_DEVICES=1, ``gpu1:/home/me/proj``): the device's title
-    and the Harnesses it declares, the only ones a topic there runs on (app/butler_topics.py device_binding), or why no
-    topic of this chat can go there; '' for any other workspace (and for every one with the switch off)."""
+    """What workspaces_list says of a workspace on a device (``gpu1:/home/me/proj``): no topic opens there any more (主人
+    D2Y4T, app/butler_topics.py device_refusal), the device is used from the home; '' for any other workspace (and for every
+    one with the switch off)."""
     if not devices.is_device_value(value):
         return ""
     alias = str(value).split(":", 1)[0]
-    try:
-        device = devices.current().device(alias)
-    except devices.UnknownDevice:
-        return f"设备 {alias}：devices.json 里没有这台设备，开不了话题"
-    except devices.DeviceConfigError:
-        return f"设备 {alias}：devices.json 读不通，开不了话题"
-    if not env.runtime.access.allows_device(env.chat(), device):
-        return f"设备 {device.title}：这个聊天不能用（devices.json 的 spaces）"
-    apps = env.topics.apps
-    names = "、".join(f"{apps[name].spec.title}（harness 填 {name}）" if name in apps else f"{name}（本机器人没启用）"
-                     for name in device.harnesses)
-    return f"设备 {device.title}：只能用 {names}，原目录运行"
+    return f"设备 {alias} 上的目录：不能在这里开话题（执行设备入口已下线），话题从主目录开，开好后用 covey device 访问 {alias}"
 
 
 def workspaces_list(env, request):

@@ -194,7 +194,7 @@ export const ConfigBar: React.FC<{ topic: SnapshotTopic | undefined; workspace: 
         ) : changed.length ? (
           <span>改了{changed.map((k: string) => FIELD_WORD[k] ?? k).join('、')}：{lead ? leadNext() : `从下一句话起按新配置做（${isRepoMode(all) ? '模型变了会开新会话' : '模型、工作区变了会开新会话'}，带上最近几轮）`}</span>
         ) : (
-          <span>{lead ? '这是负责人现在的配置，改哪项点哪项' : forModel ? '只改模型这几项就行，执行设备和仓库不展开就不会动' : '这是话题现在的配置，改哪项点哪项'}</span>
+          <span>{lead ? '这是负责人现在的配置，改哪项点哪项' : forModel ? '只改模型这几项就行，仓库不展开就不会动' : '这是话题现在的配置，改哪项点哪项'}</span>
         )}
       </div>
       <button type="button" className="btn sm" onClick={() => setOpen(false)} disabled={phase === 'sending'}>取消</button>

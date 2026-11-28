@@ -1,4 +1,4 @@
-"""A launch form's submission: ``submit_launch_form`` checks the 开始任务 click (model, effort, device; an older card's workspace, run mode),
+"""A launch form's submission: ``submit_launch_form`` checks the 开始任务 click (model, effort; an older card's workspace, run mode),
 starts the topic and remembers the choice (``remember_launch``); a worktree launch creates its checkout in the
 background (``finish_worktree_launch``) and is finished or given back after a restart (``recover_worktree_launches``).
 The card's own building, rebuilding and closing stay in app/launch.py."""
@@ -14,7 +14,7 @@ from pathlib import Path
 from covey.core import devices, timing
 from covey.core.state import read_each, read_json
 from covey.core.locks import LOCK, resource_lock, topic_lock
-from covey.core.workspaces import RUN_MODES, add_topic_worktree, load_config, plan_topic_worktree, resolve_binding
+from covey.core.workspaces import RUN_MODES, add_topic_worktree, plan_topic_worktree, resolve_binding
 
 
 from covey.cards.launch_config import SUBMIT_PREFIX
@@ -38,36 +38,19 @@ RUN_MODE_INVALID = '运行方式只能是原目录或独立 worktree'
 RESTART_ABANDONED = '服务重启时 worktree 尚未创建完成'
 
 
-def home_selection(ctx, device: str = '') -> str:
+def home_selection(ctx) -> str:
     """Where a new topic starts (docs/configuration.md 主目录与仓库地图: one way to start, no workspace to pick): the
-    home, the service's ``--workdir`` (``ctx.default_workdir``), resolved. On ``device`` (an alias of devices.json,
-    COVEY_DEVICES=1) the saved workspace on that device whose name sorts first, else ``<alias>:<its home>`` when
-    devices.json names one; ValueError when the device has neither."""
-    if not device:
-        return str(Path(ctx.default_workdir).expanduser().resolve())
-    data = load_config(ctx.state_dir, ctx.default_workdir)
-    for name in sorted(data['workspaces']):
-        value = str(data['workspaces'][name])
-        if devices.is_device_value(value) and value.split(':', 1)[0] == device:
-            return name
-    try:
-        home = str(getattr(devices.current().device(device), 'home', '') or '')
-    except (devices.UnknownDevice, devices.DeviceConfigError):
-        raise ValueError(f'devices.json 里没有设备 {device}') from None
-    if not home.startswith('/'):
-        raise ValueError(f'设备 {device} 还没有主目录：在 devices.json 里给它写 home')
-    return f'{device}:{home}'
+    home, the service's ``--workdir`` (``ctx.default_workdir``), resolved. Never a device (主人 D2Y4T,
+    core/devices.py START_RETIRED): a topic uses one from the home (``covey device``)."""
+    return str(Path(ctx.default_workdir).expanduser().resolve())
 
 
-def home_binding(ctx, device: str = '') -> tuple:
+def home_binding(ctx) -> tuple:
     """(workspace name, core/devices.py Binding) of ``home_selection``: what a new topic's topic.json records
     (``workspace_name`` and ``workdir`` as before, so an older release's task runner reads it). The home itself is not
-    looked up in the workspace list: its name is its directory's and workspace-config.json is neither read nor written.
-    On ``device`` as core/workspaces.py resolve_binding takes it."""
-    if not device:
-        home = Path(home_selection(ctx))
-        return home.name or 'root', devices.Binding(home, '', '', str(home))
-    return resolve_binding(ctx.state_dir, ctx.default_workdir, home_selection(ctx, device))
+    looked up in the workspace list: its name is its directory's and workspace-config.json is neither read nor written."""
+    home = Path(home_selection(ctx))
+    return home.name or 'root', devices.Binding(home, '', '', str(home))
 
 
 def run_in_background(target, *args):
@@ -172,6 +155,9 @@ def _submit_launch_form(app, ctx, event):
         name, (model, effort) = choice['harness'], run_choice(choice, effort)
         work_mode = chosen_work_mode(choice, record.get('selected_work_mode'))
         selection, run_mode, device = _launch_workspace(record, fields)
+        if device:
+            # An older card's 执行设备 row (D2Y4T): no new topic starts on a device; its other choices are kept on the card.
+            raise ValueError(devices.START_RETIRED + '；任务尚未启动，执行设备选回「本机」再点开始')
         if str(fields.get('path') or '').strip() and not app.runtime.access.is_owner(event.get('operator_id', '')):
             raise ValueError(OWNER_ONLY_PATH)  # A typed path is added to the saved workspaces.
         # Validate all user choices before changing a route or queue.
@@ -180,24 +166,18 @@ def _submit_launch_form(app, ctx, event):
         if not _waiting_jobs(ctx, event['chat_id']):
             raise ValueError('本话题没有待启动的消息，请先发送任务')
         timing.mark('checked')
-        # A card of the home start names no workspace: the topic starts in the home (``home_binding``), on its device if chosen.
+        # A card of the home start names no workspace: the topic starts in the home (``home_binding``).
         workspace, binding = (resolve_binding(ctx.state_dir, ctx.default_workdir, selection) if selection
-                              else home_binding(ctx, device))
+                              else home_binding(ctx))
         source = binding.workdir
         if binding.device:
-            if not app.runtime.access.allows_device(event['chat_id'], binding.device):
-                raise ValueError(f'设备 {binding.device} 不允许在这个聊天里使用（devices.json 的 spaces）')
-            refused = devices.undeclared_refusal(binding.device, name, choice.get('title') or name)
-            if refused:
-                raise ValueError(refused)
-            if run_mode == 'worktree':
-                raise ValueError('设备上的工作区只能用原目录运行')
+            # An older card's workspace on a device (D2Y4T): refused like its 执行设备 row.
+            raise ValueError(devices.START_RETIRED + '；任务尚未启动，请换一个本机的工作区')
         plan = {'harness': name, 'model': model, 'effort': effort, 'label': choice['label'], 'work_mode': work_mode,
                 'model_key': model_key, 'preference_effort': preference_effort,
-                'workspace': workspace, 'source': binding.value if binding.device else str(source), 'run_mode': run_mode,
-                **({'device': binding.device} if binding.device else {}),
-                # A card of the home start that left the device alone: the topic starts in the home (core/topics.py mark_home).
-                **({'home_start': True} if not selection and not binding.device and run_mode == 'direct' else {}),
+                'workspace': workspace, 'source': str(source), 'run_mode': run_mode,
+                # A card of the home start: the topic starts in the home (core/topics.py mark_home).
+                **({'home_start': True} if not selection and run_mode == 'direct' else {}),
                 'chat_id': event['chat_id'], 'submitted_at': submitted_at,
                 'topic': topic_label(ctx.state_dir, ctx.topic_id)}
         if choice.get('work_modes'):
@@ -277,8 +257,9 @@ def _launch_effort(record, choice, fields):
 
 def _launch_workspace(record, fields):
     """(workspace selection, run mode, device) the form submitted. The selection is '' for a card of the home start, which
-    names no workspace (``device``: its 执行设备 row's alias, '' for 本机); a card sent before it (a record or a click that
-    names a workspace or a typed path) keeps its own and starts there, in its run mode."""
+    names no workspace (``device``: the 执行设备 row's alias of a card sent before D2Y4T, '' for 本机; one chosen is
+    refused); a card sent before it (a record or a click that names a workspace or a typed path) keeps its own and starts
+    there, in its run mode."""
     custom_path = fields.get('path', '')
     if not isinstance(custom_path, str):
         raise ValueError('路径必须是文本')

@@ -198,7 +198,8 @@ class Devices:
         except (dt.DeviceError, OSError) as exc:
             self.runtime.log(f"devices: {alias} gc failed: {type(exc).__name__}")
             return
-        removed = [len(answer.get(name) or []) for name in ("removed_tasks", "removed_shims", "removed_checkpoints", "removed_incoming")]
+        removed = [len(answer.get(name) or []) for name in ("removed_tasks", "removed_shims", "removed_checkpoints", "removed_incoming",
+                                                             "removed_marks")]  # A device program before marks has no such key.
         if any(removed):
-            self.runtime.log("devices: %s gc removed %d tasks, %d shims, %d checkpoints, %d attachment directories"
+            self.runtime.log("devices: %s gc removed %d tasks, %d shims, %d checkpoints, %d attachment directories, %d marks"
                              % (alias, *removed))

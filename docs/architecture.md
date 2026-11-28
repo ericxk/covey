@@ -600,13 +600,15 @@ cancelled、superseded：终态
 
 ## 设备（多设备，默认关）
 
-让话题的 Agent 在另一台 Linux 机器上跑（`COVEY_DEVICES=1` 加 `devices.json`），Bridge 仍在原来的机器上收发飞书消息、写卡片、存记录。配置、字段、浏览和自检的用法见[配置：多设备](configuration.md#多设备开发中默认关)，自检、排障和回滚见[运维](operations.md#设备自检)，Harness 在设备上的差别见[Harness 说明](harnesses.md#在设备上运行)。这里只写结构和不变量。
+让话题的 Agent 在另一台 Linux 机器上跑（`COVEY_DEVICES=1` 加 `devices.json`），Bridge 仍在原来的机器上收发飞书消息、写卡片、存记录。
+
+**入口已下线、底层保留（主人 D2Y4T）**：新话题不再开到设备上。启动卡的「执行设备」行和网页开新话题的同名下拉都去掉了；旧卡上选了设备、旧卡或旧网页的工作区在设备上，`开始任务`、网页 `launch` 都拒绝（`core/devices.py` 的 `START_RETIRED`）；管家、负责人的 `topic_start`、`project_topic_start` 带 `别名:路径`（或写成这样的已存工作区）当场拒绝，提示从主目录开、用 `covey device`（`app/butler_topics.py` 的 `device_refusal`）；换配置（飞书卡、网页）只让已经在设备上的旧话题换到设备的工作区，本机话题拒绝（`app/harness_switch.py`、`app/web_switch.py` 的 `TO_DEVICE`）。已经在设备上的旧话题照旧续接：下面这一整节（`DeviceProcess`、设备端小程序的 `spawn`、`attach`、`reap`、离线收割）不动，它们也是[设备通道](#设备通道)的 `job` 用的。退场条件和要删的代码见 T930 方案第 6.3 节，并进 M8。配置、字段、浏览和自检的用法见[配置：多设备](configuration.md#多设备开发中默认关)，自检、排障和回滚见[运维](operations.md#设备自检)，Harness 在设备上的差别见[Harness 说明](harnesses.md#在设备上运行)。这里只写结构和不变量。
 
 **总形状**：设备上跑一个单文件小程序（`core/device_shim.py`，协议见上面的[设备端小程序](#设备端小程序)），它起并看守 Agent、把输出写进只追加的 journal；hub 经 ssh 的一条主连接（`core/device_transport.py`）和它说话。后端不知道自己在设备上：`core/process.py` 的 `spawn_process` 在上下文带 `device` 时返回 `core/device_link.py` 的 `DeviceProcess`（像 `Popen`：stdin、stdout、`poll`、`wait`、信号），Claude 的 `ClaudeProcess`、Codex 的 `AppServer` 和 Antigravity 走的 `stream_subprocess_lines`（带上下文）照常读写管道。链路后台线程按字节偏移 `attach`、丢已见的帧、断线退避重连，请求账本和偏移存在 `runs/<任务键>/device.json`，所以重连和 runner 重启都不重放已投递的帧。`别名:路径` 在 hub 上解码成一个永远不存在的占位目录加 `device`、`remote_workdir`（`bind_workdir`），没改到的代码路径因此明确失败，不会碰到本机目录。
 
 **设备门**：一个设备话题的每一轮要依次过下面几道，哪一道不过都是当场拒绝并在卡上写原因，不排队、不改到本机跑。
 - **开关与名单**：`devices.enabled()` 和 `devices.json` 里有这个别名；开关关着时 `gpu1:/x` 只是一个普通（相对）路径，一切同旧。
-- **谁能用、哪个 Harness**：`Access.allows_device(chat, device)`（规则 11：谁被服务只经 `app/access.py`）和设备声明的 `harnesses`；启动卡、换配置卡只列能用的设备，点击和每一轮开始前各再查一次（`app/runs.py` 的 `_device_refusal`）。设备能声明的是 `core/roster.py` 里 `devices` 为真的 Harness（`devices.harness_names`：核心是 claude、codex、agy；不写时是 claude、codex），`device_link.device_argv` 也只替换这几个的命令。管家的 `topic_start`（专项负责人的 `project_topic_start` 走同一个函数）开话题前查同样几道再加目录（`app/butler_topics.py` 的 `device_binding`），不过就不开话题；专项的负责人留在本机（`Projects.step_lead`，它的工具在本机），状态包写明设备工作区。
+- **谁能用、哪个 Harness**：`Access.allows_device(chat, device)`（规则 11：谁被服务只经 `app/access.py`）和设备声明的 `harnesses`；启动卡、换配置卡只列能用的设备，点击和每一轮开始前各再查一次（`app/runs.py` 的 `_device_refusal`）。设备能声明的是 `core/roster.py` 里 `devices` 为真的 Harness（`devices.harness_names`：核心是 claude、codex、agy；不写时是 claude、codex），`device_link.device_argv` 也只替换这几个的命令。管家的 `topic_start`（专项负责人的 `project_topic_start` 走同一个函数）不再把话题开到设备上（D2Y4T，`app/butler_topics.py` 的 `device_refusal`）；以前开在设备工作区的专项，负责人留在本机（`Projects.step_lead`，它的工具在本机），状态包写明新话题从主目录开、用 `covey device`（`app/project_lead.py` 的 `DEVICE_PLACE`）。
 - **目录和可用性**：设备经 `stat` 答复目录在不在（5 秒，设备的话，不是 hub 的 `Path.exists`）；`app/availability.py` 读设备最近的 `hello` 和自检结果，不在 hub 上找命令。
 - **能力位**：`core/harness.py` 的 `for_device(caps, ctx)`（`DEVICE_OFF`）在设备上关掉 `native_fork`、`compaction`、`session_files`、`rewind`、`command_stop`（补充打断命令要在本机找命令的进程）；Antigravity 在设备上另关 `steering`、`steer_reads`（它的补充靠 SIGINT 和本机进程树，设备端程序只转发 TERM、KILL）；各入口（回退、下载、压缩、分叉）都经 `backend_capabilities` 取值，所以按钮不出现、不是出现后点了才拒。几处没有 `pid` 的地方有闸门：Claude 和 Antigravity 的轮前压缩、两者的 `compact_session`、管家的空闲压缩和压缩子进程在设备上直接返回。
 - **hub 上的副作用**：设备话题不取 git diff 快照，不在占位目录里跑 `git`、不写文件；`tests/test_device_gates.py` 在整轮执行期间用审计钩子（`tests/support/device_guard.py`）记录所有 `open`、`stat`、`subprocess`，断言占位目录从未被碰、spawn 规格的环境里没有 hub 的 `LARK_*`、`FEISHU_*`、`COVEY_*`、提示词和后台线程参数里没有 hub 的路径。设备话题里新加的任何 hub 侧文件操作都要走这个审计。
@@ -635,7 +637,7 @@ cancelled、superseded：终态
 
 **文件的上限**：附件单个 64 MiB、一轮合计 256 MiB；产物的上限同本机（旧的逐文件发送 20 MB，云空间上传 200 MB）；`show_images` 的图不超过 10 MB、同一轮最多 5 张，不要求在工作区内（二维码常存在 `/tmp`），同一张图（设备、路径、大小、修改时间）一轮只发一次。产物名单同本机（`.ssh`、`.git`、`.codex`、`.claude` 等代理目录、`.env*`、`auth.json`、`credentials.json`、`.local-state`）。答案卡的「输入/输出」框不显示设备文件的大小；知识库提示里不带历史搜索命令（它是 Bridge 本机的命令）。
 
-**设备上的清理**：`devices` 后台线程每小时让设备端 `gc` 一次：清过期的任务目录、没人引用的小程序目录，以及 `~/.covey/checkpoints/<hub-id>/` 和 `~/.covey/incoming/<hub-id>/` 下 7 天没变、也不属于运行中任务的条目。
+**设备上的清理**：`devices` 后台线程每小时让设备端 `gc` 一次：清过期的任务目录、没人引用的小程序目录，`~/.covey/checkpoints/<hub-id>/` 和 `~/.covey/incoming/<hub-id>/` 下 7 天没变、也不属于运行中任务的条目，以及 `~/.covey/marks/<hub-id>/` 下已空的标记目录和进程组已不在、一小时没变的标记记录（`gc_marks`，答复里的 `removed_marks`；进程组还在的留给 `reap`）。`exec` 正常结束时自己删掉记录，标记下最后一条命令结束时连目录一起删。
 
 **记录**（都在 `<状态目录>/devices/` 下）：`hub-id`（这台 Bridge 的编号，两个 Bridge 连同一台设备互不干扰）、`<别名>/hello.json`（最近一次 `hello`）、`<别名>/health.json`（后台线程最近一次探活）、`<别名>/pending-reap.json`（待收割的任务键、设备上的任务目录和进程组）、`<别名>/tasks/<话题>.json`（每个话题上一个设备任务）、`<别名>/profile.json`（环境档案：Harness 路径、版本、登录状态、通过白名单的变量、每个 Harness 最小请求的结果 `probe` 和最近一次自检的结论 `check`）、`<别名>/codex-home/models_cache.json`。
 
@@ -647,14 +649,14 @@ cancelled、superseded：终态
 
 和上一节的「设备」不同：话题仍从主目录在 Bridge 这台机器上跑，Harness 也在这里，要用别的设备时从自己的 shell 调 `covey device`，命令到设备上跑、文件取回本机改。开关、`devices.json` 和设备端小程序都和多设备共用（`COVEY_DEVICES=1`），用法见[配置 · 设备通道](configuration.md#设备通道随多设备开)，三家的差别见 [Harness · 设备通道](harnesses.md#设备通道)。
 
-**一个底座**：`core/device_access.py` 的 `Channel` 是唯一的入口，护栏只写在这里：
+**一个底座**：`core/device_access.py` 的 `Channel` 是唯一的入口，护栏 G1–G7 只写在这里：
 - **G1 名单**（`Channel.device`）：只认 `devices.json` 里带 `ssh` 的别名；这一轮聊天的设备空间要在设备的 `spaces` 里。空间由 Bridge 判（规则 11：谁被服务只经 `app/access.py`，这里用它的 `device_space`），一轮开始时写进运行目录的 `device-turn.json`；`covey device` 只拿它和 `spaces` 比，自己不比较 open_id 和聊天。没有这个文件的任务（旧 release 的任务进程）一律拒绝；不在任务里（没有 `COVEY_TASK_DIR`，终端里手动跑）按主人私聊。
 - **G2 只读设备**：`access` 不是 `write` 的设备只放行 `list`、`ls`、`stat`、`get` 和 `read_only_refusal` 放过的 argv（`READ_COMMANDS`，各自的参数限制，不经 shell）；`put`、`job`、`sh -c` 一律拒绝。
 - **G3 只读轮**：这一轮的 `TOOL_LIMIT`（`look`、`lead`、`read`、`consult`、`proxy`，`READ_LIMITS`）在 `device-turn.json` 里，这样的轮次所有设备都按 G2 处理，`get` 只能写到本话题产物目录下。
 - **G5 凭据**：设备上的命令的环境是 `devices.effective_env`（环境档案加 `devices.json` 的 `env`）去掉 `LARK_`、`FEISHU_`、`COVEY_` 开头的和名字像令牌、密码、密钥的（`device_env`），不是 Hub 的环境；ssh 客户端的环境也去掉这些（`ssh_env`），`SendEnv` 带不过去。`get`、`put` 拒绝经过 `SECRET_NAMES`、`SECRET_GLOBS` 的路径（`.ssh`、`.env*`、`auth.json`、私钥等），只读命令的参数同样不能指向它们。Harness 留在 Hub，设备的输出是普通的工具输出。
 - **G6 审计**：每次调用（含被拒的）追加一行到 `runs/<任务键>/devices.jsonl`（`core/run_dir.py` 的 `DEVICES`；终端里是 `<状态目录>/devices/terminal.jsonl`），命令过 `core/text.py` 的 `redact`。`run` 先写一行 `phase: start` 再去问设备，`covey device` 中途被杀时一轮结束也知道有命令没答复。
 - **G7 收割**：`run` 带这一轮的标记（`mark_of`：话题 id 前 8 位加任务键的哈希），设备记下命令的进程组（[设备端小程序](#设备端小程序)的 `exec`）；超时由设备端按进程组杀。ssh 断了以后设备上的命令会一直跑到它自己的超时（真机实测过），所以一轮结束时收割。
-- G4（危险命令要主人先答应，`--approved <答案号>` 核对是本话题里主人的回答）不在这一版：`--approved` 只记进审计。
+- **G4 危险命令**（F3 起硬拦）：`run` 和 `job start` 先过 `danger`：删目录（`rm -r`、`find -delete`、`find -exec rm -r`）、杀进程（`kill`，`-0`、`-l` 除外；`pkill`、`killall`）、停或重启服务（`systemctl`、`launchctl`、`service` 的 stop、restart、disable 等）、关机重启、格式化或擦盘（`mkfs*`、`wipefs`、`dd of=/dev/…`）、删停容器（`docker`/`podman` 的 `rm`、`rmi`、`stop`、`kill`、`prune`，`compose down`）、`kubectl delete`、`git push` 强推或删远端分支、`git reset --hard`、`git clean -f`、`git branch -D`、`crontab -r`、卸载或重装包（apt、yum、dnf、brew、pip、conda、全局的 npm 等）。只读词、不执行：`sudo`、`env`、`timeout`、`nohup`、`xargs` 等包装和 `sh -c`、`bash -lc`、`eval`、`watch`、`ssh 主机 '…'` 里的脚本都拆开看（按 `;`、`&&`、`|`、换行、`$(…)`、反引号分成一条条命令）；运行时才拼出来的命令（`$cmd`）看不到。命中就拒，回话写“先用问题卡问主人（这道题给一个 id），主人同意后带 `--approved <那道题的 id>` 重跑”。带了 `--approved` 时 `approval` 去读 Bridge 的问题记录（`<状态目录>/questions/`，每次新开一个 `JsonDirectoryStore`，不用进程里共享的那份，刚答的也看得到）：答案号可以是本话题检查点 `questions` 里那道题的 `id`（同名取最近答的），也可以是问题记录的 token 或 `<token>-<第几题>`；记录的 `topic_id` 要是这一轮的话题，`status` 是 `answered`，`answer_by.party` 是 `owner`（管家、负责人代答的，群成员答的都不算），不是只写了补充说明（`response_kind: feedback`）或不处理（`set_aside`），那道题也不是“不回答此题”。过了就放行，审计那行的 `approved` 写依据（`answer`、`question`、`index`、`id`、`answered_at`、`channel`、主人答的前 120 字 `said`、`danger`），任务卡执行过程那条写“主人已同意（答案号）”；没过的拒绝也写一行（`danger`、给的 `approved`）。不在任务里（终端）没有话题可核对，危险命令一律拒绝。只读设备、只读轮在 G2、G3 就拒了，`--approved` 解不开它们。限制：Harness 自己能写状态目录时，伪造一份问题记录也能过，这里核对的是 Bridge 记下的来源，不是密钥。
 
 **外壳**：`core/device_cli.py`（`bin/covey_device.py`；`<数据根>/bin/covey` 的转发壳 `device)` 一行，`core/home.py` 的 `SHIM_TEXT`，每次部署重写），只解析参数、调 `Channel`、把结果说成给模型看的话；退出码 3 拦下、4 没答复、124 超时，`run` 的其余是设备上命令的。
 

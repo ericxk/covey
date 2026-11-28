@@ -68,6 +68,11 @@ FILE_NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}\Z")
 # What a device that names no ``harnesses`` declares: the two devices.json meant before any other could run there.
 DEFAULT_HARNESSES = ("claude", "codex")
 SPACES = ("owner_private", "personal_groups", "team")
+# A new topic is never started on a device any more (主人 D2Y4T: the 执行设备 entries are gone, what runs a topic there stays
+# for the topics already on one): the launch card, the page, the butler's and a lead's topic_start and the 换配置 of a topic
+# here all say this instead. A topic uses a device from the home (core/device_access.py, ``covey device``).
+START_RETIRED = ("执行设备入口已下线：新话题都从主目录启动，不能开到设备上；要用别的设备，话题开好后在话题里用 covey device"
+                 "（list、run、get、put、job）")
 DEFAULTS = {"patience_minutes": 15, "waiting_patience_hours": 6, "connect_seconds": 5}
 # A device's ``access`` and ``note`` (its use, one line): the settings page writes them (``update``); a release before the one
 # that wrote them only checks them, so a rollback still reads the file. Nothing obeys ``access`` yet.

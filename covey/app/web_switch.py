@@ -5,7 +5,8 @@
   budget preset is that model with the preset's budget, as the 换配置 card preselects it, app/preselection.py switch_selection), its budget, work
   mode and, as read-only facts for a page that still shows them, workspace and run mode, and the device it works on (``device``,
   "" for 本机; T879). Read from topic.json alone, so a push does not ask anything else. ``switch`` never moves a topic to another machine:
-  a payload's ``device`` other than the topic's is refused (DEVICE_FIXED), none or "" leaves it.
+  a payload's ``device`` other than the topic's is refused (DEVICE_FIXED), none or "" leaves it; an older page's workspace on a
+  device is taken only for a topic already on one (TO_DEVICE, 主人 D2Y4T).
 - ``switch``: the page's choices checked as 开始任务 checks a model (app/web_launch.py model_choice); a place (workspace, run mode) the payload may still carry (an older page; the new one sends none and the topic stays where it is) other than the
   topic's checked as the switch card checks it, but a worktree the Bridge would have to make now is left to the card (minutes on the NAS, which
   the inbox thread does not wait); then the rebind of the switch card (app/binding.py switch_topic: refused while a task is queued or runs, and
@@ -29,7 +30,10 @@ from types import SimpleNamespace
 WORKTREE_ON_CARD = "新建独立 worktree 要在飞书的换配置卡上做"
 LEAD_PLACE = "负责人的工作区和运行方式不能换：只能换 Harness、模型和思考预算"
 LEAD_REPOS = "负责人用的仓库跟着专项（只读），不能在这里换"
-DEVICE_FIXED = "换配置不能换执行设备，话题留在原来的机器上；要在别的设备上做，开个新话题选那台设备"
+DEVICE_FIXED = "换配置不能换执行设备，话题留在原来的机器上；要用别的设备，在话题里用 covey device"
+# A topic here moved onto a device's workspace by an older page's 换配置 (主人 D2Y4T): only a topic already on a device may still
+# switch to one; any other is refused so (core/devices.py START_RETIRED).
+TO_DEVICE = "换配置不能把话题换到设备上：执行设备入口已下线；要用别的设备，在话题里用 covey device"
 NO_REPOS = "无"
 
 
@@ -154,6 +158,8 @@ def _place(env, ctx, chat, current, workspace, mode, harness, choice):
         raise ValueError(f"没有登记工作区「{workspace}」，请重新选")
     name, binding = resolve_binding(Path(ctx.state_dir), ctx.default_workdir, workspace)
     if binding.device:
+        if not current["device"]:
+            raise ValueError(TO_DEVICE)  # D2Y4T: only an older topic on a device keeps this way.
         if not env.runtime.access.allows_device(chat, binding.device):
             raise ValueError(f"设备 {binding.device} 不允许在这个聊天里使用")
         refused = devices.undeclared_refusal(binding.device, harness, choice.get("title") or harness)

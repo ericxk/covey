@@ -341,10 +341,9 @@ DEVICE_SPACES = {"gpu1-proj": "gpu1:/home/me/proj", "gone-proj": "gpu9:/srv/x", 
 
 
 class DeviceStartTest(ButlerTopicsCase):
-    """topic_start on a workspace of a device (COVEY_DEVICES=1, docs/configuration.md 多设备): checked as 开始任务 checks it
-    (listed, allowed in this chat, the Harness declared, the directory there) before anything is opened, bound to the
-    device's value, run in 原目录; refused by name, opening nothing, when the device cannot take it.
-    Off, the same value is a path as before."""
+    """topic_start on a workspace of a device (``alias:path``, or a saved workspace written so): no topic opens there any
+    more (主人 D2Y4T, app/butler_topics.py device_refusal), the switch on or off. The call is refused by name before anything
+    is opened (no devices.json read, no device asked) and told to open the topic in the home and use ``covey device``."""
 
     def setUp(self):
         super().setUp()
@@ -365,79 +364,41 @@ class DeviceStartTest(ButlerTopicsCase):
         self.assertIsNone(self.job(request_id))
         self.assertFalse(butler_opened.record_path(self.ctx.state_dir, SimpleNamespace(id=request_id)).exists())
 
-    def test_a_device_workspace_opens_the_topic_there_once_the_device_says_the_directory_is_there(self):
-        answer = self.start("d1", workspace="gpu1-proj", harness="codex", readonly=False, user_requested=True)
-        self.assertTrue(answer["ok"], answer)
-        self.assertTrue(answer["data"]["started"])
-        self.assertRegex(answer["text"], r"^已开 T\d+「查日志」：直接开工，在设备 GPU 1 上$")
-        self.checked.assert_called_once()
-        self.assertEqual(self.checked.call_args.args, (Path(self.ctx.state_dir), "gpu1", "/home/me/proj"))
-        topic = load_topic(self.ctx.state_dir, answer["data"]["topic_id"])
-        # The value is stored, never a path resolved here; the topic's context is the device's.
-        self.assertEqual((topic["workspace_name"], topic["workdir"]), ("gpu1-proj", "gpu1:/home/me/proj"))
-        self.assertTrue(topic["workspace_locked"])
-        job = self.job("d1")
-        self.assertEqual((job.device, job.remote_workdir), ("gpu1", "/home/me/proj"))
-        self.assertFalse(Path(job.workdir).exists())  # The stand-in.
-        card = json.dumps(self.app.messenger.create_and_send_card.call_args.args[2], ensure_ascii=False)
-        self.assertIn("工作区 gpu1&#45;proj · 设备 GPU 1 · 原目录", card)  # The card's text is literal: its hyphen escaped.
+    def test_a_workspace_on_a_device_opens_nothing_and_says_to_use_the_device_from_the_home(self):
+        cases = (("gpu1-proj", "gpu1"), ("gone-proj", "gpu9"), ("team-proj", "team1"), ("agy-proj", "agy1"),
+                 ("gpu1:/home/me/proj", "gpu1"))
+        with mock.patch.object(devices, "current", side_effect=AssertionError("devices.json read")):
+            for number, (workspace, alias) in enumerate(cases):
+                with self.subTest(workspace=workspace):
+                    answer = self.start(f"n{number}", workspace=workspace, harness="codex")
+                    self.nothing_opened(answer, f"n{number}")
+                    self.assertEqual(answer["text"],
+                                     f"没有开话题：工作区「{workspace}」是设备 {alias} 上的目录。执行设备入口已下线：新话题都从主目录"
+                                     f"启动，不能开到设备上。开话题时不写 workspace（要用的仓库写进 repos），开好后话题里用 covey "
+                                     f"device 访问 {alias}。")
+        self.checked.assert_not_called()
 
-    def test_a_device_the_topic_cannot_use_opens_nothing_and_says_why(self):
-        cases = (("gone-proj", "codex", "工作区「gone-proj」在设备 gpu9 上，devices.json 里没有这台设备"),
-                 ("team-proj", "codex", "设备 team1 不允许在这个聊天里用（devices.json 的 spaces）"),
-                 ("agy-proj", "codex", "设备 agy1 只声明了 Antigravity（devices.json 的 harnesses），没有 Codex；"
-                                       "换它声明的 Harness 再调一次（harness 填 agy）"),
-                 ("gpu1-proj", "agy", "没有 Antigravity；换它声明的 Harness 再调一次（harness 填 claude 或 codex）"))
-        for number, (workspace, harness, words) in enumerate(cases):
-            with self.subTest(workspace=workspace, harness=harness):
-                answer = self.start(f"n{number}", workspace=workspace, harness=harness)
-                self.nothing_opened(answer, f"n{number}")
-                self.assertTrue(answer["text"].startswith("没有开话题："), answer["text"])
-                self.assertIn(words, answer["text"])
-        self.checked.assert_not_called()  # Each refused before the device was asked.
-
-    def test_a_device_that_does_not_answer_or_lacks_the_directory_opens_nothing(self):
-        self.checked.return_value = ("offline", "设备 gpu1 没有答复（ssh 连不上）")
-        answer = self.start("o1", workspace="gpu1-proj", harness="codex")
-        self.nothing_opened(answer, "o1")
-        self.assertEqual(answer["text"], "没有开话题：设备 gpu1 没有答复（ssh 连不上）；设备连上后再开，或换个工作区。")
-        self.checked.return_value = ("missing", "gpu1 上没有目录 /home/me/proj")
-        answer = self.start("o2", workspace="gpu1-proj", harness="codex")
-        self.nothing_opened(answer, "o2")
-        self.assertEqual(answer["text"], "没有开话题：gpu1 上没有目录 /home/me/proj；换个工作区，或请主人确认这个目录。")
-
-    def test_a_calls_redaction_does_not_hold_a_devices_topic_back(self):
-        for n, redaction in enumerate((True, False)):
-            opened = self.start(f"r{n}", workspace="gpu1-proj", harness="claude", redaction=redaction)
-            self.assertTrue(opened["ok"], opened)
-            topic = load_topic(self.ctx.state_dir, opened["data"]["topic_id"])
-            self.assertEqual(topic["workdir"], "gpu1:/home/me/proj")
-            self.assertNotIn("redaction", topic)
-
-    def test_a_worktree_in_the_settings_no_longer_holds_a_devices_topic_back(self):
-        """独立 worktree is gone as a run mode (docs/configuration.md 主目录与仓库地图): an older setting of it starts the topic at
-        once all the same, in the device's directory."""
-        self.settings(topic_defaults=butler_settings.TopicDefaults(run_mode="worktree"))
-        answer = self.start("w1", workspace="gpu1-proj", harness="codex", readonly=False)
-        self.assertTrue(answer["ok"], answer)
-        self.assertTrue(answer["data"]["started"])
-        self.assertIn("直接开工，在设备 GPU 1 上", answer["text"])
-        topic = load_topic(self.ctx.state_dir, answer["data"]["topic_id"])
-        self.assertEqual((topic["workdir"], topic.get("home_start")), ("gpu1:/home/me/proj", None))
-
-    def test_off_a_device_workspace_opens_nothing_and_says_the_switch_is_off(self):
-        # Never a topic on a path of this machine that is not there; devices.json is not read, the device not asked.
+    def test_off_a_workspace_on_a_device_is_refused_the_same_way(self):
         with mock.patch.dict(os.environ, {"COVEY_DEVICES": ""}), \
                 mock.patch.object(devices, "current", side_effect=AssertionError("devices.json read with the switch off")):
             answer = self.start("f1", workspace="gpu1-proj", harness="codex")
             self.nothing_opened(answer, "f1")
-            self.assertEqual(answer["text"], "没有开话题：工作区「gpu1-proj」是设备 gpu1 上的目录（gpu1:/home/me/proj），"
-                                             "这个 Bridge 没开多设备（COVEY_DEVICES），用不了；换个工作区，或请主人打开多设备。")
+            self.assertIn("执行设备入口已下线", answer["text"])
             here = self.start("f2", workspace="project", harness="codex")  # A workspace of this machine: as before.
         self.assertTrue(here["ok"], here)
         self.assertNotIn("设备", here["text"])
         self.checked.assert_not_called()
 
+    def test_a_settings_workspace_on_a_device_is_not_where_a_topic_starts(self):
+        """The settings' new-topic workspace (no card sets it any more) on a device: the topic starts in the home."""
+        self.settings(topic_defaults=butler_settings.TopicDefaults(workspace="gpu1-proj"))
+        answer = self.start("s1", harness="codex", readonly=False)
+        self.assertTrue(answer["ok"], answer)
+        self.assertTrue(answer["data"]["started"])
+        self.assertNotIn("设备", answer["text"])
+        topic = load_topic(self.ctx.state_dir, answer["data"]["topic_id"])
+        self.assertEqual((topic["workdir"], topic.get("home_start")), (str(self.work.resolve()), True))
+        self.checked.assert_not_called()
 
 class TopicDefaultsTest(ButlerTopicsCase):
     """Each of Harness, model and budget on its own: the call, the settings, the chat's last launch, the Bridge."""

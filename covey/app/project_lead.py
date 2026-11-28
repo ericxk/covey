@@ -956,9 +956,9 @@ def inbox_block(state_dir, receipts, record) -> str:
 
 def device_workspace(state_dir, record) -> tuple:
     """(name, value) of the project's workspace when it is on a device (COVEY_DEVICES=1, ``gpu1:/home/me/proj``): the
-    workspace of the topic the project grew from, else the one it was opened with, as the lead's own would be. Its topics
-    work there; the lead does not (app/projects.py step_lead: on a device it would have none of its tools), and its pack
-    says so (``state_pack``). ('', '') for a project anywhere else, or with the switch off (then nothing is read)."""
+    workspace of the topic the project grew from, else the one it was opened with (before 主人 D2Y4T), as the lead's own would
+    be. Its new topics start in the home and use the device from there (``covey device``); the lead stays here
+    (app/projects.py step_lead: on a device it would have none of its tools), and its pack says so (``state_pack``). ('', '') for a project anywhere else, or with the switch off (then nothing is read)."""
     if not devices.enabled():
         return "", ""
     origin = record.get("origin") if isinstance(record.get("origin"), dict) else {}
@@ -969,8 +969,10 @@ def device_workspace(state_dir, record) -> tuple:
     return str(source.get("workspace_name") or origin.get("workspace") or ""), value
 
 
-DEVICE_PLACE = ("工作区：专项的话题在设备上的工作区「{name}」（{value}）里做；你自己在 Bridge 本机（设备上用不了专项的工具），"
-                "开专项的话题时 workspace 填「{name}」，Harness 用那台设备声明的。")
+# A project opened on a device's workspace before 主人 D2Y4T: its new topics start in the home all the same (a workspace on a
+# device is refused, app/butler_topics.py device_refusal) and use the device from there.
+DEVICE_PLACE = ("工作区：专项原来定在设备上的工作区「{name}」（{value}）；执行设备入口已下线，专项的新话题都从主目录开（开话题时不写 "
+                "workspace），开好后在话题里用 covey device 访问 {alias}；你自己在 Bridge 本机。")
 
 
 PACK_SENT = "pack-sent.json"  # <state>/projects/<id>/: what the lead's session read of the pack (``pack_sent``).
@@ -1017,7 +1019,7 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, sent=
     if full:
         name, value = device_workspace(state_dir, record)
         if value:
-            out.append(DEVICE_PLACE.format(name=name or value, value=value))
+            out.append(DEVICE_PLACE.format(name=name or value, value=value, alias=value.split(":", 1)[0]))
     rows = member_rows(state_dir, record)
     lines = {row["topic_id"]: thread_line(row) for row in rows}
     shown = rows

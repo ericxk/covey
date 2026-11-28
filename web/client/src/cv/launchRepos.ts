@@ -1,9 +1,11 @@
 /**
- * 去工作区（v43）的纯函数：新旧两代 Covey 的判定、设备联动、仓库选择、payload 清洗、标签文字。
+ * 去工作区（v43）的纯函数：新旧两代 Covey 的判定、仓库选择、payload 清洗、标签文字。
  * 不碰 DOM、只引类型：防回归 scripts/launch-repos.test.mjs。
- * 判定：LaunchData.workspaces 存在 = 旧 Covey（面板、联动、payload 一字不变）；不存在 = 新 Covey（没有工作区、运行方式，带设备和仓库）。
+ * 判定：LaunchData.workspaces 存在 = 旧 Covey（面板、联动、payload 一字不变）；不存在 = 新 Covey（没有工作区、运行方式，带仓库）。
+ * D2Y4T 起：新话题不能再选执行设备（话题都从主目录启动，要用设备在话题里用 covey device）；
+ * 网页不画设备下拉、payload 一律不带 device（哪怕较旧的 Covey 还推 devices）；设备只在换配置里只读显示话题本来所在的那台。
  */
-import type { LaunchData, LaunchDevice, LaunchModel, LaunchPayload, LaunchRepo, SayFile, SettingsRepoItem } from '@shared/api.interface';
+import type { LaunchData, LaunchDevice, LaunchPayload, LaunchRepo, SayFile, SettingsRepoItem } from '@shared/api.interface';
 
 /** 一次最多带几个仓库（服务端 ≤10） */
 export const MAX_REPOS = 10;
@@ -13,48 +15,14 @@ type WithPlace = { workspace?: string; run_mode?: string; device?: string; repos
 /** 新 Covey：不推 workspaces */
 export const isRepoMode = (d: LaunchData): boolean => !d.workspaces;
 
-/** 本机在「执行设备」里的值：不带 device（或空串）就是本机，同飞书启动卡执行设备行的「本机」 */
-export const LOCAL_DEVICE = '';
+/** 本机的叫法：话题不在设备上（空串）就是本机 */
 export const LOCAL_TEXT = '本机';
-const isLocal = (dv: LaunchDevice): boolean => dv.local === true || dv.name === LOCAL_DEVICE;
-
-/** 「执行设备」的选项（T879）：本机在最前（Covey 推了本机那行就用它，旧 Covey 只推远程设备就补一个），再是各台设备；
- *  没有远程设备（COVEY_DEVICES=0、没配设备、这个聊天不让用）是空：不画这一行 */
-export function deviceChoices(d: LaunchData): LaunchDevice[] {
-  const all: LaunchDevice[] = d.devices ?? [];
-  const remote: LaunchDevice[] = all.filter((dv: LaunchDevice) => !isLocal(dv));
-  if (!remote.length) return [];
-  const local: LaunchDevice | undefined = all.find(isLocal);
-  return [{ dot: '', harnesses: [], ...local, name: LOCAL_DEVICE, title: LOCAL_TEXT, local: true }, ...remote];
-}
-
-/** 新 Covey 且有远程设备才画「执行设备」、才带 device */
-export const showDevice = (d: LaunchData): boolean => isRepoMode(d) && deviceChoices(d).length > 0;
-
-/** 设备下拉的选项文字：本机写“本机”；设备写它的叫法，加状态后缀（正常不加） */
-export function deviceText(dv: LaunchDevice): string {
-  if (isLocal(dv)) return LOCAL_TEXT;
-  const tail: string = dv.dot === 'down' ? '（离线）' : dv.dot === 'tight' ? '（紧张）' : dv.dot === 'never' ? '（未连过）' : '';
-  return `${dv.title || dv.name}${tail}`;
-}
 
 /** 话题或选择所在设备的叫法：空串是本机，别的取设备的叫法（设备列表里没有就写别名，绝不拿第一台顶替） */
 export function deviceWord(d: LaunchData, name: string | undefined): string {
   if (!name) return LOCAL_TEXT;
   const dv: LaunchDevice | undefined = (d.devices ?? []).find((x: LaunchDevice) => x.name === name);
   return dv?.title || name;
-}
-
-/** 选了设备：当前模型的 Harness 不在设备能用的里面，就换成第一个能用的模型（同旧 pickWorkspace 的联动；withModel 由调用方传入，避免循环引用） */
-export function applyDevice<S extends WithPlace & { model: string }>(d: LaunchData, sel: S, name: string, swap: (m: LaunchModel, s: S) => S): S {
-  let next: S = { ...sel, device: name };
-  const dv: LaunchDevice | undefined = (d.devices ?? []).find((x: LaunchDevice) => x.name === name);
-  const cur: LaunchModel | undefined = d.models.find((m: LaunchModel) => m.key === sel.model);
-  if (dv && dv.harnesses.length && cur && !dv.harnesses.includes(cur.harness)) {
-    const m: LaunchModel | undefined = d.models.find((x: LaunchModel) => dv.harnesses.includes(x.harness));
-    if (m) next = swap(m, next);
-  }
-  return next;
 }
 
 export type RepoMode = 'none' | 'read' | 'write';
@@ -104,19 +72,18 @@ export function repoWords(repos: LaunchRepo[] | undefined, max = 3): string {
   return words.join('、') + (list.length > max ? ` 等 ${list.length} 个` : '');
 }
 
-/** 换配置折叠栏上的摘要（T879）：执行设备（有远程设备、或话题本来就在设备上时才写；device 为 undefined 是旧 Covey 没说，不写）、仓库 */
+/** 换配置折叠栏上的摘要：执行设备只在话题本来就在设备上（device 是非空字符串）时写，本机、旧 Covey 没说（undefined）都是 null；仓库 */
 export function placeSummary(d: LaunchData, device: string | undefined, repos: LaunchRepo[] | undefined): { device: string | null; repos: string } {
-  const known: boolean = device !== undefined && (showDevice(d) || !!device);
-  return { device: known ? deviceWord(d, device) : null, repos: repoWords(repos) || '未选仓库' };
+  return { device: device ? deviceWord(d, device) : null, repos: repoWords(repos) || '未选仓库' };
 }
 
-/** 新 Covey 的 payload 清洗：删掉 workspace、run_mode（不留空串、不留 undefined 键）；device 只在有远程设备且选了远程设备时留；repos 空就不带。
+/** 新 Covey 的 payload 清洗：删掉 workspace、run_mode（不留空串、不留 undefined 键）；device 一律删掉（D2Y4T：新话题不选设备）；repos 空就不带。
  *  emptyRepos：换配置里把仓库全取消时要明确发空数组，不然 Covey 当作没改 */
-export function cleanRepoPayload<T extends WithPlace>(d: LaunchData, p: T, emptyRepos = false): T {
+export function cleanRepoPayload<T extends WithPlace>(_d: LaunchData, p: T, emptyRepos = false): T {
   const out: T = { ...p };
   delete out.workspace;
   delete out.run_mode;
-  if (!showDevice(d) || !out.device) delete out.device;
+  delete out.device;
   if (!out.repos?.length) {
     if (emptyRepos) out.repos = [];
     else delete out.repos;

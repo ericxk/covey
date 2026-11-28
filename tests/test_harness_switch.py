@@ -594,7 +594,8 @@ class HarnessSwitchTests(UnifiedCase):
         note = switch_handoff.handoff_note(topic, Path('/t.md'), 5)
         self.assertIn(f'工作目录从 {self.work} 换成了上面的当前工作目录', note)
 
-    def test_a_harness_the_device_does_not_declare_is_refused_and_a_declared_one_switches(self):
+    def device_workspaces(self):
+        """Two saved workspaces on device gpu1 (declaring Claude Code only): their (name, value) pairs."""
         from support.fake_device import FakeDevice
         from covey.core import devices
         document = {"schema": 1, "control_dir": "/dev/shm/covey-ssh-switch",
@@ -610,9 +611,35 @@ class HarnessSwitchTests(UnifiedCase):
         opened.start()
         self.addCleanup(opened.stop)
         self.app.runtime.access.allows_device = lambda chat, alias: True
-        value = "gpu1:%s" % device.home
-        resolve_selection(self.ctx.state_dir, self.ctx.default_workdir, value)
-        name = next(n for n, v in load_config(self.ctx.state_dir, self.ctx.default_workdir)["workspaces"].items() if v == value)
+        (device.home / "proj").mkdir()
+        pairs = []
+        for value in ("gpu1:%s" % device.home, "gpu1:%s/proj" % device.home):
+            resolve_selection(self.ctx.state_dir, self.ctx.default_workdir, value)
+            pairs.append((next(n for n, v in load_config(self.ctx.state_dir, self.ctx.default_workdir)["workspaces"].items()
+                               if v == value), value))
+        return pairs
+
+    def test_an_older_cards_workspace_on_a_device_is_refused_for_a_topic_here(self):
+        """主人 D2Y4T: a topic of this machine is never moved onto a device, whatever an older card offers."""
+        (name, value), _ = self.device_workspaces()
+        form, path, _ = self.open_legacy()
+        self.click(form, hs.WORKSPACE, name)
+        self.click(json.loads(path.read_text()), hs.MODEL, "claude:claude-model")
+        before = self.topic()
+        self.click(json.loads(path.read_text()), hs.CONFIRM)
+        record = json.loads(path.read_text())
+        self.assertEqual(record["status"], "ready")
+        self.assertIn("执行设备入口已下线", record["notice"])
+        self.assertIn("话题配置没有改变", record["notice"])
+        self.assertEqual((self.topic()["harness_id"], self.topic()["workdir"]), (before["harness_id"], before["workdir"]))
+
+    def test_a_topic_already_on_a_device_still_switches_there_on_a_harness_it_declares(self):
+        """An older topic on a device keeps its way (D2Y4T keeps what runs it): another workspace of the device, on a Harness it
+        declares; one it does not declare is refused as before."""
+        (_, here), (name, value) = self.device_workspaces()
+        topic = self.topic()
+        topic["workdir"] = here  # A topic opened on the device before D2Y4T.
+        write_topic(self.source, topic)
         form, path, _ = self.open_legacy()
         self.click(form, hs.WORKSPACE, name)
         before = self.topic()
@@ -620,7 +647,6 @@ class HarnessSwitchTests(UnifiedCase):
         record = json.loads(path.read_text())
         self.assertEqual(record["status"], "ready")
         self.assertIn("设备 gpu1 只声明了 claude（devices.json 的 harnesses），没有", record["notice"])
-        self.assertIn("话题配置没有改变", record["notice"])
         self.assertEqual((self.topic()["harness_id"], self.topic()["workdir"]), (before["harness_id"], before["workdir"]))
         self.click(record, hs.MODEL, "claude:claude-model")
         self.click(json.loads(path.read_text()), hs.CONFIRM)

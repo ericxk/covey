@@ -7,14 +7,13 @@ owner's private chat, pushed for the page's chat box (``catalog``), and the page
   preselected model first, then the chat's recent ones), each model with its Harness and provider and their titles, the budgets the
   card offers (core/menu_choice.py plain_budgets: the levels by name), ``start_budget`` (the budget the card
   preselects when that model is chosen: launch_selection with that model as the draft, so the 新话题 page's budget, the chat's usual one
-  and 推荐 come in the card's order), and its work modes; ``devices`` (v43, only with COVEY_DEVICES=1 and devices: 本机
-  first, then each device, ``device_rows``), the page's 执行设备 choice; no
+  and 推荐 come in the card's order), and its work modes (no ``devices``, v43's 执行设备 choice, since 主人 D2Y4T; no
   workspaces or run modes any more: a topic starts in the home); and ``preselect``, what a launch card of the private chat
   preselects now (the 新话题 page, the last 开始任务, the chat's usage). The page applies two rules of the card's: a Harness or provider
   choice keeps the model when it is among that one's models, else takes the first in this order (core/menu_choice.py tier_pick); a
   model choice takes its ``start_budget``.
-- ``launch``: the choices checked as 开始任务 checks them (the model on the menu, a budget it offers, a work mode it has, a device's only where it is allowed and declares the Harness; an older page's workspace and run mode as before, never a
-  worktree on a device; ``repos``, at most ten, as app/butler_topics.py declared_repos takes them), then the topic opened as the butler opens one that starts at once (app/butler_topics.py: its topic card at the
+- ``launch``: the choices checked as 开始任务 checks them (the model on the menu, a budget it offers, a work mode it has; an older page's workspace and run mode as before, its
+  ``device`` or a workspace on a device refused; ``repos``, at most ten, as app/butler_topics.py declared_repos takes them), then the topic opened as the butler opens one that starts at once (app/butler_topics.py: its topic card at the
   top level of the private chat with the configuration line, its topic.json bound, its first turn queued), the turn being the owner's own
   words (no handoff). The choice is kept as the chat's last 开始任务 and in its usage (app/launch_submit.py remember_launch), so the next card
   and the next page preselect it. A worktree takes minutes to check out, which only the launch card does: such a topic gets the launch
@@ -79,40 +78,6 @@ def _selection(env, choices, reads, draft=None):
                             topic_model=(defaults.harness.lower(), defaults.model))
 
 
-LOCAL_TITLE = "本机"  # The 执行设备 row's own option, as the launch card has it (cards/launch_config.py LOCAL).
-
-
-def device_rows(env, ctx, chat) -> list:
-    """The data contract v43 ``devices`` of the launch block: [{name, title, dot, harnesses, local?}], the 执行设备 choices of the
-    chat as the launch card lists them: 本机 first (``name`` "", ``local`` true, ``harnesses`` [] for every Harness enabled here),
-    then each device the chat may use (its alias, its devices.json title); only with COVEY_DEVICES=1 and such a device (else
-    empty, and the page has no such choice). ``dot``: the node panel's status word (app/web_panels.py node_row), "gray" where it
-    is not known. A page older than 本机's row draws it as a nameless option that means 本机 all the same (no ``device``)."""
-    from covey.app.launch import alias_harnesses
-    from covey.core import devices
-    from covey.core.nodes import LOCAL
-    harnesses = alias_harnesses()
-    allowed = [alias for alias in harnesses if env.runtime.access.allows_device(chat, alias)]
-    if not allowed:
-        return []
-
-    def title(alias):  # The card's word for it (app/launch.py device_options).
-        try:
-            return str(devices.current().device(alias).title or alias)
-        except (devices.UnknownDevice, devices.DeviceConfigError, AttributeError):
-            return alias
-    dots = {}
-    try:
-        from covey.app.node_panel import facts
-        from covey.app.web_panels import node_row
-        dots = {row["alias"]: node_row(row)["dot"] for row in facts(Path(ctx.state_dir), "")["rows"]}
-    except Exception:  # noqa: BLE001 - a dot the page cannot read is gray, not a launch refused
-        pass
-    local = {"name": "", "title": LOCAL_TITLE, "dot": dots.get(LOCAL) or "gray", "harnesses": [], "local": True}
-    return [local, *({"name": alias, "title": title(alias), "dot": dots.get(alias) or "gray", "harnesses": list(harnesses[alias])}
-                     for alias in allowed)]
-
-
 def catalog(env, ctx, chat) -> dict:
     """The data contract v17 ``launch`` block (see the module's docstring)."""
     from covey.app.launch_models import available_models
@@ -145,8 +110,8 @@ def catalog(env, ctx, chat) -> dict:
                        # The card's words for each mode (core/defaults.py WORK_MODES: name（what it does）).
                        "work_mode_texts": {mode: "{}（{}）".format(*WORK_MODES[mode]) if mode in WORK_MODES else mode
                                            for mode in entry.get("work_modes") or ()}})
-    devices = device_rows(env, ctx, chat)
-    return {"models": models, **({"devices": devices} if devices else {}),
+    # No ``devices`` (v43's 执行设备 choice) any more: a new topic starts in the home (主人 D2Y4T, core/devices.py START_RETIRED).
+    return {"models": models,
             "preselect": {"model": found.model, "effort": plain_budget(ranked.get(found.model) or {}, found.effort), "work_mode": found.work_mode}}
 
 
@@ -206,8 +171,9 @@ def repos_of(env, ctx, payload) -> list:
 def plan_of(env, ctx, chat, payload) -> dict:
     """The topic's plan from the page's choices, checked as 开始任务 checks them; ValueError says why not.
 
-    No workspace or run mode in the payload: the topic starts in the home (app/launch_submit.py home_binding), on the device the
-    optional ``device`` names. A payload that has them (an older page) is checked as before, a worktree going to the launch card.
+    No workspace or run mode in the payload: the topic starts in the home (app/launch_submit.py home_binding). A payload that has
+    them (an older page) is checked as before, a worktree going to the launch card; an older page's ``device``, or its workspace
+    on a device, is refused (主人 D2Y4T: core/devices.py START_RETIRED).
     The optional ``repos`` are the ones the topic declares (``plan["repos"]``; ``plan["home_start"]`` marks a home start, both
     kept in topic.json by app/butler_topics.py bind_topic)."""
     from covey.app.launch_models import run_choice
@@ -222,11 +188,10 @@ def plan_of(env, ctx, chat, payload) -> dict:
     if run_mode not in RUN_MODES:
         raise ValueError("运行方式只能是原目录或独立 worktree")
     home = not workspace and run_mode == "direct"
+    if str(payload.get("device") or ""):
+        raise ValueError(devices.START_RETIRED)  # An older page's 执行设备 choice (D2Y4T).
     if home:
-        device = str(payload.get("device") or "")
-        if device and not env.runtime.access.allows_device(chat, device):
-            raise ValueError(f"设备 {device} 不允许在这个聊天里使用")
-        name, binding = home_binding(ctx, device)
+        name, binding = home_binding(ctx)
     else:
         if not workspace:  # A run mode alone (an older page): in the home, under the name the workspace list gives it.
             workspace = home_selection(ctx)
@@ -234,21 +199,13 @@ def plan_of(env, ctx, chat, payload) -> dict:
             raise ValueError(f"没有登记工作区「{workspace}」，请重新选")
         name, binding = resolve_binding(Path(ctx.state_dir), ctx.default_workdir, workspace)
     if binding.device:
-        if not env.runtime.access.allows_device(chat, binding.device):
-            raise ValueError(f"设备 {binding.device} 不允许在这个聊天里使用")
-        refused = devices.undeclared_refusal(binding.device, harness, choice.get("title") or harness)
-        if refused:
-            raise ValueError(refused)
-        if run_mode == "worktree":
-            raise ValueError("设备上的工作区只能用原目录运行")
+        raise ValueError(devices.START_RETIRED)  # An older page's workspace on a device (D2Y4T).
     model, run_effort = run_choice(choice, effort)
     return {"harness": harness, "model": model, "model_key": key, "effort": run_effort, "preference_effort": effort,
             "label": str(choice.get("label") or model), "work_mode": chosen_work_mode(choice, work_mode),
-            "workspace": name, "workdir": binding.value if binding.device else str(binding.workdir), "run_mode": run_mode,
+            "workspace": name, "workdir": str(binding.workdir), "run_mode": run_mode,
             "start": run_mode == "direct", **({"repos": repos} if repos else {}),
-            # A home start on this machine only: one on a device runs in the device's directory, as the butler's and the
-            # launch card's do (core/topics.py mark_home).
-            **({"home_start": True} if home and not binding.device else {})}
+            **({"home_start": True} if home else {})}  # core/topics.py mark_home.
 
 
 def staged_files(env, op_id, record, payload, fetch) -> list:

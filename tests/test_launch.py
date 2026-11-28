@@ -944,8 +944,8 @@ class LaunchFollowUpTests(LaunchCase):
 
 
 class DeviceHarnessLaunchTests(LaunchCase):
-    """A device workspace starts from a Harness the device declares (devices.json ``harnesses``), and a Harness it does
-    not declare is refused at 开始任务 with the reason (A-10)."""
+    """主人 D2Y4T: the launch card starts no topic on a device any more. Its 执行设备 row is gone; an older card's device
+    choice or workspace on a device is refused at 开始任务 with the reason, and nothing is started."""
 
     def setUp(self):
         super().setUp()
@@ -985,101 +985,62 @@ class DeviceHarnessLaunchTests(LaunchCase):
     def selected(self, event):
         return self.launch_form(event['action_name'][len(SUBMIT_PREFIX):])
 
-    def test_a_card_has_an_execution_device_row_only_with_devices_on(self):
+    def test_a_card_has_no_execution_device_row_even_with_devices_on(self):
+        """主人 D2Y4T: the 执行设备 row is gone; a topic starts in the home and uses a device from there (covey device)."""
         self.receive('task', 'hello')
         card, event = self.form('task')
         rows = settings_rows(card)
-        self.assertEqual([value for value, _ in rows['device']['options']], ['', 'gpu1'])
-        self.assertEqual(rows['device']['current'], '')
-        self.assertNotIn('workspace', rows)
-        self.assertNotIn('run_mode', rows)
+        for key in ('device', 'workspace', 'run_mode'):
+            self.assertNotIn(key, rows)
+        self.assertNotIn('执行设备', json.dumps(card, ensure_ascii=False))
         self.assertEqual(self.launch_form(card_token(card))['form_defaults'], {'device': ''})
-        with mock.patch.dict('os.environ', {'COVEY_DEVICES': ''}):
-            self.receive('task2', 'hello')
-            self.assertNotIn('device', settings_rows(self.form('task2')[0]))
 
-    def test_choosing_the_device_moves_the_selection_and_the_topic_starts_on_it(self):
-        self.use_device_workspace()  # The device's saved workspace: where its topics start.
+    def test_an_older_cards_device_choice_is_refused_on_start(self):
+        """A card sent before D2Y4T still has the row: a click on it redraws the card without it, and a device its record
+        kept opens nothing at 开始任务 and says why."""
+        self.use_device_workspace()
         self.receive('task', 'hello')
         card, event = self.form('task')
-        event = self.pick(event, 'bridge_launch_model', 'claude:claude-model')
         event = self.pick(event, 'bridge_launch_device', 'gpu1')
-        record = self.selected(event)
-        self.assertEqual((record['selected_model'], record['form_defaults']['device']), ('codex:codex-model', 'gpu1'))
-        self.pick(event, 'bridge_launch_device', 'nowhere')  # Not a device: dropped.
+        self.assertEqual(self.selected(event)['form_defaults']['device'], '')
+        token = event['action_name'][len(SUBMIT_PREFIX):]
+        path = self.ctx.state_dir / 'launch-forms' / (token + '.json')
+        record = json.loads(path.read_text())
+        record['form_defaults']['device'] = 'gpu1'  # As an older card's 执行设备 row recorded it.
+        path.write_text(json.dumps(record))
+        before = read_topic(self.route('task')[1])
         self.app.handle_card_action_event(event, self.ctx)
-        job = self.app.runtime.jobs.queue.get_nowait()
-        self.assertEqual((job.harness_id, read_topic(self.route('task')[1])['workspace_name']), ('codex', 'gpu1-proj'))
-        # Back to 本机 on another topic: the model stays where it is.
-        self.receive('task-2', 'hello')
-        card, event = self.form('task-2')
-        event = self.pick(event, 'bridge_launch_device', 'gpu1')
+        self.assertIn('执行设备入口已下线', '\n'.join(self.said()))
+        self.assertTrue(self.app.runtime.jobs.queue.empty())
+        self.assertEqual(read_topic(self.route('task')[1]), before)
+        # 本机 again: it starts in the home.
         event = self.pick(event, 'bridge_launch_device', '')
         self.assertEqual(self.selected(event)['form_defaults']['device'], '')
-
-    def test_a_device_that_declares_no_harness_the_card_uses_is_refused_on_start(self):
-        self.use_device_workspace()
-        self.receive('task', 'hello')
-        card, event = self.form('task')
-        event = self.pick(event, 'bridge_launch_device', 'gpu1')
-        event = self.pick(event, 'bridge_launch_model', 'claude:claude-model')
-        before = read_topic(self.route('task')[1])
-        self.app.handle_card_action_event(event, self.ctx)
-        self.assertIn('设备 gpu1 只声明了 codex（devices.json 的 harnesses）', '\n'.join(self.said()))
-        self.assertTrue(self.app.runtime.jobs.queue.empty())
-        self.assertEqual(read_topic(self.route('task')[1]), before)
-
-    def test_a_card_for_a_device_workspace_of_an_older_card_starts_from_the_devices_harness(self):
-        self.use_device_workspace(default=True)
-        self.receive('task', 'hello')
-        card, event = self.form('task', draft={'workspace': 'gpu1-proj'})
-        record = self.launch_form(card_token(card))
-        self.assertEqual(record['models'][record['selected_model']]['harness'], 'codex')
-        self.assertEqual(next(iter(record['models'])), record['selected_model'])
-        self.assertEqual(record['form_defaults']['workspace'], 'gpu1-proj')
-
-    def test_choosing_the_device_workspace_moves_the_selection_and_choosing_a_local_one_leaves_it(self):
-        self.use_device_workspace()
-        self.receive('task', 'hello')
-        card, event = self.form('task')
-        event = self.pick(event, 'bridge_launch_model', 'claude:claude-model')
-        self.assertEqual(self.selected(event)['selected_model'], 'claude:claude-model')
-        event = self.pick(event, 'bridge_launch_workspace', 'gpu1-proj')
-        record = self.selected(event)
-        self.assertEqual(record['selected_model'], 'codex:codex-model')
-        self.assertEqual(record['form_defaults']['workspace'], 'gpu1-proj')
-        # Back to a local workspace: the model stays where it is.
-        event = self.pick(event, 'bridge_launch_workspace', load_config(self.ctx.state_dir, self.root)['default'])
-        self.assertEqual(self.selected(event)['selected_model'], 'codex:codex-model')
-
-    def test_a_model_chosen_by_hand_that_the_device_lacks_is_refused_with_the_reason(self):
-        self.use_device_workspace()
-        self.receive('task', 'hello')
-        card, event = self.form('task')
-        event = self.pick(event, 'bridge_launch_workspace', 'gpu1-proj')
-        event = self.pick(event, 'bridge_launch_model', 'claude:claude-model')
-        self.assertEqual(self.selected(event)['selected_model'], 'claude:claude-model')  # The owner's choice stays.
-        before = read_topic(self.route('task')[1])
-        self.app.handle_card_action_event(event, self.ctx)
-        text = '\n'.join(self.said())
-        self.assertIn('设备 gpu1 只声明了 codex（devices.json 的 harnesses）', text)
-        self.assertTrue(self.app.runtime.jobs.queue.empty())
-        self.assertEqual(read_topic(self.route('task')[1]), before)
-
-    def test_the_devices_own_harness_starts(self):
-        self.use_device_workspace()
-        self.receive('task', 'hello')
-        card, event = self.form('task')
-        event = self.pick(event, 'bridge_launch_workspace', 'gpu1-proj')
-        self.assertEqual(self.selected(event)['selected_model'].split(':')[0], 'codex')
         self.app.handle_card_action_event(event, self.ctx)
         job = self.app.runtime.jobs.queue.get_nowait()
-        self.assertEqual((job.harness_id, job.user_text), ('codex', 'hello'))
+        self.assertEqual(read_topic(self.route('task')[1])['workdir'], str(self.work.resolve()))
+        self.assertEqual(job.user_text, 'hello')
+
+    def test_an_older_cards_workspace_on_a_device_is_not_listed_and_is_refused_on_start(self):
+        self.use_device_workspace()
+        local = load_config(self.ctx.state_dir, self.root)['default']
+        self.receive('task0', 'hello')
+        rows = settings_rows(self.form('task0', draft={'workspace': local})[0])
+        self.assertNotIn('gpu1-proj', [value for value, _ in rows['workspace']['options']])
+        self.assertNotIn('device', rows)
+        # A butler's older launch that named it keeps it chosen (so the card says no instead of starting elsewhere).
+        self.receive('task', 'hello')
+        card, event = self.form('task', draft={'workspace': 'gpu1-proj'})
+        before = read_topic(self.route('task')[1])
+        self.app.handle_card_action_event(event, self.ctx)
+        self.assertIn('执行设备入口已下线', '\n'.join(self.said()))
+        self.assertTrue(self.app.runtime.jobs.queue.empty())
+        self.assertEqual(read_topic(self.route('task')[1]), before)
 
 
 class WebLaunchTests(LaunchCase):
-    """The page's launch (app/web_launch.py, data contract v43): no workspace or run mode to pick, a topic starts in the home, on a
-    device if the chat has devices on; an older page's payload that names them is checked as before."""
+    """The page's launch (app/web_launch.py, data contract v43): no workspace or run mode to pick, a topic starts in the home, never
+    on a device (主人 D2Y4T); an older page's payload that names them is checked as before."""
 
     def setUp(self):
         super().setUp()
@@ -1124,17 +1085,12 @@ class WebLaunchTests(LaunchCase):
         self.assertNotIn('run_mode', data['preselect'])
         self.assertTrue(data['models'])
 
-    def test_the_catalog_lists_the_devices_only_with_devices_on(self):
-        """本机 first, as the launch card's 执行设备 row has it (T879: the page showed the first device for a topic of this
-        machine and could not choose 本机), then each device the chat may use; none at all without such a device."""
+    def test_the_catalog_has_no_devices_even_with_devices_on(self):
+        """主人 D2Y4T: the page's 执行设备 choice is gone with the launch card's row."""
         self.with_devices()
-        devices = self.catalog()['devices']
-        self.assertEqual([(d['name'], d['title'], d['harnesses'], d.get('local', False)) for d in devices],
-                         [('', '本机', [], True), ('gpu1', 'gpu1', ['codex'], False)])
-        self.assertTrue(all(d['dot'] for d in devices))  # The node panel's word, "gray" where there is none.
-        self.assertNotIn('device', self.catalog()['preselect'])  # No device named: 本机, the default.
-        self.app.runtime.access.allows_device = lambda chat, alias: False
-        self.assertNotIn('devices', self.catalog())
+        data = self.catalog()
+        self.assertNotIn('devices', data)
+        self.assertNotIn('device', data['preselect'])
 
     def test_a_payload_naming_no_device_or_this_machine_starts_here(self):
         """The page's 本机 is no ``device`` (or ""): the topic starts in this machine's home, a device on or off."""
@@ -1150,17 +1106,16 @@ class WebLaunchTests(LaunchCase):
         self.assertEqual(plan['workspace'], self.work.resolve().name)  # The home's directory, not a workspace list entry.
         self.assertNotIn('repos', plan)
 
-    def test_a_payload_naming_a_device_starts_there(self):
+    def test_a_payload_naming_a_device_or_a_workspace_on_one_is_refused(self):
+        """An older page's 执行设备 choice, or its workspace on a device: no topic opens there any more (主人 D2Y4T)."""
         value = self.with_devices()
-        models = self.catalog()['models']
-        codex, other = (next(m for m in models if (m['harness'] == 'codex') == want) for want in (True, False))
-        plan = self.plan(device='gpu1', model=codex['key'], effort=codex['start_budget'])
-        # On a device: not a home start (T870), as the butler's topic_start and the launch card have it.
-        self.assertEqual((plan['workdir'], plan['run_mode'], plan['start'], 'home_start' in plan), (value, 'direct', True, False))
-        with self.assertRaisesRegex(ValueError, '没有设备 nowhere'):
-            self.plan(device='nowhere', model=codex['key'], effort=codex['start_budget'])
-        with self.assertRaisesRegex(ValueError, '只声明了 codex'):
-            self.plan(device='gpu1', model=other['key'], effort=other['start_budget'])
+        codex = next(m for m in self.catalog()['models'] if m['harness'] == 'codex')
+        for device in ('gpu1', 'nowhere'):
+            with self.assertRaisesRegex(ValueError, '执行设备入口已下线'):
+                self.plan(device=device, model=codex['key'], effort=codex['start_budget'])
+        name = next(n for n, v in load_config(self.ctx.state_dir, self.work)['workspaces'].items() if v == value)
+        with self.assertRaisesRegex(ValueError, '执行设备入口已下线'):
+            self.plan(workspace=name, run_mode='direct', model=codex['key'], effort=codex['start_budget'])
 
     def test_a_payload_that_names_a_workspace_or_run_mode_is_checked_as_before(self):
         name = load_config(self.ctx.state_dir, self.work)['default']

@@ -6,8 +6,8 @@ topic_fork, handlers as app/butler_env.py describes them. Only in the owner's pr
   once in the home with the repositories it names (``plan_start``, ``declared_repos``; docs/configuration.md 主目录与仓库地图),
   is bound as a fork is and its first turn is submitted; one an older release saved to wait (独立 worktree) waits on its
   launch card, prefilled from ``origin.launch`` in its topic.json (app/launch.py build_launch_card), with the prompt as
-  the waiting turn. An older call's workspace on a device (COVEY_DEVICES=1) is checked as 开始任务 checks it before
-  anything is opened (``device_binding``) and runs there in 原目录.
+  the waiting turn. An older call's workspace on a device opens nothing (主人 D2Y4T, ``device_refusal``): a topic uses a
+  device from the home (``covey device``).
 - ``topic_send`` gives the owner's words to a topic: a supplement to its turn while one runs (app/steering.py
   deliver_steer), else its next turn, headed by the topic's title. A line in the topic's thread says the butler
    passed the owner's words on. A topic waiting on its question takes them as a held note for the owner's answer, never
@@ -202,49 +202,21 @@ def handed(env, request, ctx):
 
 # topic_start ---------------------------------------------------------------------------------------------------
 
-# A workspace on a device (``gpu1:/home/me/proj``, COVEY_DEVICES=1, docs/configuration.md 多设备): checked as the launch card
-# checks one (app/launch_submit.py) before anything is opened, so a device that cannot take the topic opens none
-# (``device_binding``). With the switch off such a workspace (only a device's is written ``alias:path``) opens nothing
-# either, instead of a topic on a path of this machine that is not there (DEVICE_SWITCH_OFF).
-DEVICE_SWITCH_OFF = ("没有开话题：工作区「{workspace}」是设备 {alias} 上的目录（{value}），这个 Bridge 没开多设备（COVEY_DEVICES），"
-                     "用不了；换个工作区，或请主人打开多设备。")
-DEVICE_UNKNOWN = ("没有开话题：工作区「{workspace}」在设备 {alias} 上，devices.json 里没有这台设备；换个工作区，"
-                  "或请主人先把设备写进 devices.json。")
-DEVICE_CONFIG = "没有开话题：devices.json 读不通，设备上的工作区现在用不了（{error}）；换个工作区，或请主人修好 devices.json。"
-DEVICE_SPACE = "没有开话题：设备 {alias} 不允许在这个聊天里用（devices.json 的 spaces）；换个工作区。"
-DEVICE_HARNESS = "没有开话题：设备 {alias} 只声明了 {declared}（devices.json 的 harnesses），没有 {title}；{way}"
-DEVICE_HARNESS_WAY = "换它声明的 Harness 再调一次（harness 填 {names}），或换个工作区。"
-DEVICE_HARNESS_NONE = "它声明的 Harness 本机器人都没有启用，换个工作区。"
-DEVICE_DIRECTORY = "没有开话题：{why}；{way}"
-DEVICE_OFFLINE_WAY = "设备连上后再开，或换个工作区。"
-DEVICE_MISSING_WAY = "换个工作区，或请主人确认这个目录。"
+# A workspace on a device (``gpu1:/home/me/proj``, or the name of a saved one): no topic is opened there any more (主人 D2Y4T,
+# core/devices.py START_RETIRED), whether 多设备 is on or off. The call is refused before anything is opened and told the way
+# instead: open the topic in the home and use the device from there (``covey device``).
+DEVICE_RETIRED = ("没有开话题：工作区「{workspace}」是设备 {alias} 上的目录。{retired}。开话题时不写 workspace（要用的仓库写进 "
+                  "repos），开好后话题里用 covey device 访问 {alias}。")
 
 
-def device_binding(env, workspace, value, harness, title):
-    """(``devices.Binding``, ``devices.Device``) of the device workspace ``workspace`` (its listed value ``value``) for a
-    topic on the Harness ``harness`` (shown as ``title``), checked as 开始任务 checks it: the device listed in devices.json,
-    allowed in this chat (app/access.py allows_device, rule 11), declaring the Harness, and its directory there (one shim
-    ``stat`` within 5 seconds, core/devices.py check_dir; no lock is held). A str saying why not."""
-    try:
-        binding = devices.bind_workdir(Path(env.state_dir), value)
-        device = devices.current().device(binding.device)
-    except devices.UnknownDevice:
-        return DEVICE_UNKNOWN.format(workspace=workspace, alias=str(value).split(":", 1)[0])
-    except devices.DeviceConfigError as exc:
-        return DEVICE_CONFIG.format(error=" ".join(str(exc).split())[:160])
-    alias = binding.device
-    if not env.runtime.access.allows_device(env.chat(), device):
-        return DEVICE_SPACE.format(alias=alias)
-    if harness not in device.harnesses:
-        apps = env.topics.apps
-        usable = [name for name in device.harnesses if name in apps]
-        way = DEVICE_HARNESS_WAY.format(names=" 或 ".join(usable)) if usable else DEVICE_HARNESS_NONE
-        declared = " / ".join(apps[name].spec.title if name in apps else name for name in device.harnesses)
-        return DEVICE_HARNESS.format(alias=alias, declared=declared, title=title, way=way)
-    found, why = devices.check_dir(Path(env.state_dir), alias, binding.remote_workdir)
-    if found != "ok":
-        return DEVICE_DIRECTORY.format(why=why, way=DEVICE_OFFLINE_WAY if found == "offline" else DEVICE_MISSING_WAY)
-    return binding, device
+def device_refusal(workspace, value) -> str:
+    """Why a call naming ``workspace`` (its saved value ``value``, '' when none is saved) opens no topic: it is on a device
+    (``alias:path`` either way, the switch on or off: core/devices.py device_shaped); '' for any other."""
+    where = value if devices.device_shaped(value) else workspace if devices.device_shaped(workspace) else ""
+    if not where:
+        return ""
+    return DEVICE_RETIRED.format(workspace=workspace, alias=str(where).split(":", 1)[0],
+                                 retired=devices.START_RETIRED.split("；", 1)[0])
 
 
 REPOS_MAX = 10
@@ -307,42 +279,29 @@ def plan_start(env, args, settings):
     the run mode 独立 worktree is gone (a repository to change gets its worktree from ``covey repo use --write``). A str
     saying why not. A call's ``redaction`` (an older butler's) is ignored.
 
-    An older call's ``workspace`` (or the settings' new-topic workspace, which no card sets any more) that is on a device
-    (``device_binding``) still opens the topic there, in the device's directory, with ``device`` and ``device_title``. With 多设备 off, a workspace written
-    ``alias:path`` is refused (DEVICE_SWITCH_OFF). Any other ``workspace`` is one more repository read."""
+    An older call's ``workspace`` on a device (``alias:path``, or a saved workspace written so) opens nothing (主人 D2Y4T,
+    ``device_refusal``); the settings' new-topic workspace, which no card sets any more, is not read. Any other ``workspace``
+    is one more repository read."""
     defaults = settings.topic_defaults
     found = resolve(env.topics, env.state_dir, env.chat(), defaults, args)
     if isinstance(found, str):
         return found
-    app, base = found["app"], found["base"]
+    base = found["base"]
     named = arg_text(args.get("workspace"))
-    legacy = named or defaults.workspace
-    config = load_config(Path(env.state_dir), base.default_workdir)
-    value, binding, device = config["workspaces"].get(legacy, ""), None, None
-    if devices.is_device_value(value):
-        checked = device_binding(env, legacy, value, found["harness"], app.spec.title)
-        if isinstance(checked, str):
-            return checked
-        binding, device = checked
-    elif devices.device_shaped(value):
-        return DEVICE_SWITCH_OFF.format(workspace=legacy, alias=str(value).split(":", 1)[0], value=value)
+    if named:
+        config = load_config(Path(env.state_dir), base.default_workdir)
+        refused = device_refusal(named, str(config["workspaces"].get(named, "")))
+        if refused:
+            return refused
     try:
-        repos = declared_repos(env.state_dir, args.get("repos"), workspace=named if binding is None else "")
+        repos = declared_repos(env.state_dir, args.get("repos"), workspace=named)
     except ValueError as exc:
         return f"没有开话题：{exc}"
-    if binding is None:
-        from covey.app.launch_submit import home_binding
-        workspace, home = home_binding(base)
-        workdir = str(home.workdir)
-    else:
-        workspace, workdir = legacy, binding.value
+    from covey.app.launch_submit import home_binding
+    workspace, home = home_binding(base)
     plan = {"harness": found["harness"], "model": found["model"], "model_key": found["model_key"],
             "effort": found["effort"], "work_mode": getattr(base, "work_mode", "") or "", "workspace": workspace,
-            "workdir": workdir, "run_mode": "direct", "repos": repos}
-    if binding is None:
-        plan["home_start"] = True
-    else:
-        plan.update(device=binding.device, device_title=device.title)
+            "workdir": str(home.workdir), "run_mode": "direct", "repos": repos, "home_start": True}
     return plan
 
 

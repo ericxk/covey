@@ -1,10 +1,9 @@
-// 去工作区（v43）：新旧两代 Covey 的判定、设备联动、仓库轮换、payload 清洗、标签文字。
+// 去工作区（v43）：新旧两代 Covey 的判定、仓库轮换、payload 清洗、标签文字。D2Y4T：新话题不再选执行设备，payload 一律不带 device。
 // 跑：node --import ./scripts/alias.mjs --test scripts/launch-repos.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as R from '../client/src/cv/launchRepos.ts';
-// launch.ts 引了 React 和数据钩子，不进单测；pickDevice = applyDevice + withModel，这里用同样规则的 swap 代替
 import * as S from '../client/src/cv/switchConfig.ts';
 
 const m = (key, extra = {}) => ({
@@ -13,8 +12,6 @@ const m = (key, extra = {}) => ({
 });
 const models = [m('claude:opus'), m('codex:gpt')];
 const pre = { model: 'claude:opus', effort: 'high', work_mode: '' };
-const swap = (mm, s) => ({ ...s, model: mm.key, effort: mm.start_budget, work_mode: '' });
-const pickDevice = (d, sel, name) => R.applyDevice(d, sel, name, swap);
 const NEW = { models, preselect: pre, devices: [{ name: 'mac', dot: 'ok', harnesses: [] }, { name: 'box', dot: 'down', harnesses: ['codex'] }] };
 const OLD = {
   models, workspaces: [{ name: 'covey', device: '', harnesses: [] }, { name: 'dev', device: 'box', harnesses: ['codex'] }],
@@ -25,52 +22,40 @@ const OLD = {
 test('新旧判定', () => {
   assert.equal(R.isRepoMode(NEW), true);
   assert.equal(R.isRepoMode(OLD), false);
-  assert.equal(R.showDevice(NEW), true);
-  // T879：一台远程设备也画（本机 + 它，同飞书启动卡）；只有本机那行、没有设备都不画
-  assert.equal(R.showDevice({ ...NEW, devices: [NEW.devices[0]] }), true);
-  assert.equal(R.showDevice({ ...NEW, devices: [LOCAL_ROW] }), false);
-  assert.equal(R.showDevice({ ...NEW, devices: [] }), false);
-  assert.equal(R.showDevice({ ...NEW, devices: undefined }), false);
-  assert.equal(R.showDevice({ ...OLD, devices: NEW.devices }), false);
+  assert.equal(R.isRepoMode({ ...OLD, devices: NEW.devices }), false);
 });
 
-// T879 起 Covey 把本机排第一行推来（name ''、local）；旧 Covey 只推远程设备
+// T879 起 Covey 把本机排第一行推来（name ''、local）；D2Y4T 起新 Covey 不推 devices，较旧的还会推
 const LOCAL_ROW = { name: '', title: '本机', dot: 'ok', harnesses: [], local: true };
 const LIVE = { ...NEW, devices: [LOCAL_ROW, { name: 'testbox', title: 'testbox', dot: 'ok', harnesses: ['codex'] }, { name: 'macmini', title: 'Mac mini', dot: 'never', harnesses: ['claude'] }] };
 
-test('执行设备：本机在最前，新旧 Covey 都有，不重复', () => {
-  const names = (d) => R.deviceChoices(d).map((dv) => dv.name);
-  assert.deepEqual(names(NEW), ['', 'mac', 'box']); // 旧 Covey：网页补本机
-  assert.deepEqual(names(LIVE), ['', 'testbox', 'macmini']); // 新 Covey：用推来的那行
-  assert.deepEqual(names({ ...NEW, devices: [LOCAL_ROW] }), []);
-  assert.deepEqual(names({ ...NEW, devices: undefined }), []);
-  assert.deepEqual(R.deviceChoices(NEW).map(R.deviceText), ['本机', 'mac', 'box（离线）']);
-  assert.deepEqual(R.deviceChoices(LIVE).map(R.deviceText), ['本机', 'testbox', 'Mac mini（未连过）']);
-  assert.equal(R.LOCAL_DEVICE, '');
+test('D2Y4T：下线的设备函数不再导出', () => {
+  for (const k of ['deviceChoices', 'showDevice', 'deviceText', 'applyDevice', 'LOCAL_DEVICE']) assert.equal(R[k], undefined, k);
 });
 
-test('执行设备：没选就是本机，绝不拿第一台设备顶替；选了设备再切回本机不带 device', () => {
+test('D2Y4T：Covey 仍推 devices 时，开新话题的 payload 也不带 device', () => {
+  const sel = { ...pre, device: 'testbox', repos: [{ name: 'a', mode: 'read' }] };
+  assert.ok(!('device' in R.launchPayload(LIVE, sel, 'hi', [], false)));
+  assert.ok(!('device' in R.launchPayload(NEW, { ...pre, device: 'box' }, 'hi', [], false)));
+  assert.ok(!('device' in R.cleanRepoPayload(LIVE, { ...pre, device: 'macmini' })));
+  assert.deepEqual(R.launchPayload(LIVE, { ...pre, device: '' }, 'hi', [], false), { ...pre, text: 'hi' });
+});
+
+test('设备的叫法：没选就是本机，绝不拿第一台设备顶替', () => {
   assert.equal(R.deviceWord(LIVE, undefined), '本机');
   assert.equal(R.deviceWord(LIVE, ''), '本机');
   assert.equal(R.deviceWord(LIVE, 'macmini'), 'Mac mini');
   assert.equal(R.deviceWord(LIVE, 'gone'), 'gone'); // 列表里没有：照写别名
-  const there = pickDevice(LIVE, { ...pre }, 'testbox');
-  assert.equal(there.device, 'testbox');
-  assert.equal(there.model, 'codex:gpt'); // testbox 只能跑 Codex
-  const back = pickDevice(LIVE, there, '');
-  assert.equal(back.device, '');
-  assert.equal(back.model, 'codex:gpt'); // 本机什么 Harness 都行：模型不跟着变
-  assert.ok(!('device' in R.launchPayload(LIVE, back, 'hi', [], false)));
-  assert.equal(R.launchPayload(LIVE, there, 'hi', [], false).device, 'testbox');
 });
 
-test('换配置折叠栏的摘要：本机、设备、旧 Covey 不知道、没有远程设备', () => {
-  assert.deepEqual(R.placeSummary(LIVE, '', undefined), { device: '本机', repos: '未选仓库' });
+test('换配置折叠栏的摘要：话题在本机不写设备，在设备上才写叫法', () => {
+  assert.deepEqual(R.placeSummary(LIVE, '', undefined), { device: null, repos: '未选仓库' });
+  assert.deepEqual(R.placeSummary(LIVE, undefined, undefined), { device: null, repos: '未选仓库' });
   assert.deepEqual(R.placeSummary(LIVE, 'macmini', [{ name: 'covey', mode: 'write' }, { name: 'covey-internal', mode: 'read' }]),
     { device: 'Mac mini', repos: 'covey（改）、covey-internal（读）' });
   assert.deepEqual(R.placeSummary(LIVE, undefined, []), { device: null, repos: '未选仓库' }); // 旧 Covey 的 config 没有 device
   const bare = { ...NEW, devices: undefined };
-  assert.deepEqual(R.placeSummary(bare, '', []), { device: null, repos: '未选仓库' }); // COVEY_DEVICES=0：不写设备
+  assert.deepEqual(R.placeSummary(bare, '', []), { device: null, repos: '未选仓库' }); // 新 Covey 不推 devices：本机不写设备
   assert.deepEqual(R.placeSummary(bare, 'gpu1', []), { device: 'gpu1', repos: '未选仓库' }); // 话题本来就在设备上：照写
   const many = ['a', 'b', 'c', 'd', 'e'].map((name) => ({ name, mode: 'read' }));
   assert.equal(R.repoWords(many), 'a（读）、b（读）、c（读） 等 5 个');
@@ -82,16 +67,6 @@ test('换配置的 payload 不带 device（换配置换不了机器）', () => {
   assert.ok(!('device' in R.switchPayload(LIVE, cur, true, false)));
   assert.ok(!('device' in R.switchPayload(LIVE, cur, true, true)));
   assert.ok(!('device' in R.switchPayload(OLD, { ...OLD.preselect, device: 'box' }, false, false)));
-});
-
-test('设备联动：Harness 不在设备能用的里就换模型', () => {
-  const a = pickDevice(NEW, { ...pre }, 'box');
-  assert.equal(a.device, 'box');
-  assert.equal(a.model, 'codex:gpt');
-  const b = pickDevice(NEW, { ...pre }, 'mac');
-  assert.equal(b.model, 'claude:opus');
-  assert.match(R.deviceText(NEW.devices[1]), /离线/u);
-  assert.equal(R.deviceText(NEW.devices[0]), 'mac');
 });
 
 test('仓库轮换：不用 → 只读 → 可写 → 不用，最多 10 个', () => {
@@ -145,9 +120,9 @@ test('launch payload：新 Covey 没有 workspace、run_mode，键集合同 gold
   const sel = { ...pre, workspace: '', run_mode: '', device: 'mac', repos: [{ name: 'a', mode: 'write' }] };
   const p = R.launchPayload(NEW, sel, 'hi', [], false);
   assert.ok(!('workspace' in p) && !('run_mode' in p));
-  assert.deepEqual(Object.keys(p).sort(), ['device', ...want].sort());
-  // 默认：不带 repos、单设备不带 device
-  const q = R.launchPayload({ ...NEW, devices: [NEW.devices[0]] }, { ...pre, repos: [] }, 'hi', [], false);
+  assert.deepEqual(Object.keys(p).sort(), want.filter((k) => k !== 'device').sort()); // D2Y4T：不带 device
+  // 默认：不带 repos
+  const q = R.launchPayload(NEW, { ...pre, repos: [] }, 'hi', [], false);
   assert.deepEqual(Object.keys(q).sort(), ['effort', 'model', 'text', 'work_mode']);
 });
 
@@ -186,7 +161,8 @@ test('T879 样式与面板：仓库已选未选分得开，设备不拿第一台
   const panel = readFileSync(new URL('../client/src/cv/LaunchPanel.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(panel, /devices\[0\]\?\.name/u); // 旧写法：没选设备就显示第一台（testbox）
   assert.match(panel, /aria-expanded=\{shown\}/u); // 换配置：设备和仓库折成一行，点开才动
-  assert.match(panel, /换配置换不了机器/u);
+  assert.match(panel, /换配置换不了机器；要用别的设备，在话题里用 covey device/u);
+  assert.doesNotMatch(panel, /label="执行设备"|pickDevice|deviceChoices|showDevice/u); // D2Y4T：新话题面板没有执行设备下拉
   const bar = readFileSync(new URL('../client/src/cv/ConfigBar.tsx', import.meta.url), 'utf8');
   assert.match(bar, /switching:/u);
   assert.match(bar, /'device' in config/u); // 旧 Covey 的 config 没有 device：不写设备，不假装是本机

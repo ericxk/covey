@@ -377,8 +377,8 @@ class HandlerTest(unittest.TestCase):
         lines = self.call("workspaces_list")["text"].splitlines()
         self.assertEqual(lines, ["bridge（默认） · /w/bridge · 用途：Bridge 仓库 · 最近：T1 修首页", "misc · /w/misc"])
 
-    def test_workspaces_list_says_which_device_a_workspace_is_on_and_what_runs_there(self):
-        # COVEY_DEVICES=1 (docs/configuration.md 多设备): what topic_start checks (app/butler_topics.py device_binding), said up front.
+    def test_workspaces_list_says_a_workspace_on_a_device_opens_no_topic(self):
+        # COVEY_DEVICES=1: what topic_start refuses (主人 D2Y4T, app/butler_topics.py device_refusal), said up front.
         (self.state / "devices.json").write_text(json.dumps({"schema": 1, "control_dir": "/dev/shm/covey-ssh-tools", "devices": {
             "gpu1": {"title": "GPU 1", "ssh": {"host": "gpu1.example"}, "harnesses": ["claude", "agy"]},
             "team1": {"ssh": {"host": "team1.example"}, "spaces": ["team"]}}}))
@@ -388,11 +388,11 @@ class HandlerTest(unittest.TestCase):
         self.env.runtime.access.allows_device = lambda chat, device: chat == CHAT and device.alias == "gpu1"
         with mock.patch.dict(os.environ, {"COVEY_DEVICES": "1", "COVEY_DEVICES_FILE": str(self.state / "devices.json")}):
             lines = self.call("workspaces_list")["text"].splitlines()
+        way = " 上的目录：不能在这里开话题（执行设备入口已下线），话题从主目录开，开好后用 covey device 访问 "
         self.assertEqual(lines, ["bridge（默认） · /w/bridge",
-                                 "gpu1-proj · gpu1:/home/me/proj · 设备 GPU 1：只能用 Claude Code（harness 填 claude）、"
-                                 "agy（本机器人没启用），原目录运行",
-                                 "team-x · team1:/srv/x · 设备 team1：这个聊天不能用（devices.json 的 spaces）",
-                                 "gone · gpu9:/x · 设备 gpu9：devices.json 里没有这台设备，开不了话题"])
+                                 f"gpu1-proj · gpu1:/home/me/proj · 设备 gpu1{way}gpu1",
+                                 f"team-x · team1:/srv/x · 设备 team1{way}team1",
+                                 f"gone · gpu9:/x · 设备 gpu9{way}gpu9"])
         # Off, each is the line it was.
         self.assertEqual(self.call("workspaces_list")["text"].splitlines()[1:], [
             "gpu1-proj · gpu1:/home/me/proj", "team-x · team1:/srv/x", "gone · gpu9:/x"])

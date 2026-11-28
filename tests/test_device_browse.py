@@ -340,9 +340,10 @@ class LaunchCardLabelTest(DeviceEnv, LaunchCardCase):
         super().setUp()
         self.start_devices(self.root)
 
-    def test_the_launch_card_offers_the_devices_and_an_older_cards_workspace_names_its_device(self):
-        """主目录启动 (docs/configuration.md 主目录与仓库地图): a new card has no 工作区 row, a 执行设备 row instead (本机 and each
-        device the chat may use); a card rebuilt from an older card's workspace on a device names that device as before."""
+    def test_the_launch_card_offers_no_device_and_an_older_cards_workspace_names_its_device(self):
+        """主目录启动 (docs/configuration.md 主目录与仓库地图): a new card has no 工作区 row and no 执行设备 row (主人 D2Y4T: a topic
+        uses a device from the home); a card rebuilt from an older card's workspace on a device names that device as before,
+        and 开始任务 refuses it (tests/test_launch.py DeviceHarnessLaunchTests)."""
         from covey.app.launch import build_launch_card
         config = load_config(self.ctx.state_dir, self.work)
         config["workspaces"]["gpu1-proj"] = "gpu1:/home/me/proj"
@@ -350,8 +351,8 @@ class LaunchCardLabelTest(DeviceEnv, LaunchCardCase):
         self.app.runtime.access.remember_owner_chat("chat")
         self.prepare_card()
         text = json.dumps(self.card, ensure_ascii=False)
-        self.assertIn("执行设备", text)
-        self.assertIn("GPU 1", text)  # The row's option.
+        self.assertNotIn("执行设备", text)
+        self.assertNotIn("GPU 1", text)  # No row, no option.
         self.assertNotIn("gpu1-proj", text)  # No 工作区 row.
         self.assertNotIn("设备 GPU 1", text)  # 本机 chosen: no label in the summary.
         draft = {"workspace": "gpu1-proj", "model": self.record()["selected_model"]}

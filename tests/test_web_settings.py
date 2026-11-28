@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import time
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1403,3 +1404,30 @@ class LockHeldTest(SettingsCase):
             lock.release()
         self.assertNotIn("memory center", self.sync.held)
         self.assertEqual(self.lines(), [])
+
+class SwitchToDeviceTest(unittest.TestCase):
+    """主人 D2Y4T: an older page's 换配置 that names a workspace on a device moves only a topic already on a device there; a
+    topic of this machine is refused (app/web_switch.py TO_DEVICE)."""
+
+    def place(self, current_device):
+        from covey.app import web_switch
+        from covey.core import devices
+        binding = devices.Binding(Path("/standin"), "gpu1", "/home/me/proj", "gpu1:/home/me/proj")
+        env = SimpleNamespace(runtime=SimpleNamespace(access=SimpleNamespace(allows_device=lambda chat, alias: True)))
+        ctx = SimpleNamespace(state_dir=Path("/state"), default_workdir=Path("/home"))
+        current = {"workspace": "home", "run_mode": "direct", "device": current_device}
+        with mock.patch("covey.app.web_launch.workspace_config",
+                        return_value=({"workspaces": {"gpu1-proj": binding.value}}, {}, {})), \
+                mock.patch("covey.core.workspaces.resolve_binding", return_value=("gpu1-proj", binding)), \
+                mock.patch.object(devices, "undeclared_refusal", return_value=""):
+            return web_switch._place(env, ctx, "chat", current, "gpu1-proj", "direct", "claude", {"title": "Claude Code"})
+
+    def test_a_topic_here_is_never_moved_onto_a_device(self):
+        from covey.app import web_switch
+        with self.assertRaisesRegex(ValueError, "执行设备入口已下线"):
+            self.place("")
+        self.assertIn("covey device", web_switch.TO_DEVICE)
+
+    def test_a_topic_already_on_a_device_may_still_switch_to_a_workspace_there(self):
+        self.assertEqual(self.place("gpu1"), {"workspace": "gpu1-proj", "workdir": "gpu1:/home/me/proj", "run_mode": "direct",
+                                              "branch": ""})

@@ -106,6 +106,21 @@ class DecodeTest(DeviceCase):
         self.assertEqual(devices.stored_value(self.ctx), str(self.ctx.workdir))
 
 
+class LegacyDeviceTopicTest(DeviceCase):
+    def test_a_topic_on_a_device_from_before_d2y4t_still_continues_there(self):
+        """主人 D2Y4T retired the entries that start a topic on a device, not what runs one there: a topic bound to a device
+        before keeps its device on its next message, the default workspace back on this machine or not."""
+        configured(self, "gpu1:/home/me/proj")
+        first = topic_context(self.ctx, {"chat_id": "oc_c", "message_id": "om_1"}, lambda _: self.root)
+        self.assertEqual((first.device, first.remote_workdir), ("gpu1", "/home/me/proj"))
+        config = load_config(self.state, self.root)
+        config["default"] = next(name for name, value in config["workspaces"].items() if not value.startswith("gpu1:"))
+        (self.state / "workspace-config.json").write_text(json.dumps(config))
+        again = context_for_topic(self.ctx, {"chat_id": "oc_c", "message_id": "om_1"}, lambda _: self.root)
+        self.assertEqual((again.device, again.remote_workdir, again.workdir), ("gpu1", "/home/me/proj", first.workdir))
+        self.assertEqual(read_topic(again)["workdir"], "gpu1:/home/me/proj")
+
+
 class OffDecodeTest(DeviceCase):
     on = False
 

@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { LaunchData, LaunchModel, LaunchPayload, LaunchWorkspace, SayFile, SettingsOption, SnapshotResponse } from '@shared/api.interface';
 import { newOpId, SNAPSHOT_KEY, useSettings } from '@client/src/hooks/use-workbench';
 import { pref, setPref } from './lib';
-import { applyDevice, deviceWord, isRepoMode, launchPayload, repoLabel, showDevice } from './launchRepos';
+import { isRepoMode, launchPayload, repoLabel } from './launchRepos';
 import { opWords } from './opWords';
 import { sendOp, type OpResult } from './sendOp';
 
@@ -72,8 +72,6 @@ export function pickWorkspace(d: LaunchData, sel: Sel, name: string): Sel {
   if (ws.device) next = { ...next, run_mode: 'direct' };
   return next;
 }
-/** 新 Covey：选执行设备（Harness 不在设备能用的里面就换成第一个能用的模型） */
-export const pickDevice = (d: LaunchData, sel: Sel, name: string): Sel => applyDevice(d, sel, name, withModel);
 export const onDevice = (d: LaunchData, sel: Sel): boolean => !!workspaceOf(d, sel.workspace)?.device;
 
 /** 一行标签：Harness · 模型 · 思考 <预算> · 工作区 · 运行方式 （有工作模式加一个） */
@@ -84,8 +82,7 @@ export function summaryTags(d: LaunchData, sel: Sel): string[] {
   // 卡上的叫法去掉括号里的说明（“自适应（按任务自己定）”→“自适应”）
   if (sel.work_mode) out.push((m?.work_mode_texts?.[sel.work_mode] ?? sel.work_mode).split('（')[0]);
   if (isRepoMode(d)) {
-    // 新 Covey：没有工作区和运行方式；有远程设备时写执行设备（本机也写），选了仓库写仓库
-    if (showDevice(d)) out.push(deviceWord(d, sel.device));
+    // 新 Covey：没有工作区和运行方式，也不写执行设备（D2Y4T）；选了仓库写仓库
     if (sel.repos?.length) out.push(repoLabel(sel.repos));
   } else {
     out.push(sel.workspace ?? '', (d.run_modes ?? []).find((r: SettingsOption) => r.value === sel.run_mode)?.text ?? sel.run_mode ?? '');

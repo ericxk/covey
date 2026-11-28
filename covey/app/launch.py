@@ -141,19 +141,6 @@ def alias_harnesses():
         return {}
 
 
-def device_options(topics, chat_id):
-    """[(alias, title)] of the devices ``chat_id`` may use, for the card's 执行设备 row: empty unless COVEY_DEVICES=1 and
-    devices.json has devices (then the card has no such row)."""
-    found = []
-    for alias in alias_harnesses():
-        if topics.runtime.access.allows_device(chat_id, alias):
-            try:
-                found.append((alias, devices.current().device(alias).title))
-            except (devices.UnknownDevice, devices.DeviceConfigError):
-                found.append((alias, alias))
-    return found
-
-
 def legacy_place(config, draft, notice):
     """(workspace, names, device alias, notice) of a card rebuilt from an older card's choices (``draft['workspace']``: a
     butler's worktree launch, a card sent before the home start): the 工作区 row's as the card drew it, the workspace of a
@@ -183,16 +170,16 @@ def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
     # No workspace to choose: a topic starts in the home. A draft that names one is an older card's (a butler's worktree
     # launch, a card sent before the home start): its card keeps the 工作区 and 运行方式 rows and 其他目录….
     legacy = isinstance(draft.get('workspace'), str) and bool(draft['workspace'])
-    options = device_options(topics, chat_id)
+    # No 执行设备 row and no device's workspace (主人 D2Y4T): a new topic starts here; it uses a device from the home
+    # (``covey device``). An older card's device choice is refused by 开始任务 (app/launch_submit.py).
     place = None
     if legacy:
-        # A device's workspaces only where its ``spaces`` say (devices.json; app/access.py allows_device).
-        config = visible_workspaces(load_config(ctx.state_dir, ctx.default_workdir),
-                                    lambda alias: topics.runtime.access.allows_device(chat_id, alias))
+        config = visible_workspaces(load_config(ctx.state_dir, ctx.default_workdir), lambda alias: False)
         place = legacy_place(config, draft, notice)
-        draft['device'], notice = place[2], place[3]
-    elif draft.get('device') not in {alias for alias, _ in options}:
-        draft['device'] = ''
+        notice = place[3]
+    if draft.get('device'):
+        notice = notice or devices.START_RETIRED  # An older card's 执行设备 choice, redrawn without it: says why.
+    draft['device'] = ''
     # The chat's recent launches and switches order the menu and give each model its usual budget.
     usage = model_usage.recent(ctx.state_dir, chat_id)
     defaults = topic_defaults(ctx.state_dir)
@@ -227,7 +214,7 @@ def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
                             **({'workspace': place[0], 'names': place[1], 'run_mode': run_mode} if legacy else {}),
                             notice=selection.notice, work_mode=selection.work_mode,
                             topic_tag=topic_label(ctx.state_dir, ctx.topic_id), expanded=bool(draft.get('expanded')),
-                            page=page, devices=device_titles(config), device=selection.device, device_options=options)
+                            page=page, devices=device_titles(config), device=selection.device)
 
 
 def remember_launch_card(ctx, card, card_id, message_id, *, sequence=0):

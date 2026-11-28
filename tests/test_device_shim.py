@@ -851,7 +851,42 @@ class MarkTest(ShimCase):
         reply = self.device.call("exec", hub=self.device.hub, mark=self.MARK,
                                  argv=[PY, "-c", "import os; print(os.environ['COVEY_DEVICE_MARK'])"])
         self.assertEqual(reply["out"].strip(), "%s/%s" % (self.device.hub, self.MARK))
-        self.assertEqual(list(self.marks().glob("*.json")) if self.marks().exists() else [], [], "gone once it ended")
+        self.assertFalse(self.marks().exists(), "the record and the mark's folder go once its last command ended")
+        self.assertFalse(self.marks().parent.exists(), "and the hub's, with nothing else in it")
+
+    def test_a_mark_with_a_command_still_running_keeps_its_folder_when_another_ends(self):
+        process, record = self.start(PY, "-c", "import time; time.sleep(60)")
+        self.device.call("exec", hub=self.device.hub, mark=self.MARK, argv=["true"])
+        self.assertEqual([path.name for path in self.marks().glob("*.json")], ["%d.json" % record["pid"]])
+        process.kill()
+        process.wait(5)
+        self.device.call("reap", mark=self.MARK, grace=1.0)
+
+    def test_gc_drops_empty_marks_and_records_of_gone_groups_and_keeps_a_running_one(self):
+        """T951: every turn left ``~/.covey/marks/<hub>/<mark>/`` behind on every device it used; gc tidies what is left."""
+        root = self.home / ".covey" / "marks" / self.device.hub
+        (root / "tempty-1").mkdir(parents=True)
+        stale = root / "tgone-2"
+        stale.mkdir()
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        (stale / "999999.json").write_text(json.dumps({"pid": 999999, "pgid": 999999, "start": "x", "boot": boot}))
+        fresh = root / "tfresh-3"
+        fresh.mkdir()
+        (fresh / "999998.json").write_text(json.dumps({"pid": 999998, "pgid": 999998, "start": "x", "boot": boot}))
+        old = time.time() - 7200
+        for path in (stale / "999999.json", root / "tempty-1"):
+            os.utime(path, (old, old))
+        process, record = self.start(PY, "-c", "import time; time.sleep(60)")
+        live = self.marks() / ("%d.json" % record["pid"])
+        os.utime(live, (old, old))
+        answer = self.device.call("gc", keep_days=7)
+        self.assertTrue(answer.ok, answer.head)
+        self.assertEqual(sorted(answer["removed_marks"]), ["%s/%s" % (self.device.hub, name) for name in ("tempty-1", "tgone-2")])
+        self.assertEqual(sorted(path.name for path in root.iterdir()), sorted(["tfresh-3", self.MARK]))
+        self.assertTrue(live.exists(), "a group still running stays for reap")
+        process.kill()
+        process.wait(5)
+        self.device.call("reap", mark=self.MARK, grace=1.0)
 
     def test_reap_by_mark_stops_a_command_whose_connection_went_away(self):
         process, record = self.start(PY, "-c", "import time; time.sleep(60)")

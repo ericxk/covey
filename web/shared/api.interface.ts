@@ -1145,7 +1145,7 @@ export interface LaunchPreselect {
   workspace?: string;
   /** v43：可选（新 Covey 不推） */
   run_mode?: string;
-  /** v43（WEB 包加，向后兼容）：执行设备，LaunchData.devices 里的 name。只在有远程设备、选了远程设备时网页才带；不带或空串 = 本机。
+  /** v43（WEB 包加，向后兼容）：执行设备。D2Y4T 起网页不再带（launch 接口收到 device 会拒绝）。
    *  话题的 config 里（T879）是话题所在的设备（空串 = 本机，只读：换配置换不了机器）；旧 Covey 的 config 没有这个键 */
   device?: string;
 }
@@ -1155,7 +1155,7 @@ export interface LaunchData {
   workspaces?: LaunchWorkspace[];
   /** v43：可选（新 Covey 不推） */
   run_modes?: SettingsOption[];
-  /** v43：可选，设备列表（name、状态点、能用的 Harness） */
+  /** v43：可选，设备列表（name、状态点、能用的 Harness）。D2Y4T 起新 Covey 不推、网页不画执行设备下拉；类型留着兼容较旧 Covey 的推送（换配置里只借它给设备起叫法） */
   devices?: LaunchDevice[];
   preselect: LaunchPreselect;
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, Eye, PencilLine, Plus } from 'lucide-react';
-import type { LaunchDevice, LaunchModel, LaunchRepo, SettingsOption } from '@shared/api.interface';
+import type { LaunchModel, LaunchRepo, SettingsOption } from '@shared/api.interface';
 import { useSettings } from '@client/src/hooks/use-workbench';
 import {
   harnessOptions,
@@ -9,7 +9,6 @@ import {
   onDevice,
   pickHarness,
   pickModel,
-  pickDevice,
   pickProvider,
   pickWorkspace,
   providerOptions,
@@ -18,16 +17,11 @@ import {
 } from './launch';
 import {
   cycleRepo,
-  deviceChoices,
-  deviceText,
-  deviceWord,
   isRepoMode,
-  LOCAL_DEVICE,
   MAX_REPOS,
   placeSummary,
   repoChoices,
   repoModeOf,
-  showDevice,
   type RepoMode,
 } from './launchRepos';
 import './settings.css';
@@ -124,7 +118,6 @@ export const LaunchPanel: React.FC<{ box: PanelBox; className?: string; foot?: R
   const reposPage = settings?.data?.repos;
   const items = reposPage && 'items' in reposPage ? reposPage.items : [];
   const choices = repoMode && place ? repoChoices(items, sel.repos) : [];
-  const devices: LaunchDevice[] = deviceChoices(data);
   const row = (label: string, body: React.ReactNode, note?: string, wide = false): React.ReactNode => (
     <div className={`lx-r st-cell${['模型', '工作区'].includes(label) ? ' wd' : ''}${wide ? ' lx-full' : ''}`}>
       <div className="lx-l st-l">{label}</div>
@@ -185,7 +178,7 @@ export const LaunchPanel: React.FC<{ box: PanelBox; className?: string; foot?: R
                 <div className="lx-fold-ro">
                   <span className="lx-l">执行设备</span>
                   <b>{sum.device}</b>
-                  <span className="lx-n">换配置换不了机器；要在别的设备上做，开个新话题选那台设备</span>
+                  <span className="lx-n">换配置换不了机器；要用别的设备，在话题里用 covey device</span>
                 </div>
               ) : null}
               <RepoPicker box={box} choices={choices} />
@@ -199,9 +192,9 @@ export const LaunchPanel: React.FC<{ box: PanelBox; className?: string; foot?: R
   return (
     <div className={`lx-panel${className ? ` ${className}` : ''}`}>
       {modelRows}
-      {place && (!repoMode || showDevice(data)) ? (
+      {place && !repoMode ? (
         <div className="st-gr cfg">
-          {!repoMode ? row(
+          {row(
             '工作区',
             <Pick
               label="工作区"
@@ -209,23 +202,12 @@ export const LaunchPanel: React.FC<{ box: PanelBox; className?: string; foot?: R
               value={sel.workspace ?? ''}
               onPick={(v: string) => box.edit((d, s) => pickWorkspace(d, s, v))}
             />,
-          ) : null}
-          {!repoMode ? row(
+          )}
+          {row(
             '运行方式',
             <Pick label="运行方式" options={data.run_modes ?? []} value={device ? 'direct' : (sel.run_mode ?? '')} onPick={(v: string) => box.edit((_d, s) => ({ ...s, run_mode: v }))} disabled={(v: string) => (device && v === 'worktree' ? '设备上只能原目录' : '')} />,
             device ? '设备上只能原目录' : undefined,
-          ) : null}
-          {showDevice(data) ? row(
-            '执行设备',
-            // 本机是空串：话题没选设备时就是本机，不拿第一台设备顶替（T879）
-            <Pick
-              label="执行设备"
-              options={devices.map((dv: LaunchDevice) => ({ value: dv.name, text: deviceText(dv) }))}
-              value={devices.some((dv: LaunchDevice) => dv.name === (sel.device ?? LOCAL_DEVICE)) ? (sel.device ?? LOCAL_DEVICE) : LOCAL_DEVICE}
-              onPick={(v: string) => box.edit((d, s) => pickDevice(d, s, v))}
-            />,
-            sel.device ? `在 ${deviceWord(data, sel.device)} 上做` : undefined,
-          ) : null}
+          )}
         </div>
       ) : null}
       {choices.length ? <RepoPicker box={box} choices={choices} /> : null}

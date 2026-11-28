@@ -16,6 +16,13 @@ rewind, compaction and the Bridge's tools work as on any turn; a device needs Py
   are refused.
 - **G3 只读轮**: a turn held to reading (core/harness.py TOOL_LIMIT: look, lead, read, consult, proxy) treats every device
   as G2 does, and ``get`` writes only into the topic's outputs directory then.
+- **G4 危险命令** (``danger``, ``approval``): a ``run`` or ``job start`` that deletes a tree, kills processes, stops or
+  restarts a service, reboots, formats a disk, removes containers, forces a push, resets hard or uninstalls a package
+  (wrappers like sudo, env, timeout, xargs and ``sh -c`` scripts read through) is refused until the owner said yes: the
+  refusal tells the Harness to ask with a question card first and run it again with ``--approved <答案号>``, which must
+  name a question of this very topic the owner himself answered (``approval``: the Bridge's question record, its topic,
+  status, ``answer_by`` and answer). The basis goes into the audit line (``approved``). A read-only device or turn
+  refuses such a command before G4 is asked (G2, G3).
 - **G5 凭据**: the command on the device gets devices.py ``effective_env`` with the Bridge's names and anything named
   like a secret dropped (``device_env``), never the hub's environment; the ssh client runs with the hub's environment
   less the same names (``ssh_env``); ``get`` and ``put`` refuse a path through SECRET_NAMES, and so does a read-only
@@ -32,8 +39,7 @@ rewind, compaction and the Bridge's tools work as on any turn; a device needs Py
 ``job`` (主人 DSAZJ): a command the device program supervises (its ``spawn``: double fork, its own process group, output
 in the task's journal), so it outlives the call, the ssh connection and the turn. ``job log`` reads the journal from a byte
 offset and says the next one; ``job stop`` stops the group. A turn the owner stopped stops the jobs it started
-(``reap_turn`` with ``stop_jobs``); any other ending leaves them running. G4 (a dangerous command refused until the owner
-answered, ``--approved``) comes in a later package: ``approved`` is only recorded now.
+(``reap_turn`` with ``stop_jobs``); any other ending leaves them running.
 
 ``fold`` and ``trace_text`` read a task's audit for its topic (``topic.json`` ``devices``) and its task card. Only core
 modules and the standard library; nothing here starts a thread.
@@ -287,6 +293,380 @@ def ssh_env(environ=None) -> dict:
             and (name in KEPT_SECRET_LOOKING or not SECRET_NAME.search(name))}
 
 
+# ---------------------------------------------------------------- G4 危险命令
+
+
+# A word of a shell script that only joins or opens commands (``danger`` splits a script at these).
+SHELL_JOINS = frozenset({";", ";;", "&", "&&", "|", "||", "|&", "(", ")", "{", "}", "!", "if", "then", "else", "elif",
+                         "fi", "do", "done", "while", "until", "case", "esac", "time"})
+SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "mksh", "ash", "fish"})
+# A program that runs the command after its own options: name -> (its options that take a value, positional words before
+# the command: timeout's duration, chrt's priority, taskset's mask).
+WRAPPERS = {
+    "sudo": (frozenset({"-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "--user", "--group", "--host",
+                        "--prompt", "--close-from", "--chdir", "--role", "--type", "--other-user", "--command-timeout"}), 0),
+    "doas": (frozenset({"-u", "-C"}), 0),
+    "env": (frozenset({"-u", "-C", "--unset", "--chdir"}), 0),
+    "nohup": (frozenset(), 0), "setsid": (frozenset(), 0), "unbuffer": (frozenset(), 0), "busybox": (frozenset(), 0),
+    "nice": (frozenset({"-n", "--adjustment"}), 0),
+    "ionice": (frozenset({"-c", "-n", "--class", "--classdata"}), 0),
+    "timeout": (frozenset({"-s", "-k", "--signal", "--kill-after"}), 1),
+    "time": (frozenset({"-f", "-o", "--format", "--output"}), 0),
+    "stdbuf": (frozenset({"-i", "-o", "-e", "--input", "--output", "--error"}), 0),
+    "command": (frozenset(), 0), "builtin": (frozenset(), 0), "exec": (frozenset({"-a"}), 0),
+    "xargs": (frozenset({"-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "--max-args", "--max-procs", "--max-lines",
+                         "--max-chars", "--delimiter", "--eof", "--arg-file", "--replace"}), 0),
+    "chrt": (frozenset(), 1), "taskset": (frozenset(), 1),
+    "caffeinate": (frozenset({"-t", "-w"}), 0),
+}
+SSH_VALUED = frozenset("-B -b -c -D -E -e -F -I -i -J -L -l -m -O -o -p -Q -R -S -W -w".split())
+SYSTEMCTL_STOPS = frozenset({"stop", "restart", "try-restart", "reload-or-restart", "try-reload-or-restart", "condrestart",
+                             "kill", "disable", "mask", "isolate", "reboot", "poweroff", "halt", "kexec", "emergency",
+                             "rescue", "suspend", "hibernate", "hybrid-sleep", "soft-reboot"})
+SYSTEMCTL_VALUED = frozenset({"-H", "--host", "-M", "--machine", "-t", "--type", "-s", "--signal", "-p", "--property",
+                              "--root", "-n", "--lines", "-o", "--output", "--state"})
+LAUNCHCTL_STOPS = frozenset({"stop", "unload", "bootout", "disable", "kill", "remove", "reboot", "halt"})
+SERVICE_STOPS = frozenset({"stop", "restart", "try-restart", "force-reload", "condrestart"})
+POWER = frozenset({"reboot", "shutdown", "poweroff", "halt"})
+DISKS = frozenset({"mkfs", "mke2fs", "mkswap", "wipefs", "shred", "fdisk", "sfdisk", "gdisk", "sgdisk", "parted"})
+KILLERS = frozenset({"pkill", "killall", "skill", "xkill"})
+CONTAINERS = frozenset({"docker", "podman", "nerdctl"})
+CONTAINER_STOPS = frozenset({"rm", "rmi", "stop", "kill", "restart", "prune", "remove", "down"})
+CONTAINER_GROUPS = frozenset({"container", "image", "volume", "network", "system", "builder", "compose", "buildx", "pod"})
+CONTAINER_VALUED = frozenset({"-H", "--host", "-c", "--context", "--config", "-l", "--log-level", "-f", "--file", "-p",
+                              "--project-name"})
+# Uninstalling (or reinstalling) a package: program -> its subcommands that do (``-R…`` options for pacman, dpkg below).
+UNINSTALLS = {
+    "apt": {"remove", "purge", "autoremove", "autopurge", "reinstall"},
+    "apt-get": {"remove", "purge", "autoremove", "autopurge", "reinstall"},
+    "aptitude": {"remove", "purge", "reinstall"},
+    "yum": {"remove", "erase", "reinstall", "autoremove"}, "dnf": {"remove", "erase", "reinstall", "autoremove"},
+    "microdnf": {"remove", "reinstall"}, "zypper": {"remove", "rm"}, "apk": {"del"}, "snap": {"remove"},
+    "flatpak": {"uninstall", "remove"}, "brew": {"uninstall", "remove", "rm", "reinstall", "autoremove"},
+    "port": {"uninstall"}, "pip": {"uninstall"}, "pip3": {"uninstall"},
+    "pipx": {"uninstall", "uninstall-all", "reinstall", "reinstall-all"},
+    "conda": {"remove", "uninstall"}, "mamba": {"remove", "uninstall"}, "micromamba": {"remove", "uninstall"},
+}
+# Only with -g / --global: a project's own packages are its build's business.
+NODE_UNINSTALLS = {"npm": {"uninstall", "remove", "rm", "r", "un", "unlink"}, "pnpm": {"remove", "rm", "uninstall", "un"},
+                   "yarn": {"remove"}}
+DEPTH_MAX = 8  # Shells within shells: deeper than this is taken as one to ask about.
+ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.S)
+
+
+def _short_has(word, letters) -> bool:
+    """Whether ``word`` is a cluster of short options (``-rf``) with one of ``letters``."""
+    return word.startswith("-") and not word.startswith("--") and len(word) > 1 and any(c in word[1:] for c in letters)
+
+
+def _program(word) -> str:
+    return posixpath.basename(str(word).lstrip("\\"))
+
+
+def _skip_options(rest, valued, positional=0) -> list:
+    """``rest`` after a wrapper's own options (``valued`` ones with their values, and ``NAME=value`` words for env) and
+    its ``positional`` words: the command it runs, [] when there is none."""
+    at = 0
+    while at < len(rest):
+        word = rest[at]
+        if word == "--":
+            at += 1
+            break
+        if word.startswith("-") and len(word) > 1:
+            at += 2 if (word in valued and "=" not in word) else 1
+            continue
+        if ASSIGNMENT.fullmatch(word):
+            at += 1
+            continue
+        break
+    return rest[at + positional:]
+
+
+def _split_script(script) -> list:
+    """The simple commands of a shell script, each a list of words (quotes gone): split at ``;``, ``&&``, ``|``, newlines,
+    ``$(…)``, backticks and the reserved words, so a command anywhere in it is seen; the word after a redirection is
+    left out. A script shlex cannot read (a quote not closed) is split at blanks and those marks instead."""
+    text = str(script).replace("\\\n", " ").replace("`", " ; ").replace("$(", " ; ( ").replace("\n", " ; ")
+    try:
+        lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>")
+        lexer.whitespace_split = True
+        words = list(lexer)
+    except ValueError:
+        words = [word for word in re.split(r"[\s;&|()<>]+", text) if word]
+    commands, current, redirected = [], [], False
+    for word in words:
+        if word in SHELL_JOINS or (word and set(word) <= set(";&|()")):
+            if current:
+                commands.append(current)
+            current, redirected = [], False
+            continue
+        if word and set(word) <= set("<>&"):
+            redirected = True  # The next word is where the output goes (or comes from), not a command's.
+            continue
+        if redirected:
+            redirected = False
+            continue
+        current.append(word)
+    if current:
+        commands.append(current)
+    return commands
+
+
+def _shell_script(rest):
+    """The script a shell runs with ``-c`` (``bash -lc '…'``), None when it runs a file or reads its input."""
+    at, has_c = 0, False
+    while at < len(rest):
+        word = rest[at]
+        if word == "--":
+            at += 1
+            break
+        if word in ("--rcfile", "--init-file", "-o", "-O", "+O", "+o"):
+            at += 2
+            continue
+        if word.startswith(("-", "+")) and len(word) > 1:
+            if not word.startswith("--") and "c" in word[1:]:
+                has_c = True
+            at += 1
+            continue
+        break
+    return rest[at] if has_c and at < len(rest) else None
+
+
+def danger(argv, depth=0) -> str:
+    """What makes ``argv`` (a command; ``sh -c`` and its script included) one to ask the owner about first (G4), '' when
+    nothing does: deleting a tree (``rm -r``, ``find -delete``), killing processes, stopping, restarting or turning off a
+    service, rebooting, formatting a disk, removing or stopping containers, forcing or deleting a push, ``git reset
+    --hard``, ``git clean -f``, ``git branch -D``, uninstalling or reinstalling a package. Wrappers (sudo, env, timeout,
+    xargs, nohup, …), shells (``sh -c``, ``bash -lc``), ``eval``, ``watch``, ``find -exec`` and ssh are looked through.
+    Only the words are read, nothing runs; a command a script builds at run time (``$cmd``) is not seen."""
+    words = [str(word) for word in argv or ()]
+    while len(words) > 1 and ASSIGNMENT.fullmatch(words[0]):
+        words = words[1:]  # ``FOO=1 rm -rf x``
+    if not words:
+        return ""
+    if depth > DEPTH_MAX:
+        return "命令套了太多层，看不清要做什么"
+    name, rest = _program(words[0]), words[1:]
+    if name in WRAPPERS:
+        if name == "command" and any(word in ("-v", "-V") for word in rest):
+            return ""  # Only says where a command is.
+        if name in ("ionice", "taskset") and any(word in ("-p", "--pid") for word in rest):
+            return ""  # Changes a running process, runs nothing.
+        if name == "env":
+            split = next((at for at, word in enumerate(rest) if word in ("-S", "--split-string")
+                          or word.startswith(("--split-string=", "-S"))), None)
+            if split is not None:
+                head = rest[split]
+                script = [head.split("=", 1)[1] if head.startswith("--split-string=") else head[2:]] if head not in (
+                    "-S", "--split-string") else []
+                return _script_danger(" ".join([*script, *rest[split + 1:]]), depth + 1)
+        valued, positional = WRAPPERS[name]
+        return danger(_skip_options(rest, valued, positional), depth + 1)
+    if name in SHELLS:
+        script = _shell_script(rest)
+        return _script_danger(script, depth + 1) if script is not None else ""
+    if name == "eval":
+        return _script_danger(" ".join(rest), depth + 1)
+    if name == "watch":
+        return _script_danger(" ".join(_skip_options(rest, frozenset({"-n", "--interval"}))), depth + 1)
+    if name in ("ssh", "autossh"):
+        found = _skip_options(rest, SSH_VALUED)
+        return _script_danger(" ".join(found[1:]), depth + 1) if len(found) > 1 else ""
+    if name.startswith("python") and rest[:2] == ["-m", "pip"]:
+        name, rest = "pip", rest[2:]
+    return _plain_danger(name, rest, depth)
+
+
+def _script_danger(script, depth) -> str:
+    for command in _split_script(script):
+        found = danger(command, depth)
+        if found:
+            return found
+    return ""
+
+
+def _sub(rest, valued=frozenset()) -> tuple:
+    """(the first word of ``rest`` that is not an option, the words after it), skipping ``valued`` options' values."""
+    at = 0
+    while at < len(rest):
+        word = rest[at]
+        if word.startswith("-") and len(word) > 1:
+            at += 2 if (word in valued and "=" not in word) else 1
+            continue
+        return word, rest[at + 1:]
+    return "", []
+
+
+def _plain_danger(name, rest, depth) -> str:
+    if name == "rm" and any(word in ("-r", "-R", "--recursive") or _short_has(word, "rR") for word in rest):
+        return "rm -r（递归删除）"
+    if name == "find":
+        if "-delete" in rest:
+            return "find -delete（删除）"
+        for at, word in enumerate(rest):
+            if word in ("-exec", "-execdir", "-ok", "-okdir"):
+                end = next((i for i in range(at + 1, len(rest)) if rest[i] in (";", "+", "\\;")), len(rest))
+                found = danger(rest[at + 1:end], depth + 1)
+                if found:
+                    return found
+        return ""
+    if name in DISKS or name.startswith("mkfs."):
+        return f"{name}（格式化、擦除或改分区）"
+    if name == "dd" and any(word.startswith("of=/dev/") for word in rest):
+        return "dd 写磁盘设备"
+    if name == "kill":
+        if not rest or any(word in ("-l", "-L", "--list", "--table") or word.startswith("--list") for word in rest):
+            return ""
+        zero = any(word in ("-0", "-s0", "--signal=0") for word in rest) or any(
+            rest[at] in ("-s", "--signal", "-n") and rest[at + 1:at + 2] == ["0"] for at in range(len(rest)))
+        return "" if zero else "kill（杀进程）"
+    if name in KILLERS:
+        return "" if all(word in ("-l", "--list", "-V", "--version", "--help") for word in rest) else f"{name}（杀进程）"
+    if name == "systemctl":
+        sub, _ = _sub(rest, SYSTEMCTL_VALUED)
+        return f"systemctl {sub}（停、重启或关掉服务）" if sub in SYSTEMCTL_STOPS else ""
+    if name == "launchctl":
+        sub, _ = _sub(rest)
+        return f"launchctl {sub}（停、卸载或关掉服务）" if sub in LAUNCHCTL_STOPS else ""
+    if name == "service":
+        return f"service {rest[1]}（停或重启服务）" if len(rest) > 1 and rest[1] in SERVICE_STOPS else ""
+    if name in POWER:
+        return "" if any(word in ("--help", "-c") for word in rest) else f"{name}（关机或重启）"
+    if name in ("init", "telinit") and rest[:1] and rest[0] in ("0", "1", "6", "s", "S"):
+        return f"{name} {rest[0]}（关机、重启或进单用户）"
+    if name == "crontab" and any(word == "-r" or _short_has(word, "r") for word in rest):
+        return "crontab -r（删掉定时任务）"
+    if name in CONTAINERS or name == "docker-compose":
+        sub, after = _sub(rest, CONTAINER_VALUED)
+        if sub in CONTAINER_STOPS:
+            return f"{name} {sub}（删、停容器或镜像）"
+        if sub in CONTAINER_GROUPS and name != "docker-compose":
+            second, _ = _sub(after, CONTAINER_VALUED)
+            return f"{name} {sub} {second}（删、停容器或镜像）" if second in CONTAINER_STOPS else ""
+        return ""
+    if name == "kubectl":
+        sub, _ = _sub(rest, frozenset({"-n", "--namespace", "--context", "--kubeconfig", "-s", "--server"}))
+        return f"kubectl {sub}（删资源或腾空节点）" if sub in ("delete", "drain") else ""
+    if name == "git":
+        return _git_danger(rest)
+    if name == "pacman" and any(word.startswith("-R") or word == "--remove" for word in rest):
+        return "pacman -R（卸载包）"
+    if name == "dpkg" and any(word in ("-r", "-P", "--remove", "--purge") for word in rest):
+        return "dpkg 卸载包"
+    if name in UNINSTALLS:
+        sub, after = _sub(rest)
+        if name in ("conda", "mamba", "micromamba") and sub == "env":
+            sub, _ = _sub(after)
+        return f"{name} {sub}（卸载或重装包）" if sub in UNINSTALLS[name] else ""
+    if name == "uv":
+        sub, after = _sub(rest)
+        return f"uv {sub} uninstall（卸载包）" if sub in ("pip", "tool") and _sub(after)[0] == "uninstall" else ""
+    if name in NODE_UNINSTALLS:
+        sub, after = _sub(rest)
+        if name == "yarn" and sub == "global":
+            return "yarn global remove（卸载全局包）" if _sub(after)[0] == "remove" else ""
+        if sub in NODE_UNINSTALLS[name] and any(word in ("-g", "--global") for word in rest):
+            return f"{name} {sub} -g（卸载全局包）"
+    return ""
+
+
+def _git_danger(rest) -> str:
+    sub, args = _sub(rest, frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace"}))
+    if sub == "push":
+        forced = any(word in ("-f", "--force", "--mirror", "--delete", "-d", "--prune")
+                     or word.startswith(("--force-with-lease", "--force-if-includes")) or _short_has(word, "fd")
+                     for word in args)
+        refs = [word for word in args if not word.startswith("-")][1:]  # After the remote.
+        return "git push 强推或删远端分支" if forced or any(ref.startswith(("+", ":")) for ref in refs) else ""
+    if sub == "reset" and "--hard" in args:
+        return "git reset --hard（丢掉改动）"
+    if sub == "clean" and not any(word in ("-n", "--dry-run") or _short_has(word, "n") for word in args):
+        if any(word in ("-f", "--force") or _short_has(word, "f") for word in args):
+            return "git clean -f（删掉没提交的文件）"
+    if sub == "branch" and any(word.startswith("-") and not word.startswith("--") and "D" in word for word in args):
+        return "git branch -D（强删分支）"
+    return ""
+
+
+# The approval of a dangerous command (G4): an answer the owner himself gave to a question of this very topic.
+OWNER_PARTY = "owner"  # core/turn_source.py PARTY_OWNER: a question record's ``answer_by`` party when he answered.
+SKIPPED_START = "用户选择不回答此题"  # How app/answers.py SKIPPED begins: a question left unanswered.
+QUESTION_TOKEN = re.compile(r"[0-9a-f]{16}\Z")
+QUESTION_ENTRY = re.compile(r"([0-9a-f]{16})-([0-9]{1,3})\Z")
+ASK_FIRST = ("这条命令要先问主人（{what}）：先用问题卡问主人，检查点写 requires_user 和 questions，这道题给一个 id，写清要在 "
+             "{alias} 上做什么；主人同意后带 --approved <那道题的 id> 重跑：covey device {op} {alias} --approved <id> …")
+APPROVAL_SAID = 120  # Characters of the owner's answer an audit line keeps.
+
+
+def _answered(record, question) -> list:
+    """The owner's choices and words for ``question`` of ``record``, [] when he left it unanswered."""
+    found = ((record.get("answers") or {}).get(str(question.get("id") or "")) or {}).get("answers")
+    words = [str(word) for word in found if str(word).strip()] if isinstance(found, list) else []
+    return [] if all(word.startswith(SKIPPED_START) for word in words) else words
+
+
+def _approval_records(turn: Turn, given, token) -> list:
+    """The question records ``given`` may name: the one of ``token``, else this topic's with a question of that id, the
+    latest answered first. ``Refused`` when there is none, or the token's is another topic's."""
+    folder = Path(turn.state_dir) / "questions"
+    if token:
+        record = read_object(folder / f"{token}.json")
+        if not record:
+            raise Refused(f"没有答案号 {given} 这个问题")
+        if record.get("topic_id") != turn.topic:
+            raise Refused(f"答案号 {given} 不是本话题的问题，不能拿来放行")
+        return [record]
+    from covey.core.store import JsonDirectoryStore
+    # A store of its own, not the process's shared one: an answer given since this process first looked is seen.
+    records = [record for _, record in JsonDirectoryStore(folder).query(topic_id=turn.topic)
+               if any(isinstance(q, dict) and str(q.get("id") or "") == given for q in record.get("questions") or ())]
+    if not records:
+        raise Refused(f"本话题里没有 id 是「{given}」的问题：--approved 写本话题问题卡里那道题的 id，等主人答了再用")
+    return sorted(records, key=lambda item: float(item.get("answered_at") or item.get("created_at") or 0), reverse=True)
+
+
+def approval(turn: Turn, given) -> dict:
+    """What lets a dangerous command run (G4): ``given`` (``--approved``) names a question of this turn's topic the owner
+    himself answered: the id the topic gave it in its checkpoint's ``questions`` (the latest such answer), its record's
+    token, or ``<token>-<n>`` for its n-th question. Read from the Bridge's question records (``<state>/questions/``):
+    the record's topic is this turn's, its status ``answered``, its ``answer_by`` the owner's (not the butler's, a
+    lead's or a group member's), not answered with feedback alone or set aside, and the question itself answered (not
+    skipped). Its basis, which the audit keeps: ``{answer, question, index, id, answered_at, channel, said}``.
+    ``Refused`` saying why not. A question record the topic's own Harness forged under the state directory would pass:
+    the check is of where the answer came from as the Bridge recorded it, not of a secret."""
+    given = str(given or "").strip()
+    if turn.task_dir is None or not turn.topic:
+        raise Refused("不在话题的任务里，核对不了主人的回答；要在设备上做这件事，请主人自己 ssh 过去")
+    entry = QUESTION_ENTRY.fullmatch(given)
+    token = entry.group(1) if entry else given if QUESTION_TOKEN.fullmatch(given) else ""
+    why = ""
+    for record in _approval_records(turn, given, token):
+        questions = [q for q in record.get("questions") or () if isinstance(q, dict)]
+        if entry:
+            index = int(entry.group(2))
+            chosen = [(index, questions[index - 1])] if 0 < index <= len(questions) else []
+        else:
+            chosen = [(n, q) for n, q in enumerate(questions, 1) if token or str(q.get("id") or "") == given]
+        by = record.get("answer_by") if isinstance(record.get("answer_by"), dict) else {}
+        if record.get("status") != "answered":
+            why = why or f"「{given}」主人还没答（问题现在是 {record.get('status') or '未知'}），不能放行"
+        elif by.get("party") != OWNER_PARTY:
+            who = {"butler": "管家", "lead": "负责人"}.get(str(by.get("party") or ""), "不是主人的人")
+            why = why or f"「{given}」不是主人本人答的（{who}答的），不能放行；要主人自己答"
+        elif record.get("response_kind") in ("feedback", "set_aside"):
+            why = why or f"主人没有答「{given}」（只写了补充说明或点了不处理），不能放行"
+        else:
+            for index, question in chosen:
+                words = _answered(record, question)
+                if words:
+                    return {"answer": given, "question": str(record.get("token") or token), "index": index,
+                            "id": str(question.get("id") or ""), "answered_at": record.get("answered_at"),
+                            "channel": str(by.get("channel") or ""),
+                            "said": redact(" / ".join(words))[:APPROVAL_SAID]}
+            why = why or f"主人没有答「{given}」这道题（选了不回答），不能放行"
+    raise Refused(why or f"答案号 {given} 对不上本话题里主人答过的问题")
+
+
 # ---------------------------------------------------------------- the audit (G6)
 
 
@@ -394,8 +774,26 @@ class Channel:
             return f"设备 {device.alias} 是只读的（devices.json 的 access 不是 write），不能 {op}；只能 ls、stat、get 和只读命令"
         return f"这一轮只读（{self.turn.limit or '只读'}），所有设备都只能看，不能 {op}"
 
-    def refused(self, alias, op, reason) -> None:
-        audit(self.turn, {"device": alias, "op": op, "refused": reason})
+    def refused(self, alias, op, reason, **more) -> None:
+        audit(self.turn, {"device": alias, "op": op, "refused": reason, **more})
+
+    # -- G4
+    def approved(self, alias, op, argv, given) -> dict | None:
+        """None for a command G4 lets run as it is; for a dangerous one (``danger``) the owner's answer ``given`` names
+        (``approval``), the basis the audit keeps. ``Refused`` (and a refused line) without one that holds."""
+        what = danger(argv)
+        if not what:
+            return None
+        if not str(given or "").strip():
+            reason = ASK_FIRST.format(what=what, alias=alias, op="run" if op == "run" else "job start")
+        else:
+            try:
+                return {**approval(self.turn, given), "danger": what}
+            except Refused as exc:
+                reason = f"这条命令要先问主人（{what}），--approved {str(given)[:40]} 没通过：{exc}"
+        self.refused(alias, op, reason, command=shown(argv), danger=what,
+                     **({"approved": str(given)[:80]} if given else {}))
+        raise Refused(reason)
 
     def link(self, alias):
         if alias not in self.links:
@@ -438,11 +836,12 @@ class Channel:
                 reason = f"{self.read_only_words(device, 'run 这条命令')}：{reason}"
                 self.refused(alias, "run", reason)
                 raise Refused(reason)
+        basis = self.approved(alias, "run", argv, approved)  # G4
         timeout = max(1.0, min(RUN_MAX, float(timeout or RUN_SECONDS)))
         call = secrets.token_hex(4)
         mark = mark_of(self.turn)
         row = {"device": alias, "op": "run", "call": call, "command": shown(argv), "dir": str(cwd or "~"), "mark": mark,
-               **({"approved": str(approved)} if approved else {})}
+               **({"approved": basis} if basis else {"approved": str(approved)} if approved else {})}
         audit(self.turn, {**row, "phase": "start"})
         started = self.clock()
         fields = {"argv": argv, "cwd": cwd or "~", "env": device_env(device, devices.read_profile(self.turn.state_dir,
@@ -560,9 +959,10 @@ class Channel:
         return {"path": str(remote), "bytes": len(data), "sha256": digest, "same": bool(answer.get("same"))}
 
     # -- jobs
-    def job_start(self, alias, argv=None, *, sh=None, cwd=None) -> dict:
+    def job_start(self, alias, argv=None, *, sh=None, cwd=None, approved="") -> dict:
         """Start ``argv`` (or ``sh``) on ``alias`` as a job the device program supervises: ``{job, pgid, started}``. Its
-        stdout and stderr go to the job's journal (``job_log``); stdin is /dev/null."""
+        stdout and stderr go to the job's journal (``job_log``); stdin is /dev/null. A dangerous one needs the owner's
+        answer (G4, ``approved``)."""
         device = self.device(alias, "job start", write=True)
         if sh is not None:
             wrapped = ["/bin/sh", "-c", "exec </dev/null 2>&1\n" + str(sh)]
@@ -572,11 +972,13 @@ class Channel:
             wrapped = ["/bin/sh", "-c", 'exec "$@" </dev/null 2>&1', "covey-job", *argv]
         if not argv:
             raise Refused("没有要跑的命令：covey device job start <设备> -- <命令…>")
+        basis = self.approved(alias, "job start", argv, approved)  # G4
         job = "job-%s" % secrets.token_hex(5)
         env = device_env(device, devices.read_profile(self.turn.state_dir, alias))
         answer = self.link(alias).call("spawn", task=job, argv=wrapped, cwd=cwd or "~", env=env, patience=40.0)
         audit(self.turn, {"device": alias, "op": "job start", "job": job, "command": shown(argv), "dir": str(cwd or "~"),
-                          "pgid": answer.get("pgid")})
+                          "pgid": answer.get("pgid"),
+                          **({"approved": basis} if basis else {"approved": str(approved)} if approved else {})})
         return {"job": job, "pgid": answer.get("pgid"), "dir": str(cwd or "~")}
 
     def job_status(self, alias, job) -> dict:
@@ -762,6 +1164,8 @@ def trace_text(rows, limit=12) -> str:
                                                           else f"，没有答复（{row['error']}）")
         elif op == "job start":
             tail = f"，任务号 {row.get('job')}"
+        if isinstance(row.get("approved"), dict):
+            tail += f"，主人已同意（{row['approved'].get('answer')}）"  # G4
         seconds = f"（{row['seconds']:g} 秒）" if isinstance(row.get("seconds"), (int, float)) else ""
         lines.append(f"{alias}：{op} `{what}`{tail}{seconds}" if what else f"{alias}：{op}{tail}{seconds}")
     more = len(lines) - limit

@@ -23,7 +23,9 @@ its pid), ``journal`` (append only), ``inbox/<seq>.json``, ``seq`` (the last inp
 An ``exec`` may carry a ``mark`` (the hub's turn, core/device_access.py): while its command runs, its process group is
 kept in ``~/.covey/marks/<hub>/<mark>/<pid>.json`` (pid, start, boot) and the command's environment has
 ``COVEY_DEVICE_MARK=<hub>/<mark>``, so ``reap`` with that ``mark`` stops what is still running of it after the hub's ssh
-went away (the command outlives its connection: an ``exec`` ends only when its command does, or at its timeout).
+went away (the command outlives its connection: an ``exec`` ends only when its command does, or at its timeout). The
+record goes when its command ends, and the mark's folder with its last one; ``gc`` drops the folders and the records of
+gone groups a killed ``exec`` left behind (``gc_marks``).
 """
 from __future__ import annotations
 
@@ -1377,6 +1379,7 @@ def cmd_exec(req, wire):
                 os.unlink(record)
             except OSError:
                 pass
+            drop_empty(marks)  # The mark's folder too, once its last command ended (another of the turn may still run).
 
 
 MARK_ENV = "COVEY_DEVICE_MARK"
@@ -1387,15 +1390,29 @@ def mark_dir(hub, mark):
 
 
 def note_mark(folder, pid):
-    """Keep ``pid``'s group (it leads its own session) under ``folder``: the path written, None when it could not be."""
+    """Keep ``pid``'s group (it leads its own session) under ``folder``: the path written, None when it could not be. The
+    folder made again when another command of the mark ended and took it away in between (``drop_empty``)."""
     info = proc_info(pid)
-    try:
-        os.makedirs(folder, mode=0o700, exist_ok=True)
-        path = os.path.join(folder, "%d.json" % pid)
-        write_json(path, {"pid": pid, "pgid": pid, "start": info[2] if info else None, "boot": boot_id(), "at": now()})
-        return path
-    except OSError:
-        return None
+    path = os.path.join(folder, "%d.json" % pid)
+    for _ in range(3):
+        try:
+            os.makedirs(folder, mode=0o700, exist_ok=True)
+            write_json(path, {"pid": pid, "pgid": pid, "start": info[2] if info else None, "boot": boot_id(), "at": now()})
+            return path
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return None
+    return None
+
+
+def drop_empty(folder):
+    """Remove ``folder`` (a mark's) and its hub's folder when nothing is left in them."""
+    for each in (folder, os.path.dirname(folder)):
+        try:
+            os.rmdir(each)
+        except OSError:
+            return
 
 
 def owns_marked(record, members, marker):
@@ -1602,6 +1619,55 @@ def gc_mirrors(tasks, keep):
     return removed["checkpoints"], removed["incoming"]
 
 
+MARK_STALE = 3600.0  # Seconds before gc drops a mark's record whose group is gone (one just written is left alone).
+
+
+def gc_marks(min_age=MARK_STALE):
+    """Tidy ``~/.covey/marks/<hub>/<mark>/``: a record whose group is gone (or of an earlier boot) and older than
+    ``min_age`` is dropped, as ``reap`` would drop it, and a mark's folder left empty goes, and so does a hub's. A record
+    whose group still runs stays for ``reap``. The marks removed, as ``<hub>/<mark>``."""
+    root = os.path.join(covey_root(), "marks")
+    removed = []
+    for hub in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        folder = os.path.join(root, hub)
+        if os.path.islink(folder) or not os.path.isdir(folder):
+            continue
+        for mark in sorted(os.listdir(folder)):
+            path = os.path.join(folder, mark)
+            if os.path.islink(path) or not os.path.isdir(path):
+                continue
+            try:
+                names = os.listdir(path)
+            except OSError:
+                continue
+            for name in names:
+                entry = os.path.join(path, name)
+                try:
+                    if os.path.islink(entry) or not name.endswith(".json") or time.time() - os.path.getmtime(entry) <= min_age:
+                        continue
+                except OSError:
+                    continue
+                record = read_json(entry) or {}
+                pgid = record.get("pgid")
+                running = (record.get("boot") == boot_id() and isinstance(pgid, int) and not isinstance(pgid, bool)
+                           and pgid > 1 and group_members(pgid))
+                if not running:
+                    try:
+                        os.unlink(entry)
+                    except OSError:
+                        pass
+            try:
+                os.rmdir(path)  # Only when it is empty.
+                removed.append("%s/%s" % (hub, mark))
+            except OSError:
+                pass
+        try:
+            os.rmdir(folder)
+        except OSError:
+            pass
+    return removed
+
+
 def cmd_gc(req, wire):
     keep = number(req.get("keep_days"), 7.0, 0.0, 3650.0) * 86400
     min_age = number(req.get("shim_min_age"), 3600.0, 0.0, 86400.0 * 365)
@@ -1632,7 +1698,7 @@ def cmd_gc(req, wire):
             shims_removed.append(entry)
     checkpoints, incoming = gc_mirrors(tasks, keep)
     return {"removed_tasks": removed, "removed_shims": shims_removed, "kept_shims": shims_kept,
-            "removed_checkpoints": checkpoints, "removed_incoming": incoming}
+            "removed_checkpoints": checkpoints, "removed_incoming": incoming, "removed_marks": gc_marks()}
 
 
 COMMANDS = {"hello": cmd_hello, "spawn": cmd_spawn, "attach": cmd_attach, "send": cmd_send, "status": cmd_status,

@@ -519,9 +519,9 @@ class DirectTest(UpCase):
         self.assertEqual(routed_topic(self.state, CHAT, project["card"]["message_id"]), project["lead_topic_id"])
         self.assertIn("已开专项「迁移订单库」", answer["text"])
 
-    def test_a_project_on_a_devices_workspace_keeps_its_lead_here_and_its_pack_says_where_the_topics_go(self):
-        # COVEY_DEVICES=1: the project's topics go to the device (app/butler_topics.py plan_start); its lead, whose tools are
-        # the Bridge's (core/harness.py DEVICE_OFF: bridge_tools), stays in the butler's workspace and is told.
+    def test_a_project_on_a_devices_workspace_is_refused_and_an_older_ones_pack_says_to_use_the_device_from_the_home(self):
+        # 主人 D2Y4T: no project (no topic) opens on a device's workspace any more; one opened there before keeps its lead here,
+        # and its pack says its new topics start in the home and use the device with covey device.
         (self.root / "devices.json").write_text(json.dumps({"schema": 1, "control_dir": "/dev/shm/covey-ssh-proj", "devices": {
             "gpu1": {"title": "GPU 1", "ssh": {"host": "gpu1.example"}}}}))
         config = load_config(self.state, self.work)
@@ -529,19 +529,24 @@ class DirectTest(UpCase):
         write_json(config_path(self.state), config, ensure_ascii=False, indent=2)
         on = {"COVEY_DEVICES": "1", "COVEY_DEVICES_FILE": str(self.root / "devices.json")}
         with mock.patch.dict(os.environ, on), mock.patch.object(devices, "check_dir", return_value=("ok", "")) as checked:
-            answer = self.start("p9", project=True, title="训练脚本", prompt="在 GPU 上把训练跑通", workspace="gpu1-proj")
+            answer = self.start("p8", project=True, title="训练脚本", prompt="在 GPU 上把训练跑通", workspace="gpu1-proj")
+            self.assertFalse(answer["ok"], answer)
+            self.assertIn("执行设备入口已下线", answer["text"])
+            answer = self.start("p9", project=True, title="训练脚本", prompt="在 GPU 上把训练跑通")
             self.assertTrue(answer["ok"], answer)
-            checked.assert_called_once()
+            checked.assert_not_called()
             project = projects.read_record(self.state, answer["data"]["project_id"])
-            self.assertEqual((project["origin"]["workspace"], project["origin"]["workdir"]), ("gpu1-proj", "gpu1:/home/me/proj"))
+            project["origin"] = {**(project.get("origin") or {}), "topic_id": "", "workspace": "gpu1-proj",
+                                 "workdir": "gpu1:/home/me/proj"}  # As one opened there before D2Y4T kept it.
             lead = load_topic(self.state, project["lead_topic_id"])
-            self.assertEqual((lead["workspace_name"], lead["workdir"]), ("main-space", "/absolute/main"))
+            self.assertFalse(devices.device_shaped(lead["workdir"]), lead["workdir"])  # The lead is here, where its tools are.
             pack = project_lead.state_pack(self.state, project, "k1", full=True, receipts=[])
-            self.assertIn("工作区：专项的话题在设备上的工作区「gpu1-proj」（gpu1:/home/me/proj）里做；你自己在 Bridge 本机", pack)
-            self.assertIn("workspace 填「gpu1-proj」", pack)
-            self.assertNotIn("工作区：专项的话题", project_lead.state_pack(self.state, project, "k2", full=False, receipts=[]))
+            self.assertIn("工作区：专项原来定在设备上的工作区「gpu1-proj」（gpu1:/home/me/proj）；执行设备入口已下线", pack)
+            self.assertIn("covey device 访问 gpu1", pack)
+            self.assertNotIn("workspace 填", pack)
+            self.assertNotIn("工作区：专项原来", project_lead.state_pack(self.state, project, "k2", full=False, receipts=[]))
         # Off, the pack names no device; a project anywhere else never did. Nothing is read for it.
-        self.assertNotIn("工作区：专项的话题", project_lead.state_pack(self.state, project, "k3", full=True, receipts=[]))
+        self.assertNotIn("工作区：专项原来", project_lead.state_pack(self.state, project, "k3", full=True, receipts=[]))
         with mock.patch.object(project_lead, "read_object", side_effect=AssertionError("read with the switch off")):
             self.assertEqual(project_lead.device_workspace(self.state, project), ("", ""))
 
