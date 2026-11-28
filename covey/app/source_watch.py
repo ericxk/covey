@@ -17,7 +17,9 @@ read back every WATCH_SECONDS while its task lives, and for GRACE_SECONDS after 
 
 - **downstream** (``turn_source.downstream``, ``finished_downstream``): the jobs whose 轮次来源 has the message as its
   ``origin.message_id`` (the butler's ``relay`` of the owner's words to a topic): a recall marks their topics as above, an
-  edit goes to the one running as a supplement and is said in a line in the thread of one that ended. The chain stops at
+  edit goes to the one running as a supplement and is said in a line in the thread of one that ended. A supplement has its
+  own downstream too: the topics the butler opened or handed work to for that message alone (its call named it,
+  ``message``: T957), which hear of its recall or edit as above, the butler's turn it went into its line. The chain stops at
   the project's lead: what the lead hands on (``lead``) has no message of the owner's in its origin, so the lead decides
   what its members hear.
 - **answered or held** (``Watched.kind`` ``answer``, ``held``, noted by app/interaction.py ``note_kind``): a message
@@ -268,6 +270,8 @@ class SourceWatch:
         if item.steer is not None:
             if job is not None:
                 self.supplement(app, base, job, recalled_text(item.text), f"recall-{item.message_id}")
+            # A topic the butler opened for this supplement (its call named the message, T957) hears of it too.
+            self.mark_opened(app, base, item, None)
             return
         if job is not None:
             stop_task(app.controls, base, job.topic_id, job.chat_id, job, f"recall-{item.message_id}", by=RECALLED)
@@ -373,9 +377,10 @@ class SourceWatch:
     @staticmethod
     def downstream_of(state, item):
         """(running, finished) job records whose 轮次来源 names the message ``item`` as its origin, other than its own task.
-        A lead's hand-on is not among them: it names a topic, not the message."""
+        A lead's hand-on is not among them: it names a topic, not the message. A supplement's too: a topic the butler opened
+        or handed work to for that message alone names it (its call's ``message``, T957)."""
         gone = lambda records: [r for r in records if r.get("message_id") != item.message_id]  # noqa: E731
-        if item.kind != "task":
+        if item.kind not in ("task", "steer"):
             return [], []
         return (gone(turn_source.downstream(state, item.message_id)),
                 gone(turn_source.finished_downstream(state, item.message_id)))

@@ -8,7 +8,8 @@ path.
 
 The owner's words come from the butler turn itself (``asked``), not from the model: its job record (the message
 and the supplements it took before it started) and the supplements it took while it ran (their delivery records,
-core/deliveries.py). The card and the history show their short form (``said``: "[合并转发 3 条]", his words without the
+core/deliveries.py), each also on its own (``Asked.parts``: a call that names one, ``message``, hands on that one alone,
+``chosen``, T957). The card and the history show their short form (``said``: "[合并转发 3 条]", his words without the
 message he quoted); the topic's model gets what the butler's model read of them (``full``, ``model_words``: a merged
 forward's messages, the message he quoted, the document-link note), the attachments listed once, below (W0-3). The attachments those list are linked or copied into the target topic's incoming_media
 (``carry``), so they reach its model as they would from a message sent there (core/attachments.py
@@ -51,6 +52,18 @@ MERGED = "\n\n用户在任务开始前补充：\n"
 
 
 @dataclasses.dataclass(frozen=True)
+class Said:
+    """One of the owner's messages of a butler turn on its own (``Asked.parts``): its message id ('' when not known), his words
+    (``said``'s short form), when (epoch seconds, 0 unknown), what the butler's model read of it (``model_words``) and the
+    attachments it lists."""
+    id: str = ""
+    words: str = ""
+    at: float = 0
+    full: str = ""
+    attachments: tuple = ()
+
+
+@dataclasses.dataclass(frozen=True)
 class Asked:
     """The owner's messages a butler turn answers: ``said``, (words, when in epoch seconds, 0 unknown) for the
     message it started with (and the supplements it took before it started) then each supplement it took while it
@@ -65,6 +78,24 @@ class Asked:
     message_id: str = ""
     ids: tuple = ()  # Each of ``said``'s message id, in the same order ('' where none is known): the turn's, each supplement's.
     grant: str = ""  # A lead's hand-on: the Bridge's line of the deploy approval it carries (app/project_approvals.py line).
+    # Each of the owner's messages on its own, in the order the butler's model read them (T957): 1 the turn's own, then each
+    # it took before it started (``said``'s first entry joins them), then each supplement; a call's ``message`` picks one
+    # (``only``). () when not known (a lead's hand-on, a record gone).
+    parts: tuple = ()
+
+    def only(self, number) -> "Asked":
+        """This turn narrowed to its ``number``-th message (1-based, ``parts``): its words, its attachments and its message id,
+        the owner's message a topic opened for it hangs under and its relay goes back to (the turn's own for 1, as
+        ``message_id`` says; a supplement's own id when it is one he sent at the top level, else ''). Itself when the
+        number is none of ``parts``."""
+        if type(number) is not int or not 1 <= number <= len(self.parts):
+            return self
+        part = self.parts[number - 1]
+        from covey.core import turn_source
+
+        own = self.message_id if number == 1 else (part.id if part.id.startswith(turn_source.DIRECT) else "")
+        return dataclasses.replace(self, said=((part.words, part.at),), full=(part.full,), attachments=part.attachments,
+                                   message_id=own, ids=(part.id,), parts=(part,))
 
     @property
     def words(self) -> str:
@@ -132,12 +163,13 @@ def _inside(path, roots) -> bool:
     return Path(path).is_absolute() and any(resolved.is_relative_to(Path(root).resolve()) for root in roots)
 
 
-def _supplements(state_dir, record, job_key, since) -> list:
+def _supplements(state_dir, record, job_key, since, *, merged=False) -> list:
     """The delivery records of the supplements the butler job ``job_key`` took while it ran (sent, read, or held
     to be sent), in the order they came; merged ones are in its request already, ``requeue_auto`` ones a turn of their
     own (app/steering.py requeue_lost: the turn never took them), which asks them; ``internal`` ones the Bridge's own
     words, never the owner's (app/interaction.py's tool reminder, W2-A). Files last written before
-    ``since`` (the turn's start, less CLOCK_SLACK) are skipped unread, as core/deliveries.py end_unread does."""
+    ``since`` (the turn's start, less CLOCK_SLACK) are skipped unread, as core/deliveries.py end_unread does. ``merged``:
+    the merged ones alone instead, those it took into its request before it started."""
     topic = str(record.get("topic_id") or "")
     found = []
     since = float(since or 0) - CLOCK_SLACK
@@ -150,7 +182,7 @@ def _supplements(state_dir, record, job_key, since) -> list:
         delivery = read_delivery(path)
         if (isinstance(delivery, dict) and delivery.get("job_key") == job_key
                 and (not topic or delivery.get("topic_id") == topic)
-                and delivery.get("status") in {"sent", "read", "held"} and not delivery.get("merged")
+                and delivery.get("status") in {"sent", "read", "held"} and bool(delivery.get("merged")) is merged
                 and not delivery.get("requeue_auto") and not delivery.get("internal")):
             found.append(delivery)
     return sorted(found, key=lambda delivery: float(delivery.get("saved_at") or 0))
@@ -172,16 +204,63 @@ def asked(state_dir, job_key) -> Asked:
     said, texts = [("\n".join(word for word in words if word), at)], [prompt]
     full = ["\n\n".join(part for part in map(model_words, (first, *merged)) if part)]
     ids = [str(record.get("message_id") or job_key)]
+    topic = str(record.get("topic_id") or butler_topic_id(str(record.get("chat_id") or "")))
+    roots = (Path(state_dir) / "topics" / topic / "incoming_media", Path(state_dir) / "incoming_media")
+
+    def listed(text):
+        return tuple(item for item in parse_attachment_block(text) if _inside(item.path, roots))
+    parts = [Said(ids[0], words[0], at, model_words(first), listed(first))]
+    joined = _supplements(state_dir, record, job_key, at, merged=True) if merged else []
+    # The messages it took before it started: their delivery records name them, in the order they joined (a record gone
+    # leaves the ids unknown, never another message's).
+    joined = joined if len(joined) == len(merged) else [{}] * len(merged)
+    for text, delivery, word in zip(merged, joined, words[1:]):
+        parts.append(Said(str(delivery.get("mid") or ""), word, float(delivery.get("saved_at") or 0) or at,
+                          model_words(text), listed(text)))
     for delivery in _supplements(state_dir, record, job_key, at):
         text = str(delivery.get("text") or "")
         said.append((message_words(text), float(delivery.get("saved_at") or 0)))
         full.append(model_words(text))
         texts.append(text)
         ids.append(str(delivery.get("mid") or ""))
-    topic = str(record.get("topic_id") or butler_topic_id(str(record.get("chat_id") or "")))
-    roots = (Path(state_dir) / "topics" / topic / "incoming_media", Path(state_dir) / "incoming_media")
-    items = [item for text in texts for item in parse_attachment_block(text) if _inside(item.path, roots)]
-    return Asked(tuple(said), tuple(items), roots, full=tuple(full), message_id=owner_message(record), ids=tuple(ids))
+        parts.append(Said(ids[-1], said[-1][0], said[-1][1], full[-1], listed(text)))
+    items = [item for text in texts for item in listed(text)]
+    return Asked(tuple(said), tuple(items), roots, full=tuple(full), message_id=owner_message(record), ids=tuple(ids),
+                 parts=tuple(parts))
+
+
+def message_number(value):
+    """The tool argument ``message`` as a number (1-based; a model may send it as a string of digits), None when the call
+    gives none or one that is no whole number."""
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    return value if type(value) is int else None
+
+
+def message_error(value, owner) -> str:
+    """Why the tool argument ``message`` names none of the owner's messages of the turn ``owner`` (Asked) answers: '' when it
+    names one, or when the call gives none."""
+    if value is None:
+        return ""
+    count = len(owner.parts)
+    number = message_number(value)
+    if number is not None and 1 <= number <= count:
+        return ""
+    if not count:
+        return "这一轮没有可以按序号选的主人消息，不要填 message。"
+    return f"message 是这一轮主人的第几条消息：1 到 {count}（开头那条是 1，补充的接着数）。"
+
+
+def chosen(owner, value, attachments) -> tuple:
+    """(the words a call hands on, the attachments of them it names): with ``value`` (its ``message``, ``message_error``
+    checked) the turn narrowed to that message (``Asked.only``), and with no ``attachments`` given that message's files;
+    the numbers ``attachments`` gives count the whole turn's files, as its description says. Without ``value``: the whole
+    turn and ``attachments`` of all its files, as before."""
+    number = message_number(value)
+    if number is None or not owner.parts:
+        return owner, picked(owner.attachments, attachments)
+    one = owner.only(number)
+    return one, (list(one.attachments) if attachments is None else picked(owner.attachments, attachments))
 
 
 def owner_message(record) -> str:

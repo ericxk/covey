@@ -460,6 +460,8 @@ read、refused、withdrawn：终态
 - 没读到的补充（`app/steer_interrupt.py`）：持有任务后端的进程（任务进程，或 Bridge 自己跑的任务）在补充 `sent` 后起一个 `steer-unread` 线程，送达后 `URGENT_SECONDS`（20 秒，`COVEY_STEER_URGENT_SECONDS`）和 `REPAINT_AT` 各看一次：还没读到就重画回执（“已等 N 秒”）；第一次看时补充是急的（`core/steer.py` 的 `is_urgent`），就调后端的 `stop_command`。点“打断它，马上读”（`bridge_steer_interrupt`，按 `job_id` 转给任务进程）走同一个 `interrupt`。每条补充只试一次（`interrupt_at`；没东西可停时清掉，可以再点），记录里留 `interrupt`（结果的话）和 `interrupted`（停掉的命令）。
 - `stop_command`（能力 `command_stop`，本机的 Claude 和 Antigravity）：从事件里取主任务正在等的前台 Bash 调用（不含后台命令和子任务的命令），在 Claude CLI 的子进程里按命令行找到它的 shell（`backends/claude/command_stop.py`），先送一条说明（为什么命令被停）再停它的进程组（SIGTERM，2 秒后 SIGKILL，pidfd 防 PID 复用）。`core/steer.py` 的 `keeps_running` 列的命令（推送、部署、发布、安装、远程拷贝、改服务、删除和移动）从不停。Antigravity 的 `AgyControl.stop_command` 不找 shell：agy 的补充先暂存，在跑的步骤（适配器报 `step_started`/`step_done`，带 shell 工具的命令）结束后才 SIGINT 重开（没有步骤在跑时立即）；停命令就是不等步骤结束，说明排在暂存的补充前面进下一个进程的消息（`docs/harnesses.md` 的 agy 补充）。
 - 管家的补充没有回执卡：确定没读到的（`refused`，或 `target_ended`）标 `requeue_auto`，由 Bridge 用同一个 `_requeue` 以主人消息的 id 排成新一轮，同样只排一次（[butler.md](butler.md) 收尾时发来的消息）。
+- 管家的补充只进主人自己的话起的那一轮（`app/butler.py` 的 `supplement`、`joins`）：轮次来源的 `joinable` 为否的（`handover` 转交管家、`wake`、`answer_for`、协作的两种）不收顶层没引用它的主人消息，在跑和排着没开跑（并进请求）都一样；引用了它的消息（转交那条“↪ T12 转给管家”或它的任务卡）照旧并进。多路并行关着时这条消息进最新的一轮主人自己的（转交轮排在主人那一轮后面时进主人那一轮），没有就排成自己的一轮。多路并行开着时路由的规则 6 到 9（含小模型）只看 `joinable` 的任务（`core/track_route.py` 的 `LiveJob.joins`），一个都没有就直接开新一路（`why=unjoined`，不问小模型）。
+- 路由和提交之间的竞态：路由按消息到达时在跑的任务定去向，之后才下载附件、写历史、提交，中间能隔几秒。路由时一个在跑的都没有（走原来的路）、提交时却有了（别的线程刚排上的转交轮、作答续接、网页的话），这条消息另起一路（`Butler.handle_event` 传给 `supplement` 的 `late`，即 `Tracks.fresh`），不当那一轮的补充；路由选了空着的一路、提交前被别的轮占了（`Tracks.start`），也重新挑一路，不排在它后面。
 - 第四条出路（WAVE12 W2-B）：转进话题在跑那一轮的话——管家的 `topic_send`、`project_send`，负责人的 `project_topic_send`，撤回编辑送的补充——也没有回执卡，送达记录的 `requeue` 带 `topic: true`（`core/deliveries.py` 的 `handed`），以及下一轮的说明、标题和来源（`source`：`relay`/`lead`，W1-B 盖的章）。确定没读到（`target_ended`，或晚到的 `refused`）时标 `requeue_next`，和自动送进去的话题消息一样排进那个话题（`in_topic`；负责人话题没有根消息，用 `address` 里的 `project-lead-<id>` 别名），新一轮带原来的来源，不当主人的话；排之前话题在等主人答题就交给 `hold`（`app/app.py` 的 `workspace_command`，`note_only`）暂存，记 `requeue_state` 为 `held`，不开新一轮、不冒答。主人停掉的一轮不排，在话题串里说一行（`tell_topic_lost`），可能已送达的（`uncertain`）也只说一行；没有 `requeue` 的旧记录同样只说一行。Bridge 自己发的提醒（记录带 `internal: true`）既不排也不说。任务进程只标记，Bridge 在它结束后或下次启动时排，不受 `COVEY_TOPIC_STEER` 影响（关着时只不排自动送进去的话题消息）。
 
 ## 引用卡片接着说的表情
@@ -824,6 +826,7 @@ cancelled、superseded：终态
   | `read_only`：只读 | 照任务 | 是 | 否，照汇总方原来的授权 | 否 |
   | `own_delivery`：结果是这个话题自己的交付 | 是 | 否 | 是 | 是 |
   | `owner_send`：可以出代发草稿 | 是 | 否 | 是，主人在卡上确认 | 否 |
+  | `joinable`：顶层没引用它的主人新消息可以并进它（补充，或排队时并进请求） | 是 | 否 | 否 | 否，只认引用了转交消息或它的任务卡的 |
 
   转交和续接的五个 kind（`read_only` 都是否，照任务；`own_delivery` 都是是）：
 
@@ -833,6 +836,7 @@ cancelled、superseded：终态
   | `answers_questions` | 否 | 否 | 否 | 是 | 是 |
   | `steers` | 是 | 是 | 否 | 否 | 否 |
   | `owner_send` | 是 | 是 | 否 | 是 | 否 |
+  | `joinable` | 是 | 是 | 否 | 是 | 否 |
 
 - **已接上的消费者**：主人纠正的记忆（`app/memory_collect.py`）和记一下（`app/knowledge_collect.py`）的 `reason_to_ignore` 多一个 `not-owner-words`；代发草稿（`app/owner_send.py` 的 `collect`）；`Submission.enqueue_chat_job` 的 `source`：不是主人的话不触发负责人的主人触发轮（`project_loop.owner_turn`；管家的 `project_send` 开的新一轮自己补调一次），也不当补充送进在跑的任务；`TaskControls.acknowledge_waiting_answer` 和 `Runs._continue_previous` 都问 `answers_questions`，转交和派活不收尾话题里等回答的那一轮。
 - **谁答的** `AnswerBy`（`app/answers.py`，`party`、`channel`、`open_id`、`message_id`）：话题里的话（`owner/message`，消息 id）、卡上点（`owner/card`）、网页（`owner/web`，操作 id）、管家 `question_answer`（`butler/tool`，主人那条消息的 id，取不到就不代答）、负责人 `project_answer`（`lead/tool`）；发的人不是主人（群成员在自己的话题里答）时 `party` 为空。问题进 `submitting` 的同一次写落 `answer_by`（`party`、`channel`、`message_id`）；交给任务进程时 `by` 仍是 open_id 字符串（旧任务进程只读它），另加可选的 `answer_by`。只有主人自己的（他的 open_id）或管家带主人消息代答的记成主人的决定（`origin` 带 `question`、`message_id`、`via`）；卡上附带的“以后这类按推荐走”只认主人点卡和网页（`owner_clicked`）。

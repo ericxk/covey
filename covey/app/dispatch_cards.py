@@ -297,10 +297,11 @@ def opened_turn(state_dir, mid) -> bool:
 
 
 def _created(env, request, topic_id, job_key, token, mid, project=False) -> str:
-    from covey.app.relay_targets import butler_job_owner_message
+    from covey.app.relay_targets import said_message
 
     chat, state = env.chat(), Path(env.state_dir)
-    owner = butler_job_owner_message(state, job_key)
+    # The owner's question the card goes under: the turn's message the call names (``message``, T957), else its first.
+    owner = said_message(state, job_key, (getattr(request, "args", None) or {}).get("message"))
     if not chat or not owner or not topic_id:
         return ""
     path = records.record_path(state, token)

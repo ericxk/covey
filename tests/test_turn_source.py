@@ -130,15 +130,15 @@ class ProvenanceTest(unittest.TestCase):
 
 
 # WAVE12 C1: the five kinds of the hands-on and continuations, cell by cell (owner_words, answers_questions, steers,
-# read_only, own_delivery, owner_send).
+# read_only, own_delivery, owner_send; joinable since T957).
 TABLE = {
-    "relay": (False, False, True, False, True, True),
-    "lead": (False, False, True, False, True, True),
-    "wake": (False, False, False, False, True, False),
-    "answer": (True, True, False, False, True, True),
-    "answer_for": (False, True, False, False, True, False),
+    "relay": (False, False, True, False, True, True, True),
+    "lead": (False, False, True, False, True, True, True),
+    "wake": (False, False, False, False, True, False, False),
+    "answer": (True, True, False, False, True, True, True),
+    "answer_for": (False, True, False, False, True, False, False),
 }
-FIELDS = ("owner_words", "answers_questions", "steers", "read_only", "own_delivery", "owner_send")
+FIELDS = ("owner_words", "answers_questions", "steers", "read_only", "own_delivery", "owner_send", "joinable")
 
 
 def hand_on(kind_):
@@ -161,7 +161,7 @@ class NewKindsTest(unittest.TestCase):
 
     def test_each_new_kind_has_its_row_cell_by_cell(self):
         self.assertEqual(set(TABLE), NEW_KINDS)
-        self.assertEqual(dataclasses_fields(turn_source.Behavior), FIELDS)  # The six fields, as they were.
+        self.assertEqual(dataclasses_fields(turn_source.Behavior), FIELDS)  # The six fields as they were, and joinable.
         for kind_, cells in TABLE.items():
             row = turn_source.BEHAVIOR[kind_]
             for field, cell in zip(FIELDS, cells):

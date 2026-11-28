@@ -111,6 +111,22 @@ def butler_job_owner_message(state_dir, butler_job_key) -> str:
     return _owner_message(find_job_record(Path(state_dir), str(butler_job_key or "")) or {})
 
 
+def said_message(state_dir, butler_job_key, message=None) -> str:
+    """The owner's top-level message a call of the butler job ``butler_job_key`` is for: the one the call's ``message`` names
+    (app/butler_handoff.py message_number: 1-based, the turn's own first, then each message it took) when that is a later
+    one he sent in Feishu (its own id, T957), else the one the job answers (``butler_job_owner_message``). '' when none is
+    known."""
+    from covey.app import butler_handoff
+
+    number = butler_handoff.message_number(message)
+    if number is not None and number > 1:
+        parts = butler_handoff.asked(state_dir, butler_job_key).parts
+        if number <= len(parts):
+            mid = parts[number - 1].id
+            return mid if mid.startswith("om_") else ""
+    return butler_job_owner_message(state_dir, butler_job_key)
+
+
 def _handed_up(state_dir, key):
     """The jobs from the job ``key`` up the hand-ons it came from, each as (key, record): a job whose message id (that of
     its automatic retry chain's first, ``_origin_job``) is a hand-on's, "main-<token>", came from the job its

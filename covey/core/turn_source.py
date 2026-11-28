@@ -7,8 +7,9 @@ on as before (the message id's prefix, the sender, the topic's role), so nothing
 its queued file and its handoff's extras; a model's tool argument never sets it.
 
 - ``behavior``: one row of ``BEHAVIOR`` a kind (owner's words or not, may answer a waiting question, may go in as a 补充, held to
-  reading, is its topic's own delivery, may draft a 代发): every consumer asks it, none reads the kind itself. A kind this
-  release does not know, or a malformed field, gets ``NOTHING``.
+  reading, is its topic's own delivery, may draft a 代发, may take the owner's next top-level message that does not quote
+  it): every consumer asks it, none reads the kind itself. A kind this release does not know, or a malformed field, gets
+  ``NOTHING``.
 - ``refusal``: why this release does not run a job ('' when it does). Outside ``RUNS`` (a newer release's kind, a newer
   version, a malformed field) it never runs, whatever the switch: app/job_dispatch.py and
   app/worker.py record it cancelled and never started instead of running its text as the owner's message. A kind in
@@ -91,33 +92,39 @@ class Behavior:
     # its collaboration record's (app/collab_flow.py), which settles it, queues it again or ends it.
     own_delivery: bool
     owner_send: bool  # Its checkpoint's send_as_owner drafts are offered (the owner confirms each on its card).
+    # An owner's message at the butler's top level that does not quote it may join it, as a 补充 or into its request while it
+    # is queued (app/butler.py supplement, core/track_route.py LiveJob.joins): a turn on his own words there. False for a
+    # turn the Bridge started (a handover, a wake-up, an answer a lead gave, a 协作 turn): his next message, sent while it
+    # runs or waits to start, is a request of its own unless it quotes that turn's message or card (T957: the owner's
+    # unrelated message, sent as the turn of "↪ T818 转给管家" was queued, went into it).
+    joinable: bool
 
 
 AS_BEFORE = Behavior(owner_words=True, answers_questions=True, steers=True, read_only=False, own_delivery=True,
-                     owner_send=True)
+                     owner_send=True, joinable=True)
 NOTHING = Behavior(owner_words=False, answers_questions=False, steers=False, read_only=True, own_delivery=False,
-                   owner_send=False)
+                   owner_send=False, joinable=False)
 BEHAVIOR = {
     LEGACY: AS_BEFORE,
     OWNER: AS_BEFORE,
     ASK: Behavior(owner_words=False, answers_questions=False, steers=False, read_only=True, own_delivery=False,
-                  owner_send=False),
+                  owner_send=False, joinable=False),
     REPLY: Behavior(owner_words=False, answers_questions=False, steers=False, read_only=False, own_delivery=True,
-                    owner_send=True),
+                    owner_send=True, joinable=False),
     HANDOVER: Behavior(owner_words=True, answers_questions=False, steers=False, read_only=False, own_delivery=True,
-                       owner_send=False),
+                       owner_send=False, joinable=False),
     # The words of a hand-on are the butler's or the lead's (the owner's own, when there are, are in its origin), so none
     # of them answers a waiting question or is memory's; each is its topic's own delivery.
     RELAY: Behavior(owner_words=False, answers_questions=False, steers=True, read_only=False, own_delivery=True,
-                    owner_send=True),
+                    owner_send=True, joinable=True),
     LEAD: Behavior(owner_words=False, answers_questions=False, steers=True, read_only=False, own_delivery=True,
-                   owner_send=True),
+                   owner_send=True, joinable=True),
     WAKE: Behavior(owner_words=False, answers_questions=False, steers=False, read_only=False, own_delivery=True,
-                   owner_send=False),
+                   owner_send=False, joinable=False),
     ANSWER: Behavior(owner_words=True, answers_questions=True, steers=False, read_only=False, own_delivery=True,
-                     owner_send=True),
+                     owner_send=True, joinable=True),
     ANSWER_FOR: Behavior(owner_words=False, answers_questions=True, steers=False, read_only=False, own_delivery=True,
-                         owner_send=False),
+                         owner_send=False, joinable=False),
 }
 
 

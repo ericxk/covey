@@ -19,6 +19,10 @@ order, and answers a ``Decision(action, target, why)``; the first rule that matc
    CORRECTION_PREFIXES word: ``merge`` into the newest track;
 9. the rest: ``ask_judge`` (app/track_judge.py asks a small model); with ``judge`` false (switch off, no model) it is ``new``.
 
+Rules 6 to 9 only see the tasks an unquoted message may join (``LiveJob.joins``, core/turn_source.py Behavior.joinable): a
+turn the Bridge started for the owner (a handover, "↪ T12 转给管家") takes his words only when he quotes it (rule 4). With
+none of those live, the message is ``new`` (why ``UNJOINED``) and the small model is not asked (T957).
+
 Who a quote points at is the caller's work (app/butler_tracks.py reads the topic aliases and the supplement delivery
 records); this module reads no file and calls no interface. A quote it cannot place (``unknown``) skips rules 3 to 8:
 it is not a plain message, and not what any of them recognises, so only the judge or ``new`` may decide it.
@@ -73,6 +77,9 @@ QUESTION_MARKS = ("?", "？")
 CORRECTION_SECONDS = 60
 CORRECTION_PREFIXES = ("不对", "不是", "错了", "我是说", "我的意思是", "补充", "另外", "改成", "换成", "等一下", "对，", "对,")
 
+# Why a message that quotes nothing is ``new`` when no live task may take it (each is a turn the Bridge started).
+UNJOINED = "unjoined"
+
 
 @dataclasses.dataclass(frozen=True)
 class LiveJob:
@@ -87,6 +94,7 @@ class LiveJob:
     started_at: float = 0
     last_owner_at: float = 0
     number: int = 0
+    joins: bool = True  # A message that quotes nothing may join it (rules 6 to 9); False: only by a quote (rule 4).
 
 
 @dataclasses.dataclass(frozen=True)
@@ -174,11 +182,14 @@ def route(message: Message) -> Decision:
     if quote.kind == Q_UNKNOWN:
         return Decision(ASK_JUDGE if message.judge else NEW, None, "9")
 
-    paused = [job for job in live if job.phase == PAUSED]
+    joinable = tuple(job for job in live if job.joins)
+    if not joinable:
+        return Decision(NEW, None, UNJOINED)
+    paused = [job for job in joinable if job.phase == PAUSED]
     if len(paused) == 1 and not message.bare and text and not any(mark in text for mark in QUESTION_MARKS) and (
             len(text) <= ANSWER_MAX or is_option(sentence)):
         return Decision(MERGE, paused[0].track, "6", paused[0].job_id, answers=True)
-    latest = newest(live)
+    latest = newest(joinable)
     if message.bare:
         return Decision(MERGE, latest.track, "7", latest.job_id)
     if (latest.last_owner_at and 0 <= message.now - latest.last_owner_at < CORRECTION_SECONDS

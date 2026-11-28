@@ -30,7 +30,7 @@ from pathlib import Path
 from covey.app import assist, butler_reactions, runner_ipc, track_judge
 from covey.core import butler_tracks as core
 from covey.core import butler as contract
-from covey.core import inbound_ledger
+from covey.core import inbound_ledger, turn_source
 from covey.core import track_route as route
 from covey.core.deliveries import delivery_path, read_delivery
 from covey.core.harness import backend_capabilities
@@ -77,10 +77,12 @@ def live_entries(runtime, state, chat, now, last_owner=None) -> list:
             if stage == "ended":
                 continue
             started = float((getattr(job, "timings", None) or {}).get("received") or 0)
+            joins = turn_source.behavior(job).joinable
             found.append(Entry(route.LiveJob(
                 track=slot, job_id=str(job.job_id), phase=stage, request=str(job.user_text or ""), started_at=started,
-                last_owner_at=max(started, last_owner.get(job.job_id, 0)), number=int(job.job_id)), job,
-                tuple(filter(None, (job.message_id, getattr(job.progress, "message_id", ""), job.reply_to_message_id)))))
+                # A turn the Bridge started (a handover) has no owner's word of its own to correct (rule 8).
+                last_owner_at=max(started if joins else 0, last_owner.get(job.job_id, 0)), number=int(job.job_id),
+                joins=joins), job, job_ids(job)))
     have = {entry.live.job_id for entry in found}
     records = []
     for slot, topic in enumerate(ids):
@@ -88,11 +90,19 @@ def live_entries(runtime, state, chat, now, last_owner=None) -> list:
             at = epoch_seconds(record.get("updated_at") or record.get("created_at"))
             if at is None or now - at > WAITING_FRESH or str(record.get("job_id")) in have:
                 continue
+            joins = turn_source.behavior(record).joinable
             records.append(Entry(route.LiveJob(
                 track=slot, job_id=str(record.get("job_id")), phase=route.PAUSED, request=str(record.get("user_text") or ""),
-                started_at=at, last_owner_at=at, number=int(record.get("job_id") or 0)), None,
+                started_at=at, last_owner_at=at if joins else 0, number=int(record.get("job_id") or 0), joins=joins), None,
                 tuple(filter(None, (record.get("key"), record.get("card_message_id"), record.get("reply_to_message_id"))))))
     return found + records
+
+
+def job_ids(job) -> tuple:
+    """The messages that stand for the live task ``job`` (a quote of one of them is a quote of it): the message it answers,
+    its task card, the message its reply quotes."""
+    return tuple(filter(None, (str(job.message_id or ""), str(getattr(job.progress, "message_id", "") or ""),
+                               str(job.reply_to_message_id or ""))))
 
 
 def others_going(entries, job_id) -> int:
@@ -182,24 +192,28 @@ class Tracks:
         if decision.why == "9" and decision.action in (route.ASK_JUDGE, route.NEW) and not bare and text.strip():
             held = self.bare.get(chat)  # Words right after a forward, a file or a link: they go where it went.
             if held and now - held[1] <= BARE_SECONDS and not quoted_id(event):
-                target = self.newest_of(entries, held[0])
+                target = self.newest_of(entries, held[0], joins=True)
                 if target is not None:
                     return route.Decision(route.MERGE, held[0], "bare", target.live.job_id)
         if decision.action != route.ASK_JUDGE:
             return decision
-        # The 辅助模型's Harness (app/assist.py): one try, a new track on any failure.
+        # The 辅助模型's Harness (app/assist.py): one try, a new track on any failure. It chooses among the tasks a message
+        # that quotes nothing may join (the router's rules 6 to 9), never a turn the Bridge started (T957).
+        message = dataclasses.replace(message, live=tuple(job for job in message.live if job.joins))
         verdict = assist.judge(message, topics=self.main.topics, log=self.runtime.log)
         if verdict.route == "merge" and verdict.target is not None:
             fresh = self.entries(ctx, chat, now)  # The model took a while: the task may have ended meanwhile.
-            target = self.newest_of(fresh, verdict.target)
+            target = self.newest_of(fresh, verdict.target, joins=True)
             if target is not None:
                 return route.Decision(route.MERGE, verdict.target, "judge", target.live.job_id,
                                       answers=target.live.phase == route.PAUSED)
         return route.Decision(route.NEW, None, "judge")
 
     @staticmethod
-    def newest_of(entries, slot):
-        rows = [entry for entry in entries if entry.live.track == slot]
+    def newest_of(entries, slot, *, joins=False):
+        """The newest live task of track ``slot`` in ``entries``; ``joins``: of those a message that quotes nothing may join
+        (a turn the Bridge started queued behind the owner's own on that track is not). None when it has none."""
+        rows = [entry for entry in entries if entry.live.track == slot and (entry.live.joins or not joins)]
         return max(rows, key=lambda entry: (entry.live.started_at, entry.live.number), default=None)
 
     # -- the slots ---------------------------------------------------------------------------------------------------
@@ -290,12 +304,14 @@ class Tracks:
             self.last_owner[int(decision.job_id)] = now
         self.remember_bare(chat, slot, bare, now)
         job = None if decision.answers or entry is None else entry.job
-        supplement = functools.partial(self.main.supplement, app, chat, bare=bare, target=job, fresh=(
+        supplement = functools.partial(self.main.supplement, app, chat, bare=bare, target=job, quoted=quoted_id(event), fresh=(
             None if decision.answers or job is None else lambda: self.fresh(ctx, app, chat, message, bare, now)))
         app.handle_event(event, step_ctx, supplement=supplement, routed=True)
 
     def start(self, ctx, app, event, chat, message, decision, bare, now) -> None:
-        """A request of its own on a track."""
+        """A request of its own on a track. A free track that a turn took while the message's attachments were read (a
+        handover queued meanwhile) is left to it: the message picks its track again (``fresh``) instead of queueing
+        behind that turn, and never joins it."""
         entries = self.entries(ctx, chat, now)
         slot, free = self.pick_slot(ctx, chat, entries)
         step_ctx = self.enter(ctx, app, chat, message, slot, free=free)
@@ -305,7 +321,10 @@ class Tracks:
         if decision.text:  # Rule 3: it was merged into a task before; the owner wants it answered on its own.
             self.noted("alone", chat, quoted_id(event), ctx=ctx, app=app)
             event = {**event, "message_type": "text", "content": json.dumps({"text": decision.text}, ensure_ascii=False)}
-        app.handle_event(event, step_ctx, hold=self.main.hold_for(chat, bare) if slot == 0 else 0, routed=True)
+        late = functools.partial(self.main.supplement, app, chat, bare=bare, late=functools.partial(
+            self.fresh, ctx, app, chat, message, bare, now)) if free else None
+        app.handle_event(event, step_ctx, hold=self.main.hold_for(chat, bare) if slot == 0 else 0, routed=True,
+                         **({"supplement": late} if late is not None else {}))
 
     def fresh(self, ctx, app, chat, message, bare, now):
         """The context of ``message`` as a track of its own, for a supplement that was refused: ``Butler.supplement``

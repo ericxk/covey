@@ -149,6 +149,10 @@ def project_send(env, request):
         return reply(False, "text 不能为空：写这次交给负责人的事。")
     if butler_handoff.choice_error(request.args.get("attachments")):
         return reply(False, butler_handoff.choice_error(request.args.get("attachments")))
+    refused = butler_handoff.message_error(request.args.get("message"), butler_handoff.asked(state, request.job_key)) \
+        if request.args.get("message") is not None else ""
+    if refused:
+        return reply(False, refused)
     path, token = butler_opened.record_path(state, request), butler_opened.request_token(request)
     saved = read_object(path)
     if saved.get("answer"):
@@ -185,10 +189,11 @@ def _send(env, request, chat, state, text, path, token):
     note = {"request": request.id, "job_key": request.job_key, "chat_id": chat, "lead_topic_id": lead, "project_id": record["id"],
             "at": time.time()}
     butler_opened.save(path, note)
-    owner = butler_handoff.asked(state, request.job_key)
     # His files go to the lead with his words (T856): it sees them, and hands them on to the topics it names them for. Those
-    # the call names (``attachments``, all by default): one message for two projects, or a project and a topic (W2-B).
-    chosen = butler_handoff.picked(owner.attachments, request.args.get("attachments"))
+    # the call names (``attachments``, all by default): one message for two projects, or a project and a topic (W2-B). A call
+    # that names one of the turn's messages (``message``, T957) hands on that message's words and files alone.
+    owner, chosen = butler_handoff.chosen(butler_handoff.asked(state, request.job_key), request.args.get("message"),
+                                          request.args.get("attachments"))
     items = butler_handoff.carry(chosen, butler_topics.media_dir(ctx), owner.roots) if chosen else []
     sent = lead_prompt(name, text, owner, items)
     taken = (f"收进专项的话题：{'、'.join(joined)}（不打断它们）。" if joined else "") + (

@@ -19,17 +19,26 @@ TOPIC = {"type": "string", "description": "话题：T 号（如 T412）或 topic
 ASK_NOTE = "什么时候问主人话题自己知道，不用写“严禁发问题卡”“别问我”"
 TASK = ("交给话题的任务说明：做什么、范围、约束，用主人的说法；不含路由用语（开话题、放到哪个 T 号、转给谁）和本机路径。"
         "主人原话和附件由 Bridge 附上。" + ASK_NOTE)
-ATTACHMENTS = {"description": "可选，主人这条消息的附件交给它哪些：all 全部（默认）、none 不给、或序号列表（如 [\"图片 1\", \"文件 2\"]，"
-                              "或按附件块里的先后写 [1, 3]）。这一轮里主人又补充了消息时，补充的附件接在后面连着数"
-                              "（第一条有图片 1，补充里的图片 1 就是图片 2）。一条消息拆成几件事时，用它把附件分给对应的话题",
+ATTACHMENTS = {"description": "可选，交给它哪些附件：all 全部、none 不给、或序号列表（如 [\"图片 1\", \"文件 2\"] 或 [1, 3]），"
+                              "补充消息的附件接着数（第一条有图片 1，补充里的图片 1 就是图片 2）；不填：填了 message 给那条的，"
+                              "否则全给。拆成几件事时用它分附件",
                "anyOf": [{"type": "string", "enum": ["all", "none"]},
                          {"type": "array", "items": {"anyOf": [{"type": "integer", "minimum": 1}, {"type": "string"}]}}]}
+# 一轮几条消息 (T957): the owner's messages of the butler's turn, the one it started on and each supplement after it, counted
+# from 1; a call that names one hands on that message's words (and, with no ``attachments``, its files) alone, and the topic it
+# opens hangs under it (app/butler_handoff.py only, app/butler_topics.py said_message). topic_start's says it whole, the
+# others point at it: agy's room (backends/agy/home.py EAGER_BYTES).
+MESSAGE = {"type": "integer", "minimum": 1,
+           "description": "可选，这件事出自主人这一轮第几条消息（开头那条是 1，补充的接着数）：只带那条的原话，话题挂在那条下面。"
+                          "一轮里几条消息说的是不同的事时填"}
+MESSAGE_SHORT = {"type": "integer", "minimum": 1, "description": "可选，同 topic_start 的 message"}
 # A lead's project_topic_start and project_topic_send: the owner's files it got go on to the topic it names them for, none
 # unnamed (T856: 转不转给话题由负责人决定). Short: agy's room for a lead's tools.
 LEAD_ATTACHMENTS = {"type": "array", "items": {"type": "string"}, "description": "可选，转给它的附件，如[\"图片 1\"]或[\"all\"]；不写不转"}
 # project_send's: which of the owner's files go to the lead (WAVE12 W2-B: one message for two projects or a project and a
 # topic). Short, as the lead's: agy's room for the butler's tools.
-SEND_ATTACHMENTS = {"type": "array", "items": {"type": "string"}, "description": "可选，主人的附件给负责人哪些，如[\"图片 1\"]或[\"none\"]；不写全给"}
+SEND_ATTACHMENTS = {"type": "array", "items": {"type": "string"},
+                    "description": "可选，主人的附件给负责人哪些，如[\"图片 1\"]或[\"none\"]；不写全给（填了 message 给那条的）"}
 HARNESS_ARG = ("主人点名用哪个 Harness 时必须填（如“用 Claude Code”“让 Codex 做”），值写 Harness 名：claude、codex 等；"
                "主人没点名就不填，用设置里的默认")
 MODEL_ARG = "主人点名用哪个模型时必须填，写模型名；主人没点名就不填，用设置里的默认"
@@ -158,6 +167,7 @@ TOOLS = (
          "title": {"type": "string", "description": "话题的标题，说是哪件事：中文、中文标点（：，不用半角 : ,），20 字以内"},
          "prompt": {"type": "string", "description": TASK},
          "attachments": ATTACHMENTS,
+         "message": MESSAGE,
          "repos": REPOS_ARG,
          "workspace": WORKSPACE_ARG,
          "local": LOCAL_ARG,
@@ -181,6 +191,7 @@ TOOLS = (
          "title": {"type": "string", "description": "可选，开下一轮时任务卡上的标题，中文，20 字以内；不填用话题原来的标题"},
          "criteria": CRITERIA_CHANGE,
          "attachments": ATTACHMENTS,
+         "message": MESSAGE_SHORT,
          "memory": MEMORY_ARG}}},
     {"name": "topic_fork",
      "description": "从一个已有话题分叉出新话题：新话题带着原话题的背景，原话题不受影响。相关但不是同一件事、又需要原话题的上下文时用。",
@@ -188,6 +199,7 @@ TOOLS = (
          "topic": TOPIC, "title": {"type": "string", "description": "新话题的标题，说是哪件事：中文、中文标点，20 字以内"},
          "prompt": {"type": "string", "description": TASK},
          "attachments": ATTACHMENTS,
+         "message": MESSAGE_SHORT,
          "memory": MEMORY_ARG}}},
     {"name": "question_answer",
      "description": "主人说了怎么答某个话题的选择题时（如“T412 选 A”），替他答掉。只认选择题：每题都要答，选项必须是列表里的原文，"
@@ -522,6 +534,7 @@ BUTLER_PROJECT_TOOLS = (
          "pid": {"type": "string", "description": "专项的 id（projects_list 里的），或它名字里的几个字"},
          "text": {"type": "string", "description": "交给负责人的内容：主人这次要它做或改的事"},
          "attachments": SEND_ATTACHMENTS,
+         "message": MESSAGE_SHORT,
          "topics": {"type": "array", "items": {"type": "string"},
                     "description": "可选：主人要收进这个专项的已有话题，T 号（如 T531）或话题 id，一个一项。直接挂进专项、交给负责人跟进，"
                                    "正在跑的不打断，等主人回答的问题仍归主人；挂不上的（没找到、已在别的专项里）回复里会逐个说，要转告主人"}}}},

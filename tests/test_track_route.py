@@ -330,3 +330,36 @@ class CorpusTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JoinableTest(unittest.TestCase):
+    """T957: a turn the Bridge started for the owner (a handover, "↪ T12 转给管家") takes his next message only when he
+    quotes it: rules 6 to 9 see only the tasks a message that quotes nothing may join (``LiveJob.joins``)."""
+
+    @staticmethod
+    def handover(track=0, phase="running", started=20):
+        return LiveJob(track, "jh", phase, "↪ T818 转给管家", NOW - started, 0, joins=False)
+
+    def test_with_only_a_handover_live_a_message_is_its_own_and_no_judge_is_asked(self):
+        hand = self.handover()
+        for text, fields in (("将上述谱子整理成pdf发我", {}), ("", {"bare": True}), ("另外再看一下日志", {}),
+                             ("好", {}), ("可以", {})):
+            with self.subTest(text=text, **fields):
+                self.assertEqual(say(text, hand, **fields), Decision(NEW, None, track_route.UNJOINED))
+        self.assertEqual(say("另外再看一下", self.handover(phase="paused")).action, NEW)
+
+    def test_quoting_the_handover_still_joins_it_and_a_stop_word_still_stops_it(self):
+        hand = self.handover()
+        self.assertEqual(say("这个先别开专项", hand, quote=Quote(track_route.Q_LIVE, 0, "jh")),
+                         Decision(MERGE, 0, "4", "jh"))
+        self.assertEqual(say("停", hand).action, STOP)
+
+    def test_attachments_and_a_correction_go_to_the_owners_own_task_not_the_newer_handover(self):
+        mine = LiveJob(1, "j1", "running", "整理对比表", NOW - 300, NOW - 30)
+        hand = self.handover(track=0, started=10)
+        self.assertEqual(say("", mine, hand, bare=True), Decision(MERGE, 1, "7", "j1"))
+        self.assertEqual(say("另外加上价格一列", mine, hand), Decision(MERGE, 1, "8", "j1"))
+        self.assertEqual(say("明天北京天气怎么样", mine, hand).action, ASK_JUDGE)
+
+    def test_a_task_joins_by_default(self):
+        self.assertTrue(LiveJob(0, "j0", "running").joins)

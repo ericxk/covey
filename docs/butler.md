@@ -92,7 +92,7 @@
 
 默认开，`COVEY_BUTLER_TRACKS=0` 关（[配置](configuration.md#环境变量与选项一览)）。管家这一轮在做事时，主人的下一句不被挡在后面：管家变成一个**话题家族**，现在的管家话题之外再有固定 4 路，每路是管家会话的一个分叉，各自跑一轮普通的管家任务。`COVEY_BUTLER_TRACKS_MAX` 是同时在跑的件数上限（默认 3，取值 2 到 4），到了上限的新事排在最空的那一路后面。
 
-- 新的一句先按规则分流（引用了哪件事就给哪件），判不出时问小模型：并进某件在做的事、另起一件，或停止。
+- 新的一句先按规则分流（引用了哪件事就给哪件），判不出时问小模型：并进某件在做的事、另起一件，或停止。Bridge 替你起的那一轮（“↪ T12 转给管家”）只收引用了它的话，没引用的新消息另起一件。
 - 说“停”“别做了”停掉对应的那件，不建任务、不进模型。
 - 管家的下一轮开头带上别的几路这段时间答了什么，所以管家记得住。
 - 开了又关：几路的话题留在盘上，这时它们是普通话题，回答、引用老卡照样能接着用。
@@ -181,9 +181,9 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 | `topics_search` | clues*、limit | 按线索找是哪个话题哪一轮做的 |
 | `topic_read` | topic*、job、turns | 读话题最近几轮：问题、结论、检查点、没答的问题 |
 | `repos_list` | 无 | 列主目录、仓库地图（名字、状态：可写、只读、冻结，原地改的标出，用途、路径）和调用的这个话题在改、在读的仓库（`app/repos_turn.py` 的 `repos_list`，结构化结果另放在 `data` 里）；地图里还没有仓库时列登记的工作区 |
-| `topic_start` | title*、prompt*、user_requested*、why*、repos、workspace、local、memory、attachments、criteria、harness、model、effort、basis | 为新的事开话题，从主目录直接开工；`local: false` 是用不上本机仓库和文件的外部话题（见[外部话题](#外部话题)）；`memory` 是带给它的记忆短码（见[派活时挑带](#派活时挑带)）；`repos` 是要用的仓库（`[{name, mode: read|write}]`，最多 10 项，冻结或只读的仓库不能写）；旧参数 `workspace` 当作一项只读仓库；填了 harness、model、effort 要写 basis（见下面[点名配置的依据](#点名配置的依据)） |
-| `topic_send` | topic*、text*、note、title、criteria、attachments、memory | 把主人的话追加给已有话题；`memory` 同 `topic_start`，追加进它带的那几条 |
-| `topic_fork` | topic*、title*、prompt*、attachments、memory | 从已有话题分叉 |
+| `topic_start` | title*、prompt*、user_requested*、why*、repos、workspace、local、memory、attachments、message、criteria、harness、model、effort、basis | 为新的事开话题，从主目录直接开工；`local: false` 是用不上本机仓库和文件的外部话题（见[外部话题](#外部话题)）；`memory` 是带给它的记忆短码（见[派活时挑带](#派活时挑带)）；`repos` 是要用的仓库（`[{name, mode: read|write}]`，最多 10 项，冻结或只读的仓库不能写）；旧参数 `workspace` 当作一项只读仓库；`message` 见[一轮几条消息](#一轮几条消息)；填了 harness、model、effort 要写 basis（见下面[点名配置的依据](#点名配置的依据)） |
+| `topic_send` | topic*、text*、note、title、criteria、attachments、message、memory | 把主人的话追加给已有话题；`memory` 同 `topic_start`，追加进它带的那几条 |
+| `topic_fork` | topic*、title*、prompt*、attachments、message、memory | 从已有话题分叉 |
 | `question_answer` | topic*、answers* | 替主人答选择题 |
 | `topic_priority` | topic*、remove | 看板本组内提前，或撤下（任务照跑） |
 | `topic_stop` | topic*、why | 真停掉一个普通话题：排队和在跑的任务停下，等你回答的问题和没开工的启动卡收掉；话题还在，在里面说一句就接着做。专项的话题不停，回一句交给负责人 |
@@ -194,7 +194,7 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 | `topics_switch` | topics*、basis*、harness、model、effort | 在私聊发批量换配置卡，主人点「确认更换」后才逐个换（[批量换配置](usage.md#批量换配置)） |
 | `history_search` | query*、workspace、since | 搜 Claude、Codex、Bridge 的历史轮次（只有 `COVEY_HISTORY_CMD` 是绝对路径才列） |
 | `projects_list` | 无 | 列专项：id、名字、状态、专项的话题的 T 号、负责人最近一句（专项没关才列） |
-| `project_send` | pid*、text*、attachments、topics | 把主人的话交给专项的负责人，按主人触发的一轮处理（同上）；`attachments` 挑主人这条消息的哪些附件给负责人（不写全给，`["none"]` 不给）；`topics` 里的已有话题先直接收进这个专项 |
+| `project_send` | pid*、text*、attachments、message、topics | 把主人的话交给专项的负责人，按主人触发的一轮处理（同上）；`attachments` 挑主人这条消息的哪些附件给负责人（不写全给，`["none"]` 不给）；`topics` 里的已有话题先直接收进这个专项 |
 | `projects_tidy` | scope | 整理一遍专项（只在开了[整理专项](projects.md#整理专项)时列） |
 
 旧会话里的工具名照样能调：`workspaces_list` 当 `repos_list`，`principle_save`、`knowledge_save` 当 `memory_save`，`principle_delete`、`knowledge_update`、`knowledge_drop` 当 `memory_revise`，`principles_list`、`knowledge_search` 当 `memory_search`，参数按旧的写法收（`core/butler_tool_specs.py` 的 `RENAMED_TOOLS`）。这几个旧名不再列给模型。记忆工具在 `app/butler_knowledge.py` 有了自己的处理之前，规矩记成原则、资料和决定记成知识条目（`app/butler_tools.py`）。
@@ -236,6 +236,15 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 - **任务说明**：管家写的 `prompt`/`text`，后跟“管家补充：note”。不用写“别发问题卡”：话题每一轮的执行约定里有[什么时候问](architecture.md#什么时候问)，`topic_start` 的 `prompt` 说明也这样告诉管家；负责人交来的，说明里只点部署、删除、花钱、对外发送、占机器照常问。
 - **主人原话**（`asked`）：管家这一轮记录的 `user_text` 加运行中收到的补充，按时间引用。
 - **附件**（`carry`）：只认管家话题 `incoming_media/` 或 `<state>/incoming_media/` 下的文件（`core/attachments.py` 的 `parse_attachment_block`），按参数 `attachments`（`all`、`none`、序号）挑出，硬链接或复制到目标话题的 `incoming_media/`。补充只送文字。
+
+#### 一轮几条消息
+
+管家一轮里主人可能发了几条消息：这一轮开头那条、开工前并进请求的、跑着时补充的。按管家模型读到的先后从 1 数（开头那条是 1），`app/butler_handoff.py` 的 `Asked.parts` 一条一项（消息 id、原话、附件；开工前并进的从它们的送达记录取 id）。`topic_start`、`topic_send`、`topic_fork`、`project_send` 填了 `message` 就只交那一条：
+
+- 原话只带那一条（卡、历史、模型都是）；`attachments` 不填时只给那一条的附件，填了序号仍按整轮连着数。
+- 新话题挂在那条消息下面（`said_message`：第 2 条起是那条补充自己的 `om_` id，网页发的没有可挂的消息就用顶层小卡），派发卡也挂在它下面。
+- 转交的来源 `relay` 的 `origin.message_id`、话题 `origin.message_id` 记那一条：主人撤回或编辑那条补充时，为它开的话题也收到（`app/source_watch.py` 的 `downstream_of` 对补充也查下游）。
+- 序号超出这一轮的消息数时工具直接拒绝，什么都不开不发。不填 `message` 时和原来一样，交整轮的话和附件，挂在开头那条下面。
 - **负责人交来的**（`project_topic_start`、`project_topic_send`，`app/butler_topics.py` 的 `handed`）：Bridge 的说明、负责人写的任务说明，和负责人点名转的附件。不论负责人这一轮回的是不是你的消息，你对负责人说的原话、补充都不跟着转（负责人一轮常给几个话题派不同的活，或顺手提醒别的话题）；附件只转负责人在 `attachments` 里点名的（序号如 `["图片 1"]`，或 `["all"]`），不点名不转，这一轮有附件却没点名时，工具的回复会提醒负责人还没转、怎么补。卡、历史、串里那一行（“负责人转来消息/补充：”加任务说明和“附件：图片 N 张”，文字，不链回你的消息）显示的都是负责人的任务说明，网页标“负责人说”。负责人开的话题也不挂在你那条消息下面（`place`），那条消息仍归负责人。你在场时负责人派出去的活，结论照旧回到你那条消息下（[主人在等的结果](projects.md#主人在等的结果)）。
 
 ## 话题

@@ -307,6 +307,33 @@ class SourceWatchTest(TopicFixture, unittest.TestCase):
         self.round(detail("om_a", updated=True, update_time="2000", text="改过的问题"))
         self.assertEqual((len(self.replies("om_done")), len(self.replies("om_run"))), (1, 1))
 
+    def steered_with_downstream(self):
+        """om_s went into om_a's turn as a 补充, and the butler opened t_s for om_s alone (its call named the message, T957)."""
+        from covey.core.deliveries import delivery_path, save_delivery
+        self.receive("om_a", "one")
+        job = self.app.runtime.jobs.queue.get_nowait()
+        self.app.runtime.jobs.register(job)
+        self.app.runtime.sources.drop("om_a")
+        save_delivery(delivery_path(self.topic("om_a").state_dir, job.topic_id, "om_s"), {"status": "sent"})
+        source_watch.note(self.app, self.topic("om_a"), {"create_time": "1000"}, "om_s", "oc_chat", "ou_user", "谱子整理成 pdf",
+                          steered=True)
+        self.downstream_topic("t_s", "om_s_root")
+        self.relay_job("relay-4", "done", "t_s", message="om_s")
+        self.app.messenger.send_message.reset_mock()
+        return job
+
+    def test_a_recalled_supplement_reaches_the_topic_opened_for_it(self):
+        job = self.steered_with_downstream()
+        self.round(detail("om_s", deleted=True))
+        self.assertIn("撤回了刚才那条补充", job.prompt_text)
+        self.assertEqual(len(self.replies("om_s_root")), 1)  # 来源消息已撤回 in the thread of the topic opened for it.
+        self.assertFalse(job.cancel_event.is_set())
+
+    def test_an_edited_supplement_reaches_the_topic_opened_for_it(self):
+        self.steered_with_downstream()
+        self.round(detail("om_s", updated=True, update_time="2000", text="谱子整理成 pdf，横向排版"))
+        self.assertTrue(any("横向排版" in str(call.args[2]) for call in self.replies("om_s_root")))
+
     def test_an_edit_reaches_a_running_downstream_job_as_a_supplement(self):
         self.receive("om_a", "原来的问题")
         job = self.app.runtime.jobs.queue.get_nowait()

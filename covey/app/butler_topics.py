@@ -16,7 +16,8 @@ topic_fork, handlers as app/butler_env.py describes them. Only in the owner's pr
 
 What each topic's model gets is app/butler_handoff.py's: the Bridge's note, the butler's task, the owner's words
 from the butler turn's record and its attachments, carried into the topic's incoming_media; its card and
-history show the owner's words. A project's lead's call (``lead_of``) hands on its task and the files it names, its card
+history show the owner's words. A call that names one of the turn's messages (``message``: 1 the turn's own, then each it
+took) hands on that message alone, and the topic it opens hangs under it (``said_message``, T957). A project's lead's call (``lead_of``) hands on its task and the files it names, its card
 and history show that (``handed``), and the topic it opens hangs under no message of the owner's (``place``).
 - ``topic_fork`` forks a topic's last finished turn, on whichever Harness it ran (app/forks.py create_fork), and submits
   the new topic's first.
@@ -44,7 +45,7 @@ from covey.app.butler_env import arg_text, reply
 from covey.app.butler_model_choice import resolve
 from covey.app.launch_models import available_models
 from covey.cards.topic_card import topic_card
-from covey.app.relay_targets import butler_job_owner_message
+from covey.app.relay_targets import said_message as said_message_of
 from covey.core import criteria, devices, butler, butler_settings, dispatch_records, projects, triage, turn_source
 from covey.core.store import directory_store
 from covey.core.attachments import attachment_block
@@ -193,8 +194,9 @@ def handed(env, request, ctx):
         owner = butler_handoff.Asked(attachments=turn.attachments, roots=turn.roots, lead=lead[1] or "专项", grant=grant)
         items = butler_handoff.picked(owner.attachments, chosen)
         return owner, butler_handoff.carry(items, media_dir(ctx), owner.roots) if items else []
-    owner = butler_handoff.asked(env.state_dir, request.job_key)
-    items = butler_handoff.picked(owner.attachments, request.args.get("attachments"))
+    # A call that names one of the turn's messages (``message``, T957) hands on that message's words and files alone.
+    owner, items = butler_handoff.chosen(butler_handoff.asked(env.state_dir, request.job_key), request.args.get("message"),
+                                         request.args.get("attachments"))
     return owner, butler_handoff.carry(items, media_dir(ctx), owner.roots) if items else []
 
 
@@ -386,6 +388,8 @@ def topic_start(env, request):
         return reply(False, "title 和 prompt 都不能为空。")
     if butler_handoff.choice_error(args.get("attachments")):
         return reply(False, butler_handoff.choice_error(args.get("attachments")))
+    if message_refusal(env, request):
+        return reply(False, message_refusal(env, request))
     if args.get("project") is True and getattr(env, "projects", None) is not None and projects.enabled() and lead_of(env, request) is None:
         return env.projects.start(request, args)  # 直接开专项: a project, not a topic (COVEY_PROJECTS=1; the butler's call alone).
     # The same topic asked for again in this turn: the first call's answer, nothing opened twice (W2-B).
@@ -443,8 +447,25 @@ def said_in(env, request) -> dict:
     owner's, ``place``) and when the turn answers none (a page's topic: app/web_launch.py)."""
     if lead_of(env, request) is not None or not getattr(request, "job_key", ""):
         return {}
-    owner = butler_job_owner_message(env.state_dir, request.job_key)
+    owner = said_message(env, request)
     return {"message_id": owner} if owner else {}
+
+
+def said_message(env, request, job_key=None) -> str:
+    """The owner's top-level message a butler call ``request`` is for: the one its ``message`` names when that is a supplement
+    of the turn he sent in Feishu (its own id: the topic it opens hangs under it, T957), else the one the butler turn answers
+    (``butler_job_owner_message``, its first). ``job_key``: that turn's, when not the request's. '' when none is known."""
+    return said_message_of(env.state_dir, request.job_key if job_key is None else job_key,
+                           (getattr(request, "args", None) or {}).get("message"))
+
+
+def message_refusal(env, request) -> str:
+    """Why the call's ``message`` names none of the owner's messages of its turn ('' when it does, or names none): checked
+    before anything is opened or sent. A project's lead's call has no such argument (its words are its own)."""
+    value = request.args.get("message")
+    if value is None or lead_of(env, request) is not None:
+        return ""
+    return butler_handoff.message_error(value, butler_handoff.asked(env.state_dir, request.job_key))
 
 
 def picker(lead) -> str:
@@ -614,7 +635,7 @@ def place(env, request, chat) -> tuple:
     its root, its thread hung under it and the message's alias moved to it)."""
     if not butler.enabled() or lead_of(env, request) is not None:
         return "", False
-    owner = butler_job_owner_message(env.state_dir, request.job_key)
+    owner = said_message(env, request)  # The supplement the call names (``message``), else the turn's first message.
     if not owner:
         return "", False
     held = message_topic(Path(env.state_dir), chat, owner)
@@ -699,6 +720,8 @@ def topic_send(env, request):
         return reply(False, "text 不能为空：写这次交给它的事。")
     if butler_handoff.choice_error(request.args.get("attachments")):
         return reply(False, butler_handoff.choice_error(request.args.get("attachments")))
+    if message_refusal(env, request):
+        return reply(False, message_refusal(env, request))
     found = find_topic(env, chat, request.args.get("topic"))
     if isinstance(found, str):
         return reply(False, found)
@@ -831,6 +854,8 @@ def topic_fork(env, request):
         return reply(False, "title 和 prompt 都不能为空。")
     if butler_handoff.choice_error(request.args.get("attachments")):
         return reply(False, butler_handoff.choice_error(request.args.get("attachments")))
+    if message_refusal(env, request):
+        return reply(False, message_refusal(env, request))
     found = find_topic(env, chat, request.args.get("topic"))
     if isinstance(found, str):
         return reply(False, found)

@@ -8,9 +8,10 @@ number; its topic.json says ``main_thread: true`` (the field keeps its old name 
 - Replies stay at the top level, quoting the owner's message: every message of the topic has an alias (core/topics.py)
   and ``configure`` tells feishu/message_request.py that a reply to such a message is not in a thread. Task runners
   build their context the same way, so their cards do it too; nothing of it crosses runs/<job key>/.
-- While a turn runs, a message becomes its supplement with no receipt card (``supplement``); one the task cannot take
-  queues behind it, one it certainly never took (refused after it was held, or ended unread) is queued as a turn of
-  its own once the turn ends (app/steering.py requeue_lost), and one it may have lost is said in one line.
+- While a turn runs, a message becomes its supplement with no receipt card (``supplement``), if that turn is on the owner's
+  own words (a handover takes only a message that quotes it, ``joins``; T957); one the task cannot take queues behind it,
+  one it certainly never took (refused after it was held, or ended unread) is queued as a turn of its own once the turn
+  ends (app/steering.py requeue_lost), and one it may have lost is said in one line.
 - A message with no words of its own (a forward, a card, a file, a bare link: ``bare_message``) while no turn runs
   or waits is held: its turn is queued but starts only after HOLD_SECONDS (core/scheduler.py), so the owner's words
   that Feishu sends a second later join its request (app/steering.py merge_before_start) and start it at once;
@@ -44,6 +45,7 @@ from covey.app.prompts import (ask_words, first_turn_message, butler_message, bu
 from covey.core import butler as contract
 from covey.core import butler_tracks
 from covey.core import board_read, butler_opened, inbound_ledger, butler_settings, placement, projects, timing, turn_words
+from covey.core import turn_source
 from covey.core import progress as turn_progress
 from covey.core.board_read import ended_at, topic_label as topic_words
 from covey.core.attachments import message_words
@@ -232,7 +234,13 @@ class Butler:
             routed = {"routed": True}
         timing.mark("route")
         bare = bare_message(event)
-        app.handle_event(event, target, supplement=functools.partial(self.supplement, app, chat, bare=bare),
+        # 多路并行 saw no live task of the family (``Tracks.handle`` answered False): a turn queued while this message's
+        # attachments were read (a handover, an answer's continuation) is none it chose, so the message is a track of its
+        # own then (``late``), never that turn's 补充 (T957).
+        late = (functools.partial(self.tracks.fresh, ctx, app, chat, message, bare, time.time())
+                if self.tracks.enabled() else None)
+        app.handle_event(event, target, supplement=functools.partial(
+            self.supplement, app, chat, bare=bare, quoted=tracks_module.quoted_id(event), late=late),
                          hold=self.hold_for(chat, bare), **routed)
         return True
 
@@ -326,19 +334,32 @@ class Butler:
                 write_json(path, data, ensure_ascii=False, indent=2)
             return str(data.get("harness_id") or app.spec.name)
 
-    def supplement(self, app, chat, ctx, prompt, message, *, bare=False, content="", sender="", target=None, fresh=None):
+    def supplement(self, app, chat, ctx, prompt, message, *, bare=False, content="", sender="", target=None, fresh=None,
+                   quoted="", late=None):
         """True when this turn took ``prompt`` (or may have: rule 6, it is not sent again); False to queue it behind.
         One the turn then certainly never takes (refused, or ended unread) becomes a turn of its own as it would have
         been queued now (``content``, ``sender``; app/steering.py requeue_lost): its ``requeue`` in the record.
         A turn held for the owner's words (``hold_for``) that took it into its request starts now, or, ``bare``
         (still no words), waits HOLD_SECONDS again. Its "你问" block notes the words he wrote (core/attachments.py
         message_words: not the attachments block, the quoted message or a local path), none of a ``bare`` one.
-        多路并行 (app/butler_tracks.py): ``target`` is the task the router chose (not the topic's newest); the task that
-        has ended, or refuses it, makes ``fresh()`` (the context of a track of its own, which the submission queues the
-        message in) the answer instead of False. Both None: as ever."""
+        Only a turn on the owner's own words takes a message that does not quote it (``quoted``: the message it quotes;
+        core/turn_source.py Behavior.joinable): the newest such turn that has not ended; a turn the Bridge started for him
+        (a handover) takes it only when it quotes that turn's message or card (T957). 多路并行 (app/butler_tracks.py): ``target`` is the task
+        the router chose (not the topic's newest); the task that has ended, or refuses it, makes ``fresh()`` (the context
+        of a track of its own, which the submission queues the message in) the answer instead of False. ``late`` (the
+        router saw no live task, the usual path): a turn that is live now came after it, and ``late()``, a track of its
+        own, is the answer. All None: as ever."""
         steering = app.steering
         jobs = sorted(self.runtime.jobs.topic_jobs(ctx.topic_id, chat), key=lambda job: int(job.job_id))
-        job = target if target is not None else next((job for job in reversed(jobs) if steering.steer_stage(job) != "ended"), None)
+        if target is None and late is not None and any(steering.steer_stage(job) != "ended" for job in jobs):
+            self.runtime.log(f"main thread message became a track of its own message={message[-10:]}: "
+                             "a turn came after the route")
+            return late()
+        if target is not None and not joins(target, quoted):
+            self.runtime.log(f"main thread supplement not into job=#{target.job_id}: a turn the Bridge started")
+            return fresh() if fresh is not None else False
+        job = target if target is not None else next((job for job in reversed(jobs) if steering.steer_stage(job) != "ended"
+                                                      and joins(job, quoted)), None)
         if job is None or steering.steer_stage(job) == "ended":
             return fresh() if fresh is not None and target is not None else False
         if steering.steer_stage(job) == "paused":
@@ -366,6 +387,13 @@ class Butler:
             # merged one of 同时做几件事 has; docs/usage.md 主人消息的去向). A failure is a log line.
             butler_reactions.put(app.messenger, ctx.profile, message, butler_reactions.MERGED, "joined", self.runtime.log)
         return True
+
+
+def joins(job, quoted="") -> bool:
+    """Whether a message of the owner's at the top level may join the live task ``job`` (as a 补充, or into its request
+    while it is queued): a turn on his own words (core/turn_source.py Behavior.joinable), or one whose message or card the
+    message quotes (``quoted``)."""
+    return turn_source.behavior(job).joinable or bool(quoted) and quoted in tracks_module.job_ids(job)
 
 
 def butler_turn(ctx, job, prompt, session_id, compaction, log, harness=None):
