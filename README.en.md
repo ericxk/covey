@@ -19,9 +19,9 @@
   <a href="README.md">中文</a>
 </p>
 
-Say one sentence in a private chat with your bot. The butler hands the work to coding agents such as Claude Code, Codex and Antigravity, running on your own development machine. Every job gets a topic and a session of its own, with progress and results on cards. Restarts and rate limits don't lose the work, and you hear from it only when a decision is yours.
+**One person, a whole team of coding agents.** Say one sentence in a private chat with your bot. The butler turns it into a complete task description and hands it out; work that spans days goes to a project lead that breaks it down and sees it through; Claude Code, Codex and Antigravity each do their part on your own development machine; the rules you set live in memory and travel with every turn. No more watching processes or copying context around: you state what you want and make the calls on question cards.
 
-Covey is built for Feishu, the Chinese edition of Lark (the installer sets up a Feishu app), for people who keep several coding agents busy at once. Most of the documentation is in Chinese for now.
+Covey is built for Feishu, the Chinese edition of Lark (the installer sets up a Feishu app), for people who keep several coding agents busy at once and find they have become the dispatcher. Most of the documentation is in Chinese for now.
 
 <p align="center">
   <picture>
@@ -52,7 +52,7 @@ The installer creates the Feishu app, adds its permissions, events and menu, reg
 
 No Claude Code? It installs anyway: the butler runs on whichever of Codex or Antigravity answered, and projects stay on ([install, without Claude Code](docs/install.md#没有-claude-code-时)). All options and troubleshooting: [install](docs/install.md).
 
-## Say it once, then stop babysitting
+## A team that runs itself; you make the calls
 
 <p align="center">
   <picture>
@@ -61,23 +61,70 @@ No Claude Code? It installs anyway: the butler runs on whichever of Codex or Ant
   </picture>
 </p>
 
-You say one sentence → the butler hands it out → topics do the work, and a project lead follows the long ones → a question card when the call is yours → the conclusion comes back to the chat.
+You say one sentence → the butler turns it into a task description and hands it out → topics work in sessions of their own, with a lead following work that spans days → a question card when the call is yours → the result comes back to the chat.
 
-Once several agents run at the same time, the bottleneck is rarely the model. It is you: opening terminals, picking directories, remembering which session does what, copying context between them, and checking back to see whether one stopped. Covey takes that over.
+Once several agents run at the same time, the bottleneck is rarely the model. It is you: opening terminals, picking directories, remembering which session does what, copying context between them, and checking back to see whether one stopped. You have become the dispatcher. Covey hands the dispatching to a team with clear roles:
 
-- **Say it once.** In the private chat you talk to the butler only. It answers what it can right away. For work that needs reading or changing code, it opens a topic, which hangs under your message. Each topic is its own session, with its own harness, model and workspace. When the work is done the conclusion comes back to the chat, and topics that finish close together arrive as one card.
-- **Hand it off and walk away.** Every task runs in a process of its own, so restarting or upgrading the bot does not stop it. After a rate limit or a passing fault of the model service, it waits until it can go on and carries on by itself, for up to about three hours. A topic waiting on CI or a training run sets a time to come back and look, and stays quiet when nothing has changed.
-- **It asks only when the call is yours.** A decision comes as a question card: tap an option and it is sent. There is no default answer, and no answer is never taken as a yes. The board (看板) in the bot's menu shows on one card what waits for you, what stopped, which results you have not seen and what is running.
-- **Long work has someone in charge.** Work that spans days and several topics becomes a project. A lead topic splits it up, opens topics, follows them and reports. The lead sees the topics' questions first, and when a project stops it asks you whether to go on, wrap up or stop. As topics pile up, project tidying proposes a project; nothing is built until you click.
-- **Memory that knows who said what.** Standing instructions, what you asked it to "remember" and what a project decided form one memory that travels with every turn. Each entry says what it covers and whether you said it or the agent summed it up; one tap on Wrong (不对) under an answer takes a wrong one back.
-- **Switch models mid-thread.** One bot connects Claude Code, Codex, Antigravity and DeepSeek Harness (dsh); the butler and project leads run on any of the first three, so you are not tied to one vendor. Halfway through a topic you can change its harness, model or workspace and keep talking.
-- **Inside Feishu, and safe to bring to work.** No extra app to install: Feishu on your phone, desktop or the web is the client, and installing takes one QR scan. The bot serves you alone. A group is enabled only after you confirm it in the private chat, and group members can be limited to read-only. Sensitive terms are swapped for stand-ins before a request leaves the machine (Claude models), and an official refusal stops the turn instead of retrying around it.
+| Layer | What it handles | What you stop doing |
+| --- | --- | --- |
+| Butler | The only one you talk to in the private chat. Answers what it can right away; for work that needs reading or changing code, writes a task description and opens a topic, or forwards your words to the topic already on it | Opening terminals, picking directories, turning one sentence into a prompt |
+| Project lead ("lead") | Work that spans days and several topics: breaks it down, delegates it to topics, follows up, wraps up | Remembering who is where and who goes next |
+| Topic | One session and one process per job, with its own harness, model and workspace; brings the result back to the chat | Copying context between sessions |
+| Memory | The rules, agreements and decisions you made, carried by every turn | Saying the same thing twice |
 
-### How it differs
+### The butler: one sentence becomes a job that can run on its own
 
-- **Chat remote controls** turn a message into one agent call; a chat is roughly one session, and when the session closes the work is gone. Covey handles what sits above that: who does the work, how far it got, who is waiting for you, and whether the result was delivered.
-- **Agent IDEs and desktop workbenches** live in the editor at your desk, with the phone and chat as extensions. Covey does not compete with your editor; it keeps watch while you are away from it.
-- **All-purpose personal assistants** cover a lot of ground and need their own client apps. Covey does one thing, coding agents, in the Feishu your team already uses.
+- You say one sentence; the butler fills it out into a task description: what done looks like (completion criteria), which repository, which memory entries to carry. The topic can work through it without coming back to ask what you meant.
+- Thought of something while a topic is running? Say it in the private chat and the butler works out which topic it belongs to. Even while the butler is handling one request, you can send the next one without waiting.
+- Topics that finish close together bring their results back as one card.
+
+### The lead: work that spans days has someone in charge
+
+- The lead breaks down work, delegates it, follows up and wraps up; it writes no code itself. When a topic finishes a turn or you say something, the lead wakes up, reads what came back and decides who does what next.
+- It sees the topics' questions first and passes on the ones that are yours with a recommendation; when a project stalls, it asks you whether to go on, wrap up or stop.
+- As topics pile up, project tidying proposes a project; nothing is created until you click.
+
+### Memory: it follows your rules and knows who said what
+
+- Standing instructions, what you asked it to "remember" and what a project agreed form one memory that travels with every turn. When you say things like "from now on", "never again" or "remember", it writes them down after the turn.
+- Scoped: global, project, topic; the narrower scope wins.
+- Sourced: each entry says whether you said it or the agent inferred it. An agent-inferred rule is only a reference: it cannot approve any of the actions that need your sign-off, and one it thinks should apply everywhere takes effect only after you accept it.
+- Tap Wrong (不对) under an answer to retract a bad entry.
+
+### It asks only when the call is yours
+
+- A decision comes as a question card: tap an option and it is sent. There is no default answer, and no answer is never taken as a yes.
+- Deploying, deleting, spending money, messaging other people and reserving machines always need your confirmation first. Small things that can be undone are done the recommended way, and the result says what was chosen for you and how to change it back.
+- The board (看板) in the bot's menu shows on one card what waits for you, what stopped, which results you have not seen and what is running.
+
+### Hand it off and walk away
+
+- Every task runs in a process of its own, so restarting or upgrading the bot does not stop it.
+- After a rate limit or a transient error from the model service, it waits until it can go on and resumes by itself, for up to about three hours.
+- A topic waiting on CI or a training run sets a time to come back and check, and stays quiet when nothing has changed.
+
+### Switch models without starting over
+
+- One bot connects Claude Code, Codex, Antigravity and DeepSeek Harness (dsh); the butler and leads run on any of the first three, so you are not tied to one vendor.
+- Halfway through a topic you can change its harness, model or workspace and keep talking.
+
+### Inside Feishu, and safe to bring to work
+
+- No extra app to install: Feishu on your phone, desktop or the web is the client, and installing takes one QR scan.
+- The bot serves you alone. A group is enabled only after you confirm it in the private chat, and group members can be limited to read-only. An official refusal stops the turn instead of retrying around it.
+
+## How it differs
+
+Most tools make one agent stronger, or make one agent easier to drive from afar. Covey lets one person run a team of them.
+
+| | The usual way | Covey |
+| --- | --- | --- |
+| Who dispatches | Chat remotes mostly pass messages through to one session; tools that run agents in parallel can start several, but splitting the work, tracking progress and handing off between sessions are still mostly on you | The butler hands out work and leads follow up; they do the hand-offs between topics |
+| Where you are | Agent IDEs and desktop workbenches live at the editor on your desk, with the phone and chat as extensions | It does not compete with your editor; it keeps going when you leave the desk, and Feishu on your phone is enough to make a call |
+| How it asks | Mostly an approval prompt before each tool call, which stalls when you are away; or everything allowed up front to keep it moving | Decisions that are yours become question cards, with no default answer and no answer never a yes; small things that can be undone follow your rules and say how to change them back |
+| What it remembers | Mostly rule files written by hand per repository or globally, or memories saved automatically without saying who said them or how much they count | Scoped, sourced and weighted: what the agent inferred cannot approve what needs your sign-off |
+| Models | Each vendor's own CLI keeps to itself; switching usually means a new session and moving the context yourself | One bot drives several CLIs, a topic can switch midway, and the butler and leads are not tied to one |
+| Scope and client | All-round personal assistants cover everyday life and office work, with coding as one skill among many, and many need their own client | Coding agent teams only, inside the Feishu your team already uses |
 
 ## The cards
 
@@ -134,7 +181,7 @@ The web workbench source is in [`web/`](web/README.md), with two ways to deploy 
 ## After installing
 
 1. **First message**: write to the bot in a private chat; the butler answers or opens a topic. One page of how to use it: [five-minute start](docs/quickstart.md); then walk through [first use](docs/usage.md#第一次使用).
-2. **On by default**: the butler, projects, project tidying (proposals only), the board (看板) menu item, revisits, memory and knowledge entries. Recalling or editing a message stops or updates its task, and what you write in a topic while its task runs goes straight into it. What else can be turned on and how: [switches at a glance](docs/configuration.md#开关速查); to turn the whole showcase set on in a running bot, see [the showcase set](docs/configuration.md#演示套餐).
+2. **On by default**: the butler, projects, project tidying (proposals only), the board (看板) menu item, revisits, memory (including learning on its own) and knowledge entries. Recalling or editing a message stops or updates its task, and what you write in a topic while its task runs goes straight into it. What else can be turned on and how: [switches at a glance](docs/configuration.md#开关速查); to turn the whole showcase set on in a running bot, see [the showcase set](docs/configuration.md#演示套餐).
 3. **Upgrade**: run `scripts/upgrade.sh` in the checkout (`--dry-run` first to see what it would do). It takes the new upstream commit and deploys it as a fixed release with the service's own settings; the bot restarts in a few seconds, and running tasks go on as the new process takes them over. Do not `git pull` in the checkout the service runs from. See [daily upgrades](docs/deploy.md#日常升级).
 
 ## Documentation
