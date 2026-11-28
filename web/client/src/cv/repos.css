@@ -34,7 +34,7 @@
 .cv .dv-access .st-opt.sm:last-child{border-radius:0 8px 8px 0}
 .cv .dv-row .rp-act{flex-wrap:wrap;justify-content:flex-end}
 .cv .dv-bad{color:var(--fail)}
-.cv .dv-fl{display:flex;flex-direction:column;gap:6px}
+.cv .dv-fl .dv-access{justify-self:start}
 /* 可清理的 worktree */
 .cv .rp-none{margin:16px 0 0;font-size:12.5px;color:var(--t3)}
 .cv .rp-pr-hd{padding:8px 16px;border-bottom:1px solid var(--line)}

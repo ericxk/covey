@@ -1162,7 +1162,7 @@ const DeviceAdd: React.FC<{ ops: Ops }> = ({ ops }) => {
           <label className="st-fl">显示名<input className="st-in-t" value={d.title} maxLength={DV.TITLE_MAX} disabled={busy} placeholder="可不填" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, title: e.target.value })} /></label>
           <label className="st-fl">ssh 地址<input className="st-in-t" value={d.ssh} maxLength={DV.SSH_MAX} disabled={busy} placeholder="~/.ssh/config 的别名或 user@host -p 22；可不填" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, ssh: e.target.value })} /></label>
           <label className="st-fl">用途<input className="st-in-t" value={d.note} maxLength={DV.NOTE_MAX} disabled={busy} placeholder="一行，可不填" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, note: e.target.value })} /></label>
-          <div className="st-fl dv-fl">可写还是只读
+          <div className="st-fl dv-fl">读写
             <div className="st-opts dv-access" role="radiogroup" aria-label="新设备可写还是只读">
               {(['read', 'write'] as DV.Access[]).map((a: DV.Access) => (
                 <button key={a} type="button" role="radio" aria-checked={d.access === a} disabled={busy} className={`st-opt sm${d.access === a ? ' on' : ''}`} onClick={() => setD({ ...d, access: a })}>{DV.accessText(a)}</button>
