@@ -348,7 +348,7 @@ Harness 自己的记忆在代答话题里不读不写，开没开这个开关都
 
 ## 设置
 
-`<state>/main-thread.json`，字段见 `Settings`：管家的 `model`、`effort`、`workspace`、`compact_tokens`；新话题的 `topic_defaults`（`harness`、`model`、`effort`、`run_mode`、`workspace`）；子 Agent 用什么模型 `subagents`；工作区用途 `workspace_notes`。缺的或坏的字段按默认值读。旧文件里的 `redaction`（管家自己的和 `topic_defaults` 里的）不再读，保存设置时原样留着（见[已下线的功能](legacy.md#已下线的功能)）。只经 `update` 写，只有设置卡（和网页的设置页，走同一处）能写。
+`<state>/main-thread.json`，字段见 `Settings`：管家的 `model`、`effort`、`workspace`、`compact_tokens`；新话题的 `topic_defaults`（`harness`、`model`、`effort`、`run_mode`、`workspace`）；子 Agent 用什么模型 `subagents`；工作区用途 `workspace_notes`。缺的或坏的字段按默认值读。旧文件里的 `redaction`（管家自己的和 `topic_defaults` 里的）、私聊顶层的消息的 `mode`/`enabled` 不再读，保存设置时原样留着（`KEPT`）（见[已下线的功能](legacy.md#已下线的功能)）。只经 `update` 写，只有设置卡（和网页的设置页，走同一处）能写。
 
 
 ### 换 Harness
@@ -369,12 +369,12 @@ Harness 自己的记忆在代答话题里不读不写，开没开这个开关都
 
 | 页 | 内容 |
 | --- | --- |
-| 配置 | 一段一处，一次只展开一段（`SECTIONS`，卡片的 `view.open`；CardKit 一张卡约 200 个元素，放不下所有段的选项），其余段是标题、“展开”和一行灰字写着现在的值（`summary`）；点哪一行就展开哪一段（`PART_OF`）。展开的段里没人改的几项（`FOLDED`，供应商、负责人的模型等几项）收在段末一条默认收起的“更多：…”折叠里（`more_fold`），点了其中一项重画时它还开着（`view.more`，`MORE_KINDS`）。**新话题**（默认展开）：所有新话题的预选，启动卡 `app/preselection.py` 和管家开的话题都照它，第一行 Harness、供应商、模型、思考预算，第二行工作区、运行方式（`lines`：模型四项一行、其余一行，私聊模式单独一行；一行里各项是并排的小格，标签和当前值同一行，窄屏自动换行，各自点开选项，见 [cards.md](cards.md#设置卡配置页的格子版式)）。**管家**（部署不允许时没有）：第一行 Harness（能跑管家的才列）、供应商、模型、思考预算，第二行工作区、压缩阈值（Bridge 会压缩的 Harness 才有，即 Claude Code、Antigravity），私聊模式单独一行（`MODE_CHOICES`）；纯话题模式下只有私聊模式一行。**专项负责人**（专项没关才有，`lead_setting_list`）：新建专项的负责人用什么，Harness 第一项“跟管家一样”，只列能接 Bridge 工具的，选了 Harness 才有供应商、模型、思考预算，存在 `main-thread.json` 的 `lead`；已有的负责人在专项卡上换。“更多”里子 Agent：轻量（Sonnet，搜索用 Haiku）/ 跟主模型 |
+| 配置 | 一段一处，一次只展开一段（`SECTIONS`，卡片的 `view.open`；CardKit 一张卡约 200 个元素，放不下所有段的选项），其余段是标题、“展开”和一行灰字写着现在的值（`summary`）；点哪一行就展开哪一段（`PART_OF`）。展开的段里没人改的几项（`FOLDED`，供应商、负责人的模型等几项）收在段末一条默认收起的“更多：…”折叠里（`more_fold`），点了其中一项重画时它还开着（`view.more`，`MORE_KINDS`）。**新话题**（默认展开）：所有新话题的预选，启动卡 `app/preselection.py` 和管家开的话题都照它，第一行 Harness、供应商、模型、思考预算，第二行工作区、运行方式（`lines`：模型四项一行、其余一行；一行里各项是并排的小格，标签和当前值同一行，窄屏自动换行，各自点开选项，见 [cards.md](cards.md#设置卡配置页的格子版式)）。**管家**（部署不允许时没有）：第一行 Harness（能跑管家的才列）、供应商、模型、思考预算，第二行工作区、压缩阈值（Bridge 会压缩的 Harness 才有，即 Claude Code、Antigravity）。**专项负责人**（专项没关才有，`lead_setting_list`）：新建专项的负责人用什么，Harness 第一项“跟管家一样”，只列能接 Bridge 工具的，选了 Harness 才有供应商、模型、思考预算，存在 `main-thread.json` 的 `lead`；已有的负责人在专项卡上换。“更多”里子 Agent：轻量（Sonnet，搜索用 Haiku）/ 跟主模型 |
 | 工作区 | 工作区列表；每行一行灰字写用途，“改用途”换成输入框，“保存用途”存 |
 | 记忆（`COVEY_MEMORY` 开着） | 飞书上只留看数、处理待审核、去网页：副标题一行“规矩：全局 N · 专项 N · 话题 N · 待审核 N”；待审核列最旧的几条，每条写明是哪一种、点了「采纳」「不要」各会怎样，多了翻页；有网页时给“打开网页”链接，没网页时多列全局、各专项和话题规矩的标题（短码 + 标题 + 在哪，只带标题的标出），每条“收起”（两步确认）；管理都在网页的「记忆」（`app/memory_panel.py`）。旧卡片上的工作区、升为全局、常驻按钮点了只回“这个选项已下线” |
 | 诊断下半的“能做什么”（以前单独一个标签） | 只读：启用的 Harness 和现在用不了的、开着的功能和读的开关、没开的怎么开、启用的扩展（`app/about_panel.py`，由 `app/doctor_panel.py` 画在诊断报告下面） |
 
-每行点开是选项，点一个就记下并整卡重画；只有主人能改。模型和思考预算只列说得出是哪一个的选项：模型行没有 Claude Code 目录里的“Default (recommended)”，思考预算行没有“推荐”和“模型原生默认”（`core/menu_choice.py` 的 `explicit`、`plain_budgets`），因为看不出它们实际跑哪个；管家、专项负责人两段的这两行也没有“默认”。新话题段的空选项留着，写的是它现在跟到哪个（“跟上次一样：Opus 5.5”）。以前存下的这类值照旧画出、打勾，换掉后就不再出现。代答的模型行（`cards/proxy_panel.py`）用同一套行，也一样。启动卡、换配置卡和网页开新话题也一样（`cards/launch_config.py` 的 `model_settings` 用 `offered_models`、`plain_budgets`，预选和点击记下的档用 `named_budget`）：不列“Default (recommended)”“推荐 · xhigh”“模型原生默认”，以前记下的这几项画成它实际跑的那一档；新话题段只选了 Harness、或上次用的是“Default (recommended)”时，预选这个 Harness 的具体模型（`app/preselection.py` 的 `harness_model`），话题正绑在它上面时换配置卡照旧列出它（[UI 规范 · 拍板记录](ui.md#13-拍板记录) U5）。子 Agent 一项对 Bridge 起的每一轮 Claude Code 都生效（`backends/claude/subagents.py`）。旧卡按钮的去向（独立复核一段已下线，旧卡上点它的行只回一句已下线，见[已下线的功能](legacy.md#已下线的功能)）和子 Agent 的参数见[实现细节 · 设置卡的细节](butler-internals.md#设置卡的细节)。
+每行点开是选项，点一个就记下并整卡重画；只有主人能改。模型和思考预算只列说得出是哪一个的选项：模型行没有 Claude Code 目录里的“Default (recommended)”，思考预算行没有“推荐”和“模型原生默认”（`core/menu_choice.py` 的 `explicit`、`plain_budgets`），因为看不出它们实际跑哪个；管家、专项负责人两段的这两行也没有“默认”。新话题段的空选项留着，写的是它现在跟到哪个（“跟上次一样：Opus 5.5”）。以前存下的这类值照旧画出、打勾，换掉后就不再出现。代答的模型行（`cards/proxy_panel.py`）用同一套行，也一样。启动卡、换配置卡和网页开新话题也一样（`cards/launch_config.py` 的 `model_settings` 用 `offered_models`、`plain_budgets`，预选和点击记下的档用 `named_budget`）：不列“Default (recommended)”“推荐 · xhigh”“模型原生默认”，以前记下的这几项画成它实际跑的那一档；新话题段只选了 Harness、或上次用的是“Default (recommended)”时，预选这个 Harness 的具体模型（`app/preselection.py` 的 `harness_model`），话题正绑在它上面时换配置卡照旧列出它（[UI 规范 · 拍板记录](ui.md#13-拍板记录) U5）。子 Agent 一项对 Bridge 起的每一轮 Claude Code 都生效（`backends/claude/subagents.py`）。旧卡按钮的去向（独立复核一段和私聊顶层的消息一行已下线，旧卡上点它们只回一句已下线，见[已下线的功能](legacy.md#已下线的功能)）和子 Agent 的参数见[实现细节 · 设置卡的细节](butler-internals.md#设置卡的细节)。
 
 ## 话题链接
 
