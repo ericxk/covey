@@ -139,13 +139,13 @@ class LandTest(unittest.TestCase):
         """land.suite that, the first time, has someone else push ``files`` to main meanwhile -> (it, its calls)."""
         calls, real = [], land.suite
 
-        def suite(batch, why, paths=()):
+        def suite(batch, why, paths=(), diff=None):
             if not calls:
                 other = self.topic("other")
                 self.commit(other, "main moved", **files)
                 run("push", "-q", "origin", "HEAD:main", cwd=other)
-            calls.append(paths)
-            return real(batch, why, paths)
+            calls.append(diff or paths)
+            return real(batch, why, paths, diff)
         return suite, calls
 
     def test_main_moving_over_other_files_meanwhile_takes_the_batch_along_without_a_second_run(self):
@@ -159,7 +159,7 @@ class LandTest(unittest.TestCase):
         self.assertEqual((merged["state"], merged["moved_onto_newer_main"]), ("merged", True))
         self.assertEqual(merged["commit"], run("rev-parse", "origin/main", cwd=self.clone).strip())
 
-    def test_main_moving_over_the_batchs_files_meanwhile_starts_the_batch_again(self):
+    def test_main_moving_over_the_batchs_files_meanwhile_runs_the_batchs_own_tests_on_it_before_the_push(self):
         lines = [f"{n}\n" for n in range(10)]
         self.commit(self.clone, "ten lines", **{"a.txt": "".join(lines)})
         run("push", "-q", "origin", "main", cwd=self.clone)
@@ -167,9 +167,19 @@ class LandTest(unittest.TestCase):
         suite, calls = self.moving_main(**{"a.txt": "zero\n" + "".join(lines[1:])})
         with mock.patch.object(land, "suite", suite):
             land.drive(cwd=self.clone)
-        self.assertEqual(len(calls), 2)  # Its file changed under it: tested again on the new main.
+        # Its file changed under it: what its changes select ran again on the new main (run --diff), not the full suite.
+        self.assertEqual(calls[1], run("rev-parse", "origin/main~1", cwd=self.clone).strip())
+        self.assertEqual(len(calls), 2)
         self.assertEqual(self.main_log()[:2], ["a's change", "main moved"])
-        self.assertNotIn("moved_onto_newer_main", self.result("a"))
+        self.assertTrue(self.result("a")["moved_onto_newer_main"])
+
+    def test_main_moving_over_the_batchs_lines_meanwhile_starts_the_batch_again(self):
+        self.hand_in(self.topic("a", **{"a.txt": "one\nTWO\n"}))
+        suite, calls = self.moving_main(**{"a.txt": "one\n2\n"})
+        with mock.patch.object(land, "suite", suite):
+            land.drive(cwd=self.clone)
+        kicked = self.result("a")  # Started again on the new main, where it conflicts.
+        self.assertEqual((kicked["state"], kicked["reason"]), ("kicked", "conflict"))
 
     def test_map_only_commits_stay_out_and_a_stale_map_is_rebuilt_once_for_the_batch(self):
         self.commit(self.clone, "stale", STALE="")

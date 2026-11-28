@@ -19,7 +19,8 @@ What it does (docs/testing.md 批量合入):
 - Then the full suite once for the batch: ``test_map.py run --full``, or ``build`` when the map is stale (it
   refreshes the map, committed with the batch), with test_map.py's retry of a few failed modules.
 - Green: a fast-forward push of the batch to main. Main having moved meanwhile, the batch is moved onto it and
-  pushed when the new commits touch none of its files, else the batch starts again.
+  pushed; where the new commits changed the batch's files too, the tests the batch's changes select run on the new
+  main first. A move that conflicts, or those tests failing, starts the batch again.
 - Red: what fails on main alone is main's own (named in the results, the batch lands). Otherwise the driver runs
   only the failed modules on longer prefixes of the batch (bisection), sends back the first branch that brings a
   failure in, with the tests it breaks, and starts the batch again without it. A failure that does not come back
@@ -175,15 +176,18 @@ def assemble(state: Path, entries: list[dict], base: str, cwd) -> tuple[Path, li
 # --- checks ---------------------------------------------------------------------------------------------------------
 
 
-def suite(batch: Path, why: str, paths=()) -> tuple[bool, set[str], str]:
+def suite(batch: Path, why: str, paths=(), diff=None) -> tuple[bool, set[str], str]:
     """The batch's tests -> (passed, the failed test ids, the output's tail). No paths: the full suite, ``build``
-    when the map is stale; paths: those test modules (``run --force``)."""
+    when the map is stale; paths: those test modules (``run --force``); diff: the modules the changes since that
+    commit select (``run --diff``)."""
     def run(*args):
         done = subprocess.run([sys.executable, "-B", "scripts/test_map.py", *args, "--why", why], cwd=batch,
                               capture_output=True, text=True)
         return done.returncode, done.stdout + done.stderr
 
-    if paths:
+    if diff:
+        code, out = run("run", "--force", "--diff", diff)
+    elif paths:
         code, out = run("run", "--force", *paths)
     else:
         code, out = run("run", "--full")  # No --force: on a stale map it refuses, and build refreshes the map.
@@ -281,9 +285,9 @@ def drive(cwd=None, why_prefix="批量合入") -> int:
             if git("status", "--porcelain", "--", MAP, cwd=batch).strip():
                 git("add", "--", MAP, cwd=batch)
                 git("commit", "-q", "-m", f"Test map rebuilt for the batch of {', '.join(names)}", cwd=batch)
-            landed = push(batch, base, cwd)
+            landed = push(batch, base, cwd, why)
             if not landed:
-                print("main moved under the batch and touched its files: the batch starts again", flush=True)
+                print("main moved under the batch, and moving it over did not hold: the batch starts again", flush=True)
                 continue
             head, moved_onto = landed
             for entry, commit in applied:  # Moved onto a newer main, the entries' own commits have new ids.
@@ -299,25 +303,26 @@ def changed(old, new, cwd) -> set[str]:
     return set(git("diff", "--name-only", old, new, cwd=cwd).split()) - {MAP}
 
 
-def push(batch: Path, base: str, cwd, tries=3) -> tuple[str, bool] | None:
-    """Push the batch to main -> (the main commit it is now, whether it was moved). Main having moved meanwhile with
-    commits that touch none of the batch's files, the batch is moved onto them and pushed: its own files are as
-    tested, the others as their authors tested them (its map commit is left to the next batch). None when main
-    moved over its files: the batch starts again."""
+def push(batch: Path, base: str, cwd, why: str, tries=3) -> tuple[str, bool] | None:
+    """Push the batch to main -> (the main commit it is now, whether it was moved). Main having moved meanwhile, the
+    batch is moved onto it and pushed: its own files are as tested, the others as their authors tested them (its map
+    commit is left to the next batch); where both changed the same files, the tests the batch's changes select run
+    again on the new main first. None when the move conflicts or those tests fail: the batch starts again."""
     moved_onto = False
     for _ in range(tries):
         if subprocess.run(["git", "push", "-q", REMOTE, f"HEAD:{MAIN}"], cwd=batch, capture_output=True).returncode == 0:
             return git("rev-parse", "HEAD", cwd=batch).strip(), moved_onto
         git("fetch", "-q", REMOTE, MAIN, cwd=cwd)
         moved = git("rev-parse", f"{REMOTE}/{MAIN}", cwd=cwd).strip()
-        if changed(base, moved, cwd) & changed(base, "HEAD", batch):
-            return None
+        both = changed(base, moved, cwd) & changed(base, "HEAD", batch)
         if git("log", "-1", "--format=%s", cwd=batch).startswith("Test map rebuilt for the batch"):
             git("reset", "-q", "--hard", "HEAD~1", cwd=batch)
         rebased = subprocess.run(["git", "rebase", "-q", "--onto", moved, base], cwd=batch, capture_output=True,
                                  text=True, env={**os.environ, "GIT_EDITOR": "true"})
         if rebased.returncode:
             git("rebase", "--abort", cwd=batch, check=False)
+            return None
+        if both and not suite(batch, f"{why}：搬到新 main（同改了 {'、'.join(sorted(both)[:3])}）", diff=moved)[0]:
             return None
         base, moved_onto = moved, True
     return None
