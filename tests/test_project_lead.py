@@ -113,10 +113,12 @@ class RulesTest(Case):
             config = butler.mcp_config(self.state, self.state, "k", "python3", lead=PID)
         self.assertEqual(config["mcpServers"][butler.MCP_SERVER]["env"].get(projects.AUTOWAKE_ENV), "1")
 
-    def test_a_comparison_the_owner_asks_for_is_two_read_only_topics_and_a_summary(self):
-        # #37: the same task twice, read-only, one vendor each; the summary says what came from whom and what neither answered.
+    def test_a_comparison_the_owner_asks_for_is_two_topics_that_only_propose_and_a_summary(self):
+        # #37: the same task twice, one vendor each, the task text saying to propose and change nothing (T956: no
+        # ``readonly`` to set); the summary says what came from whom and what neither answered.
         rules = project_lead.lead_rules()
-        for words in ("主人点名要比较几种做法时", "开两个只读话题（readonly 为 true）", "一模一样的任务说明", "一家一个模型",
+        self.assertNotIn("readonly", rules)
+        for words in ("主人点名要比较几种做法时", "开两个话题", "写明只出方案、不改代码", "一模一样的任务说明", "一家一个模型",
                       "采纳了哪边的哪部分", "两边都没回答的问题"):
             self.assertIn(words, rules)
 

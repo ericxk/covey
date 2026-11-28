@@ -7,7 +7,8 @@ before.
   群成员只读). Claude Code gets Read, Grep and Glob and none of the owner's MCP servers; Codex runs in its read-only
   sandbox; a Harness that can do neither does not run it (``refusal``). Its message ends with MEMBER_NOTE.
 - LOOK: the first turn of a topic the butler opened without the owner's click because it judged the work read-only
-  (app/butler_topics.py; the job's ``read_only``). It changes no repository, workspace, ``.git`` or live state and writes
+  (app/butler_topics.py; the job's ``read_only``). No new topic gets one since T956 (the butler and a lead no longer judge
+  a topic read-only); a job or a plan saved with ``read_only`` before that still runs held, as below. It changes no repository, workspace, ``.git`` or live state and writes
   only its checkpoint file and the topic's outputs directory (``look_roots``, made before the turn; W1-C, contract C6). A
   Harness that holds that (``HarnessCapabilities.look_gate``, the roots' ``held``) checks every write with
   core/look_write.py: Claude Code's PreToolUse hook (backends/claude/tool_guard.py ``--mode look``, its shell's obvious

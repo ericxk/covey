@@ -145,7 +145,7 @@
 - **`topic_start`**：
   - 工作区只认已登记的名字（`core/workspaces.py`），设置了 `topic_defaults.workspace` 就总用它。
   - Harness、模型、预算逐项取值（`app/butler_model_choice.py`）：调用给的 > `topic_defaults` > 这个私聊上次开始任务的配置 > Bridge 默认。取到的模型是空（Antigravity 的 Bridge 默认）或 Claude Code 的 `default`（Default (recommended)）时换成这个 Harness 在菜单上第一个具体的（`menu_choice.explicit`）；预算是空或 `default` 而模型有档位时换成 `plain_budget`。以前负责人只点名 Antigravity 开的话题，记录里模型和预算都是空的，话题卡和任务卡写着“默认模型”“模型默认”。上次的值已不可用时往下找；调用给的不可用时回错误并列出可选。主人点名用哪个 Harness、模型、思考预算时，工具说明和管家规则都要求照填（`harness` 写 id，也认显示名，如 Claude Code，不分大小写、忽略空格和连字符）；没点名就不填。
-  - topic.json 写 `origin`（`kind: "main"`、`request`、`job_key`、`why`、`readonly`、`user_requested`、`title`）。
+  - topic.json 写 `origin`（`kind: "main"`、`request`、`job_key`、`why`、`user_requested`、`title`；不再写 `readonly`，旧话题的照旧留着）。
   - 运行方式不是独立 worktree 时（`plan["start"]`）照分叉绑定配置（`workspace_locked`、`harness_locked`），第一轮直接提交；否则话题里出启动卡，预选在 `origin.launch`。
 - **`topic_send`**：管家自己和代答话题不接。`text` 是任务说明，`note` 一句背景，都只给模型。
   - 有没结束的任务：作为补充交给最新那个（`deliver_steer`），话题串里出“管家转来你 HH:MM 的补充：”加主人原话。被拒（`SteerRefused`）、不确定（`SteerUncertain`）都照实回答，不重发（规则 6）。

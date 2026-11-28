@@ -51,7 +51,7 @@ class ButlerTopicsCase(UnifiedCase):
         return butler_topics.TOOLS[tool](self.env, request)
 
     def start(self, request_id=None, **args):
-        fields = dict(title="查日志", prompt="看看昨晚的失败", workspace="project", readonly=True,
+        fields = dict(title="查日志", prompt="看看昨晚的失败", workspace="project",
                       user_requested=False, why="日志在这个仓库")
         fields.update(args)
         return self.call("topic_start", request_id, **fields)
@@ -159,26 +159,31 @@ class TopicStartTest(ButlerTopicsCase):
         self.assertTrue(topic["workspace_locked"] and topic["harness_locked"])
         self.assertEqual(topic["binding_revision"], 1)
         self.assertEqual(topic["origin"], {"kind": "main", "request": "r1", "job_key": "main-job",
-                                           "why": "日志在这个仓库", "readonly": True, "user_requested": False,
+                                           "why": "日志在这个仓库", "user_requested": False,
                                            "local": True, "title": "查日志", "at": topic["origin"]["at"]})
         self.assertEqual(topic["root_id"], data["root_message_id"])
         job = self.job("r1")
         self.assertEqual((job.user_text, job.topic_id, job.harness_id), ("看看昨晚的失败", data["topic_id"], "codex"))
         self.app.apps["codex"].submission.selection_card.assert_not_called()
 
-    def test_a_topic_started_at_once_as_read_only_is_held_to_it_and_its_task_text_keeps_no_read_only_words(self):
-        """W1-C (C6): the job is marked read-only (app/tool_limits.py holds it and says so at the end of the turn's
-        message); its task text, which the topic's history keeps, no longer carries the read-only words."""
-        self.start("ro", harness="codex")
+    def test_no_new_topic_is_held_read_only_and_a_plan_saved_read_only_still_is(self):
+        """T956: the butler and a lead no longer judge a topic read-only. A call that still says ``readonly`` (an older
+        session's tool list) opens it as any other: its first turn is not held and its topic.json keeps no ``readonly``.
+        A plan an older release saved with ``read_only`` (a restart between saving and binding) is still held
+        (app/tool_limits.py LOOK), its task text without the read-only words (W1-C, C6)."""
+        answer = self.start("ro", harness="codex", readonly=True)
         job = self.job("ro")
+        self.assertFalse(job.read_only)
+        self.assertNotIn("这一轮只读", job.prompt_text)
+        self.assertNotIn("readonly", load_topic(self.ctx.state_dir, answer["data"]["topic_id"])["origin"])
+        plan_start = butler_topics.plan_start
+        with mock.patch.object(butler_topics, "plan_start",
+                               side_effect=lambda *a, **k: {**plan_start(*a, **k), "read_only": True}):
+            self.start("old", harness="codex", title="查旧日志", prompt="看看前天的失败")
+        job = self.job("old")
         self.assertTrue(job.read_only)
         self.assertNotIn("这一轮只读", job.prompt_text)
         self.assertNotIn("这一轮只读", job.user_text)  # The card shows the owner's words, not the Bridge's.
-        # Started at once for another reason, not judged read-only: as before.
-        self.start("rw", harness="codex", readonly=False, user_requested=True)
-        job = self.job("rw")
-        self.assertFalse(job.read_only)
-        self.assertNotIn("这一轮只读", job.prompt_text)
 
     def test_the_topic_card_goes_to_the_top_level_and_is_redrawn_with_its_number(self):
         data = self.start()["data"]

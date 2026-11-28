@@ -419,9 +419,9 @@ def _start(env, request, chat, args, title, prompt, why):
             plan["basis"] = shown
         # Every new topic starts at once (a plan saved by an older release before a restart keeps its own ``start``).
         plan["start"] = plan["run_mode"] == "direct" and not plan.get("worktree_wanted")
-        # Judged read-only and started without the owner's click: its first turn says so and is held to it
-        # (app/tool_limits.py LOOK). A plan saved before it has none: as before.
-        plan["read_only"] = bool(plan["start"]) and args.get("readonly") is True
+        # No read-only first turn any more (T956): the butler's and a lead's ``readonly`` was a model's guess that held
+        # nothing back the owner's words and the rules did not, and stopped work he asked for (T950). A plan saved with
+        # ``read_only`` by an older release keeps it (``_enqueue``, app/tool_limits.py LOOK).
         record = {"request": request.id, "job_key": request.job_key, "chat_id": chat, "title": title,
                   "why": why, "plan": plan, "at": time.time(), "sequence": 0, **said_by(lead)}
         save(path, record)
@@ -542,7 +542,7 @@ def bind_topic(env, app, request, path, record, args, event, config, kind="main"
     plan, title = record["plan"], record["title"]
     target = topic_context(app.harness.context, event, app.store.sessions_dir)
     origin = {"kind": kind, "request": request.id, "job_key": request.job_key, "why": record["why"],
-              "readonly": args.get("readonly") is True, "user_requested": args.get("user_requested") is True,
+              "user_requested": args.get("user_requested") is True,
               # Uses this machine's repositories and files (app/home_turn.py local): false only when the call said so.
               "local": args.get("local") is not False,
               "title": title, "at": record["at"], **said_in(env, request)}
@@ -875,7 +875,7 @@ def _fork(env, request, chat, app, ctx, label, path, token, record, title, promp
         with LOCK:
             new_topic = load_topic(Path(env.state_dir), fork["topic_id"])
             new_topic["origin"] = {"kind": "main", "request": request.id, "job_key": request.job_key, "why": "",
-                                   "readonly": False, "user_requested": False, "title": title,
+                                   "user_requested": False, "title": title,
                                    "at": record["at"], "fork_of": ctx.topic_id, **said_in(env, request)}
             write_json(Path(env.state_dir) / "topics" / fork["topic_id"] / "topic.json", new_topic,
                        ensure_ascii=False, indent=2)

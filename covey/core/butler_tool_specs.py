@@ -153,14 +153,13 @@ TOOLS = (
                     "不加你自己的计划和验收标准；主人原话和附件 Bridge 会附上。"
                     "话题从主目录直接开工，马上返回，不要等它做完：进展在之后消息的快照里。"
                     + DONE,
-     "input_schema": {"type": "object", "required": ["title", "prompt", "readonly", "user_requested", "why"],
+     "input_schema": {"type": "object", "required": ["title", "prompt", "user_requested", "why"],
                       "properties": {
          "title": {"type": "string", "description": "话题的标题，说是哪件事：中文、中文标点（：，不用半角 : ,），20 字以内"},
          "prompt": {"type": "string", "description": TASK},
          "attachments": ATTACHMENTS,
          "repos": REPOS_ARG,
          "workspace": WORKSPACE_ARG,
-         "readonly": {"type": "boolean", "description": "只看只答时为 true：不改仓库和现网，可写检查点和产物目录"},
          "local": LOCAL_ARG,
          "memory": MEMORY_ARG,
          "user_requested": {"type": "boolean", "description": "主人在最新这条消息里亲口要求做这件事（直接下令、“去做”“开个话题”）为 true；你自己推断的为 false"},
@@ -299,12 +298,11 @@ PROJECT_TOOLS = (
     {"name": "project_topic_start",
      "description": "为这个专项开一个话题去做一件事，马上返回，不要等它做完：话题结束后会有下一轮叫醒你。"
                     "prompt 是交给话题的任务说明，写法见负责人规则。话题从主目录直接开工。",
-     "input_schema": {"type": "object", "required": ["title", "prompt", "readonly", "why"], "properties": {
+     "input_schema": {"type": "object", "required": ["title", "prompt", "why"], "properties": {
          "title": {"type": "string", "description": "话题的标题，说是哪件事：中文、中文标点，20 字以内"},
          "prompt": {"type": "string", "description": "交给话题的任务说明。" + ASK_NOTE},
          "repos": REPOS_ARG,
          "workspace": WORKSPACE_ARG,
-         "readonly": {"type": "boolean", "description": "只看只答时为 true：不改仓库和现网，可写检查点和产物目录"},
          "local": LOCAL_ARG,
          "memory": MEMORY_ARG,
          "attachments": LEAD_ATTACHMENTS,
