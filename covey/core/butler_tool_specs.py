@@ -334,11 +334,11 @@ PROJECT_TOOLS = (
      "input_schema": {"type": "object", "required": ["thread"], "properties": {
          "thread": THREAD, "why": {"type": "string", "description": "可选，一句话：主人为什么要停"}}}},
     {"name": "project_note",
-     "description": "在专项卡上记一句进展（最多 200 字）。report 为 true 的要告诉主人：Bridge 按风格把这句原文发给他（里程碑和完成、"
+     "description": "在专项卡上记一句进展（最多 600 字）。report 为 true 的要告诉主人：Bridge 按风格把这句原文发给他（里程碑和完成、"
                     "话题结束、或详细时才发）；kind：milestone 里程碑，thread 话题的结果，note 一般进展。要主人定的事用 project_ask。"
                     "decision 为 true 时也记进决定日志（之后每一轮都看到最近 10 条）。别每步都记。",
      "input_schema": {"type": "object", "required": ["text"], "properties": {
-         "text": {"type": "string", "description": "一句话，最多 200 字"},
+         "text": {"type": "string", "description": "一句话，最多 600 字"},
          "report": {"type": "boolean", "description": "要告诉主人为 true；默认 false，只放在卡上"},
          "kind": {"type": "string", "enum": ["milestone", "thread", "note"], "description": "默认 note"},
          "decision": {"type": "boolean", "description": "这是一条定下来的决定为 true"}}}},
@@ -378,7 +378,7 @@ PROJECT_TOOLS = (
          "detail": {"type": "string", "enum": ["一行", "简", "全"]}}}},
     {"name": "project_finish",
      "description": "目标和完成标准都达到、话题都结束了，收尾：专项记为做完。还有话题在跑或等主人时会拒绝；整理专项建出来、主人还没在里面说过话、你也没派过活的专项也会拒绝。"
-                    "summary 写一句做成了什么（最多 200 字），会作为做完的汇报。",
+                    "summary 写一句做成了什么（最多 600 字），会作为做完的汇报。",
      "input_schema": {"type": "object", "required": ["summary"], "properties": {
          "summary": {"type": "string", "description": "一句话：做成了什么"}}}},
 )

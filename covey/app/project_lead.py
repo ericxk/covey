@@ -62,7 +62,10 @@ RESET_TOKENS = 300_000
 RESET_IDLE = 24 * 3600  # Idle this long: the cached prompt is long gone, a new session costs no more.
 DECISIONS = 10  # Entries of the decision log in the pack.
 NOTES_KEPT, DECISIONS_KEPT = 100, 50  # What the record keeps of each list (the memory is core/project_memory.py's).
-TEXT = 200  # Characters of one note, decision or memory entry.
+TEXT = 200  # Characters of one goal, decision or memory entry (a note's copy in the decision log too).
+# Characters of one note or finish summary (project_note, project_finish): the owner gets it whole (app/project_loop.py
+# report_out), so one longer is refused, not cut (app/project_tools.py text_of strict).
+NOTE_TEXT = 600
 LINE = 120
 INBOX_ROWS = 20
 GOOD_ENDS = frozenset({"done", "waiting_user", "continued"})  # A turn that took its inbox and answered.
@@ -253,8 +256,8 @@ def lead_rules(style=None, practice=PRACTICE, *, noted: bool = False) -> str:
 
 # The record's lists.
 
-def entry(text, **fields) -> dict:
-    return {"id": secrets.token_hex(3), "at": time.time(), "text": " ".join(str(text or "").split())[:TEXT], **fields}
+def entry(text, *, limit=TEXT, **fields) -> dict:
+    return {"id": secrets.token_hex(3), "at": time.time(), "text": " ".join(str(text or "").split())[:limit], **fields}
 
 
 def append(state_dir, project_id, field, item, kept) -> dict:

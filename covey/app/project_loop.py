@@ -596,23 +596,58 @@ def acted_whats(record, key) -> list:
     return found
 
 
-def report_text(record, rows, key) -> str:
-    """The message of a wake-up turn's report notes ``rows``: REPORT_HEAD and each note as the lead wrote it (several, one a
-    line), and under a style of WITH_ACTIONS a line of what the turn did."""
+def report_body(record, rows, key) -> str:
+    """The notes of a wake-up turn's report ``rows`` as the lead wrote them (one alone, several a list), and under a style of
+    WITH_ACTIONS a line of what the turn did; who says them is the card's speaker row (``report_card``) or REPORT_HEAD
+    (``report_text``)."""
     texts = [str(row.get("text") or "").strip() for row in rows]
-    body = texts[0] if len(texts) == 1 else "\n" + "\n".join(f"- {text}" for text in texts)
-    text = REPORT_HEAD.format(name=str(record.get("name") or "")) + body
+    body = texts[0] if len(texts) == 1 else "\n".join(f"- {text}" for text in texts)
     whats = [ACTION_WORDS[what] for what in acted_whats(record, key) if what in ACTION_WORDS]
     if whats and project_lead.style_of(record)[project_lead.REPORT] in WITH_ACTIONS:
-        text += "\n这一轮：" + "、".join(whats) + "。"
-    return text
+        body += "\n这一轮：" + "、".join(whats) + "。"
+    return body
+
+
+def report_text(record, rows, key) -> str:
+    """A wake-up turn's report as Markdown (what goes when its card does not): REPORT_HEAD, then ``report_body`` (several
+    notes from the next line)."""
+    return REPORT_HEAD.format(name=str(record.get("name") or "")) + ("\n" if len(rows) > 1 else "") + \
+        report_body(record, rows, key)
+
+
+def report_card(delivery, record, rows, key, top) -> dict | None:
+    """The card a wake-up turn's report goes as (``report_out``), in the look of a lead's answer card (cards/review.py
+    answer_card; docs/ui.md 说话人: a speaker's card opens with its row, not as Markdown with none): at the top level
+    (``top``) the lead's row (TurnDelivery.ask_block "report": its picture, "**专项名 · 负责人** 主动来汇报 · 09:40") over
+    ``report_body``, else ``report_text`` alone; the chat list previews REPORT_HEAD and the first note's lead, and the T
+    numbers of the chat's topics are links (app/saved_send.py linked). None when it cannot be made or would not fit one card
+    message: the report then goes as ``report_text``, as before. Never raises."""
+    from covey.app import saved_send
+    from covey.cards.review import answer_card, answer_lead
+    from covey.cards.ui import ASK_META
+    from covey.feishu.message_request import optimize_markdown
+
+    try:
+        ask = delivery.ask_block("report") if top else None
+        spoken = isinstance(ask, dict) and isinstance(ask.get(ASK_META), dict)
+        body = report_body(record, rows, key) if spoken else report_text(record, rows, key)
+        head = REPORT_HEAD.format(name=str(record.get("name") or ""))
+        lead = answer_lead(str(rows[0].get("text") or ""))
+        built = answer_card(optimize_markdown(body, step_headings=False), head + lead if lead else head.rstrip("："), (),
+                            [ask] if spoken else [])
+        return None if built is None else saved_send.linked(delivery.ctx, str(delivery.job.chat_id or ""), built)
+    except Exception as exc:  # noqa: BLE001 - the report goes as Markdown
+        delivery.runtime.log(f"lead report card unavailable job=#{job_field(delivery.job, 'job_id')}: {type(exc).__name__}")
+        return None
 
 
 def report_out(delivery) -> bool:
     """A wake-up turn whose reply is held back (``silent``) sends its report notes (``report_rows``) to the owner as one
-    message, where the reply would have gone, under REPORT_HEAD (W1-A C4: the report channel), once (key
-    ``lead-report-<任务键>``). Nothing when there is none: a turn that only did things tells nobody. Called by
-    app/turn_delivery.py TurnDelivery.deliver outside any lock (rule 1). Whether a message went; never raises."""
+    message, where the reply would have gone (W1-A C4: the report channel), once (key ``lead-report-<任务键>``): its card
+    (``report_card``), ``report_text`` when Feishu refuses the card or there is none. The card is the turn's answer message
+    (``delivery.answer_message``, the job's ``answer_message_id``): a 专项卡 its turn finished links to it
+    (app/project_cards.py finishing_answer). Nothing when there is no note: a turn that only did things tells nobody. Called
+    by app/turn_delivery.py TurnDelivery.deliver outside any lock (rule 1). Whether a message went; never raises."""
     job, ctx = delivery.job, delivery.ctx
     try:
         if not projects.enabled():
@@ -629,8 +664,13 @@ def report_out(delivery) -> bool:
 
         top = placement.plan(ctx.state_dir, job).row.answer == placement.TOP
         where = delivery.top_ctx() if top else ctx
-        sent = bool(delivery.send_text(where, job.chat_id, report_text(record, rows, key), f"lead-report-{key}"))
-        delivery.runtime.log(f"lead report {'sent' if sent else 'not sent'} job=#{job.job_id} notes={len(rows)}")
+        card, carded = report_card(delivery, record, rows, key, top), []
+        sent = bool(delivery.send_text(where, job.chat_id, report_text(record, rows, key), f"lead-report-{key}",
+                                       **({"card": card, "on_card": carded.append} if card is not None else {})))
+        if carded and not getattr(delivery, "answer_message", ""):
+            delivery.answer_message = carded[0]
+        delivery.runtime.log(f"lead report {'sent' if sent else 'not sent'} job=#{job.job_id} notes={len(rows)}"
+                             f" card={'yes' if carded else 'no'}")
         return sent
     except Exception as exc:  # noqa: BLE001 - the notes stay on the 专项卡
         delivery.runtime.log(f"lead report failed job=#{job_field(job, 'job_id')}: {type(exc).__name__}")

@@ -196,10 +196,14 @@ def checklist_gate(state_dir, record) -> tuple:
     return "，".join(parts) + "。" + FINISH_NEXT, [item["id"] for item in items], [gap["id"] for gap in gaps]
 
 
-def text_of(args, name="text", limit=project_lead.TEXT) -> str:
+def text_of(args, name="text", limit=project_lead.TEXT, *, strict=False) -> str:
+    """``args[name]`` on one line, cut to ``limit``; ValueError when empty. ``strict``: one longer is refused instead (what
+    the owner is sent whole, project_lead.NOTE_TEXT: a cut one ended mid-sentence in his chat)."""
     text = " ".join(str(args.get(name) or "").split())
     if not text:
         raise ValueError(f"{name} 不能为空")
+    if strict and len(text) > limit:
+        raise ValueError(f"{name} 最多 {limit} 字（这次 {len(text)} 字）：精简后再调一次，Bridge 不替你截断。")
     return text[:limit]
 
 
@@ -456,11 +460,14 @@ def project_note(env, request):
             "summary": text_of(args), "questions": [{"id": "ask", "question": text_of(args), "kind": ask_kinds.OTHER}]}))
     kind = args.get("kind") if args.get("kind") in KINDS else "note"
     report, decision = args.get("report") is True, args.get("decision") is True
-    item = project_lead.entry(text_of(args), report=report, kind=kind, job=request.job_key)
+    text = text_of(args, limit=project_lead.NOTE_TEXT, strict=True)
+    item = project_lead.entry(text, limit=project_lead.NOTE_TEXT, report=report, kind=kind, job=request.job_key)
 
     def change(data):
+        # The decision log's copy keeps project_lead.TEXT: every turn's pack carries the latest DECISIONS of them.
+        logged = {**item, "text": cut(item["text"], project_lead.TEXT), "report": False}
         for field, row, kept in (("notes", item, project_lead.NOTES_KEPT),
-                                 *((("decisions", {**item, "report": False}, project_lead.DECISIONS_KEPT),) if decision else ())):
+                                 *((("decisions", logged, project_lead.DECISIONS_KEPT),) if decision else ())):
             rows = data.get(field)
             rows = data[field] = rows if isinstance(rows, list) else []
             rows.append(row)
@@ -809,14 +816,14 @@ def project_finish(env, request):
     gate = finish_gate(record)
     if gate:
         return reply(False, gate, gate="owner_first")
-    summary = text_of(request.args, "summary")
+    summary = text_of(request.args, "summary", limit=project_lead.NOTE_TEXT, strict=True)
     live = project_lead.live_members(env.state_dir, record)
     if live:
         return reply(False, f"还有话题在做或等主人（{'、'.join(live)}），不能收尾：等它们结束，或先处理掉。", live=live)
     unmet, items, gaps = checklist_gate(env.state_dir, record)
     if unmet:
         return reply(False, unmet, gate="checklist", unmet=items, gaps=gaps)
-    item = project_lead.entry(summary, report=True, kind="finish", job=request.job_key)
+    item = project_lead.entry(summary, limit=project_lead.NOTE_TEXT, report=True, kind="finish", job=request.job_key)
 
     def change(data):
         data["state"], data["state_reason"], data["state_job"] = projects.DONE, summary, request.job_key

@@ -1500,7 +1500,8 @@ class SilentTest(DeliverCase):
         self.assertTrue(states[-1].kwargs["delivery_ok"])
 
     def test_a_report_note_its_style_lets_through_goes_on_its_own_and_the_reply_stays(self):
-        # W1-A C4 (the report channel): the note as the lead wrote it, under who says it, at the top level; never the reply.
+        # W1-A C4 (the report channel): the note as the lead wrote it, as an interactive card at the top level (with
+        # REPORT_HEAD Markdown as fallback); never the reply.
         job = self.lead()
         key = job_key(job.message_id, job.job_id)
         self.note(key)
@@ -1511,6 +1512,79 @@ class SilentTest(DeliverCase):
         self.assertEqual((where.reply_to_message_id, chat, idem), ("", BUTLER_CHAT, f"lead-report-{key}"))
         self.assertEqual(text, "专项「迁移账单」负责人：第一批迁完")
         self.assertNotIn("日志", text)
+        card = self.send_text.call_args.kwargs.get("card")
+        self.assertIsInstance(card, dict)
+        self.assertEqual(card.get("schema"), "2.0")
+
+    def test_a_report_note_card_uses_the_leads_speaker_row_links_topics_and_records_answer_id(self):
+        """T954: a wake-up's report went as Markdown with no row, unlike every other speaker's message (docs/ui.md 说话人).
+        It is a card in the look of a lead's answer: the lead's row (its picture, 主动来汇报), the note without REPORT_HEAD,
+        its T numbers links; the chat list previews REPORT_HEAD and the note; the card is the turn's answer message."""
+        from covey.app import answer_cards, butler_reply, topic_links
+        from covey.app.turn_delivery import TurnDelivery
+        from covey.cards.ui import ROW_ID, has_band
+
+        member = "c" * 32
+        write_topic(self.state, topic_id=member, chat_id=BUTLER_CHAT, harness_id="claude", topic_number=153, title="对账")
+        job = self.lead()
+        key = job_key(job.message_id, job.job_id)
+        note_text = "第一批迁完，已派 T153 核对账单，对平就迁第二批。"
+        self.note(key, text=note_text)
+        turn = SimpleNamespace(status="done", status_message="", final_text="内部思考不外发",
+                               verified_delivery=SimpleNamespace(text="内部思考不外发", fingerprint="f1"),
+                               verified_outcome=SimpleNamespace(status="completed", notice=lambda: "", error_code=""),
+                               outcome=None, allow_resume=True)
+        sent_calls = []
+
+        def fake_send(where, chat, text, idem, *, card=None, on_card=None):
+            sent_calls.append((where, chat, text, idem, card))
+            if on_card is not None and card is not None:
+                on_card("om_report_card_1")
+            return True
+
+        record_state = mock.Mock()
+        delivery = TurnDelivery(job, self.ctx, turn, prefix="p", cards=DeliverCase.cards(self), runtime=mock.Mock(),
+                                artifacts=mock.Mock(), questions=mock.Mock(), steering=mock.Mock(),
+                                record_job_state=record_state, send_text=fake_send, react=mock.Mock(return_value=True))
+        link_url = "https://applink.feishu.cn/client/thread/open?open_chat_id=oc&open_thread_id=omt_153"
+        with mock.patch.object(TurnDelivery, "texts", return_value=("内部思考不外发", "内部思考不外发", False)), \
+                mock.patch.object(TurnDelivery, "answer_tail", return_value=([], False, None)), \
+                mock.patch.object(answer_cards, "avatar", return_value="img_v3_lead_pic"), \
+                mock.patch.object(topic_links, "link_for", return_value=link_url), \
+                mock.patch("covey.app.turn_delivery.close_streaming_reply_async"):
+            delivery.deliver(None)
+            butler_reply.react_end(delivery)
+        self.assertEqual(len(sent_calls), 1)
+        where, chat, text, idem, card = sent_calls[0]
+        self.assertEqual((where.reply_to_message_id, chat, idem), ("", BUTLER_CHAT, f"lead-report-{key}"))
+        self.assertEqual(text, f"专项「迁移账单」负责人：{note_text}")
+        self.assertEqual(card["schema"], "2.0")
+        self.assertNotIn("header", card)
+        elements = card["body"]["elements"]
+        self.assertFalse(has_band(elements))
+        self.assertEqual(elements[0]["element_id"], ROW_ID)
+        row_json = json.dumps(elements[0], ensure_ascii=False)
+        self.assertIn("img_v3_lead_pic", row_json)
+        self.assertIn("**迁移账单 · 负责人**", row_json)
+        self.assertIn("主动来汇报", row_json)
+        self.assertEqual(elements[1]["element_id"], "answer_reply")
+        self.assertNotIn("专项「迁移账单」负责人：", elements[1]["content"])
+        self.assertIn(f"[T153]({link_url})", elements[1]["content"])
+        self.assertEqual(card["config"]["summary"]["content"], f"专项「迁移账单」负责人：{note_text[:-1]}")
+        self.assertEqual(delivery.answer_message, "om_report_card_1")
+        self.assertEqual(record_state.call_args_list[-1].kwargs.get("answer_message_id"), "om_report_card_1")
+
+    def test_a_report_whose_card_cannot_be_made_still_goes_as_markdown(self):
+        # T954: the card is how the report looks, not whether it goes: one that cannot be made leaves the notes as before.
+        job = self.lead()
+        key = job_key(job.message_id, job.job_id)
+        self.note(key)
+        with mock.patch("covey.cards.review.answer_card", side_effect=RuntimeError("boom")):
+            delivery = self.deliver(job, reply="第一批迁完了。")
+        self.send_text.assert_called_once()
+        self.assertEqual(self.send_text.call_args.args[2:], ("专项「迁移账单」负责人：第一批迁完", f"lead-report-{key}"))
+        self.assertNotIn("card", self.send_text.call_args.kwargs)
+        self.assertEqual(delivery.answer_message, "")
 
     def test_several_report_notes_go_as_one_message_and_a_detailed_style_says_what_the_turn_did(self):
         from covey.app import project_tools

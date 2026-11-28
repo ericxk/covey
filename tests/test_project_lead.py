@@ -1162,6 +1162,30 @@ class RecordToolsTest(ToolsCase):
                           ("先迁 2024 年", False, "note", "lead-job")])
         self.assertEqual([d["text"] for d in record["decisions"]], ["先迁 2024 年"])
 
+    def test_a_note_and_finish_summary_keep_up_to_note_text_and_refuse_overlong(self):
+        """T954: the owner got a lead's milestone cut at 200 characters (a dense one with commit ids and figures), mid-sentence.
+        A note and a finish summary keep up to NOTE_TEXT whole; one longer is refused, saying how long, not cut; the decision
+        log's copy of a note keeps TEXT (every turn's pack carries it)."""
+        dense = ("第一批账单迁完：feat/bill-v2 两路都绿，导入(1a2b3c4d)去掉旧字段、空值 224→135、10,559 条对平；"
+                 "对账(5e6f7a8b)贯穿全局 BillCase、重复 365→279、463/463 加 125/125 全过，五个角度复核都过。"
+                 "已派 T153 做第二批联调，完工就发审计文档。") * 2
+        self.assertGreater(len(dense), project_lead.TEXT)
+        self.assertLessEqual(len(dense), project_lead.NOTE_TEXT)
+        exact = "测" * project_lead.NOTE_TEXT
+        self.assertTrue(self.tool("project_note", text=dense, report=True, kind="milestone", decision=True)["ok"])
+        self.assertTrue(self.tool("project_note", text=exact, report=True, kind="milestone")["ok"])
+        over = self.refused("project_note", text="超" * (project_lead.NOTE_TEXT + 1), report=True, kind="milestone")
+        self.assertIn(f"最多 {project_lead.NOTE_TEXT} 字", over)
+        self.assertIn(f"这次 {project_lead.NOTE_TEXT + 1} 字", over)
+        record = self.reload()
+        self.assertEqual([row["text"] for row in record["notes"]], [dense, exact])
+        logged = record["decisions"][-1]["text"]
+        self.assertEqual((len(logged), logged[-1], logged[:-1]), (project_lead.TEXT, "…", dense[:project_lead.TEXT - 1]))
+        over_finish = self.refused("project_finish", summary="完" * (project_lead.NOTE_TEXT + 1))
+        self.assertIn(f"最多 {project_lead.NOTE_TEXT} 字", over_finish)
+        self.assertTrue(self.tool("project_finish", summary=dense)["ok"])
+        self.assertEqual(self.reload()["notes"][-1]["text"], dense)
+
     def test_the_goal_the_lead_writes_is_its_own_and_the_opening_goal_stays(self):
         """T550 (2026-11-19): a project's goal was the words it was opened with (the work it took over), shown as its goal on
         the web page. The lead writes one with project_goal; the record's ``goal`` stays, and the state pack asks for one

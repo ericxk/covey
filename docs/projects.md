@@ -231,7 +231,7 @@
 负责人对主人说话只有三条路（`app/project_tools.py`、`app/project_loop.py`，WAVE12 C4）：
 
 - **提问走 `project_ask`**：要主人定的事（范围、取舍、部署这一批、要不要停，以及照常要问的那几类）都用它问。题目写进负责人这一轮自己的检查点（`core/jobs.py` 的 `checkpoint_file`，带 `origin: project_ask`），这一轮结束时和别的话题的检查点问题一样出问题卡：进“等你”、网页能答、超长按节点预算拆。任何汇报风格都发。一次最多 4 题；负责人之前问了还没答的题（同一个负责人话题、`origin` 是 `project_ask`、还 `pending`）会原样并进这张新卡（id 不变，同 id 的新题顶替旧题），超过 4 题就拒绝、要它先精简；新卡发出后旧卡照常收起（`questions.fold_older_questions`）。问题记录带 `origin: project_ask`；负责人停在这种题上等主人时不算“忙”，成员的回执照常叫醒它、分流照常交给它（`project_loop.lead_busy`）。W0-2 的 `project_note(kind="ask")` 这一版还认，按一道自由题转给 `project_ask`，下一版去掉。
-- **进展走 `project_note`**：标 `report` 且按风格该报的（`project_lead.reportable`），叫醒负责人的轮里由 Bridge 把笔记原文以“专项「名」负责人：”发出（`project_loop.report_out`）。
+- **进展走 `project_note`**：标 `report` 且按风格该报的（`project_lead.reportable`），叫醒负责人的轮里由 Bridge 把笔记原文发给主人（`project_loop.report_out`）：一张和负责人答案卡一样的卡，第一行是负责人的头像行（“**专项名 · 负责人** 主动来汇报 · 09:40”），下面是笔记，T 号可点；聊天列表预览“专项「名」负责人：”加第一条笔记的开头。卡片做不出或被飞书拒收时，照旧以“专项「名」负责人：”加原文的 Markdown 发。这张卡记为这一轮的答案消息，收尾的那一轮发的汇报卡就是专项卡收起后链接的那条。笔记和收尾摘要（`project_finish`）一条最多 600 字（`project_lead.NOTE_TEXT`），超了工具直接拒绝、说清长度，不替它截断；同时记进决定日志的那份仍按 200 字（`TEXT`）截，带“…”。
 - **回复正文只在主人在场的轮发**（`project_loop.present`）：主人发来的、管家转来的、叫醒的轮里主人中途插了话。叫醒的轮回复不发；开了话题、加了话这类动作不再让整段回复外发，专项记录的 `acted` 只记这一轮做了什么（`{job, whats, at}`）。
 
 负责人的轮不写检查点：规则里检查点契约换成一行“不写检查点、要定的用 project_ask”（`app/runs.py` 的 `LEAD_RULE`），也不告诉它检查点文件在哪。
