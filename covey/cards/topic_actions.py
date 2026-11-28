@@ -17,7 +17,7 @@ RELAY = "relay"
 # now when there is one (app/harness_switch.py other_harness_key), else the topic's own; the owner still confirms.
 PREFER_OTHER = "prefer_other"
 RELAY_SWITCH_ID = "relay_switch"  # A 做完了 relay's 换配置 (``relay_switch``).
-RELAY_ROW_ID = "relay_switch_row"  # Its row of its own (``beside``: no 独立复核 to stand by).
+RELAY_ROW_ID = "relay_switch_row"  # Its row of its own (``alone``).
 # The task card's buttons are the topic cards' bordered small ones (cards/elements.py topic_button) in rows that
 # wrap (button_row); a card sent before keeps its own until redrawn.
 # The panel's element id, from when it held 🔀 分叉 and 💬 侧聊: cards sent since keep the same.
@@ -63,13 +63,7 @@ def relay_switch(topic_id, job_id, harness_id, revision):
         switch_value(topic_id, job_id, harness_id, revision, **{RELAY: True})))
 
 
-def beside(rows, button):
-    """``rows`` (the elements under an answer's 输入/输出 lines: 独立复核's row, app/review.py) with ``button`` at the end of
-    the first row of buttons among them, else in a row of its own (RELAY_ROW_ID) after them: one row of small buttons
-    under a relay, not two. ``rows`` themselves are not changed."""
-    rows = list(rows or ())
-    for index, row in enumerate(rows):
-        if isinstance(row, dict) and row.get("tag") == "column_set" and row.get("flex_mode") == "flow":
-            rows[index] = {**row, "columns": [*row.get("columns", []), *button_row([button])["columns"]]}
-            return rows
-    return [*rows, button_row([button], RELAY_ROW_ID)]
+def alone(button):
+    """``button`` (``relay_switch``) in a row of its own (RELAY_ROW_ID) under a relay's 输入/输出 lines, as the elements
+    cards/answer_card.py tail takes for its ``buttons``."""
+    return [button_row([button], RELAY_ROW_ID)]

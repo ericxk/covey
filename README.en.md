@@ -70,7 +70,7 @@ Once several agents run at the same time, the bottleneck is rarely the model. It
 - **It asks only when the call is yours.** A decision comes as a question card: tap an option and it is sent. There is no default answer, and no answer is never taken as a yes. The board (看板) in the bot's menu shows on one card what waits for you, what stopped, which results you have not seen and what is running.
 - **Long work has someone in charge.** Work that spans days and several topics becomes a project. A lead topic splits it up, opens topics, follows them and reports. The lead sees the topics' questions first, and when a project stops it asks you whether to go on, wrap up or stop. As topics pile up, project tidying proposes a project; nothing is built until you click.
 - **Memory that knows who said what.** Standing instructions, what you asked it to "remember" and what a project decided form one memory that travels with every turn. Each entry says what it covers and whether you said it or the agent summed it up; one tap on Wrong (不对) under an answer takes a wrong one back.
-- **Switch models mid-thread; get a second vendor's review.** One bot connects Claude Code, Codex, Antigravity and DeepSeek Harness (dsh); the butler and project leads run on any of the first three, so you are not tied to one vendor. Halfway through a topic you can change its harness, model or workspace and keep talking. Under an answer that changed code, 「独立复核」 (independent review) opens a read-only topic on another vendor's model to check the change.
+- **Switch models mid-thread.** One bot connects Claude Code, Codex, Antigravity and DeepSeek Harness (dsh); the butler and project leads run on any of the first three, so you are not tied to one vendor. Halfway through a topic you can change its harness, model or workspace and keep talking.
 - **Inside Feishu, and safe to bring to work.** No extra app to install: Feishu on your phone, desktop or the web is the client, and installing takes one QR scan. The bot serves you alone. A group is enabled only after you confirm it in the private chat, and group members can be limited to read-only. Sensitive terms are swapped for stand-ins before a request leaves the machine (Claude models), and an official refusal stops the turn instead of retrying around it.
 
 ### How it differs
@@ -85,7 +85,7 @@ Once several agents run at the same time, the bottleneck is rarely the model. It
 <tr>
 <td width="33%"><img src="docs/media/screenshots/02-task-card.png" width="100%" alt="Task card: status, input and output, the execution trace; steer, switch config or stop"><br><sub>Task card: a live execution trace; steer, switch config or stop at any time</sub></td>
 <td width="33%"><img src="docs/media/screenshots/06-question-card.png" width="100%" alt="Question card: options as buttons, one tap sends it; write your own or skip the question"><br><sub>Question card: one tap sends an option; no default answer</sub></td>
-<td width="33%"><img src="docs/media/screenshots/03-answer-card.png" width="100%" alt="Answer card: the conclusion, artifacts and changes, input and output, with independent review under it"><br><sub>Answer card: the conclusion, artifacts and changes; independent review for code changes</sub></td>
+<td width="33%"><img src="docs/media/screenshots/03-answer-card.png" width="100%" alt="Answer card: the conclusion, artifacts and changes, input and output"><br><sub>Answer card: the conclusion, artifacts and changes, input and output</sub></td>
 </tr>
 </table>
 
@@ -138,7 +138,7 @@ The web workbench source is in [`web/`](web/README.md), with two ways to deploy 
 ## After installing
 
 1. **First message**: write to the bot in a private chat; the butler answers or opens a topic. One page of how to use it: [five-minute start](docs/quickstart.md); then walk through [first use](docs/usage.md#第一次使用).
-2. **On by default**: the butler, projects, project tidying (proposals only), the board (看板) menu item, independent review, revisits, memory and knowledge entries. Recalling or editing a message stops or updates its task, and what you write in a topic while its task runs goes straight into it. What else can be turned on and how: [switches at a glance](docs/configuration.md#开关速查); to turn the whole showcase set on in a running bot, see [the showcase set](docs/configuration.md#演示套餐).
+2. **On by default**: the butler, projects, project tidying (proposals only), the board (看板) menu item, revisits, memory and knowledge entries. Recalling or editing a message stops or updates its task, and what you write in a topic while its task runs goes straight into it. What else can be turned on and how: [switches at a glance](docs/configuration.md#开关速查); to turn the whole showcase set on in a running bot, see [the showcase set](docs/configuration.md#演示套餐).
 3. **Upgrade**: run `scripts/upgrade.sh` in the checkout (`--dry-run` first to see what it would do). It takes the new upstream commit and deploys it as a fixed release with the service's own settings; the bot restarts in a few seconds, and running tasks go on as the new process takes them over. Do not `git pull` in the checkout the service runs from. See [daily upgrades](docs/deploy.md#日常升级).
 
 ## Documentation

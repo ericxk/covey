@@ -171,7 +171,7 @@ class EntryTest(unittest.TestCase):
             root = Path(tmp)
             state = root / "harness-cli_x"
             manifest = register(root, state, [sys.executable, "-c", "pass"], workdir=root,
-                                environment={"LARK_BRIDGE_REVIEW": "1"})
+                                environment={"LARK_BRIDGE_REVISIT": "1"})
             save(root / "status" / (service_key(state) + ".json"), {"process": identity, "generation": manifest["generation"]})
             with mock.patch.object(doctor, "manager_health", return_value={"process": identity, "lag": 0}), \
                     mock.patch.object(doctor, "query", return_value={"process": identity, "status": "ready"}), \
@@ -186,7 +186,7 @@ class EntryTest(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         self.assertIn("结论：都正常", text)
         self.assertIn("机器人 harness-cli_x 正常", text)
-        self.assertIn("COVEY_REVIEW=1", text)
+        self.assertIn("COVEY_REVISIT=1", text)
         self.assertIn(" --root ", text)  # Not the default root: the commands name it.
         code, text, _, _ = self.run_main([], io.StringIO())
         self.assertEqual((code, json.loads(text)["status"]), (0, "ready"))

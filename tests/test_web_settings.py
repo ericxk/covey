@@ -48,7 +48,7 @@ class SettingsCase(UnifiedCase):
 
 class WebSettingsTest(SettingsCase):
     def row(self, tab, kind, data=None):
-        data = (data or self.snap())["config"]  # 配置 (v22): its sections topic, main and review, and 更多.
+        data = (data or self.snap())["config"]  # 配置 (v22): its sections topic, main, lead and assist, and 更多.
         found = [r for r in (data[tab]["rows"] if tab in data else []) + data["more"] if r["kind"] == kind]
         self.assertEqual(len(found), 1, kind)
         return found[0]
@@ -75,7 +75,7 @@ class WebSettingsTest(SettingsCase):
         self.assertNotIn("nodes", data)
         config = data["config"]
         self.assertEqual([config[part]["title"] for part in ("topic", "main")], ["新话题", "管家"])
-        self.assertNotIn("review", config)  # COVEY_REVIEW unset.
+        self.assertNotIn("review", config)  # 独立复核 was taken out (T937).
         self.assertTrue(config["summary"].startswith("新话题 "))
         topic = config["topic"]
         self.assertEqual([r["label"] for r in topic["rows"]][:1] + [r["label"] for r in topic["rows"]][-1:], ["Harness", "脱敏"])
@@ -100,24 +100,22 @@ class WebSettingsTest(SettingsCase):
         self.assertIn({"text": "目录不存在", "tone": "red"}, gone["tags"])
         self.assertEqual(data["groups"]["summary"], "还没有群")
 
-    def test_the_review_section_is_the_cards_and_its_model_changes_on_the_page(self):
-        """T619 (the owner, 2026-11-21: 也都设置成一样对齐): with COVEY_REVIEW=1 配置 has 独立复核 as the card does, its rows
-        changed on the page through the card's code."""
+    def test_the_retired_review_section_is_not_pushed_and_its_old_rows_change_nothing(self):
+        """独立复核 was taken out (T937): 配置 has no ``review`` and its title bar no 复核, with COVEY_REVIEW=1 left in a
+        manifest too; a page drawn before it that changes one of its rows is told so and main-thread.json's ``review``
+        stays as it was (an older release reads it)."""
+        from covey.app.card_actions import REVIEW_KINDS, REVIEW_RETIRED
+        path = self.ctx.state_dir / settings.FILE
+        kept = {"harness": "agy", "model": "gemini-4-neon", "effort": "xhigh"}
+        path.write_text(json.dumps({**json.loads(path.read_text() if path.exists() else "{}"), "review": kept}))
         with mock.patch.dict(os.environ, {"COVEY_REVIEW": "1"}):
-            review = self.snap()["config"]["review"]
-            self.assertEqual((review["title"], review["note"]), ("独立复核", cards.REVIEW_NOTE))
-            harness, = review["rows"]  # Picked by itself: the Harness row alone.
-            self.assertEqual((harness["kind"], harness["current"], harness["editable"]), (cards.REVIEW_HARNESS, "", True))
-            self.assertEqual(harness["options"][0]["text"], cards.REVIEW_AUTO)
-            self.assertEqual(self.op(what="row", kind=cards.REVIEW_HARNESS, option="claude"),
-                             ("done", "已保存：之后点的独立复核照这个来。"))
-            chosen = settings.load(self.ctx.state_dir).review
-            self.assertEqual((chosen.harness, chosen.model), ("claude", "claude-model"))
-            self.assertEqual([r["kind"] for r in self.snap()["config"]["review"]["rows"]],
-                             [cards.REVIEW_HARNESS, cards.REVIEW_PROVIDER, cards.REVIEW_MODEL, cards.REVIEW_EFFORT])
-            self.assertIn("复核 ", self.snap()["config"]["summary"])
-            self.assertEqual(self.op(what="row", kind=cards.REVIEW_HARNESS, option="")[0], "done")
-            self.assertEqual(settings.load(self.ctx.state_dir).review, settings.ReviewModel())
+            config = self.snap()["config"]
+            self.assertNotIn("review", config)
+            self.assertNotIn("复核", config["summary"])
+            for kind in REVIEW_KINDS[1:]:  # The 设置 card's rows; the first is the answer card's button.
+                with self.subTest(kind):
+                    self.assertEqual(self.op(what="row", kind=kind, option="claude"), ("failed", REVIEW_RETIRED))
+        self.assertEqual(json.loads(path.read_text())["review"], kept)
 
     def test_the_lead_section_is_the_cards_and_its_model_changes_on_the_page(self):
         """T700: with COVEY_PROJECTS=1 配置 has 专项负责人 as the card does (data contract v36 ``lead``), changed on the page

@@ -102,7 +102,7 @@ def relay_card(label, outcome, *, text="", question="", reason="", inputs=None, 
         reply = reply_shown(shown, closable=True) if shown.strip() else []
         ending = foot(inputs, outputs, change=line)
         # As the topic's answer card (cards/answer_card.py tail): a commit not found and the criteria not met out on the card,
-        # the rest to look up in one fold (an older release's 改动 string among it), then the foot, 独立复核 under it, and
+        # the rest to look up in one fold (an older release's 改动 string among it), then the foot, 换配置 under it, and
         # where a reply goes (T647 P1-A2, A3).
         parts = details([files, change_element(None if line else shown_change), check_element(shown_change), *(notes or ())])
         tail = [*parts, *([ending] if ending else []), *(buttons or ()), reply_hint(label)]

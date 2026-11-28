@@ -16,7 +16,7 @@ token ｜ token/s ｜ 上下文 (｜ 重启) (``running_figures``, ``RUNNING_LIN
 
 The parts under an answer that are there to look up (产物, 验收说明, 改动) go into one closed fold
 (``details``); what the owner must see (a commit not found, the completion criteria not met: ALERT_IDS) stays out of it,
-and so do the 记下了 lines (MEMORY_ID: first under the answer, whatever else the card holds), the 输入/输出 lines and 独立复核 under them. No link ends the 输出 line: the card's head (cards/ui.py
+and so do the 记下了 lines (MEMORY_ID: first under the answer, whatever else the card holds) and the 输入/输出 lines. No link ends the 输出 line: the card's head (cards/ui.py
 speaker_row) opens the owner's message or the topic. An answer too long for one card goes on several (cards/pages.py),
 these parts under the last, or after them on ``tail_card`` when it cannot hold them too; a file is followed by
 ``tail_card`` as well."""
@@ -413,20 +413,6 @@ def criteria_element(rows):
     return {**labelled("完成标准", "\n".join(lines)), "element_id": CRITERIA_ID}
 
 
-REVIEW_ID = "answer_review"
-REVIEW_KIND = "bridge_review_open"  # app/review.py KIND.
-REVIEW_LABEL = "独立复核"
-
-
-def review_element(topic_id, job_id):
-    """独立复核 under the 输入/输出 box of a turn that changed code (app/review.py, COVEY_REVIEW=1): a bordered button in a
-    row of its own (REVIEW_ID); a click opens a read-only topic that reviews this turn's changes on another model."""
-    from covey.cards.elements import button_row, callback, topic_button
-
-    return button_row([topic_button(REVIEW_LABEL, behaviors=callback(
-        {"kind": REVIEW_KIND, "topic_id": str(topic_id or ""), "job_id": job_id}))], REVIEW_ID)
-
-
 DETAILS_ID = "relay_details"  # The id the relay's fold had first: one id for the fold on every card.
 # What a part under the answer is called in the fold's title (``details``), by its element id.
 DETAIL_WORDS = {"answer_acceptance": "验收说明", "answer_change": "改动"}
@@ -466,7 +452,7 @@ def tail(files=None, inputs=(), outputs=(), link="", change=None, notes=(), butt
     ``change_element``: None, {} or '' without), the line marking a commit not found (``check_element``) and the
     ``notes`` (elements: what to check of a UI change, ``acceptance_element``; the completion criteria not met,
     ``criteria_element``), those to look up in one fold when more than one and those to see first, outside it
-    (``details``), then the 输入/输出 lines, then ``buttons`` (elements: 独立复核, ``review_element``) under the lines, where they can be clicked at once; one of DETAIL_WORDS among them
+    (``details``), then the 输入/输出 lines, then ``buttons`` (elements: a 做完了 relay's 换配置, app/butler_relay.py switch_row) under the lines, where they can be clicked at once; one of DETAIL_WORDS among them
     goes into the fold. The 记下了 lines (MEMORY_ID, in ``notes`` or ``buttons``) are never folded: they come first, right
     under the answer, with or without 产物."""
     def is_memory(element):

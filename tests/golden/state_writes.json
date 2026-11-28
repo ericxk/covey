@@ -48,7 +48,6 @@
   "app/relay_send.py:send_once",
   "app/relay_send.py:take",
   "app/relay_stops.py:settle",
-  "app/review.py:Review.open",
   "app/saved_send.py:keep",
   "app/status_cards.py:StatusCards._one",
   "app/status_cards.py:StatusCards._send",

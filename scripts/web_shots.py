@@ -36,7 +36,7 @@ REPO = Path(__file__).resolve().parents[1]
 SHOTS_DIR = REPO / "docs" / "media" / "screenshots"
 CHAT = "oc_demo_owner"
 PID = "d3m0a1b2c3d4"
-SWITCHES = {"COVEY_PROJECTS": "1", "COVEY_REVIEW": "1", "COVEY_REVISIT": "1", "COVEY_MEMORY": "1",
+SWITCHES = {"COVEY_PROJECTS": "1", "COVEY_REVISIT": "1", "COVEY_MEMORY": "1",
             "COVEY_KNOWLEDGE": "1", "COVEY_PROJECT_MEMORY": "1"}
 TITLES = {"claude": "Claude Code", "codex": "Codex"}  # The Harnesses the demo routes, as the Bridge's apps name them.
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"

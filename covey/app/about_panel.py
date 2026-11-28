@@ -8,7 +8,7 @@ features of FEATURES and the enabled extension packages (core/extensions.py). FE
 owner does with them (GROUPS, T647 D6): 交给它办事, 不断、不丢, 看得全、记得住; each says first what it does for him, then,
 on, the switch it reads, off, how to get it (管家用的 Harness 没启用 → 没有管家, app/welcome.py ``butler_state``). What is on
 in every deployment (a task in a process of its own, 换配置 with its handoff) and what ./install turns on (core/switches.py
-INSTALL: 看板, 独立复核, 到点回来看, 记忆, the project's four) are listed with the rest. docs/configuration.md 开关速查 is the same
+INSTALL: 看板, 到点回来看, 记忆, the project's four) are listed with the rest. docs/configuration.md 开关速查 is the same
 list for the deployer.
 
 It has no record of its own: ``elements`` reads the facts at each draw of the 诊断 tab, so a tap on the tab (it folds,
@@ -90,11 +90,6 @@ def _tidy(probe):
 def _revisit(probe):
     from covey.core import revisits
     return (True, "", revisits.SWITCH) if revisits.enabled() else (False, "设 COVEY_REVISIT=1", revisits.SWITCH)
-
-
-def _review(probe):
-    from covey.app import review
-    return (True, "", review.ENV) if review.enabled() else (False, "设 COVEY_REVIEW=1", review.ENV)
 
 
 def _proxy(probe):
@@ -226,7 +221,6 @@ FEATURES = (
     ("负责人自己往下推", WORK, "话题做完一轮就叫醒负责人接着派，停住了来问你，能答的选择题先替你答", _push),
     ("整理专项", WORK, "话题多了提议建专项、归进专项，你点了才做", _tidy),
     ("到点回来看", WORK, "要等 CI、训练、部署的话题，Covey 按约定的时间自动回看，不用你盯", _revisit),
-    ("独立复核", WORK, "改了代码的一轮，点一下就换一家的模型只读复核", _review),
     ("代答", WORK, "替你回白名单里的人", _proxy),
     ("重启不打断", SAFE, "任务在自己的进程里跑，机器人重启、升级都不打断在跑的任务", _always),
     ("换配置不断上下文", SAFE, "话题做到一半换 Harness、模型或工作区，原模型写交接摘要给新模型接着做", _always),

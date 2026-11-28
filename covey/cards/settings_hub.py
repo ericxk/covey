@@ -1,7 +1,7 @@
 """The 设置 card's tab row (app/settings_hub.py): 配置 | 仓库 | 脱敏 | 群聊 (| 记忆) (| 设备) | 诊断 at
 the top of the body of the panel the card shows now, the panel's own card under it. 配置 is the butler's settings on
-one page (app/butler_panel.py): how a new topic (the launch card's and the butler's alike), the butler and 独立复核 run,
-models and all, which of the butler's topics start at once, the private chat mode and 子 Agent; the pages 模型, 新话题 and
+one page (app/butler_panel.py): how a new topic (the launch card's and the butler's alike), the butler, a new project's
+lead and the background calls run, models and all, which of the butler's topics start at once, the private chat mode and 子 Agent; the pages 模型, 新话题 and
 管家 it took the place of are retired (RETIRED). 仓库
 is the home and the repository map, read only (app/workspace_manager.py; the web page's 仓库 page edits it), 脱敏 the redaction term list
 (app/redaction_panel.py), 记忆 the owner's memory by scope and what the next turn carries (app/memory_panel.py, only with
@@ -20,7 +20,7 @@ from covey.cards.elements import callback_button, folded_panel, menu_item
 
 TAB = 'bridge_settings_tab'
 KINDS = frozenset({TAB})
-# 配置 (app/butler_panel.py): how a new topic, the butler and 独立复核 run, models and all, on one page.
+# 配置 (app/butler_panel.py): how a new topic, the butler, a new lead and the background calls run, models and all, on one page.
 CONFIG = 'config'
 # The butler's pages before 配置, retired into it: 管家 (BUTLER keeps the key of the one 管家 tab before the pages), 新话题
 # and 模型. An older card's tab, a record still on one and a button that names one land on 配置. The web page still has

@@ -124,7 +124,7 @@ class ButlerTools:
             return reply(False, f"Bridge 没有工具 {request.tool}：这次调用没有执行。")
         if request.tool in config_basis.CHECKED and config_basis.named(request.args):
             # The model names a Harness, model or budget on the owner's words only (T786); the Bridge's own callers
-            # (独立复核, the web page) pass the settings' and never come here.
+            # (the web page) pass the settings' and never come here.
             from covey.app.butler_topics import lead_of
 
             lead = lead_of(self.env, request)

@@ -119,7 +119,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     EARLY = ('workspace_manager', 'launch_model_picker', 'directory_picker', 'harness_switch', 'rewind')
     PANELS = ('proxy.panel', 'proxy.resend', 'proxy.owner_send', 'group_manager', 'redaction_panel', 'nodes.panel',
               'butler_panel', 'settings_hub', 'settings_hub.memory', 'overview', 'digest', 'app_setup', 'welcome',
-              'group_menu', 'project_tidy', 'review', 'collab.cards', 'web_login', 'fold_close', 'batch_switch')
+              'group_menu', 'project_tidy', 'collab.cards', 'web_login', 'fold_close', 'batch_switch')
 
     # What only the Bridge uses, built by _build_parts: at once in the Bridge (the default), on first use in a
     # task runner (``task_runner=True``), which rarely meets any of it.
@@ -128,7 +128,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
              'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'storage_alerts', 'digest', 'memory_tidy',
              'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects', 'project_tidy',
              'project_loop', 'devices', 'nodes', 'web_sync', 'web_login', 'source_watch', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards',
-             'welcome', 'revisits', 'review', 'collab', 'fold_close', 'owner_ledger', 'quota_watch', 'batch_switch')
+             'welcome', 'revisits', 'collab', 'fold_close', 'owner_ledger', 'quota_watch', 'batch_switch')
 
     def __init__(self, *, script_path, component_factory=components, task_runner=False):
         self.runtime = Runtime(script_path=script_path)
@@ -252,9 +252,6 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
                                                                  **batch_switch.TOOLS,
                                                                  **PROJECT_BUTLER_TOOLS})
             self.butler_search = butler_search.ButlerSearch(self.butler_env)  # Reads the checkpoints topics_search looks into.
-            # 独立复核 on an answer card (app/review.py, COVEY_REVIEW=1): a read-only topic opened as the butler opens one.
-            from covey.app.review import Review
-            self.review = Review(self.topics, self.butler_env)
             # A fold closed by a click on its text (app/fold_close.py).
             from covey.app.fold_close import FoldClose
             self.fold_close = FoldClose(self.runtime, self.messenger)

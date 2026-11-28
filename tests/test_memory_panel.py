@@ -364,14 +364,15 @@ class AboutTabTests(HubCase):
     def test_it_lists_what_every_deployment_has_and_the_new_install_s_defaults(self):
         """T647 D6: 重启不打断, 换配置, 回退 and 限流后自动继续 were not listed; the 看板 ./install turns on read as off (only the
         digest's switch was read); 知识条目 was a feature of its own beside 记忆 (docs/glossary.md: one word, 记忆)."""
-        env = {'COVEY_DIGEST_TIMES': 'off', 'COVEY_REVIEW': '1', 'COVEY_REVISIT': '1', 'COVEY_MEMORY': '1',
+        env = {'COVEY_DIGEST_TIMES': 'off', 'COVEY_REVISIT': '1', 'COVEY_MEMORY': '1',
                'COVEY_KNOWLEDGE': '1'}
         with mock.patch.dict(os.environ, env):
             rows = {row['name']: row for row in about_panel.features(about_panel.Probe(self.state, self.app.topics.apps,
                                                                                         self.app.runtime))}
         for name in ('重启不打断', '换配置不断上下文', '回退一步', '限流后自动继续', '撤回和编辑跟着变', '在跑时补一句', '看板',
-                     '独立复核', '到点回来看', '记忆'):
+                     '到点回来看', '记忆'):
             self.assertTrue(rows[name]['on'], name)
+        self.assertNotIn('独立复核', rows)  # Taken out (T937).
         self.assertFalse(rows['早晚汇总']['on'])
         self.assertNotIn('知识条目', rows)
         self.assertEqual({row['group'] for row in rows.values()}, {about_panel.WORK, about_panel.SAFE, about_panel.SEE})

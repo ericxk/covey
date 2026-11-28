@@ -933,10 +933,10 @@ def answer_tail_cards():
         area = relay_stops.buttons(record, view)
         return relay_card("T439", STOPPED, reason=view["title"], buttons=[area] if area else [])[0]
     from covey.cards.answer_card import (ARTIFACTS_ID, acceptance_element, criteria_element, input_parts, memory_element,
-                                         output_parts, review_element, tail, tail_card)
+                                         output_parts, tail, tail_card)
     from covey.cards.elements import markdown_panel
     from covey.cards.review import answer_card
-    from covey.cards.topic_actions import beside, relay_switch, topic_panel
+    from covey.cards.topic_actions import alone, relay_switch, topic_panel
 
     files = markdown_panel(ARTIFACTS_ID, "产物 2 个 · REPORT.md 等", "- [REPORT.md](https://example.invalid/a) · 12 KB\n"
                            "- [本轮改动.diff](https://example.invalid/b) · 3 KB", quiet=True)
@@ -1032,8 +1032,7 @@ def answer_tail_cards():
             "answer_card_thread_long": answer_card(
                 "看板的颜色换好了：浅色那套和深色那套都换了。" + "原因是深色模式下旧颜色的对比度不够。" * 40,
                 "T443 有结果 · 结论", tail(files, inputs, outputs, change=handed, notes=[acceptance_element(
-                    {"what": "看板的按钮改成蓝色", "where": "", "how": "打开看板，点任一按钮"})],
-                    buttons=[review_element(TOPIC, 443)]), [head]),
+                    {"what": "看板的按钮改成蓝色", "where": "", "how": "打开看板，点任一按钮"})]), [head]),
             # 追问只发答案卡 (docs/cards.md): a follow-up that only answered sent no task card; its 换配置 and 回退 go
             # under its answer (app/answer_delivery.py topic_controls).
             "answer_card_quick": answer_card(
@@ -1065,12 +1064,9 @@ def answer_tail_cards():
             "relay_stopped_switched": (lambda built: replace_element(built, relay_stops.AREA_ID, relay_stops.line(
                 relay_stops.SWITCHED.format("：Claude · Opus 5.5"))) and built)(
                 stopped_relay(failure_code="quota_exhausted", harness_id="codex", binding_revision=2)),
-            # T669 E1: a 做完了 relay's 换配置, beside 独立复核 when the turn changed code, else in a row of its own.
+            # T669 E1: a 做完了 relay's 换配置, in a row of its own.
             "answer_relay_switch": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
-                                              buttons=beside([], relay_switch(TOPIC, 439, "codex", 2)))[0],
-            "answer_relay_review_switch": relay_card(
-                "T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
-                buttons=beside([review_element(TOPIC, 439)], relay_switch(TOPIC, 439, "codex", 2)))[0],
+                                              buttons=alone(relay_switch(TOPIC, 439, "codex", 2)))[0],
             "answer_card_asked": answer_card(text, "✅ 结论", tail(files, inputs, outputs), [ask]),
             "answer_relay_asked": relay_card("T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files,
                                              ask=ask)[0],
@@ -1132,8 +1128,7 @@ def answer_tail_cards():
             # 11:02: everything under the answer but 输入/输出 in one fold whose title names the parts.
             "answer_relay_details": relay_card(
                 "T439", DONE, text=text, inputs=inputs, outputs=outputs, files=files, change=handed, url=thread_url,
-                notes=[acceptance_element({"what": "看板的按钮改成蓝色", "where": "", "how": "打开看板，点任一按钮"})],
-                buttons=[review_element("tf0439", 2906)])[0],
+                notes=[acceptance_element({"what": "看板的按钮改成蓝色", "where": "", "how": "打开看板，点任一按钮"})])[0],
             "answer_card_butler": answer_card(text, "✅ 结论", tail(files, inputs, outputs),
                                               [ask_block("看板改成彩色块，字大一点，颜色用暖色，再把图例挪到右边去", at="12:31",
                                                          who="管家", avatar="img_v3_fake_butler")]),
@@ -1162,9 +1157,6 @@ def answer_tail_cards():
             "answer_card_acceptance_local": answer_card(text, "✅ T443 · 结论", tail(
                 files, inputs, outputs, notes=[acceptance_element({"what": "看板的按钮改成蓝色", "where": "",
                                                                    "how": "本地起页面看过按钮颜色"})]), [head]),
-            # #20: 独立复核 under the box of a turn that changed code (COVEY_REVIEW=1, app/review.py).
-            "answer_card_review": answer_card(text, "✅ T443 · 结论", tail(
-                files, inputs, outputs, change=handed, buttons=[review_element("tf0443", 2906)]), [head]),
             # #18: a commit the repository of the turn's workdir lacks (app/answer_cards.py absent_commits), marked.
             "answer_card_delivery_mismatch": answer_card(text, "✅ T443 · 结论", tail(
                 files, inputs, outputs, change={**handed, "not_found": ["a6bc148d38ce8c230e96e"]}), [head]),
@@ -1347,7 +1339,7 @@ def settings_cards():
     from covey.cards.redaction_panel import redaction_card
     from covey.cards.settings_hub import folded_hub, tab_row
     from covey.cards.workspace_manager import repos_card
-    from covey.core.butler_settings import AssistChoice, LeadModel, ReviewModel, Settings
+    from covey.core.butler_settings import AssistChoice, LeadModel, Settings
 
     tabs = ["config", "repos", "redaction", "groups"]
     ASSIST_ROW = {"options": [("auto", "自动（跟随管家）"), ("claude", "Claude Code"), ("codex", "Codex"),
@@ -1368,17 +1360,11 @@ def settings_cards():
 
     return {
         # 配置 (T619): the butler's settings on one page, a section open at a time (新话题 first; 管家 from the butler's
-        # tool; 独立复核 with COVEY_REVIEW=1, picked by itself or a model chosen for it).
+        # tool).
         "config": butler_panel_card("c" * 24, view, Settings(), BUTLER_CHOICES, ["bridge", "docs"], top=row("config"),
                                     page="config"),
         "config_butler": butler_panel_card("c" * 24, {**view, "open": "butler"}, Settings(), BUTLER_CHOICES,
                                            ["bridge", "docs"], top=row("config"), page="config"),
-        "config_review": butler_panel_card("c" * 24, {**view, "open": "review"}, Settings(), BUTLER_CHOICES,
-                                           ["bridge", "docs"], top=row("config"), page="config", review_on=True),
-        "config_review_chosen": butler_panel_card(
-            "c" * 24, {**view, "open": "review"},
-            Settings(review=ReviewModel(harness="codex", model="gpt-6-astra", effort="high")),
-            BUTLER_CHOICES, ["bridge", "docs"], top=row("config"), page="config", review_on=True),
         # T700: 专项负责人 with COVEY_PROJECTS=1, following the butler or a model chosen for it; its Harness row lists the
         # Harnesses whose models take the Bridge's tools.
         "config_lead": butler_panel_card("c" * 24, {**view, "open": "lead"}, Settings(), LEAD_CHOICES,

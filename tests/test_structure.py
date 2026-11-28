@@ -64,7 +64,6 @@ from covey.cards.steer_receipts import CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND
 from covey.core import extensions
 from covey.core.harness import HARNESS_REGISTRY
 from covey.core.jobs import JOB_STOP_ACTION_KIND
-from covey.app.review import KIND as REVIEW_KIND
 from covey.cards.collab_card import KIND as COLLAB_STOP
 from covey.cards.review import FOLD_CLOSE_KIND
 from covey.core.paths import BIN_DIR, entry_script, tool_root
@@ -102,7 +101,6 @@ class CardActionTableTest(unittest.TestCase):
         before_routing |= NODE_PANEL_KINDS  # The 设置 card's 设备 tab (app/node_panel.py).
         before_routing |= MEMORY_PANEL_KINDS  # The 设置 card's 记忆 tab (app/memory_panel.py).
         before_routing |= set(TIDY_KINDS)  # 整理专项's cards (app/project_tidy.py).
-        before_routing |= {REVIEW_KIND}  # 独立复核 on an answer card (app/review.py).
         before_routing |= {COLLAB_STOP}  # 停止这次协作 on the 协作卡 (app/collab_cards.py).
         before_routing |= {FOLD_CLOSE_KIND}  # A click on the text of 这一轮中途的汇报 under a relay (app/fold_close.py).
         before_routing |= {OWNER_SEND, OWNER_SEND_DROP, OWNER_SEND_PICK,

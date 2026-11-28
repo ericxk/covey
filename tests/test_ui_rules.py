@@ -54,7 +54,7 @@ MATRIX = {
             "手上的事": ("overview.overview_butler_waiting", "overview.overview_stopped_stuck", "overview.pinned_board"),
             "早晚汇总": ("digest.evening", "digest.three_parts")},
     "U5": {BUTLER: ("settings.config_butler",), LEAD: ("settings.config_lead", "settings.config_lead_chosen", "switch.card_lead"),
-           "独立复核": ("settings.config_review", "settings.config_review_chosen"), "新话题默认": ("settings.config_topics",),
+           "新话题默认": ("settings.config_topics",),
            "代答": ("proxy.panel",), WEB: ("main_topic.numbered",),
            TOPIC: ("launch.codex", "launch.claude_redacting", "launch.maso_expanded", "switch.card", "switch.card_old_record"),
            "顶层换配置": ("switch.card_top",)},
@@ -437,7 +437,7 @@ class MoreFoldTest(unittest.TestCase):
         self.assertTrue(closed["header"]["title"]["content"].startswith("更多："))
         inside = {node["value"]["kind"] for node in walk(opened) if isinstance(node.get("value"), dict)}
         self.assertTrue({PROVIDER, REDACTION, MODE} <= inside)
-        self.assertEqual(len(FOLDED), 10)
+        self.assertEqual(len(FOLDED), 8)  # 10 till 独立复核's 模型 and 供应商 went with its section (T937).
         # 纯话题: the mode is no usual choice and is the section's one row, in sight, no 更多.
         self.assertEqual(mores(CARDS["settings.config_topics"]), [])
 

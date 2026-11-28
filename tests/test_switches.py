@@ -36,7 +36,7 @@ class SwitchesTests(unittest.TestCase):
     def test_each_switch_on_unset_is_on_where_its_feature_reads_it_and_off_at_0(self):
         """T813: the default-off switches the owner turned on are on unset, each read where its feature is; DEFAULTS
         says the same, and 0 turns each off."""
-        from covey.app import dispatch_cards, prompts, review, workspace_gists
+        from covey.app import dispatch_cards, prompts, workspace_gists
         from covey.app import projects as upgrade
         from covey.app.overview import Overview
         from covey.core import butler_tracks, knowledge, memory, project_proposals, projects, quiet_hours, revisits
@@ -45,7 +45,7 @@ class SwitchesTests(unittest.TestCase):
             "COVEY_PROJECTS": projects.enabled, "COVEY_PROJECT_AUTOWAKE": projects.autowake_enabled,
             "COVEY_PROJECT_ASK": projects.ask_enabled, "COVEY_PROJECT_MEMORY": projects.memory_enabled,
             "COVEY_PROJECT_TRIAGE": triage.enabled, "COVEY_PROJECT_TIDY": project_proposals.mode,
-            "COVEY_PROJECT_UPGRADE": upgrade.mode, "COVEY_REVIEW": review.enabled, "COVEY_REVISIT": revisits.enabled,
+            "COVEY_PROJECT_UPGRADE": upgrade.mode, "COVEY_REVISIT": revisits.enabled,
             "COVEY_MEMORY": memory.enabled, "COVEY_MEMORY_LEARN": memory.learning, "COVEY_KNOWLEDGE": knowledge.enabled,
             "COVEY_PINNED_OVERVIEW": Overview.enabled,
             "COVEY_PINNED_TOPICS": topic_seen.enabled, "COVEY_DIGEST_TIMES": quiet_hours.digest_times,
@@ -65,7 +65,7 @@ class SwitchesTests(unittest.TestCase):
                         self.assertIn(read(), (False, 0, "", "off"))
             self.assertTrue(switches.is_on("COVEY_PROJECTS", {}))
             self.assertFalse(switches.is_on("COVEY_PROJECTS", {"COVEY_PROJECTS": "0"}))
-            self.assertTrue(switches.is_on("COVEY_REVIEW", {"COVEY_REVIEW": switches.EMPTY}))  # Empty is unset.
+            self.assertTrue(switches.is_on("COVEY_REVISIT", {"COVEY_REVISIT": switches.EMPTY}))  # Empty is unset.
             self.assertFalse(switches.is_on("COVEY_COLLAB", {}))  # Not one of DEFAULTS: off unset.
 
     def test_a_manifest_environment_in_its_stored_spellings_gives_names_and_values(self):
@@ -116,10 +116,10 @@ class SwitchesTests(unittest.TestCase):
 
 class WhereTheyAreSaidTests(unittest.TestCase):
     def test_the_diagnosis_block_says_the_bridges_switches(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"COVEY_REVIEW": "1", "COVEY_WEB_CONFIG": "/a/b"}):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"COVEY_REVISIT": "1", "COVEY_WEB_CONFIG": "/a/b"}):
             block = summary(Path(tmp), {"key": "k", "job_id": 7, "status": "interrupted"}, bridge_release="covey")
         self.assertIn("开关：", block)
-        self.assertIn("COVEY_REVIEW=1", block)
+        self.assertIn("COVEY_REVISIT=1", block)
         self.assertIn("COVEY_WEB_CONFIG=已设", block)
         self.assertNotIn("/a/b", block)
 

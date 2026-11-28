@@ -271,7 +271,6 @@ const Grid: React.FC<{ rows: SettingsRow[]; layout: string[][]; ops: Ops; feishu
 };
 const TOPIC_LAYOUT: string[][] = [['t_harness', 't_provider', 't_model', 't_effort'], ['t_space', 't_run_mode', 't_redact']];
 const MAIN_LAYOUT: string[][] = [['harness', 'provider', 'model', 'effort'], ['space', 'redact', 'compact'], ['mode']];
-const REVIEW_LAYOUT: string[][] = [['r_harness', 'r_provider', 'r_model', 'r_effort']];
 /** v36 专项负责人：新建的专项，负责人用的 Harness、模型、思考预算（开了专项才有这一段） */
 const LEAD_LAYOUT: string[][] = [['l_harness', 'l_provider', 'l_model', 'l_effort']];
 const MORE_LAYOUT: string[][] = [['subagent']];
@@ -397,13 +396,6 @@ const ConfigTab: React.FC<{ p: SettingsConfigPage; ops: Ops; feishu: string }> =
         <h3 className="st-h">{p.main.title}</h3>
         <Grid rows={p.main.rows} layout={MAIN_LAYOUT} ops={ops} feishu={feishu} />
         <Note text={p.main.note} />
-      </section>
-    ) : null}
-    {p.review ? (
-      <section className="st-sec">
-        <h3 className="st-h">{p.review.title}</h3>
-        <Grid rows={p.review.rows} layout={REVIEW_LAYOUT} ops={ops} feishu={feishu} />
-        <Note text={p.review.note} />
       </section>
     ) : null}
     {p.lead ? (

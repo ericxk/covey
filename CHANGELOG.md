@@ -29,6 +29,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cha
 
 ### Removed 移除
 
+- 独立复核下线（`COVEY_REVIEW` 不再读）：答案卡和回带卡下面的「独立复核」、设置卡「配置」页和网页设置页的“独立复核”一段都去掉，回带卡的「换配置」单独一行。已发出的旧卡上点这些按钮只回一句已下线，不开话题、不改设置；`main-thread.json` 的 `review` 不再读、保存时原样留着。
 - 后台的一问一答精简：分流不再留待命进程（以前每条管家消息都先起两个 Claude Code、各用一次真实请求热身；`COVEY_TRACK_JUDGE_WARM`、`COVEY_TRACK_JUDGE_HEDGE` 去掉，Claude Code 一次性分流的上限从 3 秒放到 6 秒）；整理专项的实时归并删了（新话题、新专项该收的话题等下一次定时或手动整理；`COVEY_PROJECT_TIDY_AGE_DAYS`、`COVEY_PROJECT_TIDY_WORDS` 去掉），补话题要点只在整理运行里调、记在整理专项那一行；巡逻（`COVEY_PATROL` 和 10 个 `COVEY_PATROL_*`，早晚汇总的「我本来想找你的事」）删了；「看看」、晚间候选、整理记忆不再调模型，只按规则。辅助模型选「不用模型」时定时整理不跑（不再每天发一张注定失败的卡），记忆自己长开着时检查点的“以后/别再”规则照旧；网页设置页「后台活最近一次」只列分流、整理专项、记忆自己长三行。
 - 界面精简：早晚汇总去掉「你反复说的」「自动学习想记的」「Codex 和 Claude Code 自己记的」三节（留“记忆：待审核 N 条”）和整理记忆的「确认长期」「不对」；机器人菜单的旧项「仓库」「脱敏」「群聊」在应用菜单同步时删掉；设置卡「能做什么」并进「诊断」；答案卡下「让 Covey 30 分钟后回看」、看板每行的「记为看过」「取消到点回来看」「继续专项」「检查并继续」、专项卡分流记录的「不对」都去掉。已发出的旧卡上点这些按钮只回一句已下线、改到哪里做，不执行。 设置卡「配置」每段里没人改的 10 项（各处的供应商、管家和新话题的脱敏、复核和负责人的模型、负责人的思考预算、私聊模式）收进段末默认收起的「更多：…」（主人在三版里选的）。
 - Pi 下线（GPT 模型用 Codex 跑）：启动卡、换配置卡、设置卡上不再有它，Pi 的旧话题只回已下架。旧 `harnesses.json` 的 `enabled_harnesses`、网关的 `harnesses` 里写着 `pi` 时跳过它、照常启动；设置里选的是 Pi 的按没选处理（见 docs/legacy.md）。
@@ -87,6 +88,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Cha
 
 ### Removed (English)
 
+- 独立复核 (independent review) is taken out and `COVEY_REVIEW` is no longer read: its button under answer and relay cards and its section on the 设置 card's 配置 page and the web settings page are gone, and a relay's 换配置 sits in a row of its own. A click on an older card's button only says it was taken out and opens nothing; `main-thread.json`'s `review` is no longer read and is kept as it is on save.
 - Pi is retired (Codex runs the GPT models): it is off the launch, 换配置 and 设置 cards, and an old Pi topic only gets the retired notice. An older `harnesses.json` whose `enabled_harnesses` or a gateway's `harnesses` still names `pi` starts as before with it left out; a setting that chose Pi reads as none chosen (docs/legacy.md).
 
 ### Fixed (English)

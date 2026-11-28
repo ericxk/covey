@@ -5,7 +5,8 @@ core/butler.py ``agent_mode``, the one rule every process (task runners, the MCP
 
 A topic the butler opens always starts at once (its only wait is a worktree's launch card). The settings 直接开工
 (``start``) and 记住的工作区 (``trusted``) that decided it are retired (docs/legacy.md): a file that still has them
-loads, they are not read and not written back.
+loads, they are not read and not written back. 独立复核 is retired too (docs/legacy.md): its model (``review``) is not
+read, and a write keeps what the file has (``KEPT``) so an older release goes on reading it.
 """
 from __future__ import annotations
 
@@ -36,16 +37,6 @@ class TopicDefaults:
     run_mode: str = "direct"
     redaction: bool = False
     workspace: str = ""  # "" the butler picks one; else always this workspace.
-
-
-@dataclasses.dataclass(frozen=True)
-class ReviewModel:
-    """What 独立复核 (app/review.py) runs on, set on the 设置 card's 模型 page: "" harness picks by itself (another
-    vendor's model first, the chat's most used); else this Harness's ``model`` with ``effort`` while it can (usable now,
-    on the menu, redacting where the reviewed topic redacts), the pick otherwise."""
-    harness: str = ""
-    model: str = ""
-    effort: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -93,7 +84,6 @@ class Settings:
     topic_defaults: TopicDefaults = TopicDefaults()
     workspace_notes: tuple = ()  # (workspace name, one line on what it is for), in the owner's order.
     subagents: str = SUBAGENTS[0]  # SUBAGENTS.
-    review: ReviewModel = ReviewModel()  # 独立复核's model (ReviewModel); saved as ``review``.
     lead: LeadModel = LeadModel()  # A new project's lead's model (LeadModel); saved as ``lead``.
     assist: AssistChoice = AssistChoice()  # 辅助模型 (AssistChoice); saved as ``assist``, an older release ignores it.
     # Retired: main-thread.json's desk_topics opened front-desk topics in older releases, frozen since
@@ -130,7 +120,6 @@ def from_json(data) -> Settings:
     run_mode = _text(topic.get("run_mode"), "direct")
     compact = data.get("compact_tokens")
     notes = data.get("workspace_notes")
-    review = data.get("review") if isinstance(data.get("review"), dict) else {}
     lead = data.get("lead") if isinstance(data.get("lead"), dict) else {}
     assist = data.get("assist") if isinstance(data.get("assist"), dict) else {}
     harness, model, effort = _choice(data)
@@ -146,7 +135,6 @@ def from_json(data) -> Settings:
         workspace_notes=tuple((str(k), str(v)) for k, v in notes.items() if isinstance(v, str))
         if isinstance(notes, dict) else (),
         subagents=data["subagents"] if data.get("subagents") in SUBAGENTS else base.subagents,
-        review=ReviewModel(*_choice(review)),
         lead=LeadModel(*_choice(lead)),
         # Not through _choice: a retired Harness named here stays named (the calls say it is gone), never 自动.
         assist=AssistChoice(harness=_text(assist.get("harness")), off=assist.get("off") is True,
@@ -194,10 +182,15 @@ def _for_write(state_dir) -> dict:
     return read_for_write(path(state_dir))
 
 
+# Keys of retired settings no Settings field reads, written back as the file has them so an older release goes on
+# reading what it wrote: desk_topics (front-desk topics) and review (独立复核's model).
+KEPT = ("desk_topics", "review")
+
+
 def _write(state_dir, settings: Settings, data: dict) -> None:
-    """``settings`` written, under the caller's lock, with desk_topics as the file has it (``data``, read by ``_for_write``;
-    not a Settings field): an older release goes on reading what it wrote."""
-    kept = {key: value for key, value in data.items() if key == "desk_topics"}
+    """``settings`` written, under the caller's lock, with the KEPT keys as the file has them (``data``, read by
+    ``_for_write``; not Settings fields): an older release goes on reading what it wrote."""
+    kept = {key: value for key, value in data.items() if key in KEPT}
     write_json(path(state_dir), {**kept, **to_json(settings)}, ensure_ascii=False, indent=1)
 
 

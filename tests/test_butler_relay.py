@@ -171,18 +171,19 @@ class CardTest(unittest.TestCase):
         self.assertEqual(REPLY, text)
 
     def test_what_the_owner_must_see_is_out_on_the_card_and_the_rest_in_one_fold(self):
-        # T647 P1-A2: 没满足, 提交号对不上 and 独立复核 sat folded in grey small print and went unseen.
-        from covey.cards.answer_card import criteria_element, review_element
+        # T647 P1-A2: 没满足 and 提交号对不上 sat folded in grey small print and went unseen.
+        from covey.cards.answer_card import criteria_element
+        from covey.cards.topic_actions import alone, relay_switch
         from support.cards import walk_elements
         change = {"commit": "951327a", "deployed": "", "verified": "全量过", "not_found": ["951327a"]}
         files = {"tag": "collapsible_panel", "element_id": "answer_artifacts", "elements": [],
                  "header": {"title": {"tag": "markdown", "content": "产物 2 个 · a.md 等"}}}
         card, _ = relay_card("T410", DONE, text=REPLY, inputs=["Claude Code"], outputs=["用时 1分"], files=files,
                              change=change, notes=[criteria_element([("没满足", "全量测试过")])],
-                             buttons=[review_element("t" * 64, 7)])
+                             buttons=alone(relay_switch("t" * 64, 7, "codex", 1)))
         ids = [element.get("element_id") for element in card["body"]["elements"]]
         self.assertEqual(ids[2:], ["answer_change_check", "answer_criteria", "answer_artifacts", "answer_facts",
-                                   "answer_review", "relay_hint"])
+                                   "relay_switch_row", "relay_hint"])
         self.assertNotIn("relay_details", ids)  # 产物 alone left to look up: no fold around it.
         folded = [e.get("element_id") for e in walk_elements(card["body"]["elements"]) if e.get("tag") == "collapsible_panel"]
         self.assertNotIn("answer_criteria", folded)
@@ -637,33 +638,24 @@ class DeliverTest(Case):
         send = self.deliver(self.job(progress=SimpleNamespace(), checkpoint_path=str(point)))
         self.assertNotIn("改动", str(send.call_args.kwargs["card"]["body"]["elements"]))
 
-    def test_a_done_turn_offers_its_switch_beside_its_review_opening_at_the_top_level(self):
-        """T669 E1 (skipped by T658): 换配置 on a 做完了 relay, a small bordered button in the row of 独立复核 (one row of small
-        buttons, not two), else in a row of its own; its value is the task card's with ``relay``, so its card opens at the top
-        level (app/harness_switch.py). A turn with no Harness has none (test_a_done_turn_sends_its_conclusion)."""
-        from covey.app import review
-        from covey.cards.answer_card import review_element
+    def test_a_done_turn_offers_its_switch_opening_at_the_top_level(self):
+        """T669 E1 (skipped by T658): 换配置 on a 做完了 relay, a small bordered button in a row of its own under the
+        输入/输出 lines; its value is the task card's with ``relay``, so its card opens at the top level
+        (app/harness_switch.py). A turn with no Harness has none (test_a_done_turn_sends_its_conclusion). 独立复核, which it
+        stood beside, was taken out (T937): a turn that changed code gets the same row."""
         job = self.job(progress=SimpleNamespace(), harness_id="codex", binding_revision=3)
         elements = self.deliver(job).call_args.kwargs["card"]["body"]["elements"]
         self.assertEqual(["answer_facts", "relay_switch_row", "relay_hint"], [e.get("element_id") for e in elements[-3:]])
         value = {"kind": "bridge_switch_open", "topic_id": TOPIC, "job_id": 9, "harness_id": "codex", "binding_revision": 3,
                  "relay": True}
         self.assertEqual(switches_of(elements[-2]), [("换配置", value)])
-        relay_send.relay_path(self.state, job_key("main-t1", 9)).unlink()
-        with mock.patch.object(review, "buttons", return_value=[review_element(TOPIC, 9)]):
-            elements = self.deliver(job).call_args.kwargs["card"]["body"]["elements"]
-        self.assertEqual(["answer_facts", "answer_review", "relay_hint"], [e.get("element_id") for e in elements[-3:]])
-        self.assertEqual([label for label, _ in switches_of(elements[-2])], ["独立复核", "换配置"])
-        self.assertEqual(switches_of(elements[-2])[1], ("换配置", value))
+        self.assertNotIn("bridge_review_open", json.dumps(elements))
 
     def test_the_butlers_own_turn_and_a_turn_with_no_harness_offer_no_switch(self):
-        from covey.cards.answer_card import review_element
-        rows = [review_element(TOPIC, 9)]
-        self.assertEqual(butler_relay.with_switch(rows, self.job(topic=BUTLER, harness_id="claude")), rows)
-        self.assertEqual(butler_relay.with_switch((), self.job()), [])
-        mine = butler_relay.with_switch(rows, self.job(harness_id="codex"))
-        self.assertEqual(len(mine), 1)
-        self.assertEqual(len(rows[0]["columns"]), 1)  # The rows given are not changed.
+        self.assertEqual(butler_relay.switch_row(self.job(topic=BUTLER, harness_id="claude")), [])
+        self.assertEqual(butler_relay.switch_row(self.job()), [])
+        mine = butler_relay.switch_row(self.job(harness_id="codex"))
+        self.assertEqual([row.get("element_id") for row in mine], ["relay_switch_row"])
 
     def test_a_stopped_turn_with_a_retry_planned_sends_nothing(self):
         send = self.deliver(self.job(progress=SimpleNamespace()), status="failed", retry=auto_retry.Planned(time.time() + 60, 1, auto_retry.RATE_LIMITED))

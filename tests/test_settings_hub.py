@@ -396,7 +396,7 @@ class SettingsHubTests(HubCase):
         for page in BUTLER_PAGES:  # Each page of the butler's.
             row = [tab_row(page, 'a' * 24, tabs)]
             card = butler_card.butler_panel_card('a' * 24, {'revision': 1, 'hub': True}, current, choices,
-                                                    [f'w{i}' for i in range(30)], top=row, page=page, review_on=True)
+                                                    [f'w{i}' for i in range(30)], top=row, page=page)
             self.assertEqual(card['body']['elements'][0], row[0])
             self.assertLessEqual(element_count(card), CARD_NODES)
             self.assertLessEqual(json_size(card), CARD_BYTES)

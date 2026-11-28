@@ -84,15 +84,27 @@ class SettingsTest(unittest.TestCase):
             self.assertNotIn("start", written)
             self.assertNotIn("trusted", written)
 
+    def test_the_retired_review_model_is_read_past_and_kept_for_an_older_release(self):
+        # 独立复核 was taken out (T937): main-thread.json's ``review`` loads, no field reads it, a save keeps it as it was.
+        review = {"harness": "agy", "model": "gemini-4-neon", "effort": "xhigh"}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {butler.ENV: "1"}):
+            (Path(tmp) / settings.FILE).write_text(json.dumps({"review": review, "model": "m"}))
+            loaded = settings.load(tmp)
+            self.assertEqual(loaded, settings.Settings(model="m"))
+            self.assertFalse(hasattr(loaded, "review"))
+            settings.update(tmp, effort="high")
+            settings.save(tmp, settings.load(tmp))
+            written = json.loads((Path(tmp) / settings.FILE).read_text())
+            self.assertEqual((written["review"], written["effort"]), (review, "high"))
+
     def test_a_retired_harness_chosen_before_reads_as_none_chosen(self):
-        # Pi was retired (T766): the butler, its topics, 独立复核 and a lead chosen on it follow what is enabled again.
+        # Pi was retired (T766): the butler, its topics and a lead chosen on it follow what is enabled again.
         choice = {"harness": "pi", "model": "gpt-6-astra", "effort": "high"}
-        loaded = settings.from_json({**choice, "topic_defaults": {**choice, "run_mode": "worktree"}, "review": choice,
-                                     "lead": choice})
+        loaded = settings.from_json({**choice, "topic_defaults": {**choice, "run_mode": "worktree"}, "lead": choice})
         self.assertEqual((loaded.harness, loaded.model, loaded.effort), ("", "", ""))
         self.assertEqual((loaded.topic_defaults.harness, loaded.topic_defaults.model, loaded.topic_defaults.run_mode),
                          ("", "", "worktree"))
-        self.assertEqual((loaded.review, loaded.lead), (settings.ReviewModel(), settings.LeadModel()))
+        self.assertEqual(loaded.lead, settings.LeadModel())
         kept = settings.from_json({"harness": "codex", "model": "gpt-x", "lead": {"harness": "agy", "model": "n"}})
         self.assertEqual((kept.harness, kept.model, kept.lead.harness, kept.lead.model), ("codex", "gpt-x", "agy", "n"))
 

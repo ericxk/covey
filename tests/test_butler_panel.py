@@ -148,7 +148,7 @@ class ButlerPanelTests(UnifiedCase):
         self.assertEqual((header['title']['content'], header['subtitle']['content'], header['icon']['token']),
                          ('配置', '新话题 跟上次一样 · 管家 Claude Code', 'robot_outlined'))
         text = self.text()
-        # T619: one page, a section a use (新话题, 管家; 独立复核 only with COVEY_REVIEW=1), one open at a time (CardKit has
+        # T619: one page, a section a use (新话题, 管家; 独立复核 was taken out, T937), one open at a time (CardKit has
         # room for one's options), the others a heading, 展开 and a grey line of what they hold; 更多 always. T546: the
         # private chat mode is a row of the butler's, not a red button on top. T614: the butler's Harness is a row of its own
         # (its 工作区 row went with the 仓库 page, v43).
@@ -346,19 +346,17 @@ class ButlerPanelTests(UnifiedCase):
         self.assertEqual(len(folds), 10, folds)  # Every row there is: 5 of the butler's, 5 of a new topic's.
         self.assertEqual([f for f in folds if len(f) > 20], [])
         # The 设置 card's 配置 (T619), 管家 (a retired page) drawn as it, each of its sections open in turn: a new topic's
-        # rows, the butler's (its Harness and 工作区 too, T614) and the mode, 独立复核's; 子 Agent always.
-        current = settings.Settings(model='claude-model', topic_defaults=current.topic_defaults,
-                                    review=settings.ReviewModel(harness='claude', model='claude-model'))
+        # rows, the butler's (its Harness and 工作区 too, T614) and the mode, a new lead's; 子 Agent always.
+        current = settings.Settings(model='claude-model', topic_defaults=current.topic_defaults)
         current = dataclasses.replace(current, lead=settings.LeadModel(harness='codex', model='codex-model'))
         keys = {'topic': ('t_harness', 't_provider', 't_model', 't_effort', 't_redact'),
                 'butler': ('harness', 'provider', 'model', 'effort', 'redact', 'compact', 'mode'),
-                'review': ('r_harness', 'r_provider', 'r_model', 'r_effort'),
                 'lead': ('l_harness', 'l_provider', 'l_model', 'l_effort')}
         for page in (panel_card.CONFIG, 'main'):
             for part, shown in keys.items():
                 card = panel_card.butler_panel_card('a' * 24, {'revision': 9999, 'open': part}, current,
                                                          available_models(self.app.topics, self.ctx), ["project"],
-                                                         page=page, review_on=True, lead_on=True)
+                                                         page=page, lead_on=True)
                 folds = [p['element_id'] for p in walk_panels(card)]
                 # Those nobody changes in 更多 at the section's end (U4, T898), its fold before them.
                 usual = [key for key in shown if key not in panel_card.FOLDED]

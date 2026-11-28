@@ -170,13 +170,12 @@ def by_id(node, replaced):
 
 def answer_sketch():
     """The answer card in the topic as app/answer_delivery.py makes it: the topic's row (app/saved_send.py status_head),
-    the answer whole, 产物, the 改动 of a turn that changed code, 输入/输出 and 独立复核 (app/review.py)."""
-    from covey.cards.answer_card import input_parts, review_element, tail, topic_head
+    the answer whole, 产物, the 改动 of a turn that changed code and 输入/输出."""
+    from covey.cards.answer_card import input_parts, tail, topic_head
     from covey.cards.review import answer_card
     change = {"commit": "3f9c2a7e41d08b6c5a12", "deployed": "", "verified": "npm test 全过（新增 3 个组件测试）；本地起页面点过登录"}
     card = answer_card(answer_text(), f"{LABEL} 有结果 · 结论",
-                       tail(artifacts(), input_parts(*INPUTS), outputs(242), change=change,
-                            buttons=[review_element("t" * 64, 12)]),
+                       tail(artifacts(), input_parts(*INPUTS), outputs(242), change=change),
                        [topic_head(LABEL, TITLE, "done")])
     return [("card", card)]
 

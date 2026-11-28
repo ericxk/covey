@@ -233,8 +233,7 @@
 - **直接开工已下线**：旧卡上的 `bridge_main_start`、`bridge_main_start_row`、`bridge_main_untrust` 仍归设置卡认领（`RETIRED_KINDS`），点了不改设置，回执写 `RETIRED_NOTICE`，卡按现在的样子重画。
 - **脱敏默认**：只有配置页新话题一段的这一行（`topic_defaults.redaction`）。脱敏标签以前的“新话题默认开”（`redaction/config.json` 的 `default_on`）不再读；`core/migrate.py` 的 `redaction-default` 在它开着时把这一行打开一次。
 - **配置一页**：以前的新话题、管家两页（以及短暂存在过的模型页）合成「配置」（`cards/settings_hub.py` 的 `CONFIG`），旧页签的键 `topic`、`main`、`models` 退役到它（`RETIRED`）：旧卡上点这些页签、停在这些页上的记录、这些页上的按钮都落到配置页，按钮照存并展开它所在的段（`PAGE_OF`、`PART_OF`）。「展开」是 `bridge_main_section`，只改卡片的 `view.open`，不改设置。网页工作台的设置页仍是新话题、管家两页（`app/web_settings.py` 的 `web_tabs`）。
-- **专项负责人的模型**存在 `main-thread.json` 的 `lead`（`harness`、`model`、`effort`；`core/butler_settings.py` 的 `LeadModel`），`harness` 空是跟管家一样；选 Harness 时同独立复核，带上第一个模型和一档预算，选“跟管家一样”清空三项；只管新建的专项（`app/lead_harness.py` 的 `binding`）。旧版本不认这一项，回滚后再改设置会丢掉它。
-- **独立复核的模型**存在 `main-thread.json` 的 `review`（`harness`、`model`、`effort`；`core/butler_settings.py` 的 `ReviewModel`），`harness` 空是自动挑。选 Harness 时带上它目录里第一个模型和一档说得出名字的思考预算，和管家的一样；选“自动挑”清空三项。旧版本不认这一项，回滚后再改设置会丢掉它。
+- **专项负责人的模型**存在 `main-thread.json` 的 `lead`（`harness`、`model`、`effort`；`core/butler_settings.py` 的 `LeadModel`），`harness` 空是跟管家一样；选 Harness 时同管家，带上第一个模型和一档预算，选“跟管家一样”清空三项；只管新建的专项（`app/lead_harness.py` 的 `binding`）。旧版本不认这一项，回滚后再改设置会丢掉它。
 - **子 Agent** 在配置页的“更多”里，但对整个机器人生效：Bridge 起的每一轮 Claude Code（话题和管家，连同轮前压缩）都照它。
   - `subagents` 是 `light`（默认，没有这一项或值不认识也算）时，进程带 `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`，再用 `--agents` 换掉内置的 Explore：只读（Read、Grep、Glob、Bash），跑在 Haiku 上，只找文件、搜代码、看日志，不改东西、不下判断。这一轮的模型是 Haiku 时不设 `CLAUDE_CODE_SUBAGENT_MODEL`。
   - `same` 什么都不加，每个子 Agent 都跑主模型。

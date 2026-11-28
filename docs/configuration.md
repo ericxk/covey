@@ -15,7 +15,6 @@
 | [管家](#管家) | `COVEY_BUTLER`（不设即允许） | 私聊发一句话由管家回答或开话题；设置卡「配置」页有管家一段。管家没选 Harness 时用 Claude Code，没启用 Claude Code 时用启用了的 Codex 或 Antigravity（再没有时 DeepSeek Harness）；设置卡「配置」页的“管家”一段可换；选的 Harness 没启用时私聊照旧开话题 | `COVEY_BUTLER=0`；或主人在设置卡「配置」页的“管家”一段把私聊顶层改成“每条直接开一个话题” |
 | [专项](projects.md) | `COVEY_PROJECTS` | 管家把长期要跟进的事开成专项时，私聊出现专项卡 | `COVEY_PROJECTS=0`（下面专项的几个开关跟着没用） |
 | [整理专项](#整理专项)（只提议） | `COVEY_PROJECT_TIDY`（不设是 `suggest`；要专项开着） | 话题多了以后私聊出现“建个专项？”的提议卡；看板卡上有「整理专项」 | `COVEY_PROJECT_TIDY=off` |
-| [独立复核](usage.md#答案在哪里) | `COVEY_REVIEW` | 改了代码的答案卡下面多「独立复核」：点了才开一个只读话题，换一家的模型只看你的原话、完成标准和这一轮的改动 | `COVEY_REVIEW=0` |
 | [到点回来看](usage.md#到点回来看) | `COVEY_REVISIT`（看和取消在菜单「看板」） | 话题要等训练、CI 这类外部的事时，这一轮说好几点回来看就结束，到点自己再起一轮；菜单「看板」里有“到点回来看”一组 | `COVEY_REVISIT=0` |
 | [记忆](#记忆) | `COVEY_MEMORY` | 你在话题里说的长期要求一轮结束后记下，答案卡底部露一行和“不对”“改”（有网页时）按钮；设置卡多「记忆」标签 | `COVEY_MEMORY=0` |
 | [记忆自己长](#记忆) | `COVEY_MEMORY_LEARN`（要 `COVEY_MEMORY` 开着） | 你自己的一轮里说了“以后、别再、记住”这类话，一轮结束后 Bridge 用辅助模型读一遍你的话，长期要求记下（答案卡上一行“记下了”带“不对”；处处适用的先在当地生效、同时进待审核问管不管全局，涉及部署、删除这类事的采纳前不生效）；每轮的记忆块末尾多一行查记忆的命令 | `COVEY_MEMORY_LEARN=0`（`COVEY_MEMORY=0` 时也跟着关） |
@@ -299,7 +298,7 @@
 
 同时做几件事的分流、整理专项（判断，和整理时先补的话题要点）、记忆自己长是后台的一问一答：给一段 JSON，要一行 JSON，不用工具、不留会话，到点连进程组一起杀掉。它们只从一个出口出去（`app/assist.py`），由设置卡「配置」和网页设置页的**辅助模型**一节决定问谁、用哪个模型和思考预算，所有后台活共用这一套，不再分轻重两套模型（存在 `main-thread.json` 的 `assist`：`harness`、`model`、`effort`、`off`；只有 `harness` 的旧文件照读，模型和预算按 Harness 自己的；旧版本读不到这个字段，回滚后这一项回到“自动”）：
 
-- **自动（跟随管家）**，默认：候选按这个顺序排，只取设置里出现过的 Harness：管家开着（`COVEY_BUTLER` 不是 `0`、私聊模式是管家）时管家的 Harness，再是新话题默认、专项负责人、独立复核里点名的 Harness；这些都没点名时用 Bridge 默认的 Harness。跟着谁就连它的模型、思考预算和供应商一起跟（管家是 Antigravity 的 `gemini-4-neon`、`xhigh`，后台活就都用它、`xhigh`，不悄悄换低一档；管家在 Codex 的某个网关模型上，后台活也走那个网关；`ultra`、`ultracode` 这类编排档按它的思考预算 `xhigh` 问，一问一答用不上编排；跟的设置没写模型时模型和预算都用 Harness 自己的）。过滤掉不能一问一答的（DeepSeek Harness 和扩展里没声明 `ask_once` 的 Harness）、现在用不了的（可用性检查的最近一次结果和最近一轮的失败，只读内存不读盘）、Antigravity 没登录或多账号都被挡住的、正在熔断的，用剩下的第一个。
+- **自动（跟随管家）**，默认：候选按这个顺序排，只取设置里出现过的 Harness：管家开着（`COVEY_BUTLER` 不是 `0`、私聊模式是管家）时管家的 Harness，再是新话题默认、专项负责人里点名的 Harness；这些都没点名时用 Bridge 默认的 Harness。跟着谁就连它的模型、思考预算和供应商一起跟（管家是 Antigravity 的 `gemini-4-neon`、`xhigh`，后台活就都用它、`xhigh`，不悄悄换低一档；管家在 Codex 的某个网关模型上，后台活也走那个网关；`ultra`、`ultracode` 这类编排档按它的思考预算 `xhigh` 问，一问一答用不上编排；跟的设置没写模型时模型和预算都用 Harness 自己的）。过滤掉不能一问一答的（DeepSeek Harness 和扩展里没声明 `ask_once` 的 Harness）、现在用不了的（可用性检查的最近一次结果和最近一轮的失败，只读内存不读盘）、Antigravity 没登录或多账号都被挡住的、正在熔断的，用剩下的第一个。
 - **点名一个 Harness**：只用它，和上面几节一样再选供应商、模型、思考预算（选 Harness 时先填上它的第一个模型和那个模型的推荐档，能改）。它没启用、用不了、在熔断，这次就不调模型，各功能走自己的退路，原因写清（“设置里选的 Codex 现在用不了（登录失效）”），**绝不换到别的 Harness**。点名的 Harness 下线了也照旧显示点名，不悄悄改回自动。
 - **不用模型（只按规则）**：后台活一律不调模型：分流按新开一件；整理专项没有只按规则的整理，定时整理不跑（不再每天发一张注定失败的卡），你手动点的整理卡写为什么；记忆自己长开着时，主人说“以后/别再”由话题自己在检查点里记（和不开记忆自己长时一样）。
 
@@ -468,7 +467,6 @@
 ### 其他
 
 - `COVEY_APP_CHECK=0`：不检查飞书应用、不发「飞书应用待补」卡。检查和补齐见[自动补齐飞书应用](feishu-app.md#自动补齐飞书应用)。
-- `COVEY_REVIEW`：默认开，设 `0`、`off`、`false`、`no` 才关。改了代码的一轮（`core/diff.py` 记到改了文件，或检查点的 `delivery` 写了提交号），答案卡和回带卡的灰框下面多一个「独立复核」（`app/review.py`）。只在主人点了才开话题，从不自己开；用什么模型在设置卡「配置」页的“独立复核”一段选（存 `main-thread.json` 的 `review`，不选是自动挑），开关开着时这一段才出现；关了就没有这个按钮，已发出的卡上的按钮点了照样开（开关只管画不画）。设备上的话题不给。
 - `--health-timeout`：`launch` 的参数，默认 120 秒，0 关闭。Bridge 本地健康接口连续这么久没有响应就替换进程。bootstrap 不传它，所以经 bootstrap 注册的都是 120。
 - `COVEY_PRIVACY_DENYLIST`（只给 `scripts/privacy_check.py` 读，Bridge 本身不读）：指向仓库外的文本文件，每行一个公司域名或内部名词，隐私检查按它查；不设就只查通用规则，扩展里放有一份，见[隐私检查](testing.md#隐私检查)。
 
@@ -482,7 +480,6 @@
 | --- | --- | --- | --- |
 | `COVEY_DATA_HOME` | `core/paths.py`、`service/doctor.py`（体检里自托管网页的数据根）、`service/web_selfhost.py`（`wanted`：自托管网页的数据放它下面的 `web/`）、`core/devices.py`（找 `devices.json`）、`core/extensions.py`（找本部署启用、停用的扩展 `extensions/enabled`） | 按 [数据目录](operations.md#数据目录) 推算 | 否 |
 | `COVEY_SERVICE_ROOT` | `core/paths.py` | `<数据根>/bridge-services` | 否 |
-| `COVEY_REVIEW` | `app/review.py`（`enabled`，`buttons` 据此画按钮） | 开；`0`、`off`、`false`、`no` 关：改了代码的答案卡和回带卡不画「独立复核」 | 否 |
 | `COVEY_STATE_DIR`；`LARK_CLAUDE_BRIDGE_STATE_DIR`、`LARK_DSH_BRIDGE_STATE_DIR`、`COVEY_AGY_STATE_DIR` | `app/harnesses.py`（只有默认 Harness 读，其余总用 Bridge 的 `--state-dir`） | `<数据根>/<Harness 的目录名>` | 否 |
 | `COVEY_PROFILE` | `backends/codex/bridge.py`、`backends/dsh/bridge.py`、`backends/agy/bridge.py`（Bridge 的 `--profile`） | 空：lark-cli 的默认 profile | 否 |
 | `COVEY_MESSAGE_FORMAT`、`LARK_CLAUDE_BRIDGE_MESSAGE_FORMAT`、`LARK_DSH_BRIDGE_MESSAGE_FORMAT`、`COVEY_AGY_MESSAGE_FORMAT` | `feishu/messenger.py`（各 Harness 发消息时读） | `markdown` | 否 |
@@ -659,4 +656,4 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 
 已下架的 Harness 和供应商、不再读取的变量和参数、旧菜单键、旧卡片和旧安装方式现在会怎样，见[已下线的功能与旧配置](legacy.md)。只升级老部署时才用得到。
 
-这个版本起不再读的开关，清单里留着也不报错：`COVEY_TURN_EXPORT`（任务卡「下载请求与结果」整块删了）、`COVEY_HARNESS_PROBE`（可用性检查不再做真实模型调用）、`COVEY_JUDGE_GATEWAY`（后台的一问一答不再走模型网关，改问[辅助模型](#辅助模型)选的 Harness 自己的命令行）、`COVEY_BOARD`（菜单「看板」每个部署都有）、`COVEY_PROJECT_STYLE_KEEP`（负责人改过的汇报风格总会记下）。各自现在的行为见[已下线的功能](legacy.md#已下线的功能)。
+这个版本起不再读的开关，清单里留着也不报错：`COVEY_REVIEW`（独立复核整块删了，见[已下线的功能](legacy.md#已下线的功能)）、`COVEY_TURN_EXPORT`（任务卡「下载请求与结果」整块删了）、`COVEY_HARNESS_PROBE`（可用性检查不再做真实模型调用）、`COVEY_JUDGE_GATEWAY`（后台的一问一答不再走模型网关，改问[辅助模型](#辅助模型)选的 Harness 自己的命令行）、`COVEY_BOARD`（菜单「看板」每个部署都有）、`COVEY_PROJECT_STYLE_KEEP`（负责人改过的汇报风格总会记下）。各自现在的行为见[已下线的功能](legacy.md#已下线的功能)。

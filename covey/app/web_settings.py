@@ -3,7 +3,7 @@ draws (``snapshot``), and the few changes the page may make (``change``, app/web
 itself draws and writes with. Nothing here is a second copy of a rule.
 
 - What is pushed: the tabs ``hub_tabs`` shows (app/menu_panel.py): 配置 as the card has it (v22 ``config``: its sections 新话题,
-  管家 unless COVEY_BUTLER=0, 独立复核 with COVEY_REVIEW=1, 专项负责人 with COVEY_PROJECTS=1 (v36 ``lead``), and 更多, all open: the
+  管家 unless COVEY_BUTLER=0, 专项负责人 with COVEY_PROJECTS=1 (v36 ``lead``), and 更多, all open: the
   page has no card's size), 仓库 (v43 ``repos``: the home, the repository map, the worktrees; the old 工作区 page ``workspace`` is still
   pushed, for a page that draws it, but is no tab), 脱敏, 群聊, 设备 with
   COVEY_NODE_LISTEN; not 记忆, 能做什么 and 诊断, the card's alone: CARD_ONLY, each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``mode_setting``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
@@ -52,6 +52,7 @@ from covey.cards.settings_hub import (ABOUT, CONFIG, DOCTOR, GROUPS, LABELS, MEM
 from covey.cards.workspace_manager import list_entries, tag_words, tail
 from covey.app import quota_watch, self_upgrade, web_launch, web_panels
 from covey.app.access import free_talk_on
+from covey.app.card_actions import REVIEW_KINDS, REVIEW_RETIRED
 from covey.app.workspace_manager import derived_repos, repo_entries
 from covey.core import assist as assist_records
 from covey.core import butler, butler_settings, projects, repomap, web_sync
@@ -68,8 +69,7 @@ NOTE_LENGTH = cards.NOTE_LENGTH
 EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MODEL, cards.TOPIC_EFFORT,
                       cards.TOPIC_REDACTION, cards.SUBAGENTS,
                       cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION,
-                      cards.MODE, cards.REVIEW_HARNESS, cards.REVIEW_PROVIDER, cards.REVIEW_MODEL, cards.REVIEW_EFFORT,
-                      cards.LEAD_HARNESS, cards.LEAD_PROVIDER, cards.LEAD_MODEL, cards.LEAD_EFFORT, cards.ASSIST,
+                      cards.MODE, cards.LEAD_HARNESS, cards.LEAD_PROVIDER, cards.LEAD_MODEL, cards.LEAD_EFFORT, cards.ASSIST,
                       cards.ASSIST_PROVIDER, cards.ASSIST_MODEL, cards.ASSIST_EFFORT})
 BUTLER_KINDS = frozenset({cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION})
 CHANGES = ("row", "untrust", "note", "redaction", "terms", "group", "free", "workspace_add", "workspace_remove", "workspace_prune",
@@ -624,19 +624,14 @@ class WebSettings:
 
     def config(self, ctx, settings, choices, chat) -> dict:
         """配置 (v22), as the card's page (cards/butler_panel.py config_page) with every section open: ``topic`` (新话题), ``main``
-        (管家, unless COVEY_BUTLER=0), ``review`` (独立复核, with COVEY_REVIEW=1), ``lead`` (专项负责人, with COVEY_PROJECTS=1, v36),
+        (管家, unless COVEY_BUTLER=0), ``lead`` (专项负责人, with COVEY_PROJECTS=1, v36; no ``review`` since 独立复核 was taken out),
         ``assist`` (辅助模型, always: ``assist``; an older page leaves it out), each with its ``title``; under 更多 (``more``) 子
         Agent; ``summary`` the card's title bar."""
-        from covey.app import review
         on = butler.available() and settings.enabled
-        found = {"summary": cards.config_subtitle(settings, choices, on, review.enabled(), butler.available(),
-                                                  projects.enabled()),
+        found = {"summary": cards.config_subtitle(settings, choices, on, butler.available(), projects.enabled()),
                  "topic": {"title": cards.SECTIONS[cards.TOPIC_PART], **self.topic(ctx, settings, choices, chat)}}
         if butler.available():
             found["main"] = {"title": cards.SECTIONS[cards.BUTLER_PART], **self.butler(ctx, settings, choices)}
-        if review.enabled():
-            found["review"] = {"title": cards.SECTIONS[cards.REVIEW_PART], "note": cards.REVIEW_NOTE,
-                               "rows": rows_of(cards.review_setting_list(settings, choices, LIMIT))}
         if projects.enabled():
             found["lead"] = {"title": cards.SECTIONS[cards.LEAD_PART], "note": cards.LEAD_NOTE,
                              "rows": rows_of(cards.lead_setting_list(settings, choices, LIMIT))}
@@ -802,6 +797,8 @@ class WebSettings:
         kind, option = str(payload.get("kind") or ""), payload.get("option")
         if kind in cards.OFFLINE_KINDS:
             raise ValueError(cards.OFFLINE_NOTICE)
+        if kind in REVIEW_KINDS:  # 独立复核's rows on a page drawn before it was taken out (app/card_actions.py).
+            raise ValueError(REVIEW_RETIRED)
         if kind not in EDITABLE:
             raise ValueError(READ_ONLY)
         if not isinstance(option, str):

@@ -675,7 +675,7 @@ class ServiceTest(InstallerCase):
         ins, _ = self.start()
         self.assertEqual({key: cenv.get(key, None, ins.env) for key in switches.SHOWCASE},
                          {key: switches.INSTALL.get(key) for key in switches.SHOWCASE})
-        self.assertIsNone(cenv.get("COVEY_REVIEW", None, ins.env))  # 独立复核, 到点回来看, 记忆 ... are on unset (T813).
+        self.assertIsNone(cenv.get("COVEY_REVISIT", None, ins.env))  # 到点回来看, 记忆 ... are on unset (T813).
         ins, ran = self.start(False, 0, "--showcase")  # Registered (the service is not up) with the 演示套餐.
         self.assertEqual(2, len(ran))
         self.assertEqual({key: cenv.get(key, None, ins.env) for key in switches.SHOWCASE}, switches.SHOWCASE)
@@ -841,7 +841,7 @@ class SwitchesTest(InstallerCase):
         get, ins = self.settled(COVEY_DIGEST_TIMES="08:00")
         self.assertEqual(("08:00", "0", "/absolute/kb", "1"),
                          tuple(get(name) for name in ("COVEY_DIGEST_TIMES", "COVEY_MEMORY", "COVEY_HISTORY_CMD", "COVEY_PROJECTS")))
-        self.assertIsNone(get("COVEY_REVIEW"))  # Registered already: no new default.
+        self.assertIsNone(get("COVEY_REVISIT"))  # Registered already: no new default.
         self.assertNotIn("HTTPS_PROXY", ins.env)  # The proxy and PATH are this run's own.
         self.assertNotEqual(ins.env["PATH"], "/absolute/bin")
         before = dict(ins.env)
@@ -864,8 +864,8 @@ class SwitchesTest(InstallerCase):
                 mock.patch.object(installer.Installer, "precompile"):
             ins.start_service(self.data / "harnesses.json")
         self.assertEqual(["service-install", "bootstrap"], [call.args[0] for call in ran.call_args_list])
-        self.assertEqual(("/absolute/kb", "0", None), tuple(cenv.get(name, None, ins.env)
-                                                      for name in ("COVEY_HISTORY_CMD", "COVEY_REVISIT", "COVEY_REVIEW")))
+        self.assertEqual(("/absolute/kb", "0"), tuple(cenv.get(name, None, ins.env)
+                                                for name in ("COVEY_HISTORY_CMD", "COVEY_REVISIT")))
 
 
 class FeishuSdkTest(InstallerCase):
@@ -1164,7 +1164,7 @@ class ClosingTest(InstallerCase):
         state = self.data / "harness-cli_fake"
         for words in (f"数据根      {self.data}", f"状态目录    {state}（日志 {state / 'bridge.log'}）",
                       f"默认工作区  {self.root / 'work'}",
-                      "已经开着：管家、专项（叫醒负责人、停住问你、专项记忆、问题分流）、整理专项（只提议）、独立复核、"
+                      "已经开着：管家、专项（叫醒负责人、停住问你、专项记忆、问题分流）、整理专项（只提议）、"
                       "到点回来看、记忆、知识条目、置顶的「手上的事」、话题看板、早晚汇总（09:30、21:30）、管家同时做几件事、派发卡、"
                       "飞书 SDK 收消息（收下先落盘，重启不丢）、飞书 SDK 写卡片",
                       f"演示套餐  python3 -B bin/covey_service.py set --state-dir {state} --preset showcase",
@@ -1180,10 +1180,10 @@ class ClosingTest(InstallerCase):
         for words in ("协作（开发中）", "置顶的「手上的事」", "话题看板", "早晚汇总（09:30、21:30）", "管家同时做几件事", "派发卡"):
             self.assertIn(words, text)
         self.registered({"LARK_BRIDGE_PROJECTS": "0", "LARK_BRIDGE_PROJECT_ASK": "1", "LARK_BRIDGE_MAIN_THREAD": "0",
-                         "LARK_BRIDGE_REVIEW": "0"})
+                         "LARK_BRIDGE_REVISIT": "0"})
         on = next(line for line in self.closing().splitlines() if line.startswith("已经开着："))
-        # The butler off, projects off (an extra of theirs alone is no feature, nor is 整理专项), 独立复核 set off.
-        self.assertTrue(on.startswith("已经开着：到点回来看、"), on)
+        # The butler off, projects off (an extra of theirs alone is no feature, nor is 整理专项), 到点回来看 set off.
+        self.assertTrue(on.startswith("已经开着：记忆、"), on)
         self.assertNotIn("专项", on)
 
     def test_every_switch_the_install_or_the_demo_set_writes_has_its_words(self):
@@ -1191,7 +1191,7 @@ class ClosingTest(InstallerCase):
         self.assertEqual(set(installer.PROJECT_PARTS) - set(switches.DEFAULTS), set())
 
     def test_the_lines_come_after_what_is_left_and_before_the_call_to_action(self):
-        self.registered({"LARK_BRIDGE_REVIEW": "1"})
+        self.registered({"LARK_BRIDGE_REVISIT": "1"})
         ins = self.make()
         ins.app_id = "cli_fake"
         ins.leftovers.append("飞书应用还缺 看板")
@@ -1203,7 +1203,7 @@ class ClosingTest(InstallerCase):
             self.assertEqual(0, ins.run())
         self.assertEqual(self.lines[-1], "\n完成。去飞书私聊刚建的机器人发一句话。")
         self.assertLess(self.lines.index("还差：飞书应用还缺 看板"), self.lines.index("装在这里："))
-        self.assertTrue([line for line in self.lines if line.startswith("已经开着：") and "、独立复核、" in line], self.lines)
+        self.assertTrue([line for line in self.lines if line.startswith("已经开着：") and "、到点回来看、" in line], self.lines)
         self.lines.clear()
         ins = self.make("--no-start")
         ins.app_id = "cli_fake"
@@ -1371,14 +1371,14 @@ class WithoutClaudeTest(InstallerCase):
     def test_without_claude_code_showcase_turns_on_the_whole_demo_set(self):
         ins = self.start("--showcase")
         self.assertEqual(self.switches_of(ins), dict(switches.SHOWCASE))
-        self.registered({"LARK_BRIDGE_REVIEW": "1", "LARK_BRIDGE_PROJECTS": "0"})
+        self.registered({"LARK_BRIDGE_REVISIT": "1", "LARK_BRIDGE_PROJECTS": "0"})
         (self.data / "install.json").write_text("{}")
         ins = self.start("--showcase")  # Registered, down: registers again with the demo set; 专项, set off, stays off.
         self.assertEqual((cenv.get("COVEY_PROJECTS", None, ins.env), cenv.get("COVEY_PROJECT_TIDY", None, ins.env),
                           cenv.get("COVEY_COLLAB", None, ins.env)), ("0", None, "1"))
         fingerprint = ins.fingerprint(self.data / "harnesses.json")
         (self.data / "install.json").write_text(json.dumps(fingerprint))
-        self.registered({"LARK_BRIDGE_REVIEW": "1", "LARK_BRIDGE_PROJECTS": "0"})
+        self.registered({"LARK_BRIDGE_REVISIT": "1", "LARK_BRIDGE_PROJECTS": "0"})
         ins = self.make("--showcase")
         ins.app_id, ins.workdir, ins.working = "cli_fake", self.root / "work", ["codex"]
         with mock.patch.object(installer, "change_settings", return_value={"changed": {}}) as changed:
@@ -1391,7 +1391,7 @@ class WithoutClaudeTest(InstallerCase):
         (self.data / "install.json").write_text("{}")
         ins = self.start()  # Only Codex now, registered already: registers again from what it has.
         self.assertEqual((cenv.get("COVEY_PROJECTS", None, ins.env), cenv.get("COVEY_MEMORY", None, ins.env),
-                          cenv.get("COVEY_REVIEW", None, ins.env)), ("1", "0", None))
+                          cenv.get("COVEY_REVISIT", None, ins.env)), ("1", "0", None))
         self.assertEqual(json.loads(butler_settings.path(self.state).read_text()), {"mode": "agent", "harness": "claude"})
         self.assertNotIn("管家用 Codex", self.text())
         self.assertTrue(butler_settings.preset_harness(self.state, "codex") is False)  # A Harness chosen stays.
@@ -1737,7 +1737,7 @@ class WebTest(InstallerCase):
         state = self.data / "harness-cli_fake"
         state.mkdir(parents=True)
         register(self.data / "bridge-services", state, [sys.executable, "-B", "/absolute/release/bin/covey_bridge.py"],
-                 workdir=self.root, environment={"LARK_BRIDGE_REVIEW": "1"}, health_timeout=90)
+                 workdir=self.root, environment={"LARK_BRIDGE_REVISIT": "1"}, health_timeout=90)
         ins = self.web(interactive=False)
         ins.choose_web()
         ins.settle_switches()
@@ -1757,7 +1757,7 @@ class WebTest(InstallerCase):
             with mock.patch.object(Path, "cwd", return_value=installer.REPO_ROOT):
                 return "\n".join(ins.closing_lines())
 
-        text = closing({"LARK_BRIDGE_REVIEW": "1"})
+        text = closing({"LARK_BRIDGE_REVISIT": "1"})
         self.assertIn("./install --web", text)
         self.assertNotIn("网页工作台：", text)
         text = closing({"LARK_BRIDGE_WEB_SELFHOST": "1"}, {"page_url": "https://203.0.113.7:18443/", "open_ports": [18443],

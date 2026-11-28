@@ -234,19 +234,16 @@ def sample_cards(work=None):
     welcome = {"host": "devbox", "harnesses": ["Codex"], "down": [["Codex", "没登录"]], "workspace": "work",
                "workdir": str(work), "butler": "", "examples": list(EXAMPLES), "tried": {"1": {"state": SENT}}}
     cards.update(welcome=welcome_card(welcome), welcome_no_butler=welcome_card({**welcome, "butler": NO_CLAUDE, "examples": list(TOPIC_EXAMPLES)}))
-    # T669: relays at the top level with 换配置 (beside 独立复核, alone) and a stop with 换个模型, and the switch card there.
+    # T669: relays at the top level with 换配置 (a row of its own) and a stop with 换个模型, and the switch card there.
     from covey.app import relay_stops
-    from covey.cards.answer_card import review_element
     from covey.cards.relay_card import DONE, STOPPED, relay_card
-    from covey.cards.topic_actions import beside, relay_switch
+    from covey.cards.topic_actions import alone, relay_switch
     from covey.core.failure import failure_view
     stop = {"job_id": 431, "topic_id": TOPIC, "status": "failed", "execution_status": "failed",
             "failure_code": "rate_limited", "harness_id": "codex", "binding_revision": 2}
     cards.update(
-        relay_done_switch=relay_card("T70", DONE, text="改好了。", buttons=beside(
-            [review_element(TOPIC, 431)], relay_switch(TOPIC, 431, "codex", 2)))[0],
-        relay_done_switch_alone=relay_card("T70", DONE, text="改好了。", buttons=beside(
-            [], relay_switch(TOPIC, 431, "codex", 2)))[0],
+        relay_done_switch_alone=relay_card("T70", DONE, text="改好了。", buttons=alone(
+            relay_switch(TOPIC, 431, "codex", 2)))[0],
         relay_stopped_switch=relay_card("T70", STOPPED, reason=failure_view(stop)["title"], buttons=[
             relay_stops.buttons(stop, failure_view(stop))])[0],
         switch_card_top=build_switch_card({**switch_form, "top_level": True}))
@@ -1163,7 +1160,6 @@ class CardActionTableTest(unittest.TestCase):
         # bridge_project_triage_wrong, _fix, bridge_revisit_hint, bridge_board_seen, _revisit_cancel, _project_go, _recover: retired
         # buttons (T898), answered here and never forwarded to a task runner, which an older release might still run them in.
         # bridge_job_look: 看看 looks at the task runner from outside (app/stuck_check.py), which may be the stuck one.
-        # bridge_review_open: 独立复核 opens a topic of its own and queues its first turn (app/review.py).
         # bridge_question_ask: 先问一句 queues the topic's turn or a supplement of its running task (app/questions.py).
         self.assertEqual(BOT_ONLY - set(extensions.card_kinds()), {"bridge_job_retry", "bridge_fork", "bridge_compact", "bridge_steer_requeue",
                                     "bridge_note", "bridge_job_retry_cancel", "bridge_question_skip", "bridge_question_ask",
@@ -1171,7 +1167,7 @@ class CardActionTableTest(unittest.TestCase):
                                     "bridge_project_triage_fix", "bridge_project_triage_wrong", "bridge_revisit_hint",
                                     "bridge_board_seen", "bridge_board_revisit_cancel", "bridge_project_ask_continue", "bridge_project_ask_finish",
                                     "bridge_job_look", "bridge_job_diagnose", "bridge_job_split", "bridge_job_report",
-                                    "bridge_welcome_try", "bridge_review_open", "bridge_board_project_go",
+                                    "bridge_welcome_try", "bridge_board_project_go",
                                     "bridge_board_recover"})  # 看看 reads a stuck task; 查原因 and 拆小再试 queue a turn; 复制诊断 reads an ended one. Triage: the correction queues a message in a member topic; the pause card's two wake the lead. The welcome card's example is the owner's message.
         self.assertFalse(runner_ipc.forward_card_action(Runtime(script_path="unit"), None, {},
                                                      {"kind": "bridge_fork"}))

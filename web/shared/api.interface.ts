@@ -959,8 +959,8 @@ export interface SettingsMainPage {
   note?: string;
   locked?: string;
 }
-/** 配置（v22，T619）：飞书设置卡的「配置」一页，分段：新话题、管家（部署允许管家时）、独立复核（开了 COVEY_REVIEW 时）、
- * 专项负责人（v36，开了 COVEY_PROJECTS 时）、更多。网页上各段都展开 */
+/** 配置（v22，T619）：飞书设置卡的「配置」一页，分段：新话题、管家（部署允许管家时）、专项负责人（v36，开了 COVEY_PROJECTS 时）、
+ * 辅助模型、更多。网页上各段都展开 */
 export interface SettingsConfigSection {
   title: string;
   rows: SettingsRow[];
@@ -978,9 +978,10 @@ export interface SettingsConfigPage {
   summary: string;
   topic: SettingsConfigTopic;
   main?: SettingsConfigMain;
+  /** 独立复核：T937 下线，新版 Covey 不再推；旧版推来的页面也不画，改它的行新版回“独立复核已下线” */
   review?: SettingsConfigSection;
   /** v36：专项负责人（开了 COVEY_PROJECTS 才有）：新建的专项，负责人用这里选的 Harness、模型、思考预算；行的 key 是 l_harness、l_provider、l_model、l_effort，
-   * 改行同独立复核（settings 的 row）。已有专项的负责人在它自己的配置栏换（话题条目 kind=lead 的 config） */
+   * 改行同管家一段（settings 的 row）。已有专项的负责人在它自己的配置栏换（话题条目 kind=lead 的 config） */
   lead?: SettingsConfigSection;
   /** 辅助模型（T884）：分流、整理专项、记忆自己长这些后台活都用这一套。行：key assist（kind bridge_main_assist_harness：自动、各 Harness、不用模型）；
    * T924 起点名了 Harness 再有 a_provider、a_model、a_effort（kind bridge_main_assist_provider/model/effort，同专项负责人）；

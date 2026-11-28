@@ -49,7 +49,7 @@ os.environ["COVEY_AVATARS"] = "0"  # No test uploads an avatar to Feishu (covey/
 # that clears the COVEY_ names puts these back (``UNSET_OFF``).
 UNSET_OFF = {"COVEY_PROJECT_TIDY": "off", "COVEY_PROJECT_UPGRADE": "off", "COVEY_DIGEST_TIMES": "off",
              **{name: "0" for name in ("COVEY_PROJECTS", "COVEY_PROJECT_AUTOWAKE", "COVEY_PROJECT_ASK", "COVEY_PROJECT_MEMORY",
-                                       "COVEY_PROJECT_TRIAGE", "COVEY_REVIEW", "COVEY_REVISIT", "COVEY_MEMORY",
+                                       "COVEY_PROJECT_TRIAGE", "COVEY_REVISIT", "COVEY_MEMORY",
                                        "COVEY_MEMORY_LEARN", "COVEY_KNOWLEDGE",
                                        "COVEY_PINNED_OVERVIEW", "COVEY_PINNED_TOPICS", "COVEY_DISPATCH_CARD",
                                        "COVEY_BUTLER_TRACKS", "COVEY_BUTLER_RULES", "COVEY_WORKSPACE_GISTS")}}

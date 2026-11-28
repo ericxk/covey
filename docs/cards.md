@@ -121,7 +121,6 @@
 - 状态行、状态卡（`app/status_cards.py`）、快照（`app/butler.py`）、`topic_read`（`app/butler_tools.py` 的 `step_lines`）用同一套说法（`step_words`）。
 - `delivery` 每项读原文，最多 `DELIVERY_CHARS` 字。改了代码的轮次（`shows_change`：有提交号，或 `core/diff.py` 记到这一轮改了文件且 `delivery` 有内容），答案卡、结论卡在产物折叠下面、灰框上面加“改动”折叠（`change_element`，`CHANGE_ID`）：标题“改动 · ”加 `change_summary`（最多 `CHANGE_LINE_WIDTH` 显示宽度），点开是提交（`delivery_commits`）、部署、验收三行原文。回带卡加上它超过 `ANSWER_CARD_BYTES` 时分几张卡发（`cards/relay_card.py` 的 `relay_pages`，`cards/pages.py`），每张都有头像行，改动在最后一张，放不下时跟一张同样头像行的尾卡。不改代码的轮次卡片 JSON 不变。
 - 验收三行（#21）：检查点的 `acceptance`（`core/checkpoint.py` 的 `checkpoint_acceptance`：what、where、how，规则一行 `ACCEPTANCE_RULE` 接在 `CHECKPOINT_RULES` 末尾）有 what 或 how 时，`app/answer_cards.py` 的 `notes` 先放 `acceptance_element`（`ACCEPTANCE_ID`：改了什么、去哪看、怎么验三行，标签灰字），去哪看取 `acceptance_link`（第一个 https 或 applink，本机地址不算），没有就是灰字 `LOCAL_ONLY`“只做了本地验证”。没有这个字段的轮次卡片 JSON 不变。
-- 独立复核（`app/review.py`，#20，`COVEY_REVIEW` 没关）：改了代码的轮次（`app/answer_cards.py` 的 `changed_code`：有 `diff_json_path`，或检查点 `delivery` 写了提交号；不跑 git）且话题不在设备上，`app/review.py` 的 `buttons` 给灰框下面一行 `review_element`（`REVIEW_ID`，边框按钮“独立复核”，值 `bridge_review_open` 带 `topic_id`、`job_id`）；回带卡同样（`facts["buttons"]`）。点击在话题路由之前由 `Review.claim`（`app/unified.py` 的 `PANELS`）认领：只认主人，3 秒内应答，开话题在应答后的工作线程里做（`CardActionQueue`），每一步记在 `<state>/reviews/<轮次的 token>.json`，一轮只开一个。
 - 完成标准（`core/criteria.py`，#22）：话题 topic.json 有 `criteria` 时，`app/answer_cards.py` 的 `notes` 拿检查点的 `criteria` 逐条对（按原文，对不上且条数相同时按顺序），没标满足的画成 `criteria_element`（`CRITERIA_ID`：灰字“完成标准”一列，每条一行，“没满足”用可能卡住的橙色，“没查”灰色），放在改动下面、灰框上面；回带卡同样（`facts["notes"]`）。都满足或话题没有标准时卡片 JSON 不变。
 - 提交号由 Bridge 核对（`app/answer_cards.py` 的 `absent_commits`，#18）：话题不在设备上、有本机工作目录时，`core/diff.py` 的 `missing_in_repos` 在工作目录的仓库和话题用到的各仓库（worktree 和检出，写的在前，最多 `COMMIT_DIRS` 个目录）里各跑一次 `git cat-file --batch-check`，查 `delivery_commits` 里的十六进制提交号（每个 `<id>^{commit}`，每次限时 `COMMIT_CHECK_SECONDS`，不拿锁、不调模型、不懒取远端对象）；哪个仓库里都没有的记进 `change` 的 `not_found`，卡上在改动折叠下面加一行 `CHECK_ID`（“提交号对不上：写过的仓库里没有 …”，“提交号对不上”用可能卡住的橙色），展开后那个提交号后面写 `ABSENT`。不是仓库、没有 git、超时或输出读不懂时当作查不了，什么都不写；短号同时对上几个对象的不算没有。都找到时卡片 JSON 和原来一样。回带卡紧接着问同一批提交时用答案卡那次的结果（同一批目录和提交号缓存 120 秒），不再跑一次 git。
 
@@ -241,7 +240,7 @@
 
 ### 设置卡配置页的格子版式
 
-配置页一段里的各项排成格子（`cards/butler_panel.py` 的 `tile_lines`、`cards/launch_config.py` 的 `setting_line`），顺序不变：新话题 Harness、供应商、模型、思考预算 / 工作区、运行方式、脱敏；管家 Harness、供应商、模型、思考预算 / 工作区、脱敏、压缩阈值、私聊顶层的消息；独立复核四项；专项负责人四项；更多是子 Agent。每段里 `FOLDED` 的几项（且是平常的值）不排在格子里，排在段末“更多：…”折叠里，顺序同上。（网页设置页读的 `lines` 仍是原来的三行分法，没变。）
+配置页一段里的各项排成格子（`cards/butler_panel.py` 的 `tile_lines`、`cards/launch_config.py` 的 `setting_line`），顺序不变：新话题 Harness、供应商、模型、思考预算 / 工作区、运行方式、脱敏；管家 Harness、供应商、模型、思考预算 / 工作区、脱敏、压缩阈值、私聊顶层的消息；专项负责人四项；更多是子 Agent。每段里 `FOLDED` 的几项（且是平常的值）不排在格子里，排在段末“更多：…”折叠里，顺序同上。（网页设置页读的 `lines` 仍是原来的三行分法，没变。）
 
 - 每项还是原来的折叠行 `setting_row`（`cell=True`：灰色标签后面跟当前值，同一行，格子只有一行高），点开列选项，点一个选项照旧记下并整卡重画，现在是一个带细边框（`TILE_BORDER`，灰色、圆角 8px）的格子，下拉箭头都在格子右缘；去掉了原来整块灰底。不用下拉框（`select`）的原因不变：iOS 飞书的 select 是全屏选择器，取消按钮在状态栏下面（见 `cards/launch_config.py` 的模块说明）。
 - 两格一行，`column_set` 的 `flex_mode` 取 `LINE_FLEX`（`stretch`），两个等宽（`weighted`）的 `column`：卡片宽时左右并排，窄（话题侧栏约 250–300px，手机）时自动上下叠成单列，所以不会把“Claude 自带”折成“Claude 自 / 带”。选的值很长的项（显示宽度超过 `WIDE`，如工作区、子 Agent）单独一行占满；落单的一项占半行（另一半放空的 `column`），格子不错位。`bisect`（任何宽度都两列，窄屏会断词）和 `flow` + `auto`（宽度参差）都试过，不用。

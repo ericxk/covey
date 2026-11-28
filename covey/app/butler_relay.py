@@ -9,7 +9,7 @@ core/placement.py's row says (``after_turn``: question_copy, conclusion, stop):
 - done: the saved reply whole (rule 5: only the verified reply that was delivered), then the turn's longer 进展说明
   (core/trace.py stage_notes: what a long turn reported on its way, already on its task card), the owner reads the answer
   where he asked, as the topic's answer card has it (cards/answer_card.py: 产物 and the 输入/输出 box, 输出 ending in
-  a link to the topic's card), and 换配置 beside its 独立复核 (``with_switch``), whose card opens at the top level. A reply
+  a link to the topic's card), and 换配置 under them (``switch_row``), whose card opens at the top level. A reply
   too large for one card (CARD_TEXT_BYTES) goes as Markdown messages in order (feishu/delivery.py splits them), its
   产物 and box on a small card after them;
 - waiting for an answer: the turn's questions as answerable cards (app/question_display.py mirror) with what the
@@ -52,14 +52,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from covey.app import answer_cards, relay_stops, review
+from covey.app import answer_cards, relay_stops
 from covey.app.artifacts import answer_files
 from covey.app.relay_send import (QUESTION_RELAYS, SKIPPED, merge_seconds, messenger_send, record_only, record_unsent,
                                            relay_path, send_merged, send_once as _send_once, take_left as take_left_pending)
 from covey.app.relay_targets import areas_of, awaited_target, relay_target
 from covey.cards.answer_card import alerts
 from covey.cards.relay_card import DONE, STOPPED, WAITING
-from covey.cards.topic_actions import beside, relay_switch
+from covey.cards.topic_actions import alone, relay_switch
 from covey.core import butler, placement, turn_source
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import find_job_record, job_field, job_key, owner_stopped
@@ -338,16 +338,16 @@ def mirror_questions(delivery, *, quiet=False):
     return shown
 
 
-def with_switch(rows, job) -> list:
-    """``rows`` (the buttons under a 做完了 relay's 输入/输出 lines: 独立复核, app/review.py) with 换配置 at the end of their row
-    (cards/topic_actions.py relay_switch and beside, T669 E1), for a turn with a Harness of a topic that offers it
-    (core/butler.py Traits switch_config: not the butler's own nor a lead's); ``rows`` as they are otherwise. Its click opens
-    the 换配置 card at the top level, under the relay (app/harness_switch.py); one from before the topic's latest 换配置 is
-    refused there (app/binding.py current_binding_card). A merged relay has none: it is several topics'."""
+def switch_row(job) -> list:
+    """换配置 in a row of its own under a 做完了 relay's 输入/输出 lines (cards/topic_actions.py relay_switch and alone, T669
+    E1), for a turn with a Harness of a topic that offers it (core/butler.py Traits switch_config: not the butler's own nor
+    a lead's); [] otherwise. Its click opens the 换配置 card at the top level, under the relay (app/harness_switch.py); one
+    from before the topic's latest 换配置 is refused there (app/binding.py current_binding_card). A merged relay has none:
+    it is several topics'."""
     topic, number, harness = job_field(job, "topic_id"), job_field(job, "job_id"), job_field(job, "harness_id")
     if not (topic and number and harness) or not butler.traits_of(job).switch_config:
-        return list(rows or ())
-    return beside(rows, relay_switch(topic, number, harness, job_field(job, "binding_revision") or 1))
+        return []
+    return alone(relay_switch(topic, number, harness, job_field(job, "binding_revision") or 1))
 
 
 def _part(log, job, name, make, default):
@@ -409,10 +409,9 @@ def after_turn(delivery, delivered, execution_status, *, messenger, profile, voi
             noted = _part(log, job, "notes", lambda: answer_cards.notes(state_dir, job), [])
             if noted:
                 facts["notes"] = noted  # The completion criteria not met, as the answer card shows them.
-            offered = _part(log, job, "buttons", lambda: review.buttons(job), [])
-            offered = _part(log, job, "switch", lambda: with_switch(offered, job), offered)
+            offered = _part(log, job, "switch", lambda: switch_row(job), [])
             if offered:
-                facts["buttons"] = offered  # 独立复核 (COVEY_REVIEW=1), as on the answer card, and 换配置 beside it.
+                facts["buttons"] = offered  # 换配置 under the 输入/输出 lines.
         state = relay(state_dir, job, outcome, send=send, profile=profile, log=log, **facts)
         if record and facts.get("files") and hasattr(delivery.artifacts, "refresh_answer_cards"):
             # The upload may have ended while the relay went out: its 产物 brought up to date (never raises).

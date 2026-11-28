@@ -3,7 +3,7 @@ chat. The butler only sends it (the tool ``settings_panel``, TOOLS); it cannot c
 
 It is the bot menu's 设置 card's tab 配置 (app/settings_hub.py, cards/settings_hub.py CONFIG), one section a use: 新话题
 (every new topic's preselection), 管家 (the butler's own, and the private chat mode: 每条直接开一个话题
-is saved only after 确定改, the record's view keeping ``confirm`` meanwhile), 独立复核 (app/review.py), 专项负责人 (what a new
+is saved only after 确定改, the record's view keeping ``confirm`` meanwhile), 专项负责人 (what a new
 project's lead runs on, with COVEY_PROJECTS=1: app/lead_harness.py) and 子 Agent; the
 pages 管家, 新话题 and 模型 it took the place of are retired into it. Its 工作区 and 运行方式 rows and the 工作区 tab's 保存用途 are gone
 (cards/butler_panel.py OFFLINE_KINDS): an older card's click on one says OFFLINE_NOTICE and changes nothing; the repositories are the 设置 card's
@@ -35,7 +35,6 @@ from covey.cards.butler_panel import (ASSIST, ASSIST_EFFORT, ASSIST_MODEL, ASSIS
                                                     RETIRED_KINDS, RETIRED_NOTICE, SUBAGENTS,
                                                     TOPIC_EFFORT, TOPIC_HARNESS, TOPIC_MODEL, TOPIC_PROVIDER, TOPIC_REDACTION,
                                                     CLAUDE, follow_text,
-                                                    REVIEW_EFFORT, REVIEW_HARNESS, REVIEW_MODEL, REVIEW_PROVIDER,
                                                     LEAD_EFFORT, LEAD_HARNESS, LEAD_MODEL, LEAD_PROVIDER, MORE_KINDS,
                                                     PART_OF, SECTION, SECTIONS,
                                                     butler_panel_card)
@@ -56,13 +55,11 @@ UNREADABLE_NOTICE = '⚠️ ' + butler_settings.UNREADABLE + '。'
 # Said on the card once the private chat mode changed (docs/butler.md 私聊模式).
 MODE_NOTICES = {True: '已改成交给管家：私聊顶层的消息交给管家。',
                 False: '已改成每条直接开一个话题；已开的话题照常在各自的话题串里继续。'}
-REVIEW = 'review'  # The scope of 独立复核's rows (ROW_CHANGES).
 LEAD = 'lead'  # The scope of 专项负责人's rows (ROW_CHANGES).
 ASSIST_SCOPE = 'assist'  # The scope of 辅助模型's 供应商, 模型 and 思考预算 rows (ROW_CHANGES).
 # Said on the card once another setting was saved (docs/ui.md 5.2: 保存后用一句灰字回执), by the scope of the row
 # (ROW_CHANGES), else its page.
 SAVED = {BUTLER: '已保存：管家下一轮起照这个来。', TOPIC: '已保存：之后新开的话题照这个来。', WORKSPACE: '已保存。',
-         REVIEW: '已保存：之后点的独立复核照这个来。',
          LEAD: '已保存：之后新建的专项，负责人照这个来；已有的专项在专项卡上点「换配置」。'}
 # A row whose change waits for the butler to be idle and starts a new session (app/butler.py write_topic).
 SAVED_NEW_SESSION = '已保存：管家手上这一轮做完后换过去，开一个新会话，最近的对话会带上。'
@@ -174,21 +171,6 @@ def pick_butler_harness(rows, choices, option, state_dir):
             'effort': budget_effort(entry, plain_budget(entry, rows.effort)) if entry else ''}
 
 
-def pick_review_harness(rows, choices, option, state_dir):
-    """独立复核's Harness: '' picks by itself (app/review.py pick), emptying the rest; another one on the menu takes its
-    first model by name and that model's budget, as the butler's (pick_butler_harness)."""
-    if option == rows.harness:
-        return {}
-    if not option:
-        return rows.save(harness='', model='', effort='')
-    if option not in tiers(choices, option)[0]:
-        return None
-    first = next(iter(models_of(explicit(choices), option)), '')
-    entry = entry_of(choices, option, first)
-    return rows.save(harness=option, model=first,
-                     effort=budget_effort(entry, plain_budget(entry, rows.effort)) if entry else '')
-
-
 def pick_lead_harness(rows, choices, option, state_dir):
     """专项负责人's Harness: '' follows the butler, emptying the rest; another one that can run a lead (the butler's list,
     with 脱敏 on only those that redact: the lead keeps the butler's, app/lead_harness.py) takes its first model by name and
@@ -211,9 +193,9 @@ def saved_notice(kind):
     return SAVED_OF.get(kind) or SAVED.get(scope) or SAVED.get(PAGE_OF.get(kind), '已保存。')
 
 
-# A settings row's kind -> (its scope, BUTLER the butler's own, TOPIC a new topic's or bot-wide, REVIEW 独立复核's; what a
+# A settings row's kind -> (its scope, BUTLER the butler's own, TOPIC a new topic's or bot-wide, LEAD a new lead's; what a
 # choice on it changes: rows, choices, option, state_dir -> the settings fields, {} for none, None when the choice is
-# no longer offered). The three scopes share the 供应商, 模型 and 思考预算 rows'.
+# no longer offered). The scopes share the 供应商, 模型 and 思考预算 rows'.
 ROW_CHANGES = {
     HARNESS: (BUTLER, pick_butler_harness),
     PROVIDER: (BUTLER, pick_provider), MODEL: (BUTLER, pick_model), EFFORT: (BUTLER, pick_effort),
@@ -226,8 +208,6 @@ ROW_CHANGES = {
     # 子 Agent: bot-wide (backends/claude/subagents.py), not a new topic's default, though on that page.
     SUBAGENTS: (TOPIC, lambda rows, choices, option, state_dir: (
         {'subagents': option} if option in SUBAGENT_MODES else None)),
-    REVIEW_HARNESS: (REVIEW, pick_review_harness), REVIEW_PROVIDER: (REVIEW, pick_provider),
-    REVIEW_MODEL: (REVIEW, pick_model), REVIEW_EFFORT: (REVIEW, pick_effort),
     LEAD_HARNESS: (LEAD, pick_lead_harness), LEAD_PROVIDER: (LEAD, pick_provider),
     LEAD_MODEL: (LEAD, pick_model), LEAD_EFFORT: (LEAD, pick_effort),
     ASSIST_PROVIDER: (ASSIST_SCOPE, pick_provider), ASSIST_MODEL: (ASSIST_SCOPE, pick_model),
@@ -276,8 +256,6 @@ class ButlerPanel:
         tab = RETIRED.get(tab, tab)
         if view.get('hub') and tab in self.pages:
             return self.pages[tab](ctx, view['token'], {'view': view, 'tab': tab})
-        from covey.app import review
-
         # The butler's Harness as it runs now when the settings name none (app/butler_harness.py drawn, never saved).
         settings = butler_harness.drawn(butler_settings.load(ctx.state_dir), self.topics.apps)
         choices = available_models(self.topics, ctx)
@@ -288,7 +266,7 @@ class ButlerPanel:
                                       follows=self.follows(ctx, defaults, choices, chat),
                                       fallback=self.fallback(ctx, defaults, choices, chat),
                                       butler_on=butler.available() and settings.enabled,
-                                      review_on=review.enabled(), butler_allowed=butler.available(),
+                                      butler_allowed=butler.available(),
                                       lead_on=projects.enabled(), assist=self.assist_row(ctx, settings))
 
     def assist_row(self, ctx, settings):
@@ -437,15 +415,7 @@ class ButlerPanel:
         page, change = ROW_CHANGES.get(kind, (None, None))
         if change is None:
             return None
-        if page == REVIEW:
-            # 独立复核's: as the butler's rows, a model named once a Harness is chosen.
-            review = settings.review
-            rows = Rows(review.harness, review.model, review.effort, False,
-                        lambda: (entry_of(choices, review.harness, review.model) if review.model
-                                 else default_entry(choices, review.harness)),
-                        lambda entry, option: budget_effort(entry, option) if option else '',
-                        lambda **fields: {'review': dataclasses.replace(review, **fields)})
-        elif page == ASSIST_SCOPE:
+        if page == ASSIST_SCOPE:
             # 辅助模型's: as 专项负责人's, a model named once a Harness is chosen; none under 自动 or 不用模型.
             chosen = saved.assist
             if not chosen.harness or chosen.off:
@@ -458,7 +428,7 @@ class ButlerPanel:
         elif page == LEAD:
             if not projects.enabled():
                 return None  # A card drawn while projects were on: the section is gone.
-            # 专项负责人's: as 独立复核's, a model named once a Harness is chosen.
+            # 专项负责人's: as the butler's rows, a model named once a Harness is chosen.
             lead = settings.lead
             rows = Rows(lead.harness, lead.model, lead.effort, False,
                         lambda: (entry_of(choices, lead.harness, lead.model) if lead.model

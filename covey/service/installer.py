@@ -118,7 +118,7 @@ ACCOUNT_PREFIXES = {"claude": ("ANTHROPIC_", "CLAUDE_CODE_", "AWS_", "CLOUD_ML_"
 # unless the manifest sets them off.
 SWITCH_WORDS = {"COVEY_PROJECTS": "专项", "COVEY_PROJECT_AUTOWAKE": "叫醒负责人", "COVEY_PROJECT_ASK": "停住问你",
                 "COVEY_PROJECT_MEMORY": "专项记忆", "COVEY_PROJECT_TRIAGE": "问题分流", "COVEY_PROJECT_TIDY": "整理专项",
-                "COVEY_REVIEW": "独立复核", "COVEY_REVISIT": "到点回来看", "COVEY_MEMORY": "记忆",
+                "COVEY_REVISIT": "到点回来看", "COVEY_MEMORY": "记忆",
                 "COVEY_KNOWLEDGE": "知识条目", "COVEY_COLLAB": "协作（开发中）", "COVEY_PINNED_OVERVIEW": "置顶的「手上的事」",
                 "COVEY_PINNED_TOPICS": "话题看板", "COVEY_DIGEST_TIMES": "早晚汇总", "COVEY_BUTLER_TRACKS": "管家同时做几件事",
                 "COVEY_DISPATCH_CARD": "派发卡", "COVEY_EVENT_TRANSPORT": "飞书 SDK 收消息（收下先落盘，重启不丢）",

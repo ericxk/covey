@@ -25,7 +25,7 @@ class QuickstartTest(unittest.TestCase):
         """T647 E5: the butler read this page for 能做什么 and it said nothing of projects, 换配置's handoff or restarts."""
         text = QUICKSTART.read_text(encoding="utf-8")
         part = text[text.index("## 它特别在哪"):text.index("## 日常怎么用")]
-        for words in ("管家", "专项", "负责人", "换引擎不断上下文", "交接摘要", "重启不断任务", "提到全局", "回退", "独立复核"):
+        for words in ("管家", "专项", "负责人", "换引擎不断上下文", "交接摘要", "重启不断任务", "提到全局", "回退"):
             self.assertIn(words, part)
         self.assertIn("能做什么", prompts.USAGE_RULE)
 

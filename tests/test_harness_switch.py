@@ -6,7 +6,9 @@ from __future__ import annotations
 import itertools
 import json
 import os
+import tempfile
 import time
+import unittest
 import uuid
 from pathlib import Path
 from types import MethodType, SimpleNamespace
@@ -1707,3 +1709,32 @@ class HarnessSwitchTests(UnifiedCase):
         with mock.patch.object(self.app.apps['claude'].backend, 'handoff_summary', side_effect=summary, create=True):
             _, note = app.switch.switch_handoff(ctx, [])
         return calls, note
+
+
+class UsableTest(unittest.TestCase):
+    """app/availability.py usable, which the 换配置 card's order reads (app/harness_switch.py)."""
+
+    def test_a_harness_is_usable_unless_its_preflight_or_its_last_task_says_not_now(self):
+        from covey.app import availability
+        from covey.core.state import write_json
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            runtime = SimpleNamespace(availability_health={"preflight": {"codex": {"status": "unavailable"},
+                                                                         "claude": {"status": "configured"}}})
+            self.assertFalse(availability.usable(runtime, state, "codex"))
+            self.assertTrue(availability.usable(runtime, state, "claude"))
+            self.assertTrue(availability.usable(SimpleNamespace(), state, "dsh"))  # Never sampled.
+            now = time.time()
+            write_json(state / "backend-health" / "claude-a.json",
+                       {"backend": "claude", "model": "m", "checked_at": now - 60, "status": "failed",
+                        "error": "quota_exhausted"})
+            self.assertFalse(availability.usable(runtime, state, "claude", now=now))
+            self.assertTrue(availability.usable(runtime, state, "claude", now=now + 1000))  # An old failure.
+            write_json(state / "backend-health" / "claude-b.json",
+                       {"backend": "claude", "model": "n", "checked_at": now - 10, "status": "responded", "error": ""})
+            self.assertTrue(availability.usable(runtime, state, "claude", now=now))  # Answered since.
+            write_json(state / "backend-health" / "claude-b.json",
+                       {"backend": "claude", "model": "n", "checked_at": now - 5, "status": "failed",
+                        "error": "process_exit"})
+            self.assertTrue(availability.usable(runtime, state, "claude", now=now))  # Not a limit.

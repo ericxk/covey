@@ -60,9 +60,6 @@ ACTIONS = {
     # process alive the click goes to it (it carries the job's id), as 补充 and 停止 on the task card do.
     "bridge_dispatch_steer": CardAction("补充派出去的任务", handler="steering.dispatch_steer"),
     "bridge_dispatch_stop": CardAction("停止派出去的任务", handler="controls.dispatch_stop"),
-    # 独立复核 under an answer card's 输入/输出 box (cards/answer_card.py review_element, COVEY_REVIEW=1): the owner's; the
-    # Bridge takes it before topic routing (app/review.py, PANELS) and opens a topic of its own.
-    "bridge_review_open": CardAction("独立复核", bot_only=True),
     # 不对 on the memory lines of an answer card (cards/answer_card.py memory_element, COVEY_MEMORY=1): takes a line back, starts no task.
     "bridge_memory_wrong": CardAction("撤销刚记下的记忆", handler="controls.memory_wrong"),  # COVEY_MEMORY=1: starts no task.
     # 升为全局 beside it (T647 E4): the line becomes one of the owner's principles; starts no task.
@@ -188,10 +185,6 @@ ACTIONS = {
     "bridge_main_assist_provider": CardAction("选择辅助模型供应商"),
     "bridge_main_assist_model": CardAction("选择辅助模型的模型"),
     "bridge_main_assist_effort": CardAction("选择辅助模型思考预算"),
-    "bridge_main_review_harness": CardAction("选择独立复核 Harness"),
-    "bridge_main_review_provider": CardAction("选择独立复核供应商"),
-    "bridge_main_review_model": CardAction("选择独立复核模型"),
-    "bridge_main_review_effort": CardAction("选择独立复核思考预算"),
     # 专项负责人 (COVEY_PROJECTS=1): what a new project's lead runs on (core/butler_settings.py LeadModel).
     "bridge_main_lead_harness": CardAction("选择专项负责人 Harness"),
     "bridge_main_lead_provider": CardAction("选择专项负责人供应商"),
@@ -277,6 +270,12 @@ MOVED_CARDS = {("bridge_paseo", "bridge_paseo_"): "Paseo 已下线，卡片上�
 # its card; the principles it recorded stay.
 MOVED_CARDS.update({(kind, "standing_"): "“以后这类按推荐走”已下线，没有记原则，也没有回答；在问题卡上直接回答。" for kind in (
     "bridge_question_standing", "bridge_standing_save", "bridge_standing_edit", "bridge_standing_cancel")})
+# 独立复核 was taken out (T937, docs/legacy.md): its button under an answer card's 输入/输出 lines and a 做完了 relay's, and its
+# rows on the 设置 card's 配置 (main-thread.json ``review``, kept unread). A click on an older card opens nothing, changes nothing.
+REVIEW_KINDS = ("bridge_review_open", "bridge_main_review_harness", "bridge_main_review_provider", "bridge_main_review_model",
+                "bridge_main_review_effort")
+REVIEW_RETIRED = "独立复核已下线，这次点击没有开话题，也没有改设置；想换个模型看看一轮的改动，跟管家说一声。"
+MOVED_CARDS.update({(kind, kind): REVIEW_RETIRED for kind in REVIEW_KINDS})
 
 
 def moved_card_text(event) -> str:
