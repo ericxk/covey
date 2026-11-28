@@ -178,12 +178,25 @@ class Ops:
             return FAILED, f"执行出错：{type(exc).__name__}"
 
     def topic(self, state, chat, key):
-        """(app, ctx) of the owner's topic ``key``; ValueError when it is not one (unknown, another chat's, retired, the butler's)."""
-        found = self.env.topics.target(state, str(key or ""), chat)
+        """(app, ctx) of the owner's topic ``key``; ValueError when it is not one (unknown, another chat's, retired, the butler's).
+        A project's lead is one too (``lead_topic``), so its question is answered, set aside and stopped from the page as on its card."""
+        key = str(key or "")
+        found = self.env.topics.target(state, key, chat)
         if found is None:
-            raise ValueError("这个话题不认识，或不在你的私聊里，或已经结束")
+            return self.lead_topic(state, chat, key)
         app, ctx, _ = found
-        return app, dataclasses.replace(ctx, topic_id=str(key))
+        return app, dataclasses.replace(ctx, topic_id=key)
+
+    def lead_topic(self, state, chat, key):
+        """(app, ctx) of the project's lead ``key`` in ``chat``: ``Topics.target`` gives none for a lead (its Traits row is no card
+        target), so the context is the one the page's say to it takes (app/butler_projects.py lead_target), the lead's topic as a
+        click on its question card in Feishu reaches it. ValueError for any other topic, a lead of another chat, or projects off."""
+        from covey.app.butler_projects import lead_target
+        record = projects.lead_record(state, key, chat) if key else {}
+        found = lead_target(self.env, record) if record and record.get("chat_id") == chat else None
+        if found is None or found[1].topic_id != key:
+            raise ValueError("这个话题不认识，或不在你的私聊里，或已经结束")
+        return found
 
     # -- say ---------------------------------------------------------------------------------------------------------------
 

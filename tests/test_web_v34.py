@@ -26,12 +26,14 @@ class V34Case(WebCase):
         self.app.controls.runtime = SimpleNamespace(jobs=SimpleNamespace(open_in_topic=lambda topic, chat: self.open.get(topic, [])),
                                                     owner_open_id="ou_owner", log=self.logs.append)
         self.app.controls.messenger = object()
+        self.env.topics.apps = {"claude": self.app}
         patch = mock.patch.object(runner_ipc, "forward_card_action", return_value=False)
         patch.start()
         self.addCleanup(patch.stop)
 
     def target(self, state, topic, chat):
-        if topic not in (TOPIC, LEAD) or chat != CHAT:
+        """As app/topics.py Topics.target: no lead (its Traits row is no card target); the page reaches it as app/web_ops.py lead_topic does."""
+        if topic != TOPIC or chat != CHAT:
             return None
         return self.app, Ctx(topic, state), {}
 

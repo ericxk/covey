@@ -38,6 +38,7 @@ from test_project_lead import CHAT, LEAD, PID, Case
 class Ctx:
     topic_id: str = ""
     state_dir: object = None
+    history_path: object = None
 
 
 T0 = time.time()
@@ -131,7 +132,7 @@ class FakeApp:
 
     def event_context(self, base, event):
         topic = message_topic(self.case.state, CHAT, event["message_id"])
-        return SimpleNamespace(topic_id=topic, history_path=self.case.state / "topics" / topic / "history.jsonl")
+        return Ctx(topic, self.case.state, self.case.state / "topics" / topic / "history.jsonl")  # A dataclass, as a real context is.
 
     def enqueue(self, ctx, content, chat, message, **fields):
         self.queued.append((ctx.topic_id, message, content))
@@ -2146,6 +2147,30 @@ class LeadTest(WebCase):
             self.web.op("say", 2, "op-l4", LEAD, text="还在吗")
             self.sync.inbox_once()
         self.assertEqual((self.web.acks[-1]["state"], self.app.queued), ("failed", []))
+
+    def test_the_leads_own_question_is_answered_and_set_aside_from_the_page(self):
+        """The lead asks the owner on a question card of its own (origin project_ask); the page answers it on the lead's topic
+        as the card does, though ``Topics.target`` gives no lead (this case's ``target`` refuses it as the real one does)."""
+        self.env.topics.apps = {"claude": self.app}
+        self.question(topic_id=LEAD, origin="project_ask")
+        self.web.op("answer", 1, "op-la1", LEAD, token=TOKEN, answers={"q1": "A"})
+        self.web.op("answer", 2, "op-la2", LEAD, token=TOKEN, aside=True)
+        self.sync.inbox_once()
+        self.assertEqual([(row["op_id"], row["state"]) for row in self.web.acks], [("op-la1", "done"), ("op-la2", "done")])
+        self.assertEqual(self.app.answers, [(LEAD, TOKEN, {"option_0": "0", "supplement": ""}, "web-op-la1")])
+        self.assertEqual(self.app.lesser, [("aside", TOKEN, "ou_owner", "web-op-la2")])
+
+    def test_the_leads_question_of_another_chat_or_with_projects_off_is_not_answered(self):
+        self.env.topics.apps = {"claude": self.app}
+        self.question(topic_id=LEAD, origin="project_ask")
+        with mock.patch.dict(os.environ, {projects.ENV: "0"}):
+            self.web.op("answer", 1, "op-la3", LEAD, token=TOKEN, answers={"q1": "A"})
+            self.sync.inbox_once()
+        projects.update(self.state, PID, lambda record: record.update(chat_id="oc_other"))
+        self.web.op("answer", 2, "op-la4", LEAD, token=TOKEN, answers={"q1": "A"})
+        self.sync.inbox_once()
+        self.assertEqual([row["state"] for row in self.web.acks], ["failed", "failed"])
+        self.assertEqual(self.app.answers, [])
 
     def test_forget_voids_one_memory_entry_like_the_card_does(self):
         mine, _ = project_memory.add(self.state, PID, "数据库先别动，等对账脚本出来以后再说，这一条写得很长很长很长很长很长很长很长", "constraint", "owner")
