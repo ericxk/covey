@@ -21,7 +21,7 @@ from covey.backends.claude import argv as claude_argv
 from covey.backends.claude import tool_guard
 from covey.backends.claude.bridge import ClaudeBackend
 from covey.core import home as covey_home
-from covey.core.harness import CONSULT, LEAD, LOOK, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
+from covey.core.harness import CONSULT, LEAD, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
 
 
 def settings_of(argv):
@@ -48,7 +48,7 @@ class HomeHooksArgvTests(unittest.TestCase):
         self.assertEqual(words[3:], ['--mode', 'home-search', '--home', home])
 
     def test_a_turn_started_from_the_home_has_the_hook_whatever_else_it_is_held_to(self):
-        for options in ({}, {TOOL_LIMIT: LOOK}, {TOOL_LIMIT: READ}, {TOOL_LIMIT: LEAD}):
+        for options in ({}, {TOOL_LIMIT: READ}, {TOOL_LIMIT: LEAD}):
             with self.subTest(options=options):
                 settings = settings_of(self.argv(options=options))
                 self.assertEqual(list(settings), ['hooks'])

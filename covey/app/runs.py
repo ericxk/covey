@@ -362,8 +362,7 @@ class Runs:
         rules at system level."""
         fresh = not session_id
         # What the turn may do (app/tool_limits.py), in its context before anything of it runs.
-        live.ctx = tool_limits.limited(self.runtime.access, live.ctx, job, self.runtime.log,
-                                       held=backend_capabilities(self.harness.backend, live.ctx).look_gate)
+        live.ctx = tool_limits.limited(self.runtime.access, live.ctx, job, self.runtime.log)
         # A topic that keeps off this machine's files (app/home_turn.py external): each Harness leaves the home's own
         # instruction files out.
         live.ctx = home_turn.isolated(live.ctx)

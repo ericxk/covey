@@ -20,7 +20,7 @@ from covey.core import device_access as access
 from covey.core import device_cli, device_reap, devices
 from covey.core import device_transport as dt
 from covey.core.device_transport import LocalTransport
-from covey.core.harness import LEAD, LOOK, TOOL_LIMIT
+from covey.core.harness import LEAD, READ, TOOL_LIMIT
 from covey.core.run_dir import DEVICE_TURN, DEVICES
 
 TOPIC = "abcdef0123456789abcdef0123456789"
@@ -78,9 +78,9 @@ class ChannelCase(unittest.TestCase):
 
 class TurnTest(ChannelCase):
     def test_the_turn_file_says_the_limit_and_the_space_and_none_refuses_everything(self):
-        turn = self.turn(limit=LOOK, space="personal_groups")
+        turn = self.turn(limit=READ, space="personal_groups")
         self.assertEqual((turn.limit, turn.space, turn.topic, turn.outputs, turn.held, turn.known),
-                         (LOOK, "personal_groups", TOPIC, str(self.outputs), True, True))
+                         (READ, "personal_groups", TOPIC, str(self.outputs), True, True))
         (self.task / DEVICE_TURN).unlink()
         old = access.turn_from_env({"COVEY_STATE": str(self.state), "COVEY_TASK_DIR": str(self.task), "COVEY_TOPIC": TOPIC})
         self.assertFalse(old.known)
@@ -139,7 +139,7 @@ class GuardsTest(ChannelCase):
                          [".covey", "notes.txt"])
 
     def test_g3_a_turn_held_to_reading_reads_every_device_only_and_gets_only_into_its_outputs(self):
-        for limit in (LOOK, LEAD):
+        for limit in (READ, LEAD, "look"):  # "look": an older release's read-only first turn across an upgrade.
             with self.subTest(limit=limit):
                 channel = self.channel(limit=limit)
                 self.assertEqual(channel.run("gpu1", ["uname"])["code"], 0)
@@ -151,7 +151,7 @@ class GuardsTest(ChannelCase):
                 self.assertTrue(channel.get("gpu1", str(self.device_home / "a.txt"))["path"].startswith(str(self.outputs)))
                 with self.assertRaisesRegex(access.Refused, "产物目录"):
                     channel.get("gpu1", str(self.device_home / "a.txt"), str(self.root / "elsewhere.txt"))
-        self.assertEqual({row["writable"] for row in self.channel(limit=LOOK).list()}, {False})
+        self.assertEqual({row["writable"] for row in self.channel(limit=READ).list()}, {False})
 
     def test_g5_the_device_gets_no_bridge_name_and_no_secret_and_get_refuses_secrets(self):
         channel = self.channel()
@@ -388,7 +388,7 @@ class CommandLineTest(ChannelCase):
 
 class TurnEndsTest(ChannelCase):
     def ctx(self):
-        return SimpleNamespace(state_dir=self.state, topic_id=TOPIC, device="", options={TOOL_LIMIT: LOOK},
+        return SimpleNamespace(state_dir=self.state, topic_id=TOPIC, device="", options={TOOL_LIMIT: LEAD},
                                workdir=self.root, default_workdir=self.root, history_path=self.state / "topics" / TOPIC / "h")
 
     def test_the_turns_start_writes_its_limit_and_its_chats_space_only_with_a_device_listed(self):
@@ -410,7 +410,7 @@ class TurnEndsTest(ChannelCase):
             devices._CACHE.clear()
             repos_turn.start_devices(self.ctx(), job, seen)
         written = json.loads((self.task / DEVICE_TURN).read_text())
-        self.assertEqual((written["limit"], written["space"], written["topic"]), (LOOK, "owner_private", TOPIC))
+        self.assertEqual((written["limit"], written["space"], written["topic"]), (LEAD, "owner_private", TOPIC))
 
     def test_the_turns_end_folds_the_audit_into_the_topic_and_notes_it_on_the_card(self):
         topic_dir = self.state / "topics" / TOPIC

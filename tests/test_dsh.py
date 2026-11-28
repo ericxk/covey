@@ -16,7 +16,7 @@ from covey.app.unified import UnifiedBridgeApp
 from covey.backends.dsh.bridge import DshEventAdapter, route_patch
 from covey.backends.gateway import connection
 from support import acme as acme_gateway
-from covey.core.harness import LEAD, LOOK, TOOL_LIMIT, RunCallbacks, RunInputs, RunRequest
+from covey.core.harness import LEAD, READ, TOOL_LIMIT, RunCallbacks, RunInputs, RunRequest
 
 KEY = "sk-unit-private-key"
 RUN = "33333333-3333-4333-8333-333333333333"
@@ -143,7 +143,7 @@ class DshTests(unittest.TestCase):
 
     def test_other_turns_keep_full_access_and_their_argv(self):
         _r, _e, _rep, _s, base = self.run_dsh("ok")
-        for options in ({}, {TOOL_LIMIT: LOOK}, {"mcp_config": self.BRIDGE_TOOLS}):
+        for options in ({}, {TOOL_LIMIT: READ}, {"mcp_config": self.BRIDGE_TOOLS}):
             self.ctx = dataclasses.replace(self.ctx, options=options)
             _r, _e, _rep, _s, record = self.run_dsh("ok")
             self.assertEqual(record["env"], base["env"])

@@ -25,19 +25,6 @@ Grep tool with no path, the Glob tool with ``**`` there. A search in a repositor
 it reads). Anything it cannot read (a parse error, a variable it cannot resolve, the guard's own fault) lets the call
 run: it only keeps an accident from the machine, never stands in the way of work (``search_refusal``).
 
-``look`` (``look_settings``; backends/claude/argv.py ``look_hooks``): a LOOK turn on this machine (core/harness.py LOOK,
-app/tool_limits.py ``look_roots``), before each Bash, Edit, Write, MultiEdit or NotebookEdit call. The edit tools write only
-the turn's checkpoint file (``--allow-file``) and the topic's outputs directory (``--allow-dir``), by the check every LOOK
-gate shares (core/look_write.py ``refusal``: ``.git`` and the shared read worktrees never). Bash runs, except an obvious
-write elsewhere (``look_bash_refusal``): a redirection (``>``, ``>>``, ``&>``), ``tee``, ``sed -i``/``perl -i``,
-``cp``/``mv``/``install``/``ln``/``rsync`` into it (``mv`` from it too), ``rm``/``rmdir``/``touch``/``mkdir``/``truncate``/
-``chmod``/``chown``/``shred``/``unlink``, ``dd of=``, ``curl -o``/``-O`` and ``wget``, ``find -delete`` or ``-exec`` of
-one of those, ``xargs`` of one, a git command that writes (``commit``, ``checkout``, ``reset``, ``push``, ``clean`` …;
-``git log``, ``status``, ``diff``, ``show``, ``fetch`` run), ``covey repo use --write`` (``covey repo use`` to read
-runs) and ``covey device`` other than ``list``, ``get``, ``ls`` and ``stat`` (``DEVICE_READS``: the channel itself holds
-the turn to reading, core/device_access.py G3; this is its second wall). What a program writes by itself (a script, ``python -c``) it cannot see: docs/harnesses.md and tests/test_matrix.py
-list that as the shell's limit. Anything that goes wrong in here refuses the call.
-
 ``shim`` (``shim_main``; ``--mode shim <命令名> <参数…>``): not a hook but what the search shims in ``<数据根>/bin``
 (core/home.py ``SEARCH_SHIMS``: ``rg``, ``find``, ``fd``, ``du``, ``tree``, ``grep``, ``ls``) ask before they run the real
 program, so every Harness's shell command gets the home-search rule, not only Claude Code's. The home is ``$COVEY_HOME``,
@@ -618,258 +605,11 @@ def search_refusal(call, home) -> str:
     return ""
 
 
-# ---- look: a LOOK turn on this machine (module docstring) ----
+# ---- shim: the search shims (module docstring) ----
 
-LOOK_MODE = "look"
 SHIM_MODE = "shim"
-MODES = (PROXY_MODE, HOME_SEARCH, LOOK_MODE, SHIM_MODE)
+MODES = (PROXY_MODE, HOME_SEARCH, SHIM_MODE)
 SHIM_REFUSED = 3  # The exit code of ``shim_main`` for a search it refuses (the shim turns it into 2; Python's own 1 and 2 are faults).
-LOOK_HOOKED = ("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit")
-# Programs that write each of their path arguments (``first`` leading ones are not paths: chmod's mode, chown's owner).
-WRITES_EACH = {"rm": 0, "rmdir": 0, "unlink": 0, "touch": 0, "mkdir": 0, "truncate": 0, "shred": 0, "chmod": 1,
-               "chown": 1, "chgrp": 1}
-WRITES_LAST = ("cp", "install", "ln", "rsync")  # The last path argument (or ``-t <目录>``) is written.
-# Options of those that take the next word as their value.
-VALUED = {"-t", "--target-directory", "-m", "--mode", "-o", "--owner", "-g", "--group", "-s", "--size", "-S",
-          "--suffix", "-n", "--iterations", "-e", "--rsh", "--exclude", "--include", "--filter", "-f", "--reference"}
-GIT_WRITES = frozenset({"commit", "checkout", "switch", "reset", "push", "pull", "clean", "merge", "rebase", "cherry-pick",
-                        "revert", "am", "apply", "restore", "rm", "mv", "init", "clone", "gc", "prune", "update-ref",
-                        "update-index", "notes", "filter-branch", "replace", "submodule", "lfs"})
-GIT_GLOBAL_VALUES = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"})
-DEVICE_TARGETS = re.compile(r"/dev/(null|stdout|stderr|tty|fd/\d+)$")
-LOOK_FIX = "这一轮只读：{what}。只能写本轮检查点 {file} 和本话题产物目录 {dir}；要改别处的，在回复里写清楚改什么，等主人下一句。"
-
-
-def look_settings(allow_file, allow_dir, *, python=None, script=None) -> dict:
-    """The ``hooks`` of a LOOK turn: this module's ``main`` in its look mode before every call of LOOK_HOOKED, with the
-    turn's checkpoint file and the topic's outputs directory."""
-    if script is None:
-        from covey.core.paths import entry_script
-        script = entry_script("covey_tool_guard.py")
-    command = shlex.join([python or sys.executable, "-B", str(script), "--mode", LOOK_MODE,
-                          "--allow-file", str(allow_file or ""), "--allow-dir", str(allow_dir or "")])
-    return {"PreToolUse": [{"matcher": "|".join(LOOK_HOOKED), "hooks": [{"type": "command", "command": command}]}]}
-
-
-def look_segments(command):
-    """``command``'s simple commands as ``segments`` reads them, each with the files its redirections write:
-    (words, written targets, the bodies of its here-documents). ValueError for what shlex cannot split, or a redirection
-    with no target."""
-    text, bodies = heredocs(FD_NUMBER.sub("", str(command).replace("\\\n", " ")))
-    lexer = shlex.shlex(text, posix=True, punctuation_chars="();<>|&\n")
-    lexer.whitespace, lexer.whitespace_split = " \t\r", True
-    out, words, targets, docs, pending = [], [], [], [], None
-    for token in lexer:
-        if pending is not None:
-            if token in SEPARATORS or (token and set(token) <= set("();<>|&\n")):
-                raise ValueError("a redirection without its target")
-            if pending == "write" and not token.isdigit() and token != "-":
-                targets.append(token)
-            pending = None
-            continue
-        if token in SEPARATORS or (token and set(token) <= set(";&|()\n") and "<" not in token and ">" not in token):
-            if words or targets:
-                out.append((words, targets, docs))
-            words, targets, docs = [], [], []
-            continue
-        if token and set(token) <= set("<>&|"):  # A redirection: its target is the next word.
-            if ">" in token:
-                pending = "dup" if token.endswith("&") and token not in ("&>", "&>>") else "write"
-            else:
-                pending = "read"
-                if token == "<<" and bodies:
-                    docs.append(bodies.pop(0))
-            continue
-        words.append(token)
-    if pending is not None:
-        raise ValueError("a redirection without its target")
-    if words or targets:
-        out.append((words, targets, docs))
-    return out
-
-
-def _positionals(words, valued=VALUED):
-    """``words``' arguments that are no option nor an option's value; and the value of ``-t``/``--target-directory``."""
-    found, target, at, done = [], None, 0, False
-    while at < len(words):
-        word = words[at]
-        at += 1
-        if done or not word.startswith("-") or word == "-":
-            found.append(word)
-            continue
-        if word == "--":
-            done = True
-            continue
-        name = word.split("=", 1)[0]
-        value = word.split("=", 1)[1] if "=" in word else None
-        if name in valued and value is None:
-            value = words[at] if at < len(words) else None
-            at += 1
-        if name in ("-t", "--target-directory"):
-            target = value
-    return found, target
-
-
-def _git_refusal(words) -> str:
-    """Why the git command ``words`` (after ``git``) writes; '' when it only reads."""
-    at = 0
-    while at < len(words) and words[at].startswith("-"):
-        at += 2 if words[at] in GIT_GLOBAL_VALUES else 1
-    if at >= len(words):
-        return ""
-    sub, rest = words[at], words[at + 1:]
-    if sub in GIT_WRITES:
-        return f"`git {sub}` 会改仓库"
-    if sub == "stash" and (rest[:1] not in (["list"], ["show"])):
-        return "`git stash` 会改工作区"
-    if sub == "worktree" and rest[:1] != ["list"]:
-        return "`git worktree` 会改仓库"
-    if sub in ("branch", "tag"):
-        flags = {word.split("=", 1)[0] for word in rest if word.startswith("-")}
-        listing = flags & {"-l", "--list", "-a", "--all", "-r", "--remotes", "-v", "-vv", "--contains", "--merged",
-                           "--no-merged", "--points-at", "--show-current", "-n", "--sort", "--format", "--column"}
-        writing = flags & {"-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-f", "--force", "-u",
-                           "--set-upstream-to", "--unset-upstream", "--edit-description", "-s", "--sign"}
-        named = [word for word in rest if not word.startswith("-")]
-        if writing or (named and not listing):
-            return f"`git {sub}` 加名字会改仓库"
-    if sub == "config" and not ({word for word in rest} & {"--get", "--get-all", "--list", "-l", "--get-regexp", "--show-origin"}):
-        if len([word for word in rest if not word.startswith("-")]) >= 2:
-            return "`git config` 写配置"
-    return ""
-
-
-DEVICE_READS = ("list", "get", "ls", "stat", "--help", "-h")  # What ``covey device`` may do in a LOOK turn.
-
-
-def look_bash_refusal(command, cwd, allow_file, allow_dir, depth=0) -> str:
-    """Why a Bash ``command`` run in ``cwd`` in a LOOK turn obviously writes somewhere it may not (module docstring);
-    '' when it does not, as far as it can see. ValueError when it cannot read the command."""
-    from covey.core import env as cenv
-    from covey.core import look_write
-
-    home = cenv.get("COVEY_HOME", "")
-
-    def blocked(target, base) -> str:
-        if target is None:
-            return "写入位置看不出来（变量、命令的输出或相对路径），写到产物目录里请用绝对路径"
-        if DEVICE_TARGETS.match(target):
-            return ""
-        reason = look_write.refusal(target, allow_file=allow_file, allow_dir=allow_dir, cwd=base or "/nonexistent-cwd")
-        return f"写 `{target}`，不在可写的地方" if reason else ""
-
-    def where(word, base):
-        if not word or (not home and re.search(r"\$\{?COVEY_HOME", word)):
-            return None
-        return expand(word, base, home)
-
-    for words, targets, docs in look_segments(command):
-        for target in targets:
-            reason = blocked(where(target, cwd), cwd)
-            if reason:
-                return LOOK_FIX.format(what=f"重定向{reason}", file=allow_file, dir=allow_dir)
-        words = command_words(words) if words else words
-        if words is None:  # xargs, parallel, watch: what they run is in the words after them.
-            continue_words = [w for w in words_after_stop(command) if os.path.basename(w) in
-                              (*WRITES_EACH, *WRITES_LAST, "mv", "tee", "sed", "perl", "dd", "git")]
-            if continue_words:
-                return LOOK_FIX.format(what=f"`xargs {continue_words[0]}` 写什么看不出来", file=allow_file, dir=allow_dir)
-            continue
-        if not words:
-            continue
-        name = os.path.basename(words[0].lstrip("`\\"))
-        rest = [word.rstrip("`") for word in words[1:]]
-        if name in ("cd", "pushd"):
-            given = [word for word in rest if not word.startswith("-")] if rest[:1] != ["-"] else None
-            cwd = None if given is None else where(given[0], cwd) if given else os.path.expanduser("~")
-            continue
-        found = ""
-        if name == "git":
-            found = _git_refusal(rest)
-        elif name == "covey" and rest[:2] == ["repo", "use"] and "--write" in rest:
-            found = "`covey repo use --write` 会建写 worktree"
-        elif name == "covey" and rest[:1] == ["device"] and (rest[1:2] or [""])[0] not in DEVICE_READS:
-            # The device channel holds a LOOK turn to reading itself (core/device_access.py G3); this is the second wall.
-            found = f"`covey device {(rest[1:2] or [''])[0]}` 可能改设备上的东西，这一轮只能 list、get、ls、stat"
-        elif name == "tee":
-            for path in _positionals(rest)[0]:
-                found = found or blocked(where(path, cwd), cwd)
-        elif name in ("sed", "perl") and any(word == "--in-place" or re.fullmatch(r"-[a-zA-Z]*i\S*", word) for word in rest):
-            given = [word for word in rest if word.startswith(("-e", "--expression", "-f", "--file"))]
-            paths = _positionals(rest, valued=VALUED | {"-e", "--expression", "-f", "--file"})[0]
-            for path in paths[0 if given else 1:]:
-                found = found or blocked(where(path, cwd), cwd)
-        elif name in WRITES_EACH:
-            paths = _positionals(rest)[0][WRITES_EACH[name]:]
-            for path in paths:
-                found = found or blocked(where(path, cwd), cwd)
-        elif name == "mv":
-            paths, target = _positionals(rest)
-            for path in paths + ([target] if target else []):
-                found = found or blocked(where(path, cwd), cwd)
-        elif name in WRITES_LAST:
-            paths, target = _positionals(rest)
-            dest = target or (paths[-1] if len(paths) >= 2 else None)
-            if dest is not None or paths:
-                found = blocked(where(dest, cwd) if dest is not None else None, cwd)
-        elif name == "dd":
-            for word in rest:
-                if word.startswith("of="):
-                    found = found or blocked(where(word[3:], cwd), cwd)
-        elif name == "curl":
-            for at, word in enumerate(rest):
-                if word in ("-o", "--output") and at + 1 < len(rest):
-                    found = found or blocked(where(rest[at + 1], cwd), cwd)
-                elif word.startswith("--output="):
-                    found = found or blocked(where(word.split("=", 1)[1], cwd), cwd)
-                elif word in ("-O", "--remote-name", "--remote-name-all"):
-                    found = found or blocked(where("curl-download", cwd), cwd)
-        elif name == "wget":
-            value = _value(rest, "-O", "--output-document")
-            folder = _value(rest, "-P", "--directory-prefix")
-            if value != "-":
-                found = blocked(where(value, cwd) if value else where(os.path.join(folder or ".", "wget-download"), cwd), cwd)
-        elif name == "find":
-            if "-delete" in rest:
-                found = "`find -delete` 会删文件"
-            for at, word in enumerate(rest):
-                if word in ("-exec", "-execdir", "-ok", "-okdir") and at + 1 < len(rest):
-                    if os.path.basename(rest[at + 1]) in (*WRITES_EACH, *WRITES_LAST, "mv", "tee", "sed", "perl", "git"):
-                        found = found or f"`find {word} {rest[at + 1]}` 会改文件"
-        elif name in SHELLS and depth < 3:
-            script = _shell_script(rest)
-            reason = look_bash_refusal(script, cwd, allow_file, allow_dir, depth + 1) if script else ""
-            if reason:
-                return reason
-        if found:
-            return LOOK_FIX.format(what=found, file=allow_file, dir=allow_dir)
-    return ""
-
-
-def words_after_stop(command) -> list:
-    """The words after the first ``xargs``/``parallel``/``watch`` of ``command`` (what it runs)."""
-    try:
-        words = shlex.split(str(command))
-    except ValueError:
-        return []
-    at = next((index for index, word in enumerate(words) if os.path.basename(word) in STOP), None)
-    return [word for word in words[at + 1:] if not word.startswith("-")] if at is not None else []
-
-
-def look_refusal(call, allow_file, allow_dir) -> str:
-    """Why the PreToolUse ``call`` does not run in a LOOK turn; '' when it does. Raises for what it cannot read (``main``
-    refuses then)."""
-    from covey.core import look_write
-
-    tool = str(call.get("tool_name") or "")
-    given = call.get("tool_input") if isinstance(call.get("tool_input"), dict) else {}
-    cwd = str(call.get("cwd") or "")
-    if tool == "Bash":
-        return look_bash_refusal(str(given.get("command") or ""), cwd or os.getcwd(), allow_file, allow_dir)
-    if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
-        path = given.get("notebook_path" if tool == "NotebookEdit" else "file_path")
-        return look_write.refusal(path, allow_file=allow_file, allow_dir=allow_dir, cwd=cwd)
-    return ""
 
 
 def shim_refusal(name, words, cwd, home, *, stdin=False) -> str:
@@ -918,11 +658,9 @@ def main(argv=None, stdin=None) -> int:
     parser = argparse.ArgumentParser(prog="covey_tool_guard.py",
                                      description="Claude Code's PreToolUse hook: the call's JSON on stdin, exit 2 refuses it.")
     parser.add_argument("--mode", choices=MODES, default=PROXY_MODE,
-                        help="proxy: a 代答 turn's (the default); home-search: a turn started from the home; look: a LOOK turn's")
+                        help="proxy: a 代答 turn's (the default); home-search: a turn started from the home")
     parser.add_argument("--notes", default="", help="the contact's notes directory, the one place edit tools may write")
     parser.add_argument("--home", default="", help="home-search: the home whose whole tree no search may walk")
-    parser.add_argument("--allow-file", default="", help="look: the turn's checkpoint file")
-    parser.add_argument("--allow-dir", default="", help="look: the topic's outputs directory")
     home_search = any(HOME_SEARCH in arg for arg in argv)
     try:
         args = parser.parse_args(argv)  # An argument it does not take exits 2, which refuses the call in proxy mode.
@@ -930,14 +668,7 @@ def main(argv=None, stdin=None) -> int:
         if home_search:
             return 0
         raise
-    if args.mode == LOOK_MODE:
-        try:
-            call = json.load(stdin or sys.stdin)
-            reason = look_refusal(call if isinstance(call, dict) else {}, args.allow_file, args.allow_dir)
-        except Exception as exc:  # noqa: BLE001 - a LOOK gate that cannot tell refuses
-            reason = (f"这一轮只读：检查这次调用出错（{type(exc).__name__}），没有执行。命令写简单些"
-                      f"（一条一条跑、写入用绝对路径），只写本轮检查点 {args.allow_file} 和产物目录 {args.allow_dir}。")
-    elif args.mode == HOME_SEARCH:
+    if args.mode == HOME_SEARCH:
         try:
             call = json.load(stdin or sys.stdin)
             reason = search_refusal(call, args.home) if isinstance(call, dict) else ""

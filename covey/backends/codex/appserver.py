@@ -23,7 +23,7 @@ from covey.backends.codex import consult
 from covey.core import repomap, topic_repos
 from covey.core.butler_tool_specs import LEAD_ASK_TOOL
 from covey.core.failure import said_of
-from covey.core.harness import CONSULT, EXTERNAL, LEAD, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, JobCancelled, RunResult
+from covey.core.harness import CONSULT, EXTERNAL, LEAD, PROXY, READ, TOOL_LIMIT, JobCancelled, RunResult
 from covey.core.paths import entry_script
 from covey.core.process import device_of
 from covey.core.protocol import deliver_event
@@ -48,8 +48,7 @@ class CodexReplyState(ReplyState):
 QUESTION_TOOL = "request_user_input"  # Its model's question tool (backends/codex/bridge.py question_tool).
 # The words of CODEX_INSTRUCTIONS, chosen by the turn's TOOL_LIMIT (``codex_instructions``, W2-A): a 协作 ask (CONSULT)
 # asks nobody and writes no checkpoint, a project's lead (LEAD) asks with its Bridge tool and has no checkpoint contract
-# (C4, G7), a group member's read-only turn (READ) writes no checkpoint (app/tool_limits.py MEMBER_NOTE), a LOOK turn writes
-# its checkpoint only through the workspace server's write tool, where it has one (C6).
+# (C4, G7), a group member's read-only turn (READ) writes no checkpoint (app/tool_limits.py MEMBER_NOTE).
 ASK_CHECKPOINT = ("你通过飞书话题与用户交互。问不问、问什么照执行约定里“什么时候问主人”：要问的留到最后合成一次问，"
                   "按检查点约定写 requires_user=true、question 和可选的 questions；桥接器会先交付完整回复，再创建问题卡片并在回答后续接。")
 ASK_TOOL = (f"{QUESTION_TOOL} 也会出问题卡，但它会停下这一轮、等用户回答才接着做，只在不答就做不下去时用"
@@ -61,8 +60,6 @@ ASK_LEAD = (f"你通过 Bridge 工具和主人、专项的话题打交道，不�
             f"不要用 {QUESTION_TOOL}。不要把未回答视为同意。")
 ASK_MEMBER = ("你通过飞书话题与用户交互。这一轮只读，检查点不用写；要主人定的事写在回复里。"
               f"{QUESTION_TOOL} 会停下这一轮等回答，只在不答就做不下去时用（不要使用 {QUESTION_TOOL}_async）。不要把未回答视为同意。")
-LOOK_HELD_WRITE = "这一轮只读：检查点文件和本话题产物目录用 bridge_workspace 的 workspace_write_file 写，别处写不了。"
-LOOK_NO_WRITE = "这一轮只读、写不了文件：检查点不用写，要主人定的事写在回复里。"
 
 
 def thread_instructions(ctx) -> str:
@@ -77,15 +74,15 @@ TURN_HEAD = "[这一轮的说明：和开头的开发者说明不一样时，以
 
 
 def turn_instructions(ctx) -> str:
-    """``codex_instructions`` of the turn when they are not its thread's (``thread_instructions``: a CONSULT, READ or
-    LOOK turn), under TURN_HEAD, for the end of its input; '' otherwise."""
+    """``codex_instructions`` of the turn when they are not its thread's (``thread_instructions``: a CONSULT or READ
+    turn), under TURN_HEAD, for the end of its input; '' otherwise."""
     found = codex_instructions(ctx)
     return "" if found == thread_instructions(ctx) else TURN_HEAD + "\n" + found
 
 
 def codex_instructions(ctx) -> str:
     """CODEX_INSTRUCTIONS as the turn's TOOL_LIMIT has them: SUBAGENTS alone for CONSULT, ASK_LEAD for LEAD, ASK_MEMBER for
-    READ; LOOK with what its gate lets it write first (``look_writes``); every other turn the whole of it."""
+    READ; every other turn the whole of it."""
     limit = ctx.options.get(TOOL_LIMIT)
     if limit == CONSULT:
         return SUBAGENTS
@@ -93,8 +90,6 @@ def codex_instructions(ctx) -> str:
         return ASK_LEAD + SUBAGENTS
     if limit == READ:
         return ASK_MEMBER + SUBAGENTS
-    if limit == LOOK:
-        return (ASK_CHECKPOINT + LOOK_HELD_WRITE if look_writes(ctx) else LOOK_NO_WRITE) + ASK_TOOL + SUBAGENTS
     return CODEX_INSTRUCTIONS
 
 
@@ -104,7 +99,7 @@ BRIDGE_TOOL_SECONDS = 150.0
 
 
 # The turns held to reading (core/harness.py TOOL_LIMIT): the read-only sandbox for the thread and the turn.
-READ_ONLY = (READ, LOOK, CONSULT, LEAD)
+READ_ONLY = (READ, CONSULT, LEAD)
 QUESTION_FLAG = "features.default_mode_request_user_input=true"  # request_user_input (it pauses the turn), on for every turn but CONSULT.
 # A 代答 turn's (PROXY) switches: its question as before, and Codex's memories (made from other sessions and injected into each
 # new one) neither read into it nor made by its server (keep_out_of_memories keeps its thread out of the others').
@@ -128,19 +123,8 @@ def bridge_servers(ctx):
                        prefix + "tool_timeout_sec": BRIDGE_TOOL_SECONDS,
                        **({prefix + "default_tools_approval_mode": "approve"} if approve else {})})
     return config
-def look_writes(ctx) -> list:
-    """The workspace server's ``--allow-file``/``--allow-dir`` of a LOOK turn whose writes are held (``options[LOOK_ROOTS]``
-    held, app/tool_limits.py look_roots; W1-C, contract C6): the read-only sandbox stays, and the server's
-    ``workspace_write_file`` (core/look_write.py) writes the turn's checkpoint file and the topic's outputs directory, nothing
-    else. [] for any other turn, and on a device."""
-    roots = ctx.options.get(LOOK_ROOTS) or {}
-    if ctx.options.get(TOOL_LIMIT) != LOOK or device_of(ctx) or not roots.get("held"):
-        return []
-    return ["--allow-file", str(roots.get("file") or ""), "--allow-dir", str(roots.get("dir") or "")]
-
-
 def sandbox_mode(ctx) -> str:
-    """The turn's sandbox: read-only for a turn held to READ, LOOK, CONSULT or LEAD (core/harness.py TOOL_LIMIT), else the
+    """The turn's sandbox: read-only for a turn held to READ, CONSULT or LEAD (core/harness.py TOOL_LIMIT), else the
     Harness's --sandbox (danger-full-access unless it says otherwise). A 代答 turn keeps it: in a sandbox lark-cli could
     not read the chats (no network, its login not refreshed)."""
     if ctx.options.get(TOOL_LIMIT) in READ_ONLY:
@@ -215,7 +199,6 @@ def thread_params(ctx, session_id, instructions="", process=None):
                 "--extra-root", str(ctx.history_path.parent / "handoff")]
         for root in reader_roots(ctx, data):
             args += ["--extra-root", root]
-        args += look_writes(ctx)
     params = {
         "model": ctx.model,
         "cwd": cwd,
@@ -228,9 +211,6 @@ def thread_params(ctx, session_id, instructions="", process=None):
             "mcp_servers.bridge_workspace.command": command,
             "mcp_servers.bridge_workspace.args": args,
             "mcp_servers.bridge_workspace.enabled": True,
-            # Its write tool runs without asking: with the approval policy ``never`` Codex refuses an MCP tool that asks
-            # (as the Bridge's tools of a LEAD turn, bridge_servers); where it writes is the server's check.
-            **({"mcp_servers.bridge_workspace.default_tools_approval_mode": "approve"} if look_writes(ctx) else {}),
             **({} if device_of(ctx) else bridge_servers(ctx)),
         },
         # Kept from the thread's start (``thread_instructions``): the bridge rules at the system level (app/rules_sent.py).
@@ -249,13 +229,13 @@ NO_PROJECT_DOC = "project_doc_max_bytes=0"  # No AGENTS.md of the working direct
 
 def server_flags(ctx) -> list:
     """The app server's -c switches after its thread limit: request_user_input on, as before; a CONSULT turn's
-    (backends/codex/consult.py FLAGS) instead: apps, plugins, memories, hooks and the question off; a READ, LOOK or LEAD
+    (backends/codex/consult.py FLAGS) instead: apps, plugins, memories, hooks and the question off; a READ or LEAD
     turn's (READING_FLAGS): apps, plugins, memories and hooks off, the question on; a 代答 turn's (``PROXY_FLAGS``): the
     question on and Codex's memories neither read into the turn nor made by this server. A turn of a topic that keeps off
     this machine's files (``options[EXTERNAL]``) reads no project doc (``NO_PROJECT_DOC``): not the home's AGENTS.md, nor
     one above it; the user's own in CODEX_HOME is still read."""
     limit = ctx.options.get(TOOL_LIMIT)
-    flags = (consult.FLAGS if limit == CONSULT else consult.READING_FLAGS if limit in (READ, LOOK, LEAD)
+    flags = (consult.FLAGS if limit == CONSULT else consult.READING_FLAGS if limit in (READ, LEAD)
              else PROXY_FLAGS if limit == PROXY else (QUESTION_FLAG,))
     if ctx.options.get(EXTERNAL):
         flags = (*flags, NO_PROJECT_DOC)

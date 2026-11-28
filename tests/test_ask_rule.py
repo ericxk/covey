@@ -191,16 +191,6 @@ class CodexInstructionsByLimitTest(unittest.TestCase):
         self.assertIn("检查点不用写", found)
         self.assertNotIn("requires_user", found)
 
-    def test_a_look_turn_says_where_it_can_write(self):
-        from covey.backends.codex.appserver import LOOK_HELD_WRITE, LOOK_NO_WRITE
-        from covey.core.harness import LOOK, LOOK_ROOTS
-        held = self.instructions(LOOK, **{LOOK_ROOTS: {"file": "/x/cp.json", "dir": "/x/out", "held": True}})
-        self.assertIn(LOOK_HELD_WRITE, held)
-        self.assertIn("requires_user", held)
-        words = self.instructions(LOOK, **{LOOK_ROOTS: {"file": "/x/cp.json", "dir": "/x/out", "held": False}})
-        self.assertIn(LOOK_NO_WRITE, words)
-        self.assertNotIn("requires_user", words)
-
 
 class WordingTest(unittest.TestCase):
     def test_the_dispatch_threshold_is_said_once_in_each_mode(self):

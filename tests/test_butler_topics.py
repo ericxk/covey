@@ -166,14 +166,14 @@ class TopicStartTest(ButlerTopicsCase):
         self.assertEqual((job.user_text, job.topic_id, job.harness_id), ("看看昨晚的失败", data["topic_id"], "codex"))
         self.app.apps["codex"].submission.selection_card.assert_not_called()
 
-    def test_no_new_topic_is_held_read_only_and_a_plan_saved_read_only_still_is(self):
-        """T956: the butler and a lead no longer judge a topic read-only. A call that still says ``readonly`` (an older
-        session's tool list) opens it as any other: its first turn is not held and its topic.json keeps no ``readonly``.
-        A plan an older release saved with ``read_only`` (a restart between saving and binding) is still held
-        (app/tool_limits.py LOOK), its task text without the read-only words (W1-C, C6)."""
+    def test_no_topic_is_held_read_only_any_more(self):
+        """T956: the butler and a lead no longer judge a topic read-only, and the read-only first turn is gone. A call that
+        still says ``readonly`` (an older session's history) opens it as any other: its first turn is not held and its
+        topic.json keeps no ``readonly``; so does a plan an older release saved with ``read_only`` (a restart between saving
+        and binding)."""
         answer = self.start("ro", harness="codex", readonly=True)
         job = self.job("ro")
-        self.assertFalse(job.read_only)
+        self.assertFalse(getattr(job, "read_only", False))
         self.assertNotIn("这一轮只读", job.prompt_text)
         self.assertNotIn("readonly", load_topic(self.ctx.state_dir, answer["data"]["topic_id"])["origin"])
         plan_start = butler_topics.plan_start
@@ -181,9 +181,8 @@ class TopicStartTest(ButlerTopicsCase):
                                side_effect=lambda *a, **k: {**plan_start(*a, **k), "read_only": True}):
             self.start("old", harness="codex", title="查旧日志", prompt="看看前天的失败")
         job = self.job("old")
-        self.assertTrue(job.read_only)
+        self.assertFalse(getattr(job, "read_only", False))
         self.assertNotIn("这一轮只读", job.prompt_text)
-        self.assertNotIn("这一轮只读", job.user_text)  # The card shows the owner's words, not the Bridge's.
 
     def test_the_topic_card_goes_to_the_top_level_and_is_redrawn_with_its_number(self):
         data = self.start()["data"]

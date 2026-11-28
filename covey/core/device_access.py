@@ -54,12 +54,14 @@ from pathlib import Path
 import covey.core.env as cenv
 from covey.core import device_reap, devices
 from covey.core import device_transport as dt
-from covey.core.harness import CONSULT, LEAD, LOOK, PROXY, READ
+from covey.core.harness import CONSULT, LEAD, PROXY, READ
 from covey.core.run_dir import DEVICE_TURN, DEVICES
 from covey.core.state import atomic_write_bytes, ensure_private_dir, read_object, write_json
 from covey.core.text import redact
 
-READ_LIMITS = (LOOK, LEAD, READ, CONSULT, PROXY)  # Turns held to reading: every device is read-only to them (G3).
+# Turns held to reading: every device is read-only to them (G3). "look": an older release's read-only first turn (gone since
+# T956) still running across an upgrade, whose turn file says so.
+READ_LIMITS = (LEAD, READ, CONSULT, PROXY, "look")
 TERMINAL_SPACE = "owner_private"  # Outside a task: the hub's own terminal, its deployer.
 RUN_SECONDS = 120.0  # A run's timeout unless --timeout says another (the device program's exec takes up to 3600).
 RUN_MAX = 3600.0

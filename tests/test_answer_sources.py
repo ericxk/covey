@@ -515,7 +515,6 @@ class OwnerSendAllowedTest(unittest.TestCase):
             "a lead's answer for him": ({"turn_source": turn_source.stamp("answer_for")}, "source"),
             "a 协作 ask": ({"turn_source": turn_source.make("collab_ask", asserted_by="topic")}, "source"),
             "a 协作 reply": ({"turn_source": turn_source.make("collab_reply", asserted_by="bridge")}, "not-his"),
-            "a turn held to reading": ({"read_only": True}, "read-only"),
         }
         for name, (job, why) in cases.items():
             with self.subTest(name):

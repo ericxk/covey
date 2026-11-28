@@ -5,8 +5,6 @@
    "--agy-cmd",
    "--agy-timeout",
    "--alert-levels-mib",
-   "--allow-dir",
-   "--allow-file",
    "--app-id",
    "--app-name",
    "--apply",

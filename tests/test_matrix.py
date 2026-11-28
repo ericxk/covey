@@ -6,15 +6,10 @@ CORE_HARNESSES. The surfaces are the Feishu cards (core/placement.py by role, th
 and the web page (app/web_collect.py). One subTest a cell, each asked the same way of every Harness; what a backend does in
 detail stays in its own tests (test_claude, test_codex, test_agy, test_dsh, test_butler_harness, test_lead_harness).
 
-规则 (gate G8, W2-A) is a row of its own (``RulesRowTest``): on each Harness, how its turn asks the owner, whether its
-LOOK turn has a path gate (``LookRowTest``), whether a resumed turn takes the anchor in place of the whole rules (C9),
+规则 (gate G8, W2-A) is a row of its own (``RulesRowTest``): on each Harness, how its turn asks the owner, whether a
+resumed turn takes the anchor in place of the whole rules (C9),
 whether a high context is told, whether the butler is reminded past its own tool calls and whether a search of the whole
 home is refused, on the command line and inside a program.
-
-话题 · 只读首轮 (LOOK, W1-C contract C6, gate G8) is a row of its own (``LookRowTest``): on each Harness, whether a turn the
-butler started without the owner's click writes only its checkpoint and the topic's outputs directory (the path gate, its
-``.git`` refusal, its shell) and whether the topic's next turn is free again; what the gate leaves to the words is in
-``BOUNDS``, and an extension's Harness, outside the roster, in ``EXTENSION_CELLS``.
 
 话题 · 外部话题 (T923 §5, ``ExternalRowTest``): a topic opened with ``local`` false, which keeps off this machine's
 repositories and files: on each Harness, whether its turn leaves the home's own instruction files out (Claude Code's
@@ -29,7 +24,6 @@ when it starts to hold, so the list stays true.
 """
 from __future__ import annotations
 
-import io
 import json
 import os
 import shlex
@@ -53,7 +47,7 @@ from covey.app.butler_model_choice import resolve
 from covey.app.launch_models import available_models
 from covey.backends.agy import home as agy_home
 from covey.backends.agy import bridge as agy_bridge
-from covey.backends.agy.bridge import LOOK_SETTINGS, READ_ONLY_SETTINGS, AgyControl, AntigravityBackend, AntigravityEventAdapter
+from covey.backends.agy.bridge import READ_ONLY_SETTINGS, AgyControl, AntigravityBackend, AntigravityEventAdapter
 from covey.backends.claude import argv as claude_argv
 from covey.backends.claude import tool_guard
 from covey.backends.claude.bridge import ClaudeBackend
@@ -61,12 +55,11 @@ from covey.backends.claude.events import ClaudeEventAdapter
 from covey.backends.claude.hooks import TurnHooks
 from covey.backends.codex import appserver
 from covey.backends.codex.turn import context_of as codex_context_of
-from covey.backends.codex.workspace_reader import WorkspaceReader
 from covey.backends.dsh import bridge as dsh_bridge
-from covey.core import butler, butler_mcp, butler_settings, home as covey_home, look_write, placement, projects, repomap, topic_repos
+from covey.core import butler, butler_mcp, butler_settings, home as covey_home, placement, projects, repomap, topic_repos
 from covey.core.butler import butler_topic_id
 from covey.core.butler_tool_specs import HANDING
-from covey.core.harness import EXTERNAL, LEAD, LOOK, LOOK_ROOTS, READ, TOOL_LIMIT, backend_capabilities
+from covey.core.harness import EXTERNAL, LEAD, READ, TOOL_LIMIT, backend_capabilities
 from covey.core.history_storage import append_history
 from covey.core.menu_choice import butler_harnesses, harness_of
 from covey.core.roster import CORE_HARNESSES
@@ -129,88 +122,6 @@ def agy_lead(ctx) -> bool:
 
 def _value(args, flag):
     return args[args.index(flag) + 1] if flag in args else ""
-
-
-def claude_look(ctx) -> dict:
-    """A LOOK turn on Claude Code: the look hook its argv carries, run as Claude Code runs it, on a Write call (``write``)
-    and a Bash call (``shell``); ``free``: a turn without the limit has neither the hook nor --disallowedTools."""
-    argv = claude_argv.stream_argv(ClaudeBackend(), ctx)
-    settings = json.loads(_value(argv, "--settings") or "{}")
-    hooks = [hook["command"] for group in (settings.get("hooks") or {}).get("PreToolUse") or ()
-             for hook in group.get("hooks") or () if "--mode look" in hook.get("command", "")]
-
-    def run(call) -> bool:  # Refused?
-        args = shlex.split(hooks[0])[3:]
-        with mock.patch("sys.stderr", io.StringIO()):
-            return tool_guard.main(args, stdin=io.StringIO(json.dumps(call))) == 2
-    if not hooks or "--disallowedTools" in argv:
-        return {"write": None, "shell": None}
-    return {"write": lambda path: run({"tool_name": "Write", "tool_input": {"file_path": path}}),
-            "shell": lambda command, cwd: run({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd})}
-
-
-def claude_free(ctx) -> bool:
-    argv = claude_argv.stream_argv(ClaudeBackend(), ctx)
-    return "--disallowedTools" not in argv and "--mode look" not in " ".join(argv)
-
-
-def codex_look(ctx) -> dict:
-    """A LOOK turn on Codex: the workspace server its thread starts, with its write tool (``write``); its shell is in the
-    read-only sandbox for the thread and the turn (``shell``: every write refused by the sandbox, tests/test_collab_c8.py)."""
-    params, _ = appserver.thread_params(ctx, None)
-    args = params["config"]["mcp_servers.bridge_workspace.args"]
-    approved = params["config"].get("mcp_servers.bridge_workspace.default_tools_approval_mode") == "approve"
-    if "--allow-file" not in args or not approved:
-        return {"write": None, "shell": None}
-    reader = WorkspaceReader(_value(args, "--root"), allow_file=_value(args, "--allow-file"), allow_dir=_value(args, "--allow-dir"))
-
-    def write(path) -> bool:
-        try:
-            reader.call("workspace_write_file", {"path": path, "content": "x"})
-        except ValueError:
-            return True
-        return False
-    sandboxed = params["sandbox"] == "read-only" and appserver.sandbox_mode(ctx) == "read-only"
-    return {"write": write, "shell": (lambda command, cwd: True) if sandboxed else None}
-
-
-def codex_free(ctx) -> bool:
-    params, _ = appserver.thread_params(ctx, None)
-    return params["sandbox"] != "read-only" and "--allow-file" not in params["config"]["mcp_servers.bridge_workspace.args"]
-
-
-def agy_look(ctx) -> dict:
-    """A LOOK turn on Antigravity: LOOK_SETTINGS deny its own file tools (agy 1.5.18: tests/test_collab_c8.py AgyLookC6),
-    and its private home's server (bin/covey_look_write.py) is the write tool; its shell is not denied (``shell`` None)."""
-    argv = AntigravityBackend().argv(ctx, None)
-    server = ((agy_bridge.home_config(ctx) or {}).get("mcpServers") or {}).get("bridge_workspace") or {}
-    args = list(server.get("args") or ())
-    denied = json.loads(_value(argv, "--settings") or "{}") == LOOK_SETTINGS
-    if not denied or "covey_look_write.py" not in " ".join(args):
-        return {"write": None, "shell": None}
-
-    def write(path) -> bool:
-        try:
-            look_write.call("workspace_write_file", {"path": path, "content": "x"},
-                            allow_file=_value(args, "--allow-file"), allow_dir=_value(args, "--allow-dir"))
-        except ValueError:
-            return True
-        return False
-    shell = (lambda command, cwd: True) if "command(*)" in LOOK_SETTINGS["permissions"]["deny"] else None
-    return {"write": write, "shell": shell}
-
-
-def agy_free(ctx) -> bool:
-    return "--settings" not in AntigravityBackend().argv(ctx, None) and agy_bridge.home_config(ctx) is None
-
-
-def dsh_look(ctx) -> dict:
-    """DeepSeek Harness has no gate for a LOOK turn: the words alone (app/tool_limits.py LOOK_WORDS)."""
-    return {"write": None, "shell": None}
-
-
-def dsh_free(ctx) -> bool:
-    return not dsh_bridge.lead_turn(ctx)
 
 
 # 话题 · 外部话题 (T923 §5, VERIFY-P1 第 5 节): whether a turn whose options carry EXTERNAL leaves ``home``'s own instruction
@@ -341,23 +252,18 @@ RULES_SEEN = {
 
 
 # How each core Harness's backend is seen to take the Bridge's tools (the names a turn has at hand, given the server's
-# list: all of them, or Antigravity's up-front ones), to hold a lead's turn to reading with those tools kept, and to hold a
-# LOOK turn's writes (``look``: its write and shell gates as the backend wires them; ``free``: a turn without the limit).
+# list: all of them, or Antigravity's up-front ones) and to hold a lead's turn to reading with those tools kept.
 SEEN = {
-    "claude": {"tools": claude_tools, "lead": claude_lead, "look": claude_look, "free": claude_free},
-    "codex": {"tools": codex_tools, "lead": codex_lead, "look": codex_look, "free": codex_free},
-    "dsh": {"tools": dsh_tools, "lead": dsh_lead, "look": dsh_look, "free": dsh_free},
-    "agy": {"tools": agy_tools, "lead": agy_lead, "look": agy_look, "free": agy_free},
+    "claude": {"tools": claude_tools, "lead": claude_lead},
+    "codex": {"tools": codex_tools, "lead": codex_lead},
+    "dsh": {"tools": dsh_tools, "lead": dsh_lead},
+    "agy": {"tools": agy_tools, "lead": agy_lead},
 }
-RULE_ASK, RULE_LOOK, RULE_ANCHOR, RULE_CONTEXT, RULE_NUDGE, RULE_SEARCH, RULE_WALK = (
-    "规则 · 提问方式", "规则 · 只读首轮", "规则 · 系统级规则", "规则 · 上下文偏高提醒", "规则 · 管家工具提醒",
+RULE_ASK, RULE_ANCHOR, RULE_CONTEXT, RULE_NUDGE, RULE_SEARCH, RULE_WALK = (
+    "规则 · 提问方式", "规则 · 系统级规则", "规则 · 上下文偏高提醒", "规则 · 管家工具提醒",
     "规则 · 主目录搜索 · 命令行", "规则 · 主目录搜索 · 程序内递归")
-LOOK_GATE, LOOK_GIT, LOOK_SHELL, LOOK_NEXT = ("话题 · 只读首轮 · 路径闸", "话题 · 只读首轮 · .git 拒写", "话题 · 只读首轮 · 命令行写",
-                                              "话题 · 只读首轮 · 第二轮解限")
 EXT_FILES, EXT_GIT, EXT_FREE = ("话题 · 外部话题 · 不读主目录说明文件", "话题 · 外部话题 · 主目录在 git 工作树里",
                                  "话题 · 外部话题 · 普通话题照旧")
-# 话题 · 设备通道 (core/device_access.py, F2a): a LOOK turn reaching ``covey device`` from its shell at all.
-DEV_LOOK = "话题 · 设备通道 · 只读首轮够得着"
 # Cells that do not hold on a Harness, on purpose or not yet, with why. A cell here that starts to hold fails
 # test_the_known_gaps_are_still_gaps: take it off.
 GAPS = {
@@ -370,12 +276,6 @@ GAPS = {
     ("话题 · 群成员只读", "agy"): "agy 没声明 read_only：群成员只读的群里这一轮不启动（app/tool_limits.py refusal）。"
                                   "它给负责人用的 deny 规则（READ_ONLY_SETTINGS）也能守住只读，待接上",
     ("话题 · 群成员只读", "dsh"): "dsh 没声明 read_only：同上；它给负责人用的 --permission-mode read-only 待接上",
-    (LOOK_GATE, "dsh"): "dsh 没声明 look_gate：只读首轮只有文字约束（app/tool_limits.py LOOK_WORDS：只写检查点和产物目录，"
-                         "写不了就略过），没有路径闸",
-    (LOOK_GIT, "dsh"): "同上：没有路径闸，.git 也只靠文字",
-    (LOOK_SHELL, "agy"): "设计如此（规范 C6）：LOOK_SETTINGS 只拒 agy 自己的写文件工具、不拒 command(*)，留着跑只读调研脚本；"
-                         "命令行能写仓库（RT-4 第 5 类：agy 1.5.18 实测 echo >> 写进了仓库文件，AgyLookC6）",
-    (LOOK_SHELL, "dsh"): "同 dsh 路径闸：文字约束",
     (RULE_CONTEXT, "agy"): "agy 只报上下文大小（context_tokens），不报窗口：stream 的 init/step/result 行、agy models 和本机会话库"
                            "都没有窗口字段（agy 1.5.18，W2-A 查过），context_high 不知道窗口就不提醒",
     (RULE_CONTEXT, "dsh"): "dsh 只报上下文大小，不报窗口：网关模型目录只有 id、协议、显示名和推理档位（docs/harnesses.md）；"
@@ -385,17 +285,6 @@ GAPS = {
                           "程序自己递归的看不到；只有 Claude Code 的钩子能看到命令行里内联的 Python",
     (RULE_WALK, "agy"): "同上：垫片看不到程序内递归",
     (RULE_WALK, "dsh"): "同上：垫片看不到程序内递归",
-    (DEV_LOOK, "codex"): "只读沙箱里连不上 ssh 的 ControlMaster 套接字（connect 被拒，DNS 也不通，VERIFY-F2A U2），也写不了审计："
-                         "Codex 的只读轮用不了 covey device，等只读轮的设备工具（F2c，经 bridge_workspace）补上",
-}
-# What a LOOK turn's gate leaves to the words on a Harness whose cells above hold (RT-4 第 5 类 and W0-5's read worktree).
-BOUNDS = {
-    "claude": "命令行只拦明显的写（重定向、tee、sed -i、cp/mv/rm/touch/mkdir、dd of=、curl -o、find -delete、xargs 写命令、"
-              "写类 git、covey repo use --write）；脚本自己写文件（python -c、make、npm install）拦不住，靠文字",
-    "codex": "只读沙箱里命令行什么都写不了；covey repo use 要 fetch、建最新主干的只读 worktree、写 .used，在只读沙箱里做不到："
-             "退回读主检出并标“可能落后”（core/repomap.py use 的 note），下一轮（非只读）再用就是最新主干",
-    "agy": "命令行不拦（见 GAPS）；agy 1.5.18 的 edit_file 按 write_file 的权限名检查，FILE_WRITES 补齐的四个名字是防旧名和新版本的",
-    "dsh": "只有文字约束（见 GAPS）",
 }
 # An extension's Harness, outside CORE_HARNESSES (each extension's own tests ask its cells).
 EXTENSION_CELLS = {
@@ -404,8 +293,6 @@ EXTENSION_CELLS = {
     (RULE_NUDGE, "扩展的 Harness"): "没声明 nudges 又能执行中补充（steering）的，由 Bridge 数工具步骤送提醒（app/interaction.py "
                                    "count_for_nudge），和核心的 Codex、agy 一样",
     (RULE_SEARCH, "扩展的 Harness"): "本机进程的 PATH 都由 core/home.py env 给，同样经过搜索垫片；程序内递归同样看不到",
-    (LOOK_GATE, "扩展的 Harness"): "没声明 look_gate 的：只读首轮只有文字约束（app/tool_limits.py LOOK_WORDS：只写检查点和产物目录），"
-                                  "扩展自己的提示对齐同一口径，由扩展自己的测试核对",
 }
 
 
@@ -847,72 +734,6 @@ for _name in CORE_HARNESSES:
     setattr(WebSurfaceTest, f"test_the_four_entries_show_on_the_web_page_on_{_name}", lambda self, n=_name: self.check(n))
 
 
-class LookRowTest(HarnessCellsCase):
-    """话题 · 只读首轮 (LOOK) × Harness (W1-C contract C6, G8): a turn the butler started without the owner's click, as
-    each backend wires it with the turn's ``look_roots`` (``held`` its Harness's look_gate). The path gate writes the
-    checkpoint and the outputs directory and refuses a repository file, another job's checkpoint and a shared read
-    worktree; ``.git`` is refused through a link too; the shell's obvious writes are refused where the Harness can; the
-    topic's next turn is as before."""
-
-    def setUp(self):
-        super().setUp()
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        root = Path(tmp.name).resolve()
-        self.file = root / "state" / "checkpoints" / "om_look-7.json"
-        self.dir = root / "state" / "topics" / "t1" / "outputs"
-        self.repo = root / "home" / "covey"
-        self.read = root / "data" / "worktrees" / "_read" / "covey" / "b4d687c49c3a"
-        for folder in (self.file.parent, self.dir, self.repo / ".git", self.read):
-            folder.mkdir(parents=True)
-        (self.repo / "app.py").write_text("old\n")
-        (self.dir / "gitlink").symlink_to(self.repo / ".git")
-        self.home = root / "home"
-
-    def look_ctx(self, name, limit=True):
-        held = self.capabilities(name).look_gate
-        options = {TOOL_LIMIT: LOOK, LOOK_ROOTS: {"file": str(self.file), "dir": str(self.dir), "held": held}} if limit else {}
-        return make_context(self.home.parent, workdir=self.home, default_workdir=self.home, options=options)
-
-    def test_the_path_gate(self):
-        for name in CORE_HARNESSES:
-            with self.subTest(harness=name):
-                write = SEEN[name]["look"](self.look_ctx(name))["write"]
-                holds = write is not None and not write(str(self.file)) and not write(str(self.dir / "r.md")) and all(
-                    write(str(path)) for path in (self.repo / "app.py", self.file.parent / "om_other-8.json",
-                                                  self.read / "app.py", self.dir / ".." / "x.md"))
-                self.assertEqual(holds, held(LOOK_GATE, name), gap_words(LOOK_GATE, name))
-                if holds:
-                    self.assertEqual((self.repo / "app.py").read_text(), "old\n")
-
-    def test_git_is_refused_through_a_link_too(self):
-        for name in CORE_HARNESSES:
-            with self.subTest(harness=name):
-                write = SEEN[name]["look"](self.look_ctx(name))["write"]
-                holds = write is not None and write(str(self.dir / "gitlink" / "config")) and write(str(self.repo / ".git" / "config"))
-                self.assertEqual(holds, held(LOOK_GIT, name), gap_words(LOOK_GIT, name))
-
-    def test_the_shells_obvious_writes(self):
-        for name in CORE_HARNESSES:
-            with self.subTest(harness=name):
-                shell = SEEN[name]["look"](self.look_ctx(name))["shell"]
-                holds = shell is not None and shell(f"echo x >> {self.repo}/app.py", str(self.repo)) and shell(
-                    "git commit -am x", str(self.repo))
-                if holds and name == "claude":  # Reading runs.
-                    self.assertFalse(shell("rg -n old . && git log --oneline -3", str(self.repo)))
-                    self.assertFalse(shell("covey repo use covey", str(self.repo)))
-                self.assertEqual(holds, held(LOOK_SHELL, name), gap_words(LOOK_SHELL, name))
-
-    def test_the_next_turn_is_free_again(self):
-        for name in CORE_HARNESSES:
-            with self.subTest(harness=name):
-                self.assertTrue(SEEN[name]["free"](self.look_ctx(name, limit=False)), gap_words(LOOK_NEXT, name))
-
-    def test_every_harness_says_what_the_gate_leaves_to_the_words(self):
-        self.assertEqual(sorted(BOUNDS), sorted(CORE_HARNESSES))
-        self.assertTrue(all(why.strip() for why in (*BOUNDS.values(), *EXTENSION_CELLS.values())))
-
-
 EXTERNAL_GOLDEN = Path(__file__).resolve().parent / "golden" / "external_topic_prompt.txt"
 FORMS = ("seed", "接管")  # A home Covey made (core/home.py seed_home) and a taken-over one with its own AGENTS.md.
 
@@ -957,8 +778,8 @@ class ExternalRowTest(HarnessCellsCase):
         repomap.render(self.state, home)
         return home
 
-    def topic_ctx(self, home, name, *, local=False, readonly=True):
-        origin = {"kind": "main", "request": "r1", "job_key": "main-job", "why": "解读论文", "readonly": readonly,
+    def topic_ctx(self, home, name, *, local=False):
+        origin = {"kind": "main", "request": "r1", "job_key": "main-job", "why": "解读论文",
                   "user_requested": True, "title": "解读论文", "at": T0}
         if local is not None:
             origin["local"] = local
@@ -969,13 +790,12 @@ class ExternalRowTest(HarnessCellsCase):
         return make_context(self.root, workdir=home, default_workdir=home, state_dir=self.state, history_path=history,
                             topic_id=self.TOPIC, workspace_name="home")
 
-    def turn(self, name, ctx, number=1, session=None, *, read_only=True):
-        """(the prompt and rules of a turn, its context after app/runs.py set it up, its job) on ``name``: the topic's first
-        turn read-only (LOOK) unless ``read_only`` is false."""
+    def turn(self, name, ctx, number=1, session=None):
+        """(the prompt and rules of a turn, its context after app/runs.py set it up, its job) on ``name``."""
         from support import make_job
 
         job = make_job(job_id=number, message_id=f"om_ext-{number}", topic_id=self.TOPIC, chat_id=self.chat,
-                       user_text="解读论文 2611.02440", read_only=read_only and number == 1, result_backend=name,
+                       user_text="解读论文 2611.02440", result_backend=name,
                        checkpoint_path=str(self.state / "checkpoints" / f"om_ext-{number}.json"))
         live = SimpleNamespace(ctx=ctx, rules_session=False)
         prompt, rules, _system, _ = self.apps[name].runs._prompt(live, job, session)
@@ -1004,16 +824,15 @@ class ExternalRowTest(HarnessCellsCase):
             self.assertTrue(found["dir"].startswith(runs + os.sep), runs)
 
     def test_the_external_part_of_the_prompt_is_the_golden_one(self):
-        """The home block of an external topic and the end of its read-only first turn, the paths put as placeholders: a
-        change of them shows here (tests/golden/external_topic_prompt.txt)."""
+        """The home block of an external topic, its outputs directory put as a placeholder: a change of it shows here
+        (tests/golden/external_topic_prompt.txt)."""
         for form in FORMS:
             home = self.make_home(form)
             with self.subTest(form=form):
-                prompt, rules, ctx, job = self.turn("claude", self.topic_ctx(home, "claude"))
+                _prompt, rules, ctx, _job = self.turn("claude", self.topic_ctx(home, "claude"))
                 found = ctx.options[EXTERNAL]["dir"]
-                shown = (home_turn.static_block(ctx) + "\n\n" + tool_limits.note(ctx).strip() + "\n").replace(
-                    found, "<产物目录>").replace(job.checkpoint_path, "<检查点>")
-                self.assertIn(tool_limits.note(ctx).strip(), prompt)
+                shown = (home_turn.static_block(ctx) + "\n").replace(found, "<产物目录>")
+                self.assertIn(home_turn.static_block(ctx), rules)
                 self.assertEqual(shown, EXTERNAL_GOLDEN.read_text(encoding="utf-8"))
 
     def test_a_home_in_a_git_work_tree_keeps_antigravity_where_it_was(self):
@@ -1047,13 +866,12 @@ class ExternalRowTest(HarnessCellsCase):
 
     def test_the_rules_stay_the_same_and_covey_repo_use_still_works(self):
         """The system rules' version of an external topic is the same on its first turn and its second; after ``covey repo
-        use alpha`` (read) the second turn's repository block lists alpha, with no write command, and its rules are the same.
-        Neither turn read-only: a LOOK turn's runtime note is its own (Codex's sandbox, Antigravity's deny rules)."""
+        use alpha`` (read) the second turn's repository block lists alpha, with no write command, and its rules are the same."""
         home = self.make_home("接管")
         for name in ("claude", "codex", "agy"):
             with self.subTest(harness=name):
-                ctx = self.topic_ctx(home, name, readonly=False)
-                _, rules, first, _ = self.turn(name, ctx, read_only=False)
+                ctx = self.topic_ctx(home, name)
+                _, rules, first, _ = self.turn(name, ctx)
                 task = self.state / "runs" / f"om_ext-{name}"
                 topic_repos.add_request(task, {"at": T0, "name": "alpha", "path": str(home / "alpha"), "mode": "read",
                                                "rules_file": "AGENTS.md"})
@@ -1062,7 +880,7 @@ class ExternalRowTest(HarnessCellsCase):
                 tail = repos_turn.tail(ctx, job)
                 self.assertIn("- alpha（读，", tail)
                 self.assertNotIn("--write", tail)
-                _, again, second, _ = self.turn(name, ctx, number=2, read_only=False)
+                _, again, second, _ = self.turn(name, ctx, number=2)
                 self.assertEqual(rules_sent.version(again), rules_sent.version(rules))
                 self.assertEqual(second.options.get(EXTERNAL), first.options.get(EXTERNAL))
 
@@ -1095,16 +913,6 @@ class RulesRowTest(HarnessCellsCase):
                     and not any(other in rules for other in others)
                 self.assertEqual(holds, held(RULE_ASK, name), gap_words(RULE_ASK, name))
         self.assertIn(appserver.QUESTION_TOOL, appserver.CODEX_INSTRUCTIONS)
-
-    def test_its_look_turn_has_its_row(self):
-        """LookRowTest asks the gate itself (the checkpoint and outputs written, a repository, another job's checkpoint, a
-        read worktree and .git refused, the shell, the next turn); here: the Harness's look_gate says what that row finds,
-        and what the gate leaves to the words is written down (BOUNDS)."""
-        for name in CORE_HARNESSES:
-            with self.subTest(harness=name):
-                gate = self.capabilities(name).look_gate
-                holds = gate == held(LOOK_GATE, name) and gate == held(LOOK_GIT, name) and bool(BOUNDS.get(name))
-                self.assertEqual(holds, held(RULE_LOOK, name), gap_words(RULE_LOOK, name))
 
     def system_plan(self, name, sid="11111111-1111-4111-8111-111111111111"):
         """(the backend's capabilities, the request's rules at the system level, the plan) of a topic's resumed turn on
@@ -1218,12 +1026,8 @@ DEVICES_JSON = {"schema": 1, "devices": {"gpu1": {"ssh": {"host": "gpu1"}, "acce
 
 def device_reach(name, ctx) -> bool:
     """Whether a turn of Harness ``name`` with context ``ctx`` (after app/runs.py set it up) can run ``covey device`` from its
-    shell: Claude Code's hook lets the reading subcommands through (and stops the others: the second wall), Codex's
-    read-only sandbox cannot reach the ssh socket (U2), agy's LOOK settings keep its shell, dsh has only the words."""
-    if name == "claude":
-        return (not tool_guard.look_bash_refusal("covey device list", "/tmp", "/x/cp.json", "/x/out")
-                and not tool_guard.look_bash_refusal("covey device get gpu1 ~/a", "/tmp", "/x/cp.json", "/x/out")
-                and bool(tool_guard.look_bash_refusal("covey device run gpu1 -- touch x", "/tmp", "/x/cp.json", "/x/out")))
+    shell: Codex's read-only sandbox cannot reach the ssh socket (U2), agy's deny rules for commands stop it, Claude Code's
+    and dsh's shell are as the turn has them."""
     if name == "codex":
         return appserver.sandbox_mode(ctx) != "read-only"
     if name == "agy":
@@ -1232,11 +1036,11 @@ def device_reach(name, ctx) -> bool:
 
 
 class DeviceRowTest(HarnessCellsCase):
-    """话题 · 设备通道 (core/device_access.py, F2a) × Harness: a home topic (local), an external one (``local`` false) and a
-    LOOK first turn, each against a writable device and a read-only one, over the real device program under a temporary
-    HOME (LocalTransport). The rules say how to use a device only to a local topic; every turn's start writes its limit and
-    its chat's space for ``covey device``; what the channel lets each do is the same on every Harness (the guards are the
-    channel's); whether a LOOK turn reaches it from its shell is the Harness's (``device_reach``, GAPS)."""
+    """话题 · 设备通道 (core/device_access.py, F2a) × Harness: a home topic (local) and an external one (``local`` false),
+    each against a writable device and a read-only one, over the real device program under a temporary HOME
+    (LocalTransport). The rules say how to use a device only to a local topic; every turn's start writes its limit and its
+    chat's space for ``covey device``; what the channel lets each do is the same on every Harness (the guards are the
+    channel's), and each turn's shell reaches it (``device_reach``)."""
 
     TOPIC = "d" * 32
 
@@ -1264,7 +1068,7 @@ class DeviceRowTest(HarnessCellsCase):
         return self.links[alias]
 
     def topic_ctx(self, home, name, *, local):
-        origin = {"kind": "main", "request": "r1", "job_key": "main-job", "why": "看训练", "readonly": True,
+        origin = {"kind": "main", "request": "r1", "job_key": "main-job", "why": "看训练",
                   "user_requested": True, "title": "看训练", "at": T0, **({} if local else {"local": False})}
         history = self.state / "topics" / self.TOPIC / "history.jsonl"
         write_topic(make_context(self.root, history_path=history), {
@@ -1273,22 +1077,22 @@ class DeviceRowTest(HarnessCellsCase):
         return make_context(self.root, workdir=home, default_workdir=home, state_dir=self.state, history_path=history,
                             topic_id=self.TOPIC, workspace_name="home")
 
-    def turn(self, name, ctx, *, look):
+    def turn(self, name, ctx):
         """(rules, prompt, the turn's context after app/runs.py set it up, its run directory) of a first turn on ``name``."""
         from support import make_job
         from covey.core.jobs import job_key
         from covey.core.run_dir import run_dir
 
-        message = f"om_dev-{name}-{int(look)}"
+        message = f"om_dev-{name}"
         job = make_job(job_id=1, message_id=message, topic_id=self.TOPIC, chat_id=self.chat, user_text="看看训练",
-                       read_only=look, result_backend=name, checkpoint_path=str(self.state / "checkpoints" / f"{message}.json"))
+                       result_backend=name, checkpoint_path=str(self.state / "checkpoints" / f"{message}.json"))
         task = run_dir(self.state, job_key(message, 1))
         task.mkdir(parents=True, exist_ok=True)
         live = SimpleNamespace(ctx=ctx, rules_session=False)
         prompt, rules, _system, _ = self.apps[name].runs._prompt(live, job, None)
         return rules, prompt, live.ctx, task
 
-    def test_each_harness_x_local_external_look_x_writable_read_only_device(self):
+    def test_each_harness_x_local_external_x_writable_read_only_device(self):
         from covey.core import device_access
         from covey.core.run_dir import DEVICE_TURN
 
@@ -1296,18 +1100,17 @@ class DeviceRowTest(HarnessCellsCase):
         covey_home.seed_home(home)
         covey_home.write(self.state, covey_home.HomeConfig())
         for name in CORE_HARNESSES:
-            for kind in ("本机", "外部", "只读首轮"):
+            for kind in ("本机", "外部"):
                 with self.subTest(harness=name, kind=kind):
                     ctx = self.topic_ctx(home, name, local=kind != "外部")
-                    rules, prompt, turn_ctx, task = self.turn(name, ctx, look=kind == "只读首轮")
+                    rules, prompt, turn_ctx, task = self.turn(name, ctx)
                     told = home_turn.DEVICE_RULE in rules + "\n" + prompt
                     self.assertEqual(told, kind != "外部", "the rules name covey device to a local topic only")
                     written = json.loads((task / DEVICE_TURN).read_text())
-                    self.assertEqual((written["limit"], written["space"]),
-                                     (LOOK if kind == "只读首轮" else "", "owner_private"))
+                    self.assertEqual((written["limit"], written["space"]), ("", "owner_private"))
                     turn = device_access.turn_from_env({"COVEY_STATE": str(self.state), "COVEY_TASK_DIR": str(task)})
                     channel = device_access.Channel(turn, config=self.config, connect=self.connect)
-                    for alias, writes in (("gpu1", kind != "只读首轮"), ("peer", False)):
+                    for alias, writes in (("gpu1", True), ("peer", False)):
                         self.assertEqual(channel.run(alias, ["uname", "-s"])["code"], 0, f"{alias}: reading runs")
                         if writes:
                             target = self.device_home / f"{name}-{kind}.txt"
@@ -1321,20 +1124,15 @@ class DeviceRowTest(HarnessCellsCase):
                     self.assertFalse((self.device_home / "no.txt").exists())
                     rows = device_access.read_audit(task)
                     self.assertTrue(rows and all(row.get("device") for row in rows), "every call is in the audit")
-                    if kind == "只读首轮":
-                        self.assertEqual(device_reach(name, turn_ctx), held(DEV_LOOK, name), gap_words(DEV_LOOK, name))
-                    else:
-                        self.assertTrue(device_reach(name, turn_ctx), f"{name} {kind}: its shell reaches covey device")
+                    self.assertTrue(device_reach(name, turn_ctx), f"{name} {kind}: its shell reaches covey device")
 
 
 class KnownGapsTest(HarnessCellsCase):
     def test_the_known_gaps_are_still_gaps(self):
-        """The cells GAPS lists are asked above (test_a_group_members_read_only_turn, LookRowTest,
-        RulesRowTest): one that holds now fails there; this one keeps GAPS to cells those tests ask."""
-        self.assertLessEqual({cell for cell, _ in GAPS}, {"话题 · 群成员只读", LOOK_GATE, LOOK_GIT,
-                                                          LOOK_SHELL, RULE_ASK, RULE_LOOK, RULE_ANCHOR, RULE_CONTEXT,
-                                                          RULE_NUDGE, RULE_SEARCH, RULE_WALK, EXT_FILES, EXT_GIT, EXT_FREE,
-                                                          DEV_LOOK})
+        """The cells GAPS lists are asked above (test_a_group_members_read_only_turn, RulesRowTest): one that holds now
+        fails there; this one keeps GAPS to cells those tests ask."""
+        self.assertLessEqual({cell for cell, _ in GAPS}, {"话题 · 群成员只读", RULE_ASK, RULE_ANCHOR, RULE_CONTEXT,
+                                                          RULE_NUDGE, RULE_SEARCH, RULE_WALK, EXT_FILES, EXT_GIT, EXT_FREE})
 
 
 # 重启后再点一次 (WAVE12 G4, T904): each module that writes a mid-state (tests/golden/midstates.json, which test_structure's

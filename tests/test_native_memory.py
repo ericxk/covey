@@ -15,7 +15,7 @@ from covey.backends.claude import argv as claude_argv
 from covey.backends.claude import upstream
 from covey.backends.codex import appserver
 from covey.backends.codex.rpc import AppServer, RpcError
-from covey.core.harness import CONSULT, LEAD, LOOK, PROXY, READ, TOOL_LIMIT
+from covey.core.harness import CONSULT, LEAD, PROXY, READ, TOOL_LIMIT
 
 
 def flag_pairs(flags):
@@ -32,7 +32,7 @@ class ClaudeAutoMemoryTest(unittest.TestCase):
         self.assertEqual(self.env(**relayed)[claude_argv.NO_AUTO_MEMORY], "1")
 
     def test_every_other_turn_keeps_it_as_the_environment_has_it(self):
-        for options in ({}, {TOOL_LIMIT: READ}, {TOOL_LIMIT: LOOK}, {TOOL_LIMIT: LEAD}, {TOOL_LIMIT: CONSULT},
+        for options in ({}, {TOOL_LIMIT: READ}, {TOOL_LIMIT: LEAD}, {TOOL_LIMIT: CONSULT},
                         {"mcp_config": {"mcpServers": {"bridge": {}}}}):
             self.assertNotIn(claude_argv.NO_AUTO_MEMORY, self.env(**options), options)
         kept = claude_argv.turn_env(make_context(Path("/x")), {"PATH": "/bin", claude_argv.NO_AUTO_MEMORY: "1"})

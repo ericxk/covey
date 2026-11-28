@@ -1,7 +1,7 @@
 """协作咨询轮的硬只读 (C8 layer 1, docs/architecture.md 多参与者协作 · 能力与预检): a 协作 ask's turn is held to CONSULT,
 the strictest limit, whatever its options carry; Claude Code gets Read, Grep and Glob and no MCP server at all, Codex its
 read-only sandbox in a private CODEX_HOME with its apps, plugins, memories, hooks, goals and questions off and none of the
-Bridge's tools; READ and LOOK are as they were; a channel's turn forks the helper's session without touching it."""
+Bridge's tools; READ is as it was; a channel's turn forks the helper's session without touching it."""
 from __future__ import annotations
 
 import subprocess
@@ -19,7 +19,7 @@ from covey.backends.claude.bridge import ClaudeBackend
 from covey.backends.codex import appserver, consult, turn
 from covey.backends.codex.bridge import CodexBackend
 from covey.core import collab, turn_source
-from covey.core.harness import (CONSULT, LEAD, LOOK, PROXY, READ, TOOL_LIMIT, HarnessCapabilities, backend_capabilities)
+from covey.core.harness import (CONSULT, LEAD, PROXY, READ, TOOL_LIMIT, HarnessCapabilities, backend_capabilities)
 from covey.core.jobs import find_job_record
 from covey.core.state import write_json
 
@@ -32,14 +32,14 @@ def asked():
 
 
 class LimitTest(unittest.TestCase):
-    """app/tool_limits.py: CONSULT apart from READ and LOOK, the strictest of several."""
+    """app/tool_limits.py: CONSULT apart from READ, the strictest of several."""
 
     def access(self, read=False):
         return SimpleNamespace(read_only=lambda chat, sender: read)
 
     def limit(self, *, source=None, look=False, read=False, proxy=False):
         job = make_job(chat_id="oc_1", sender_id="ou_x")
-        job.read_only = look
+        job.read_only = look  # What an older release's read-only first turn left on a job: nothing now (T956).
         if source:
             job.turn_source = source
         with mock.patch.object(tool_limits, "proxy_topic", return_value=proxy):
@@ -54,7 +54,7 @@ class LimitTest(unittest.TestCase):
     def test_without_an_ask_each_limit_is_what_it_was(self):
         # COVEY_COLLAB=0 and every job as before: one limit alone is the one it always was.
         self.assertEqual(self.limit(), "")
-        self.assertEqual(self.limit(look=True), LOOK)
+        self.assertEqual(self.limit(look=True), "")
         self.assertEqual(self.limit(read=True), READ)
         self.assertEqual(self.limit(proxy=True), PROXY)
         self.assertEqual(self.limit(proxy=True, read=True), PROXY)  # A 代答 topic's own, as before.
@@ -62,7 +62,6 @@ class LimitTest(unittest.TestCase):
         self.assertEqual(self.limit(source=turn_source.make(turn_source.REPLY, asserted_by="bridge", collab="c1")), "")
 
     def test_several_at_once_take_the_strictest(self):
-        # Before, a LOOK job of a member of a read-only group ran with LOOK's wider tools (T641 R4).
         self.assertEqual(self.limit(look=True, read=True), READ)
 
     def test_a_harness_that_cannot_hold_an_ask_does_not_run_it(self):
@@ -72,8 +71,6 @@ class LimitTest(unittest.TestCase):
                 self.assertIn("还不能做只读咨询", tool_limits.refusal(ctx, caps, "Later"))
         self.assertEqual(tool_limits.refusal(ctx, HarnessCapabilities(read_only=True, collab=True), "Claude"), "")
         self.assertTrue(tool_limits.note(ctx).endswith(tool_limits.CONSULT_NOTE))
-        # A LOOK turn's words end its message now (W1-C, C6), by whether its Harness holds its writes.
-        self.assertIn("这一轮只读", tool_limits.note(make_context(Path("/x"), options={TOOL_LIMIT: LOOK})))
 
 
 class ClaudeConsultTest(unittest.TestCase):
@@ -210,14 +207,14 @@ class CodexConsultTest(unittest.TestCase):
 
 
 class CodexReadingTest(unittest.TestCase):
-    """READ and LOOK turns on Codex (backends/codex/consult.py READING_FLAGS, ReadingHome; the real CLI in
+    """READ and LEAD turns on Codex (backends/codex/consult.py READING_FLAGS, ReadingHome; the real CLI in
     tests/test_collab_c8.py)."""
 
     def ctx(self, **options):
         return make_context(Path("/x"), options=options)
 
-    def test_a_read_or_look_turn_turns_off_apps_plugins_memories_and_hooks_and_keeps_the_question(self):
-        for limit in (READ, LOOK):
+    def test_a_read_or_lead_turn_turns_off_apps_plugins_memories_and_hooks_and_keeps_the_question(self):
+        for limit in (READ, LEAD):
             flags = appserver.server_flags(self.ctx(**{TOOL_LIMIT: limit}))
             pairs = dict(flags[i + 1].split("=", 1) for i in range(0, len(flags), 2))
             for key in ("features.apps", "features.plugins", "features.remote_plugin", "features.memories",
@@ -261,7 +258,7 @@ class CodexReadingTest(unittest.TestCase):
                 mock.patch("covey.backends.codex.bridge.child_process_env", return_value={"CODEX_HOME": tmp}):
             state = Path(tmp) / "state"
             cases = [({TOOL_LIMIT: READ}, "thread-1", False), ({TOOL_LIMIT: READ}, None, False),
-                     ({TOOL_LIMIT: LOOK}, None, False), ({TOOL_LIMIT: LOOK}, "thread-1", False), ({}, "thread-1", False),
+                     ({}, None, False), ({}, "thread-1", False),
                      ({TOOL_LIMIT: READ}, "thread-1", True)]
             for options, session, on_device in cases:
                 ctx = make_context(Path(tmp), state_dir=state, model="gpt-x", options=options)
@@ -269,8 +266,8 @@ class CodexReadingTest(unittest.TestCase):
                 with mock.patch("covey.backends.codex.bridge.device_of", return_value="gpu1" if on_device else ""):
                     self.assertEqual(backend.run(request), "result")
         self.assertTrue(seen[0].startswith(str(state / "tmp" / "codex-read-")))  # A group member's turn going on.
-        # Starting a thread (READ's first turn, every LOOK turn), an ordinary turn, a device's: the owner's home.
-        self.assertEqual(seen[1:], [tmp] * 5)
+        # Starting a thread (READ's first turn), an ordinary turn, a device's: the owner's home.
+        self.assertEqual(seen[1:], [tmp] * 4)
         self.assertFalse(list((state / "tmp").glob("codex-read-*")))
 
 class CapabilityTest(unittest.TestCase):

@@ -14,12 +14,12 @@ the turn. Every other turn runs as before.
   the read-only sandbox (its subagents inherit it) and leaves the Bridge's tools out (``bridge_servers``);
   backends/codex/turn.py refuses its every request for the owner's input (``rpc.no_questions``).
 
-A turn held to READ or LOOK (a group member's turn, the first turn of a topic the butler or a lead judged read-only) is
-read-only on the topic's own thread, so it gets less. ``READING_FLAGS`` turn off apps, plugins, memories and hooks and leave
+A turn held to READ (a group member's turn) or LEAD (a project lead's) is read-only on the topic's own thread, so it gets
+less. ``READING_FLAGS`` turn off apps, plugins, memories and hooks and leave
 the rest as for every turn (the question, web search, skills). A READ turn that resumes the thread also runs in a
 ``ReadingHome``: all but ``READING_LEFT_OUT`` (the rules, the hooks, the plugins and the memories) linked, the owner's
 config.toml among them. A thread started or forked in such a home is recorded under it and cannot be resumed once it is
-gone, so a LOOK turn (always a topic's first) and a READ turn that starts the thread stay in the owner's home, where an
+gone, so a READ or LEAD turn that starts the thread stays in the owner's home, where an
 exec-policy allow rule still applies (backends/codex/bridge.py ``run``).
 """
 from __future__ import annotations
@@ -44,7 +44,7 @@ FLAGS = ("features.apps=false", "features.plugins=false", "features.remote_plugi
          "memories.generate_memories=false", "memories.use_memories=false", "features.hooks=false",
          "features.goals=false", "features.image_generation=false", "features.default_mode_request_user_input=false",
          'web_search="disabled"')
-# A READ or LOOK turn's: what runs outside the read-only sandbox (an exec-policy allow rule, a hook, a plugin's hook or MCP
+# A READ or LEAD turn's: what runs outside the read-only sandbox (an exec-policy allow rule, a hook, a plugin's hook or MCP
 # server) or writes on its own across sessions (the memories); "memories" again covers its databases.
 READING_LEFT_OUT = ("rules", "hooks", "hooks.json", "plugins", "memories")
 READING_FLAGS = ("features.apps=false", "features.plugins=false", "features.remote_plugin=false", "features.memories=false",
@@ -166,7 +166,7 @@ class ConsultHome:
 
 
 class ReadingHome(ConsultHome):
-    """``with ReadingHome(state_dir, env) as turn_env``: a READ or LOOK turn's home, <state>/tmp/codex-read-*: every entry
+    """``with ReadingHome(state_dir, env) as turn_env``: a READ or LEAD turn's home, <state>/tmp/codex-read-*: every entry
     of the real CODEX_HOME linked but ``READING_LEFT_OUT``, the owner's config.toml among them; removed as a consult's."""
 
     PREFIX = "codex-read-"

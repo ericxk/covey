@@ -423,9 +423,9 @@ def _start(env, request, chat, args, title, prompt, why):
             plan["basis"] = shown
         # Every new topic starts at once (a plan saved by an older release before a restart keeps its own ``start``).
         plan["start"] = plan["run_mode"] == "direct" and not plan.get("worktree_wanted")
-        # No read-only first turn any more (T956): the butler's and a lead's ``readonly`` was a model's guess that held
-        # nothing back the owner's words and the rules did not, and stopped work he asked for (T950). A plan saved with
-        # ``read_only`` by an older release keeps it (``_enqueue``, app/tool_limits.py LOOK).
+        # No read-only first turn (T956): the butler's and a lead's ``readonly`` was a model's guess that held nothing back
+        # the owner's words and the rules did not, and stopped work he asked for (T950). A plan an older release saved with
+        # ``read_only`` is opened as any other.
         record = {"request": request.id, "job_key": request.job_key, "chat_id": chat, "title": title,
                   "why": why, "plan": plan, "at": time.time(), "sequence": 0, **said_by(lead)}
         save(path, record)
@@ -615,13 +615,12 @@ def _enqueue(env, app, request, record, chat, prompt, event, token, label) -> bo
     ctx = app.submission.event_context(app.harness.context, event)
     owner, items = handed(env, request, ctx)
     content = butler_handoff.shown(owner, prompt, items)
-    read_only = record["plan"].get("read_only") is True
     sent = butler_handoff.handoff_prompt(butler_handoff.START, label=label, title=record["title"], task=prompt, owner=owner,
-                                       items=items, read_only=read_only)
+                                       items=items)
     append_history(ctx.history_path, "user", content, {"message_id": mid})
     source = source_of(env, request, owner)
     return app.submission.enqueue_chat_job(ctx, content, chat, mid, prompt_content=sent, title=record["title"],
-                                           read_only=read_only, **({"source": source} if source else {})) is None
+                                           **({"source": source} if source else {})) is None
 
 
 def place(env, request, chat) -> tuple:

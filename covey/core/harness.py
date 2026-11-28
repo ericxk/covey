@@ -122,10 +122,6 @@ class HarnessCapabilities:
     # holds a turn to its ``options[TOOL_LIMIT]`` (app/tool_limits.py): Claude Code's tools, Codex's sandbox. Without it
     # a READ turn does not run and the other limits are words in the prompt only.
     read_only: bool = False
-    # holds a LOOK turn's writes to its checkpoint file and the topic's outputs directory (core/look_write.py; W1-C, C6):
-    # Claude Code's PreToolUse hook, Codex's and Antigravity's workspace_write_file in a sandbox or deny rules that write
-    # nothing else. Without it a LOOK turn's limits are as they were and its words say so (app/tool_limits.py note).
-    look_gate: bool = False
     # starts the process of a topic that keeps off this machine's files (``options[EXTERNAL]``) in the topic's outputs
     # directory, not its workdir (core/home.py ``external_start``): a Harness with no setting that keeps the home's own
     # instruction files out (Antigravity). Its tool calls' relative paths are that directory's (app/repos_turn.py settle).
@@ -168,8 +164,7 @@ class AskFailed(Exception):
 
 # What a turn may do, where its Harness can hold it to that (``HarnessCapabilities.read_only``): a context's
 # ``options[TOOL_LIMIT]``, set by app/runs.py from app/tool_limits.py's ``limit``, absent for a turn as before. READ: a
-# group member's turn in a group whose members are read-only (reading and searching only); LOOK: a turn started without
-# the owner's click because the butler judged it read-only (no file changes); PROXY: a 代答 topic's turn (reading,
+# group member's turn in a group whose members are read-only (reading and searching only); PROXY: a 代答 topic's turn (reading,
 # searching, lark-cli's read commands, writing the contact's notes); CONSULT: a 协作 ask's turn (core/turn_source.py ASK):
 # reading and searching only, none of the owner's MCP servers and none of the Bridge's tools whatever the turn's options
 # say, no shell, no network, no question, no checkpoint (Codex: its read-only sandbox in a private CODEX_HOME). LEAD: a
@@ -178,11 +173,8 @@ class AskFailed(Exception):
 # approved; Antigravity: deny rules for commands, file writes and URL reads; DeepSeek Harness: its read-only permission
 # preset, no approval asked).
 TOOL_LIMIT = "tool_limit"
-READ, LOOK, PROXY, CONSULT, LEAD = "read", "look", "proxy", "consult", "lead"
+READ, PROXY, CONSULT, LEAD = "read", "proxy", "consult", "lead"
 TOOL_NOTES = "tool_notes"  # With PROXY: the contact's notes directory, the one place its edit tools may write ('' none).
-# With LOOK (app/tool_limits.py look_roots): {"file": the turn's checkpoint, "dir": the topic's outputs directory, "held":
-# whether this Harness holds its writes to those two (``HarnessCapabilities.look_gate``)}; core/look_write.py checks a path.
-LOOK_ROOTS = "look_roots"
 # A turn of a topic that keeps off this machine's repositories and files (its topic.json ``origin.local`` false; set by
 # app/runs.py from app/home_turn.py ``external``, absent for every other turn): {"home": the home, "dir": the topic's outputs
 # directory, made}. Claude Code leaves the home's own instruction files out (backends/claude/argv.py ``md_excludes``), Codex
@@ -200,9 +192,8 @@ def backend_capabilities(backend, ctx):
 # file snapshots), none of which exist there.
 # bridge_tools: the butler's tools are a process on this machine, its state directory too. collab: no device ran C8, and
 # its session store is the device's (app/collab_checks.py refuses a topic on a device). ask_once: its private home and
-# directory are this machine's. look_gate: the hook script, the write tool's server and the private home are this machine's.
-DEVICE_OFF = ("native_fork", "compaction", "session_files", "rewind", "command_stop", "bridge_tools", "collab", "ask_once",
-              "look_gate")
+# directory are this machine's.
+DEVICE_OFF = ("native_fork", "compaction", "session_files", "rewind", "command_stop", "bridge_tools", "collab", "ask_once")
 
 
 def for_device(capabilities, ctx):

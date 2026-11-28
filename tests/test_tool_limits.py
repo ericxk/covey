@@ -1,5 +1,5 @@
 """What a turn may do (app/tool_limits.py): 群成员只读 (app/access.py read_only and member_mode, the 群聊 card and the
-confirmation card), the butler's read-only first turn (LOOK), a 代答 topic's turn (PROXY), and how Claude Code and Codex
+confirmation card), a 代答 topic's turn (PROXY), and how Claude Code and Codex
 are held to them (backends/claude/argv.py, backends/codex/appserver.py); the 代答 turn's PreToolUse hook
 (backends/claude/tool_guard.py); who sent a task, carried through its waits, retries and continuations."""
 from __future__ import annotations
@@ -24,8 +24,7 @@ from covey.backends.claude import tool_guard, upstream
 from covey.backends.claude.bridge import ClaudeBackend
 from covey.backends.codex import appserver
 from covey.cards.group_manager import ask_card, ask_text, group_manager_card
-from covey.core import look_write, topic_repos
-from covey.core.harness import (CONSULT, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, TOOL_NOTES, HarnessCapabilities,
+from covey.core.harness import (CONSULT, PROXY, READ, TOOL_LIMIT, TOOL_NOTES, HarnessCapabilities,
                                 JobCancelled, backend_capabilities)
 from covey.core.groups import save_group
 from covey.core.jobs import find_job_record, upsert_job_record
@@ -97,11 +96,12 @@ class LimitTests(unittest.TestCase):
         self.access = Access(SimpleNamespace(state_dir=self.ctx.state_dir, owner_open_id=OWNER, log=lambda _: None))
         save_group(self.ctx.state_dir, 'oc_g', lambda r: {**active(r), 'member_mode': 'read'})
 
-    def test_a_member_in_a_read_only_group_a_read_only_start_and_a_proxy_topic(self):
+    def test_a_member_in_a_read_only_group_and_a_proxy_topic(self):
         member = make_job(chat_id='oc_g', sender_id=MEMBER)
         self.assertEqual(tool_limits.limit(self.access, self.ctx, member), READ)
         self.assertEqual(tool_limits.limit(self.access, self.ctx, make_job(chat_id='oc_g', sender_id=OWNER)), '')
-        self.assertEqual(tool_limits.limit(self.access, self.ctx, make_job(chat_id='oc_dm', read_only=True)), LOOK)
+        # A job an older release marked read-only (the butler's read-only first turn, gone since T956): as any other.
+        self.assertEqual(tool_limits.limit(self.access, self.ctx, make_job(chat_id='oc_dm', read_only=True)), '')
         self.assertEqual(tool_limits.limit(self.access, self.ctx, None), '')
         limited = tool_limits.limited(self.access, self.ctx, member)
         self.assertEqual(limited.options[TOOL_LIMIT], READ)
@@ -116,33 +116,11 @@ class LimitTests(unittest.TestCase):
         self.assertEqual((limited.options[TOOL_LIMIT], limited.options[TOOL_NOTES]), (PROXY, '/abs/notes/zhang'))
         self.assertEqual(tool_limits.note(limited), '')
 
-    def test_a_look_turn_gets_its_checkpoint_and_outputs_directory_and_ends_with_where_it_may_write(self):
-        """W1-C (C6): a LOOK turn may write its own checkpoint and the topic's outputs directory (made before it runs);
-        its words end its message, by whether its Harness holds that."""
-        job = make_job(chat_id='oc_dm', read_only=True, checkpoint_path=str(self.ctx.state_dir / 'checkpoints' / 'k.json'))
-        held = tool_limits.limited(self.access, self.ctx, job, held=True)
-        roots = held.options[LOOK_ROOTS]
-        folder = self.ctx.state_dir / 'topics' / (self.ctx.topic_id or 'topic') / 'outputs'
-        self.assertEqual(roots, {'file': job.checkpoint_path, 'dir': str(folder), 'held': True})
-        self.assertTrue(folder.is_dir())
-        words = tool_limits.note(held)
-        self.assertTrue(words.startswith('\n\n[Bridge 说明] 这一轮只读'))
-        self.assertIn(f'能写的只有本轮检查点 {job.checkpoint_path} 和本话题产物目录 {folder}', words)
-        self.assertIn('别处的写入会被拒绝', words)
-        self.assertNotIn('检查点也不用写', words)
-        loose = tool_limits.limited(self.access, self.ctx, job)  # A Harness without look_gate (a device, dsh, MASO).
-        self.assertFalse(loose.options[LOOK_ROOTS]['held'])
-        self.assertIn('写不了就略过', tool_limits.note(loose))
-        # No checkpoint file to name: nothing to hold the writes to.
-        self.assertFalse(tool_limits.look_roots(self.ctx, make_job(read_only=True), held=True)['held'])
-
     def test_only_a_read_turn_on_a_harness_that_cannot_hold_it_is_refused(self):
         read = dataclasses.replace(self.ctx, options={TOOL_LIMIT: READ})
         self.assertIn('这一轮没有启动', tool_limits.refusal(read, HarnessCapabilities(), 'Later'))
         self.assertIn('Later 做不到只读', tool_limits.refusal(read, HarnessCapabilities(), 'Later'))
         self.assertEqual(tool_limits.refusal(read, HarnessCapabilities(read_only=True), 'Codex'), '')
-        look = dataclasses.replace(self.ctx, options={TOOL_LIMIT: LOOK})
-        self.assertEqual(tool_limits.refusal(look, HarnessCapabilities(), 'Later'), '')  # The words alone.
         self.assertTrue(backend_capabilities(ClaudeBackend(), self.ctx).read_only)
 
 
@@ -165,42 +143,12 @@ class ClaudeArgvTests(unittest.TestCase):
         self.assertNotIn('--disallowedTools', argv)
         self.assertNotIn('--settings', argv)
 
-    def test_a_look_turn_whose_writes_are_not_held_goes_without_the_tools_that_change_files(self):
-        for options in ({TOOL_LIMIT: LOOK}, {TOOL_LIMIT: LOOK, LOOK_ROOTS: {'file': '/s/c.json', 'dir': '/s/o', 'held': False}}):
-            argv = self.argv(**options)
-            self.assertEqual(self.value(argv, '--disallowedTools'), 'Edit,Write,NotebookEdit')
-            self.assertNotIn('--tools', argv)
-            self.assertNotIn('--strict-mcp-config', argv)
-        # On a device the hook script is not there: its file tools go, held or not.
-        ctx = make_context(Path('/x'), workdir=Path('/x/repo'), backend_cmd=['claude'], device='gpu1', remote_workdir='/p',
-                           options={TOOL_LIMIT: LOOK, LOOK_ROOTS: {'file': '/s/c.json', 'dir': '/s/o', 'held': True}})
-        self.assertEqual(self.value(claude_argv.stream_argv(ClaudeBackend(), ctx), '--disallowedTools'),
-                         'Edit,Write,NotebookEdit')
-
-    def test_a_held_look_turn_keeps_its_tools_and_has_the_look_hook_beside_the_others(self):
-        """W1-C (C6): on this machine a LOOK turn keeps Edit and Write (no --disallowedTools) and the look hook checks
-        where they and its shell write, merged with the extensions' hooks into the one --settings."""
-        ext = {'PreToolUse': [{'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': '/abs/hook'}]}]}
-        argv = self.argv(**{TOOL_LIMIT: LOOK, LOOK_ROOTS: {'file': '/s/c.json', 'dir': '/s/o', 'held': True},
-                            claude_argv.TURN_HOOKS: ext})
-        self.assertNotIn('--disallowedTools', argv)
-        self.assertNotIn('--tools', argv)
-        self.assertEqual(argv.count('--settings'), 1)
-        groups = json.loads(self.value(argv, '--settings'))['hooks']['PreToolUse']
-        self.assertEqual(len(groups), 2)
-        look, other = groups
-        self.assertEqual(look['matcher'], 'Bash|Edit|Write|MultiEdit|NotebookEdit')
-        command = look['hooks'][0]['command']
-        self.assertIn('covey_tool_guard.py', command)
-        self.assertTrue(command.endswith('--mode look --allow-file /s/c.json --allow-dir /s/o'), command)
-        self.assertEqual(other, ext['PreToolUse'][0])
-
     def test_the_extensions_hooks_go_into_the_one_settings_but_not_a_proxy_or_consult_turn(self):
         """backends/claude/argv.py TURN_HOOKS, after Wyu981011/covey 50fc367e: an extension adds Claude Code hooks to a
         topic's turns without touching the user's or the project's settings."""
         hooks = {'PreToolUse': [{'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': '/abs/hook'}]}],
                  'SessionStart': [{'hooks': [{'type': 'command', 'command': '/abs/start'}]}]}
-        for options in ({}, {TOOL_LIMIT: LOOK}, {TOOL_LIMIT: READ}):
+        for options in ({}, {TOOL_LIMIT: READ}):
             argv = self.argv(**options, **{claude_argv.TURN_HOOKS: hooks, upstream.SETTINGS_ENV: {'A': 'b'}})
             self.assertEqual(argv.count('--settings'), 1)
             self.assertEqual(json.loads(self.value(argv, '--settings')), {'env': {'A': 'b'}, 'hooks': hooks})
@@ -249,8 +197,8 @@ class CodexSandboxTests(unittest.TestCase):
     def ctx(self, **options):
         return make_context(Path('/x'), options=options)
 
-    def test_a_read_or_look_turn_runs_in_the_read_only_sandbox_for_the_thread_and_the_turn(self):
-        for limit in (READ, LOOK):
+    def test_a_read_turn_runs_in_the_read_only_sandbox_for_the_thread_and_the_turn(self):
+        for limit in (READ,):
             params, _ = appserver.thread_params(self.ctx(**{TOOL_LIMIT: limit}), None)
             self.assertEqual(params['sandbox'], 'read-only')
             self.assertEqual(self.turn(**{TOOL_LIMIT: limit})['sandboxPolicy'], {'type': 'readOnly'})
@@ -326,140 +274,6 @@ class GuardTests(unittest.TestCase):
         self.assertIn('工具检查出错', said)
 
 
-class LookGateTests(unittest.TestCase):
-    """W1-C (C6): the one check every LOOK path gate shares (core/look_write.py refusal), its write tool, and Claude
-    Code's look hook (backends/claude/tool_guard.py --mode look)."""
-
-    def setUp(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.root = Path(tmp.name).resolve()
-        self.state = self.root / 'data' / 'state'
-        self.file = self.state / 'checkpoints' / 'om_1-7.json'
-        self.dir = self.state / 'topics' / 't1' / 'outputs'
-        self.repo = self.root / 'home' / 'covey'
-        for folder in (self.file.parent, self.dir, self.repo / '.git', self.repo / 'app'):
-            folder.mkdir(parents=True)
-        (self.repo / 'app' / 'app.py').write_text('old\n')
-        (self.repo / '.git' / 'config').write_text('[core]\n')
-        self.read = self.root / 'data' / 'worktrees' / topic_repos.READ_DIR / 'covey' / 'b4d687c49c3a'
-        self.read.mkdir(parents=True)
-
-    def refusal(self, target, cwd=''):
-        return look_write.refusal(target, allow_file=str(self.file), allow_dir=str(self.dir), cwd=cwd)
-
-    def test_only_the_checkpoint_and_the_outputs_directory_may_be_written(self):
-        for target in (self.file, self.dir / 'report.md', self.dir / 'sub' / 'deeper' / 'x.json', '/dev/null'):
-            self.assertEqual(self.refusal(str(target)), '', target)
-        self.assertEqual(self.refusal('report.md', cwd=str(self.dir)), '')
-        (self.dir / 'link-to-git').symlink_to(self.repo / '.git')
-        (self.dir / 'link-to-repo').symlink_to(self.repo / 'app' / 'app.py')
-        (self.dir / 'parent-link').symlink_to(self.repo)
-        os.link(self.repo / 'app' / 'app.py', self.dir / 'hard.py')
-        refused = [self.repo / 'app' / 'app.py', self.root / 'home' / 'x.md', self.root / 'home',
-                   self.state / 'checkpoints' / 'om_2-8.json', self.file.parent / '.hidden', self.read / 'app.py',
-                   self.dir / '..' / 'escape.md', self.dir / 'link-to-git' / 'config', self.dir / 'link-to-repo',
-                   self.dir / 'parent-link' / 'app' / 'app.py', self.dir / '.git' / 'config', self.dir / 'hard.py',
-                   self.repo / '.git' / 'config', '/etc/passwd', '']
-        for target in refused:
-            self.assertTrue(self.refusal(str(target)), target)
-        self.assertIn('.git', self.refusal(str(self.dir / 'link-to-git' / 'config')))
-        self.assertIn('只读 worktree', self.refusal(str(self.read / 'app.py')))
-        self.assertTrue(self.refusal('x.md', cwd=str(self.repo)))  # Relative to the call's directory.
-        # An outputs directory inside a read worktree or a .git is none at all.
-        self.assertTrue(look_write.refusal(str(self.read / 'r.md'), allow_dir=str(self.read)))
-        # The read worktree's place is core/topic_repos.py's.
-        self.assertEqual(topic_repos.READ_DIR, look_write.READ_PARTS[1])
-        # Anything that goes wrong refuses.
-        with mock.patch.object(look_write.os.path, 'realpath', side_effect=RuntimeError('boom')):
-            self.assertIn('出错', self.refusal(str(self.file)))
-
-    def test_the_write_tool_writes_there_and_nowhere_else(self):
-        made = look_write.call('workspace_write_file', {'path': str(self.dir / 'a' / 'r.md'), 'content': '结论\n'},
-                               allow_file=str(self.file), allow_dir=str(self.dir))
-        self.assertEqual(((self.dir / 'a' / 'r.md').read_text(), made['bytes']), ('结论\n', len('结论\n'.encode())))
-        look_write.call('workspace_write_file', {'path': str(self.dir / 'a' / 'r.md'), 'content': '再一行\n', 'append': True},
-                        allow_file=str(self.file), allow_dir=str(self.dir))
-        self.assertEqual((self.dir / 'a' / 'r.md').read_text(), '结论\n再一行\n')
-        look_write.call('workspace_write_file', {'path': str(self.file), 'content': '{"phase": "x"}'},
-                        allow_file=str(self.file), allow_dir=str(self.dir))
-        self.assertEqual(json.loads(self.file.read_text()), {'phase': 'x'})
-        (self.dir / 'link').symlink_to(self.repo / '.git' / 'config')
-        for target in (self.repo / 'app' / 'app.py', self.dir / 'link', self.read / 'x', self.repo / '.git' / 'config'):
-            with self.assertRaises(ValueError):
-                look_write.call('workspace_write_file', {'path': str(target), 'content': 'x'},
-                                allow_file=str(self.file), allow_dir=str(self.dir))
-        self.assertEqual(((self.repo / 'app' / 'app.py').read_text(), (self.repo / '.git' / 'config').read_text()),
-                         ('old\n', '[core]\n'))
-        self.assertEqual(sorted(os.listdir(self.read)), [])
-        with self.assertRaises(ValueError):  # No other tool, no other argument.
-            look_write.call('workspace_write_file', {'path': str(self.file), 'content': 'x', 'mode': 'w'})
-
-    def test_the_mcp_server_lists_and_calls_the_write_tool_and_says_why_it_refused(self):
-        rows = [{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-06-18'}},
-                {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'},
-                {'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': {
-                    'name': 'workspace_write_file', 'arguments': {'path': str(self.dir / 'r.md'), 'content': 'ok'}}},
-                {'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call', 'params': {
-                    'name': 'workspace_write_file', 'arguments': {'path': str(self.repo / 'app' / 'app.py'), 'content': 'x'}}}]
-        out = io.StringIO()
-        look_write.serve(str(self.file), str(self.dir), io.StringIO(''.join(json.dumps(r) + '\n' for r in rows)), out)
-        answers = [json.loads(line) for line in out.getvalue().splitlines()]
-        self.assertEqual([tool['name'] for tool in answers[1]['result']['tools']], ['workspace_write_file'])
-        self.assertFalse(answers[2]['result']['isError'])
-        self.assertTrue(answers[3]['result']['isError'])
-        self.assertIn('不在可写的地方', answers[3]['result']['content'][0]['text'])
-        self.assertEqual(((self.dir / 'r.md').read_text(), (self.repo / 'app' / 'app.py').read_text()), ('ok', 'old\n'))
-
-    # A LOOK turn's shell: what it obviously writes elsewhere is refused, what only reads runs.
-    SHELL_READS = ('rg -n "def main" covey', 'git log --oneline -20', 'git status --short', 'git diff HEAD~1 -- app',
-                   'git -C /r show HEAD:app/app.py', 'git fetch origin', 'git branch -a', 'git stash list',
-                   'git worktree list', 'git config --get remote.origin.url', 'covey repo use covey',
-                   'covey repo use covey-internal --json', 'python3 -B scripts/stats.py --since 7d',
-                   'rg -l foo | xargs wc -l', 'find . -maxdepth 2 -name "*.py" | head', 'timeout 30s rg x 2>/dev/null',
-                   "awk '$1 > 5' data.txt", 'python3 -c "print(1 > 0)"', 'wc -l a b > /dev/null 2>&1',
-                   'cd {dir} && echo x > r.md', 'echo x | tee -a {file}', 'cp /r/a.py {dir}/a.py',
-                   "cat > {dir}/notes.md <<'EOF'\na > b\nEOF", 'mkdir -p {dir}/sub', 'ls -la | head -5')
-    SHELL_WRITES = ('echo x >> /r/a.py', 'echo x > a.py', 'git commit -am x', 'git -C /r checkout main', 'git reset --hard',
-                    'git push origin HEAD', 'git clean -fd', 'git stash', 'git branch -D topic', 'git worktree add /tmp/w',
-                    'covey repo use covey --write', 'sed -i s/a/b/ /r/a.py', 'perl -pi -e s/a/b/ a.py', 'tee /r/a.py',
-                    'rm -rf /r/build', 'touch /r/x', 'mv /r/a.py {dir}/a.py', 'cp a.py /r/b.py', 'ln -s x /r/y',
-                    'dd if=/dev/zero of=/r/z', 'curl -o /r/x https://e.com', 'find . -delete', 'find . -exec rm {{}} +',
-                    'ls | xargs rm', "bash -c 'echo x > /r/a'", 'echo x > $OUT/r', 'cd /r && echo x > r.md',
-                    'echo x > {dir}/link/.git/config', 'echo x > "{read}/a.py"')
-
-    def test_the_look_hooks_shell_check_refuses_obvious_writes_elsewhere_and_lets_reads_run(self):
-        fill = {'dir': self.dir, 'file': self.file, 'read': self.read}
-        for command in self.SHELL_READS:
-            command = command.format(**fill)
-            self.assertEqual(tool_guard.look_bash_refusal(command, '/r', str(self.file), str(self.dir)), '', command)
-        for command in self.SHELL_WRITES:
-            command = command.format(**fill)
-            self.assertIn('这一轮只读', tool_guard.look_bash_refusal(command, '/r', str(self.file), str(self.dir)), command)
-
-    def test_the_look_hook_exits_2_with_the_reason_and_refuses_what_it_cannot_read(self):
-        def run(call):
-            err = io.StringIO()
-            with mock.patch('sys.stderr', err):
-                code = tool_guard.main(['--mode', 'look', '--allow-file', str(self.file), '--allow-dir', str(self.dir)],
-                                       stdin=io.StringIO(call if isinstance(call, str) else json.dumps(call)))
-            return code, err.getvalue()
-        self.assertEqual(run({'tool_name': 'Write', 'tool_input': {'file_path': str(self.dir / 'r.md')}}), (0, ''))
-        self.assertEqual(run({'tool_name': 'Read', 'tool_input': {'file_path': str(self.repo / 'app' / 'app.py')}}), (0, ''))
-        self.assertEqual(run({'tool_name': 'Bash', 'tool_input': {'command': 'git log -3'}, 'cwd': str(self.repo)}), (0, ''))
-        for call in ({'tool_name': 'Edit', 'tool_input': {'file_path': str(self.repo / 'app' / 'app.py')}},
-                     {'tool_name': 'MultiEdit', 'tool_input': {'file_path': str(self.read / 'x')}},
-                     {'tool_name': 'NotebookEdit', 'tool_input': {'notebook_path': str(self.repo / 'a.ipynb')}},
-                     {'tool_name': 'Bash', 'tool_input': {'command': 'git commit -m x'}, 'cwd': str(self.repo)}):
-            code, said = run(call)
-            self.assertEqual(code, 2, call)
-            self.assertIn('这一轮只读', said)
-        for broken in ('not json', json.dumps({'tool_name': 'Bash', 'tool_input': {'command': 'echo "open'}})):
-            code, said = run(broken)
-            self.assertEqual(code, 2, broken)
-            self.assertIn('出错', said)
-
-
 class RunsLimitTests(UnifiedCase):
     """A turn's limit reaches its backend before anything of the turn runs; a member's turn of a read-only group never
     runs on a Harness that cannot hold it."""
@@ -513,7 +327,8 @@ class SenderCarriedTests(UnifiedCase):
         upsert_job_record(self.ctx.state_dir, 'm1', job_id=3, message_id='m1', chat_id='oc_g', user_text='看下日志',
                           sender_id=MEMBER, read_only=True, status='waiting_workspace')
         restored = codex.submission.job_from_record(target, find_job_record(self.ctx.state_dir, 'm1'))
-        self.assertEqual((restored.sender_id, restored.read_only), (MEMBER, True))
+        self.assertEqual(restored.sender_id, MEMBER)
+        self.assertFalse(getattr(restored, 'read_only', False))  # An older record's mark: read as nothing (T956).
         from covey.app.runner_ipc import RunnerLink
         posted = []
         with mock.patch('covey.app.runner_ipc.post', side_effect=lambda folder, payload: posted.append(payload) or 'op'), \

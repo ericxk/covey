@@ -28,7 +28,7 @@ from covey.backends.claude.bridge import CLAUDE_SPEC
 from covey.backends.claude.sessions import ClaudeSessionStore
 from covey.backends.codex.bridge import CODEX_SPEC
 from covey.core.checkpoint import CHECKPOINT_RULES
-from covey.core.harness import LEAD, LOOK, LOOK_ROOTS, TOOL_LIMIT, RunResult
+from covey.core.harness import LEAD, READ, TOOL_LIMIT, RunResult
 from covey.core.jobs import job_path, read_job_record
 from covey.core.protocol import COMPACT_STEP
 from covey.core.session_guard import finish_native_session
@@ -348,15 +348,15 @@ class ChannelTest(unittest.TestCase):
         from covey.backends.codex import appserver
 
         lead = SimpleNamespace(options={TOOL_LIMIT: LEAD})
-        look = SimpleNamespace(options={TOOL_LIMIT: LOOK, LOOK_ROOTS: {}})
+        member = SimpleNamespace(options={TOOL_LIMIT: READ})
         plain = SimpleNamespace(options={})
         self.assertEqual(appserver.thread_instructions(plain), appserver.CODEX_INSTRUCTIONS)
-        self.assertEqual(appserver.thread_instructions(look), appserver.CODEX_INSTRUCTIONS)
+        self.assertEqual(appserver.thread_instructions(member), appserver.CODEX_INSTRUCTIONS)
         self.assertEqual(appserver.thread_instructions(lead), appserver.ASK_LEAD + appserver.SUBAGENTS)
         self.assertEqual(appserver.turn_instructions(plain), "")
         self.assertEqual(appserver.turn_instructions(lead), "")
-        self.assertTrue(appserver.turn_instructions(look).startswith(appserver.TURN_HEAD))
-        self.assertIn(appserver.LOOK_NO_WRITE, appserver.turn_instructions(look))
+        self.assertTrue(appserver.turn_instructions(member).startswith(appserver.TURN_HEAD))
+        self.assertIn(appserver.ASK_MEMBER, appserver.turn_instructions(member))
 
     def test_dsh_puts_them_after_its_persona_with_no_prompt_variables_left(self):
         from covey.backends.dsh.bridge import PERSONA_PREFIX, route_patch

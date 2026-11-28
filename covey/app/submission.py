@@ -440,7 +440,6 @@ class Submission:
             sender_id=str(r.get("sender_id") or ""),
         )
         carry_device(job, ctx)
-        job.read_only = r.get("read_only") is True
         job.turn_source = r.get(turn_source.FIELD) or {}  # A source it was made with goes on with it (app/job_dispatch.py).
         job.top_message = str(r.get("top_message") or "")  # Its reactions too, once it is queued (publish_submission).
         job.harness_id = r.get('harness_id') or r.get('backend') or self.harness.spec.name
@@ -489,12 +488,11 @@ class Submission:
         self, ctx: Any, content: str, chat_id: str, message_id: str,
         *, prompt_content: str | None = None, recovery_context: dict | None = None, received_at=None, title: str = "",
         sender_id: str = "", hold: float = 0, policy_retry: dict | None = None, steer: bool = False,
-        read_only: bool = False, source: dict | None = None, top: str = "",
+        source: dict | None = None, top: str = "",
     ) -> BridgeReplyJob | None:
         """Submit one message of ctx's topic as a new job of this Harness; ``sender_id`` is who sent it.
         ``hold``: seconds it waits before it starts (the butler's, app/butler.py). ``policy_retry``: an
-        answer's continuation of a retry after a safety refusal keeps its mark (app/policy_retry.py). ``read_only``:
-        a turn the butler started at once because it judged it read-only (app/tool_limits.py LOOK). ``steer``: a
+        answer's continuation of a retry after a safety refusal keeps its mark (app/policy_retry.py). ``steer``: a
         message the owner (or whoever the topic serves) sent in the topic (app/app.py handle_event): while the task
         before it runs, it goes into that task (``steers_on_arrival``), outside the topic's lock as a 补充 click
         does; the job is then cancelled, its card the receipt. ``source``: the job's 轮次来源 as the Bridge made it
@@ -536,8 +534,6 @@ class Submission:
         mark(job, 'received', received_at)
         if policy_retry:
             job.policy_retry = dict(policy_retry)
-        if read_only:
-            job.read_only = True
         if source:
             job.turn_source = dict(source)
         if top:

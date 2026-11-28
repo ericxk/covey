@@ -54,8 +54,7 @@ DOC = {"schema": 1, "control_dir": "/dev/shm/covey-ssh-gates",
        "devices": {"gpu1": {"ssh": {"host": "gpu1.example"}, "harnesses": ["claude", "codex"],
                             "spaces": ["owner_private"]}}}
 REMOVED = {"native_fork", "compaction", "session_files", "rewind", "command_stop", "bridge_tools", "collab",
-           "ask_once", "look_gate"}  # ask_once: Codex's and agy's one question runs in a home and a directory of this machine.
-# look_gate (W1-C): a LOOK turn's hook script, write tool server and private home are this machine's.
+           "ask_once"}  # ask_once: Codex's and agy's one question runs in a home and a directory of this machine.
 
 
 def checkpoint_text(**fields):
@@ -67,7 +66,7 @@ class Capabilities(unittest.TestCase):
     def ctx(self, **fields):
         return make_context(Path("/nonexistent-root"), **fields)
 
-    def test_a_device_turns_off_exactly_the_nine_that_need_the_hubs_files_or_its_processes(self):
+    def test_a_device_turns_off_exactly_the_eight_that_need_the_hubs_files_or_its_processes(self):
         self.assertEqual(set(DEVICE_OFF), REMOVED)
         for backend in (ClaudeBackend(), CodexBackend()):
             local = backend_capabilities(backend, self.ctx())
@@ -90,7 +89,7 @@ class Capabilities(unittest.TestCase):
             questions=True, image_bytes=claude_caps().image_bytes, image_frame=claude_caps().image_frame, steering=True,
             native_fork=True, rate_limit_retry=True, incomplete_retry=True, fault_retry=True, steer_reads=True, compaction=True,
             command_stop=True, session_files=True, rewind=True, bridge_tools=True, read_only=True, collab=True,
-            look_gate=True, question_tool="AskUserQuestion", nudges=True, system_instructions=True,
+            question_tool="AskUserQuestion", nudges=True, system_instructions=True,
             system_refresh="compaction"))
 
 

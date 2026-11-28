@@ -1255,7 +1255,7 @@ def _note_rebuild(ctx, job, code, runtime) -> None:
 
 def held(ctx):
     """``ctx`` held to LEAD (core/harness.py TOOL_LIMIT: reading, searching and the Bridge's tools, on whichever Harness the
-    lead runs); a stricter limit the turn has already (``HELD_BY``) stays, a LOOK gives way."""
+    lead runs); a stricter limit the turn has already (``HELD_BY``) stays."""
     if ctx.options.get(TOOL_LIMIT) in HELD_BY:
         return ctx
     return dataclasses.replace(ctx, options={**ctx.options, TOOL_LIMIT: LEAD})

@@ -87,8 +87,7 @@ def allowed(job, ctx, access=None) -> str:
       for the owner, 话题转交管家, a kind this release does not know);
     - ``not-his``: a stamped turn whose words are not the owner's level (a lead's work for a topic, the butler's hand-on of
       no message of his, a 协作 reply; core/turn_source.py ``level``): RT-2, the words an agent sent cannot draft in his name;
-    - ``proxy-topic`` (a 代答 topic), ``main-thread`` (the butler's family, its lead topics too), ``read-only`` (a turn held
-      to reading);
+    - ``proxy-topic`` (a 代答 topic), ``main-thread`` (the butler's family, its lead topics too);
     - ``not-owner``: the message that started the turn is someone else's (app/access.py ``owner_turn`` of its sender: a
       group member's, in a topic of his own), when ``access`` is given; a turn that kept no sender (a hand-on, a
       continuation, an older record) is judged by its source above, as before.
@@ -104,8 +103,6 @@ def allowed(job, ctx, access=None) -> str:
         return "proxy-topic"
     if topic and is_butler_topic(topic, chat):
         return "main-thread"
-    if (getattr(job, "read_only", False) if not isinstance(job, dict) else job.get("read_only")) is True:
-        return "read-only"
     sender = str(getattr(job, "sender_id", "") or (job.get("sender_id") if isinstance(job, dict) else "") or "")
     if access is not None and sender:
         try:

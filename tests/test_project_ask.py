@@ -262,14 +262,11 @@ class HandoffTest(ToolsCase):
 class MemberDeployNoteTest(unittest.TestCase):
     """The note a project's topic gets: the core's deploy rule and the extension's deploy_notes; none of either read-only."""
 
-    def test_the_rule_and_the_extensions_notes_and_none_for_a_read_only_turn(self):
+    def test_the_rule_and_the_extensions_notes(self):
         with mock.patch("covey.core.extensions.setting", return_value="网页有改一起发布。"):
             note = butler_handoff.lead_note(butler_handoff.START, "T5", "迁移账单", "话题")
-            quiet = butler_handoff.lead_note(butler_handoff.START, "T5", "迁移账单", "话题", read_only=True)
         self.assertIn(checkpoint.MEMBER_DEPLOY_RULE, note)
         self.assertIn("网页有改一起发布。", note)
-        self.assertNotIn(checkpoint.MEMBER_DEPLOY_RULE, quiet)
-        self.assertNotIn("网页有改一起发布", quiet)
         self.assertNotIn("stable", note.replace("网页有改一起发布。", ""))  # The company's words are the extension's.
 
     def test_the_grant_line_closes_the_note(self):

@@ -9,15 +9,13 @@ from pathlib import Path
 
 from covey.backends.claude import subagents, tool_guard, upstream
 from covey.backends.claude.sessions import ClaudeSessionStore, claude_projects_root
-from covey.core.harness import CONSULT, EXTERNAL, LEAD, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
+from covey.core.harness import CONSULT, EXTERNAL, LEAD, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
 from covey.core.home import home_dir
 
 # No MCP server at all: the catalog's probe, and a turn held to READ, PROXY or CONSULT (none of the owner's MCP servers).
 NO_MCP = ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
 # A READ, CONSULT or LEAD turn's tools (core/harness.py): a project lead's (app/project_lead.py) keeps its Bridge tools.
 READ_TOOLS = ("Read", "Grep", "Glob")
-# What a LOOK turn goes without where its writes are not held (a device's: ``look_hooks``): Claude Code's tools that change files.
-FILE_TOOLS = ("Edit", "Write", "NotebookEdit")
 NO_AUTO_MEMORY = "CLAUDE_CODE_DISABLE_AUTO_MEMORY"  # Claude Code's auto memory off for the one process (turn_env).
 # The instruction files of a topic that keeps off this machine's files (``options[EXTERNAL]``) that its turn's
 # ``claudeMdExcludes`` leaves out (``md_excludes``): these in the home, the top-level ones in each directory above it. Never a
@@ -60,17 +58,6 @@ def home_hooks(ctx) -> dict:
     except (OSError, RuntimeError):
         return {}
     return tool_guard.home_search_settings(home) if started_there else {}
-
-
-def look_hooks(ctx) -> dict:
-    """The look hook (backends/claude/tool_guard.py ``--mode look``) of a LOOK turn whose writes are held to its checkpoint
-    file and the topic's outputs directory (``options[LOOK_ROOTS]`` held, app/tool_limits.py look_roots; W1-C): its edit
-    tools and its shell's obvious writes go nowhere else, in its subagents too. Empty for any other turn, and on a device
-    (the hook would run there, where this machine's script is not: that turn goes without its file tools instead)."""
-    roots = ctx.options.get(LOOK_ROOTS) or {}
-    if ctx.options.get(TOOL_LIMIT) != LOOK or getattr(ctx, "device", "") or not roots.get("held"):
-        return {}
-    return tool_guard.look_settings(roots.get("file", ""), roots.get("dir", ""))
 
 
 def md_excludes(ctx) -> list:
@@ -162,10 +149,6 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
             # tools of its own (the butler's, a lead's) is never one of these.
             argv += ["--tools", ",".join(READ_TOOLS if limit == READ else tool_guard.TOOLS)]
             argv += [] if ctx.options.get("mcp_config") else NO_MCP
-        elif limit == LOOK and not look_hooks(ctx):
-            # Its writes not held (a device's): no tool that changes files, in its subagents too; its shell stays for
-            # read-only commands. Held, its tools stay and the look hook below checks where they write.
-            argv += ["--disallowedTools", ",".join(FILE_TOOLS)]
         elif limit == LEAD:
             # A project's lead (core/harness.py LEAD, app/project_lead.py): Claude Code's own tools narrowed to reading; the
             # MCP tools above (its Bridge tools) are not among the built-in ones --tools names, so they stay.
@@ -176,8 +159,7 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
         # One --settings: a turn an extension's hook gave a relay (backends/claude/upstream.py), its compaction included,
         # talks to the model through it;
         # a 代答 turn's shell and edit tools go through its PreToolUse hook (backends/claude/tool_guard.py); a turn started
-        # from the home has the home-search hook (home_hooks), a held LOOK turn the look hook (look_hooks), ahead of the
-        # extensions' (TURN_HOOKS), in any but a CONSULT one; a topic that keeps off this machine's files leaves the home's
+        # from the home has the home-search hook (home_hooks), ahead of the extensions' (TURN_HOOKS), in any but a CONSULT one; a topic that keeps off this machine's files leaves the home's
         # instruction files out (``md_excludes``).
         settings = upstream.settings(ctx)
         excluded = md_excludes(ctx)
@@ -186,7 +168,7 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
         if limit == PROXY:
             settings["hooks"] = tool_guard.settings(ctx.options.get(TOOL_NOTES, ""))
         elif limit != CONSULT:
-            hooks = merge_hooks(home_hooks(ctx), look_hooks(ctx), ctx.options.get(TURN_HOOKS))
+            hooks = merge_hooks(home_hooks(ctx), ctx.options.get(TURN_HOOKS))
             if hooks:
                 settings["hooks"] = hooks
         argv += ["--settings", json.dumps(settings, ensure_ascii=False)] if settings else []

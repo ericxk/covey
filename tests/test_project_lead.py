@@ -517,14 +517,12 @@ class TurnTest(Case):
         self.assertNotIn("compact_instructions", ctx.options)  # No compaction: the session is rebuilt from the disk.
         self.assertIn("把账单迁到新库", message)
 
-    def test_a_stricter_limit_the_turn_has_stays_and_a_look_gives_way_to_the_leads(self):
-        from covey.core.harness import LOOK, PROXY
+    def test_a_stricter_limit_the_turn_has_stays_and_a_turn_without_one_takes_the_leads(self):
+        from covey.core.harness import PROXY
         for limit in (CONSULT, PROXY, READ):
             with self.subTest(limit=limit):
                 self.assertEqual(project_lead.held(self.context(**{TOOL_LIMIT: limit})).options[TOOL_LIMIT], limit)
-        for options in ({}, {TOOL_LIMIT: LOOK}):
-            with self.subTest(options=options):
-                self.assertEqual(project_lead.held(self.context(**options)).options[TOOL_LIMIT], HELD)
+        self.assertEqual(project_lead.held(self.context()).options[TOOL_LIMIT], HELD)
 
     def test_a_resumed_lead_gets_the_changing_parts_only(self):
         _, message = self.run_turn(session_id="sid")

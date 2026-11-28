@@ -142,10 +142,6 @@ class BridgeReplyJob:
     # "category", "model"}; its subagents run on that model too (context_for_job), and it never retries again. {} for
     # every other job. Saved: its task runner reads it.
     policy_retry: dict = _state(factory=dict)
-    # The first turn of a topic the butler opened without the owner's click because it judged the work read-only
-    # (app/butler_topics.py): held to it where its Harness can (app/tool_limits.py LOOK). False for every other job.
-    # Saved: its task runner reads it.
-    read_only: bool = _state(False)
     # 轮次来源 (core/turn_source.py): what started the turn, written by the Bridge only; {} for every job of the owner's,
     # the butler's and the Bridge's own as before (LEGACY). Saved, and in a record, only when set: a job of a source this
     # release does not run is never run as the owner's message (app/job_dispatch.py, app/worker.py).
@@ -508,8 +504,6 @@ def record_bridge_job_state(
         payload["device"], payload["remote_workdir"] = job.device, str(getattr(job, "remote_workdir", "") or "")
     if getattr(job, "policy_retry", None):
         payload["policy_retry"] = dict(job.policy_retry)  # Never retried again (app/policy_retry.py eligible).
-    if getattr(job, "read_only", False) is True:
-        payload["read_only"] = True  # A launch card's wait keeps it (app/submission.py job_from_record).
     if getattr(job, "turn_source", None):
         payload["turn_source"] = job.turn_source  # So does a record's reader (core/turn_source.py of).
     if getattr(job, "top_message", ""):
