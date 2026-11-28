@@ -22,9 +22,12 @@ from covey.core.harness import BackendConfig, BridgeContext, HarnessSpec, RunReq
 from covey.core.providers import retired_provider, retired_provider_notice
 from covey.core.state import ensure_private_dir
 from covey.backends.codex import gateway as gateway_models
-from covey.backends.codex.appserver import QUESTION_TOOL, run_appserver, sandbox_mode
+from covey.backends.codex.appserver import QUESTION_TOOL, topic_data, run_appserver, sandbox_mode
 from covey.backends.codex.consult import ConsultHome, ReadingHome
-from covey.core.harness import CONSULT, LEAD, READ, TOOL_LIMIT
+from covey.backends.codex import device_home
+from covey.core import device_access, device_native, devices, topic_repos
+from covey.core.topics import update_repos
+from covey.core.harness import CONSULT, EXTERNAL, LEAD, READ, TOOL_LIMIT
 from covey.backends.gateway.catalog import turn_relay
 from covey.core import gateways
 
@@ -147,6 +150,10 @@ class CodexBackend(BackendRuntime):
         if removed:  # A job queued on a removed provider's model before (core/providers.py RETIRED_PREFIXES).
             raise ValueError(retired_provider_notice(removed))
         limit = ctx.options.get(TOOL_LIMIT)
+        native = None if device_of(ctx) else self.native(ctx)
+        if native is not None:  # The topic kept a device (Codex 原生快路): every turn names its environments.
+            ctx = dataclasses.replace(ctx, options={**ctx.options, "environments": native["environments"]})
+            request = dataclasses.replace(request, context=ctx)
         if limit == CONSULT:
             # A 协作 ask: its app server in a CODEX_HOME of its own (backends/codex/consult.py), for this turn alone.
             with ConsultHome(ctx.state_dir, env) as env:
@@ -159,7 +166,60 @@ class CodexBackend(BackendRuntime):
             # owner's home, with READING_FLAGS alone. A device's home is the device's.
             with ReadingHome(ctx.state_dir, env) as env:
                 return self._run(request, ctx, env)
-        return self._run(request, ctx, env)
+        if native is not None and len(native["environments"]) > 1:
+            # A device among the turn's environments: the app server in the device home (backends/codex/device_home.py),
+            # whose environments.toml says how to reach each ready device; its G6 line in the task's devices.jsonl.
+            env = device_home.prepare(ctx.state_dir, env, native["entries"])
+            device_native.note_attached(native["turn"], native["environments"])
+        try:
+            return self._run(request, ctx, env)
+        finally:
+            if not device_of(ctx):
+                self.keep_devices(ctx)
+
+    @staticmethod
+    def native(ctx):
+        """The turn's Codex 原生快路 (core/device_native.py ``environments``): None for a topic that kept no device (and
+        whenever the device switch is off), else ``{environments, entries, turn}``. Never raises: a turn that cannot
+        tell runs as one whose topic kept nothing."""
+        try:
+            data = topic_data(ctx)
+            if not devices.enabled() or not device_native.kept(data):
+                return None
+            config = devices.current()
+            turn = device_native.turn_of(ctx.state_dir, topic_repos.task_dir_of(ctx.state_dir), ctx.topic_id)
+            hub = device_native.hub_version(ctx.backend_cmd)
+            local = not ctx.options.get(EXTERNAL) and device_native.topic_local(data)
+            found = device_native.environments(turn, config, data, workdir=ctx.workdir, local=local, hub=hub)
+            ready = {item["environmentId"] for item in found or ()}
+            return {"environments": found, "turn": turn,
+                    "entries": [item for item in device_native.entries(ctx.state_dir, config, hub) if item["id"] in ready]}
+        except Exception:  # noqa: BLE001 - the turn runs on this machine alone, as before
+            return None
+
+    @staticmethod
+    def keep_devices(ctx) -> None:
+        """At the turn's end: the devices it used for the first time that a Codex turn may use as its environments
+        (core/device_native.py ``due``) into ``topic.json`` ``device_envs``, so the topic's next turns have them. Nothing
+        when the turn used no device; a failure changes nothing."""
+        try:
+            task_dir = topic_repos.task_dir_of(ctx.state_dir)
+            data = topic_data(ctx)
+            rows = device_access.read_audit(task_dir) if task_dir else []
+            if not ctx.topic_id or not device_native.used(rows, data):
+                return
+            config = devices.current()
+            if not config.devices:
+                return
+            turn = device_native.turn_of(ctx.state_dir, task_dir, ctx.topic_id)
+            local = not ctx.options.get(EXTERNAL) and device_native.topic_local(data)
+            added = device_native.due(turn, config, rows, data, local=local, hub=device_native.hub_version(ctx.backend_cmd))
+            if added:
+                update_repos(ctx.state_dir, ctx.topic_id,
+                             lambda entries: device_native.kept({device_native.KEY: entries + added}),
+                             key=device_native.KEY)
+        except Exception:  # noqa: BLE001 - the topic keeps what it had
+            pass
 
     def _run(self, request, ctx, env):
         gateway = gateways.for_model("codex", ctx.model)

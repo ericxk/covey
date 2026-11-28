@@ -143,7 +143,7 @@ def sandbox_mode(ctx) -> str:
     return str(ctx.options.get("sandbox") or "danger-full-access")
 
 
-def _topic_data(ctx) -> dict:
+def topic_data(ctx) -> dict:
     try:
         data = json.loads((ctx.history_path.parent / "topic.json").read_text(encoding="utf-8"))
     except (OSError, ValueError, AttributeError):
@@ -156,7 +156,7 @@ def repo_roots(ctx, data=None) -> list:
     its task's run directory, the topic's worktrees directory (made now, so a worktree ``covey repo use --write`` makes
     this turn is inside it) and each repository the topic writes to (its ``.git``; in place, the repository). Fixed when
     the turn starts: a repository first asked for in this turn is writable from the next. [] when unreadable."""
-    data = _topic_data(ctx) if data is None else data
+    data = topic_data(ctx) if data is None else data
     number = data.get("topic_number") if type(data.get("topic_number")) is int else 0
     # The worktrees directory of a topic that starts in the home or uses repositories: no empty one for every other topic.
     trees = ctx.topic_id and (data.get("home_start") is True or bool(data.get("repos")))
@@ -200,7 +200,7 @@ def thread_params(ctx, session_id, instructions="", process=None):
     else:
         cwd = str(ctx.workdir)
         writable = [str(ctx.state_dir / "checkpoints")]
-        data = _topic_data(ctx)
+        data = topic_data(ctx)
         if sandbox_mode(ctx) == "workspace-write":
             writable += repo_roots(ctx, data)
         command = sys.executable
@@ -240,7 +240,30 @@ def thread_params(ctx, session_id, instructions="", process=None):
     fork = None if session_id else ctx.options.get("fork_session")
     if session_id or fork:
         params["threadId"] = session_id or fork
+    if environments(ctx) is not None and not session_id and not fork:
+        # thread/resume and thread/fork take none (codex-cli 0.172.0): the turn/start right after names them.
+        params["environments"] = environments(ctx)
     return params, fork
+
+
+def environments(ctx):
+    """The turn's ``environments`` (Codex 原生快路, backends/codex/bridge.py ``native``): None for a topic that kept no
+    device, whose turns name none, as before; else the same list on thread/start and every turn/start (thread/resume and
+    thread/fork have no such field), so the tools and the cache stay as they were (a resumed thread named none would get
+    every environment of the home)."""
+    found = ctx.options.get("environments")
+    return [dict(item) for item in found] if isinstance(found, list) and found else None
+
+
+def device_note(ctx) -> str:
+    """The tail of a turn's input that has a device among its environments: which, and where long commands go."""
+    found = [item for item in environments(ctx) or () if item.get("environmentId") != "local"]
+    if not found:
+        return ""
+    names = "、".join("%s（%s）" % (item["environmentId"], item["cwd"]) for item in found)
+    return (f"本话题挂着设备环境：{names}；local 是主目录这台。命令、改文件、看图用 environment_id 选在哪台上做，"
+            "在设备上写、删、重启、部署照常先问主人。超过几分钟的长命令仍用 covey device job（设备环境断线即停，"
+            "job 由设备端守着）。")
 
 
 NO_PROJECT_DOC = "project_doc_max_bytes=0"  # No AGENTS.md of the working directory or above it (``server_flags``).
@@ -289,13 +312,15 @@ def start_turn(rpc, request, ctx, prompt, session_id):
         "turn/start",
         {
             "threadId": rpc.thread_id,
-            "input": [{"type": "text", "text": "\n\n".join(filter(None, (prompt, turn_instructions(ctx))))}]
+            "input": [{"type": "text", "text": "\n\n".join(filter(None, (prompt, device_note(ctx),
+                                                                         turn_instructions(ctx))))}]
                      + [{"type": "localImage", "path": path} for path in image_paths(ctx, request.inputs.attachments)],
             "model": ctx.model,
             **({"effort": ctx.effort} if ctx.effort else {}),
             # A read-only turn says so for the turn too, whatever the thread resumed with; any other turn sends nothing
             # here, as before (its thread/resume's sandbox holds).
             **({"sandboxPolicy": {"type": "readOnly"}} if ctx.options.get(TOOL_LIMIT) in READ_ONLY else {}),
+            **({"environments": environments(ctx)} if environments(ctx) is not None else {}),
         },
         timeout=60,
     )

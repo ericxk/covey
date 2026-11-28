@@ -4,7 +4,10 @@ one minimal real request per declared Harness on the device, with the profile's 
 core/harness_probe.py ``command_for``, is only looked for). Its outcome, in words
 (``CheckResult.explain``), is kept in ``profile.json`` (core/devices.py ``build_profile``) and read back by
 ``status_text`` (the workspace card's device line, ``service/doctor.py``). The command line is service/device_check.py.
-``checkup`` is the settings page's 体检: the first three steps only (ssh, the shim, hello), no Harness asked for.
+``checkup`` is the settings page's 体检: the first three steps only (ssh, the shim, hello), no Harness asked for. Both end
+with ``exec-server`` on a device that is ``access: write`` (core/device_native.py ``handshake``: one ``initialize`` to the
+device's ``codex exec-server``, kept in ``profile.json`` ``exec_server``): it never fails a check, a device without the
+hub's codex is only not one a Codex turn uses as its environment (Codex 原生快路).
 
 Standard library plus core/devices and what it imports."""
 from __future__ import annotations
@@ -13,7 +16,7 @@ import dataclasses
 import time
 from pathlib import Path
 
-from covey.core import devices, harness_probe
+from covey.core import device_native, devices, harness_probe
 from covey.core.device_transport import LinkError, ShimError
 from covey.core.state import read_object, write_json
 
@@ -96,6 +99,7 @@ class CheckResult:
     profile: dict | None = None
     env: dict = dataclasses.field(default_factory=dict)  # What the minimal requests ran with: for the words.
     checkup: bool = False  # ``checkup``'s three steps only: ssh, the shim, hello.
+    exec_server: dict | None = None  # The ``exec-server`` step's record (core/device_native.py ``handshake``), None: not asked.
 
     @property
     def ok(self):
@@ -115,8 +119,9 @@ class CheckResult:
         what failed first and what to do about it, a line each for every failed step."""
         if self.ok and self.checkup:
             python = ".".join(map(str, (self.hello or {}).get("python") or [])) or "?"
-            return "%s 体检通过：ssh 连得上，设备端小程序放好了，hello 有答复（%s %s，Python %s）" % (
-                self.alias, (self.hello or {}).get("os") or "?", (self.hello or {}).get("machine") or "?", python)
+            return "%s 体检通过：ssh 连得上，设备端小程序放好了，hello 有答复（%s %s，Python %s）%s" % (
+                self.alias, (self.hello or {}).get("os") or "?", (self.hello or {}).get("machine") or "?", python,
+                self.native_words())
         if self.ok:
             tools = ((self.profile or {}).get("tools") or {})
             found = " · ".join("%s %s" % (name, short_version(name, info)) for name, info in tools.items()
@@ -130,8 +135,18 @@ class CheckResult:
             words = ["%s 的最小请求都通过了" % "、".join(probed)] if probed else []
             words += ["%s 没有最小请求，查了程序和登录" % "、".join(signed)] if signed else []
             words += ["%s 没有最小请求，只查了程序" % "、".join(bare)] if bare else []
-            return "%s 自检通过：%s%s" % (self.alias, found, "；" + "，".join(words) if words else "（没有真跑最小请求）")
+            return "%s 自检通过：%s%s%s" % (self.alias, found, "；" + "，".join(words) if words else "（没有真跑最小请求）",
+                                           self.native_words())
         return "\n".join(self._failure(step) for step in self.steps if not (step.ok or step.skipped))
+
+    def native_words(self) -> str:
+        """The ``exec-server`` step in words, after a passed check: '' when it was not asked."""
+        record = self.exec_server
+        if not record:
+            return ""
+        if not record.get("why"):
+            return "；Codex 原生快路可用（codex %s，和 Hub 一致）" % record.get("executor")
+        return "；Codex 原生快路不可用（%s），Codex 话题照常用 covey device" % record["why"]
 
     def _failure(self, step):
         name, detail, alias = step.name, step.detail, self.alias
@@ -201,11 +216,30 @@ def checkup(config, alias, *, state_dir, transport=None, now=time.time, data=Non
             devices.write_hello(state_dir, alias, result.hello, now=now())
             path = devices.device_dir(state_dir, alias) / "profile.json"
             result.profile = read_object(path) or devices.build_profile(device, result.hello, login_env={}, now=now())
+        if result.ok:
+            native_step(transport, device, result.profile, result, now)
     except (LinkError, ShimError, OSError) as exc:
         result.steps.append(Step("connect", False, str(exc)[:300]))
     finally:
         _record_check(state_dir, alias, result, now)
     return result
+
+
+def native_step(transport, device, profile, result, now) -> None:
+    """The ``exec-server`` step (core/device_native.py ``handshake``) of a device that is ``access: write``: ``ok`` when its
+    codex answered and is the hub's version, else skipped with why (never a failed check). Nothing for any other device."""
+    if device.access != "write":
+        return
+    started = time.monotonic()
+    try:
+        record = device_native.handshake(transport, device, profile or {}, now=now)
+    except (LinkError, ShimError, OSError) as exc:
+        record = {"at": now(), "ok": False, "same": False, "why": "exec-server 体检没做成：%s" % str(exc)[:200]}
+    result.exec_server = record
+    why = record.get("why") or ""
+    result.steps.append(Step("exec-server", not why, why or "codex %s（%s），和 Hub 一致" % (record.get("executor"),
+                                                                                       record.get("os") or "?"),
+                             time.monotonic() - started, skipped=bool(why)))
 
 
 def _run_check(config, device, transport, data, probe, now, state_dir, result, *, through=""):
@@ -284,6 +318,7 @@ def _run_check(config, device, transport, data, probe, now, state_dir, result, *
             return "found, no minimal request" if answer.get("probed") is False else "ok"
 
         step("probe:" + name, run_probe)
+    native_step(transport, device, result.profile, result, now)
 
 
 def _record_check(state_dir, alias, result, now):
@@ -298,6 +333,8 @@ def _record_check(state_dir, alias, result, now):
     failed = result.failed
     profile["check"] = {"at": now(), "ok": result.ok, "failed": failed.name if failed else "", "text": result.explain(),
                         **({"steps": 3} if result.checkup else {})}
+    if result.exec_server is not None:
+        profile["exec_server"] = result.exec_server
     write_json(path, profile, ensure_ascii=False)
 
 
@@ -325,12 +362,14 @@ def status_text(state_dir, alias, *, now=None):
     if not check:
         return "还没自检：在 Bridge 所在机器上运行 covey_devices.py check %s" % alias
     when = age_text((now if now is not None else time.time()) - float(check.get("at") or 0))
+    native = profile.get("exec_server") if isinstance(profile.get("exec_server"), dict) else {}
+    native = " · Codex 原生快路可用（codex %s）" % native.get("executor") if native and not native.get("why") else ""
     if check.get("ok") and check.get("steps") == 3:
-        return "体检通过（%s）：ssh、设备端小程序、hello 都正常；没查 Harness" % when
+        return "体检通过（%s）：ssh、设备端小程序、hello 都正常；没查 Harness%s" % (when, native)
     if check.get("ok"):
         tools = (profile.get("tools") or {})
         found = " · ".join("%s %s" % (name, short_version(name, info)) for name, info in tools.items() if info.get("found"))
-        return "自检通过（%s）%s" % (when, " · " + found if found else "")
+        return "自检通过（%s）%s%s" % (when, " · " + found if found else "", native)
     return "自检未通过（%s）：%s" % (when, str(check.get("text") or "").replace("\n", " ")[:160])
 
 

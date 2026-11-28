@@ -1191,6 +1191,9 @@ def trace_text(rows, limit=12) -> str:
             reason = str(row["refused"])
             lines.append(f"{alias}：{op} 被拦下（{reason if len(reason) <= 60 else reason[:59] + '…'}）")
             continue
+        if op == "native":  # A Codex turn with the device among its environments (core/device_native.py).
+            lines.append(f"{alias}：Codex 原生快路挂着（{row.get('path') or '~'}）")
+            continue
         what = row.get("command") or row.get("path") or row.get("job") or ""
         tail = ""
         if op == "run":

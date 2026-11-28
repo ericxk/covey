@@ -202,6 +202,16 @@ dsh 是 DeepSeek 开源的 Agent Harness（npm 包 `@deepseek-ai/dsh`，预览�
 - **改设备上的文件**：三家都是 `covey device get` 到本话题产物目录、用自己的编辑工具改、再 `covey device put` 回去（`put` 核对取回时的 sha256）；Antigravity 的文件工具默认只碰工作区，产物目录在本机话题的可写范围里，不用放宽 `allowNonWorkspaceAccess`。
 - **超过一次调用的命令**：用 `covey device job start`，不要让 `run` 等几十分钟：Harness 自己的命令超时会杀掉 `covey device`，设备上的命令则一直跑到 `--timeout`，一轮结束时才由 Bridge 按标记收割。
 
+### Codex 原生快路
+
+Codex 话题还多一条路：把可写设备挂成 Codex 自己的执行环境（app-server 的 `environments`，设备上跑 `codex exec-server --listen stdio`），`exec_command`、`apply_patch`、`view_image` 直接落在设备上，体验和本机一样；Codex、它的会话和登录都留在 Hub，设备上只装 codex CLI、不登录（执行端用设备上一个空的 `~/.covey/codex-exec` 当 CODEX_HOME）。实现在 `core/device_native.py` 和 `backends/codex/device_home.py`，结构见[架构 · Codex 原生快路](architecture.md#codex-原生快路)。
+
+- **哪些设备能挂**：`access: write`，而且体检时设备上 `codex exec-server` 答了 `initialize`、版本和 Hub 的 codex 一样（`profile.json` 的 `exec_server`，[运维 · 设备自检](operations.md#设备自检)）。版本不一样、没装 codex 的设备照常能用 `covey device`，只是不挂。Hub 升级了 codex，设备也要装同一版、再体检一次，之前都不挂。
+- **什么时候挂上**：一个 Codex 话题第一次用到一台能挂的设备（这一轮调过 `covey device`，或者声明了这台设备上的常用路径），这一轮照常走 `covey device`，轮末记进 `topic.json` 的 `device_envs`；从下一轮起 `thread/start` 和每一次 `turn/start` 都显式传同一份 `[local（主目录）, 设备（设备 home）…]`（`thread/resume`、`thread/fork` 在 codex-cli 0.172.0 里没有这个字段，紧跟着的 `turn/start` 传），挂上不摘。没用过设备的 Codex 话题和原来一字不差，不传 `environments`。
+- **哪些轮不挂**：只读的轮次（负责人、群成员只读、咨询、代答）、聊天不在设备 `spaces` 里的、外部话题（`local: false`），以及设备不再能挂的（改成只读、版本对不上、从名单里去掉），这一轮只传 `local`。只读轮来一次，这一轮和下一轮的 Prompt 缓存各破一次。
+- **每轮消息尾部**多一句挂了哪些设备、`local` 是主目录，和“超过几分钟的长命令仍用 `covey device job`”（原生快路断线即停）。不进系统规则，`rules_sent` 的版本不变。
+- **护栏**：命令由 Codex 直接发给设备上的 exec-server，`covey device` 的护栏管不到单条命令；Covey 守“挂不挂”（上两条），再在挂设备的那份 CODEX_HOME 的 `rules/` 里放一份 Codex 自己的 `forbidden` 规则（递归删除、关机重启、停服务、删容器、强推、`git reset --hard`、卸载包等），Codex 在 Hub 上先查规则、再把命令发给任何环境，所以设备上一样拦，同一话题本机的同类命令也一样拦（规则不分环境）。只认得出简单命令：Codex 读不懂的脚本（如 `rm x; echo $?`）照样执行，所以它是兜底，不是墙，在设备上写、删、重启、部署照规则先问主人；拒绝说明会让模型问过主人后改用 `covey device run --approved <答案号>`（那条路上的 G4 硬拦见 [架构 · 设备通道](architecture.md#设备通道)）。
+
 ## 在设备上运行
 
 开了多设备（`COVEY_DEVICES=1`，[配置](configuration.md#多设备开发中默认关)）后，工作区写成 `别名:路径` 的话题跑在那台设备上。新话题已经不能这样开（主人 D2Y4T，入口下线、底层保留），这一节只对以前开在设备上的话题成立；新话题从主目录用[设备通道](#设备通道)。能上设备的 Harness 由 `core/roster.py` 的 `devices` 列定：核心里是 Claude Code、Codex 和 Antigravity（设备的 `harnesses` 只认这几个，不写时是 `claude`、`codex`）。结构和不变量见[架构 · 设备](architecture.md#设备多设备默认关)。

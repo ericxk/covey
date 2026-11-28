@@ -71,7 +71,7 @@
 | Harness 与后端；同一账号的供应商只列一次 | `core/harness.py`、`core/roster.py`、`core/providers.py`、`backends/<名字>/bridge.py`；`core/same_account.py`、`app/launch_models.py` 的 `fold_same_account` | [Harness 接口](docs/architecture.md#harness-接口)、[harnesses.md](docs/harnesses.md) |
 | Skills（`./scripts/install_skills.sh` 把 `skills/*` 同步给 Codex 和 Claude Code；每个一个目录：`SKILL.md` 加 `agents/openai.yaml`） | `skills/harness-bridge-onboarding/`（带新人装机器人）、`skills/change-walkthrough/`（大改动的一页走读） | [deploy.md](docs/deploy.md) |
 | 扩展（`COVEY_EXTENSIONS` 或 `extensions/enabled` 启用的包，核心不按名字引用；扩展自带 README） | `core/extensions.py`（manifest 并进 `core/roster.py`、`core/providers.py` 的表，`features(app)` 并进 `app/unified.py` 的 `self.features`） | [扩展](docs/architecture.md#扩展) |
-| 设备通道（`COVEY_DEVICES`）：话题从主目录经 `covey device` 用别的设备，护栏、审计、收割都在底座里 | `core/device_access.py`（底座与护栏 G1–G7，G4 危险命令硬拦与 `--approved` 核对）、`core/device_cli.py`（`covey device`，`bin/covey_device.py`）、只读轮的设备工具 `core/device_tools.py`（`bridge_workspace` 服务 `backends/codex/workspace_reader.py` 里，Antigravity、Claude Code 不带 `--root`）、`app/repos_turn.py` 的 `start_devices`/`settle_devices`、设备端 `core/device_shim.py` 的 `exec` 标记与 `reap` | [设备通道](docs/architecture.md#设备通道) |
+| 设备通道（`COVEY_DEVICES`）：话题从主目录经 `covey device` 用别的设备，护栏、审计、收割都在底座里 | `core/device_access.py`（底座与护栏 G1–G7，G4 危险命令硬拦与 `--approved` 核对）、`core/device_cli.py`（`covey device`，`bin/covey_device.py`）、只读轮的设备工具 `core/device_tools.py`（`bridge_workspace` 服务 `backends/codex/workspace_reader.py` 里，Antigravity、Claude Code 不带 `--root`）、`app/repos_turn.py` 的 `start_devices`/`settle_devices`、设备端 `core/device_shim.py` 的 `exec` 标记与 `reap`；Codex 原生快路（可写设备挂成 Codex 的执行环境）`core/device_native.py`、`backends/codex/device_home.py`、`backends/codex/bridge.py` 的 `native`/`keep_devices` | [设备通道](docs/architecture.md#设备通道)、[Codex 原生快路](docs/architecture.md#codex-原生快路) |
 | 节点与机器状况（`COVEY_NODE_LISTEN`） | `core/node_agent.py`（设备和本机上常驻的节点）、`core/nodes.py`（名单、口令、记录）、`core/node_rules.py`（告警规则）、`app/node_gateway.py`（TLS 服务）、`app/node_alerts.py`、`app/nodes.py`、`cards/node_cards.py` | [节点](docs/architecture.md#节点默认关)、[配置](docs/configuration.md#节点与机器状况默认关) |
 | 维护与备份 | `core/maintenance.py`（规则表在 `core/maintenance_rules.py`，备份在 `core/backup.py`）、`app/stale.py`、`core/migrate.py` | [备份、归档与维护](docs/operations.md#备份归档与维护) |
 | 服务、看门狗、诊断 | `service/manager.py`（停了告诉主人 `service/down_notice.py`）、`service/boot.py`、`service/memguard.py`、状态目录写不进与慢锁慢读 `core/storage_watch.py`、`app/storage_alerts.py`、`service/doctor.py`（终端里的中文摘要 `service/doctor_words.py`；设置卡「诊断」`app/doctor_panel.py`） | [服务组成](docs/operations.md#服务组成)、[troubleshooting.md](docs/troubleshooting.md) |
@@ -392,6 +392,7 @@
 | `core/device_access.py` | The device channel (设备通道): what a topic's Harness does from the home on a device of devices.json, in one place |
 | `core/device_cli.py` | `covey device`: the command every Harness runs from its shell to use a device |
 | `core/device_link.py` | DeviceProcess: a Harness process that runs on a device, dressed as the `subprocess.Popen` the backends use |
+| `core/device_native.py` | Codex 原生快路 (F2b): a Codex topic's commands, patches and images run on a writable device of devices.json by … |
 | `core/device_probe.py` | A device's self-check |
 | `core/device_reap.py` | What a device may still hold of a task the hub has given up on |
 | `core/device_shim.py` | The device-side program the hub pushes over ssh: it supervises Harness tasks and serves files, stdlib only |
@@ -620,6 +621,7 @@
 | `backends/codex/appserver.py` | One Codex turn per task over its App Server (run_appserver) |
 | `backends/codex/bridge.py` | The Codex Harness: its spec and backend |
 | `backends/codex/consult.py` | A 协作 ask's Codex turn |
+| `backends/codex/device_home.py` | The CODEX_HOME of a Codex turn that has a device among its environments |
 | `backends/codex/events.py` | Codex App Server items as public Harness events |
 | `backends/codex/gateway.py` | A model gateway's OpenAI Responses models inside the regular Codex Harness |
 | `backends/codex/handoff.py` | A handoff summary from a Codex thread the topic is leaving, as backends/claude/handoff.py writes Claude Code's |
