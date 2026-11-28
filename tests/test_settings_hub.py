@@ -11,7 +11,7 @@ from unittest import mock
 
 from support.proxy import ProxyCase
 from support import requires_extension
-from covey.app import butler_panel, workspace_manager
+from covey.app import workspace_manager
 from covey.app.butler_panel import OWNER_ONLY, TOOLS
 from covey.app.menu_panel import MOVED
 from covey.app.settings_hub import MENU_KEY, SettingsHub
@@ -174,50 +174,25 @@ class SettingsHubTests(HubCase):
         self.assertEqual(self.hub_record()['view']['revision'], 7)
 
     @requires_extension()
-    def test_in_the_mode_topics_the_menu_opens_on_topic_and_the_butler_page_is_the_mode_row_alone(self):
-        """The menu opens on its first tab, 配置 (新话题 before T619), in either mode (T546, the owner 2026-11-19); in 纯话题
-        its 管家 part is one row, the mode, and 交给管家 turns the butler on at once."""
-        settings.update(self.state, enabled=False)
-        self.addCleanup(butler.configure_state, butler.configure_state(self.state))
-        with mock.patch.dict(os.environ, {'COVEY_BUTLER': ''}):  # Allowed: the mode decides.
-            self.assertFalse(butler.enabled())
-            self.open('ev1')
-            token = self.hub.token('dm', 'ev1')
-            self.assertEqual((self.title(), self.tabs()[0]), ('配置', ('配置', 'primary_filled')))
-            self.assertEqual(self.tabs(), row_of('配置'))
-            self.assertIn(butler_panel.MENU_KEY, self.hub.menu_items())
-            self.assertIn('**管家**', json.dumps(self.card(), ensure_ascii=False))  # Its part: its one row turns the mode back.
-            self.assertEqual(self.open_part('butler', 'ev-t1'), 'main_panel')
-            self.assertEqual(self.title(), '配置')
-            self.assertEqual(len(values(self.card(), butler_card.MODE)), len(butler_card.MODE_CHOICES))
-            self.assertEqual(values(self.card(), butler_card.ENABLE), [])  # No top button any more.
-            self.assertEqual(values(self.card(), butler_card.COMPACT), [])  # Nothing else of the butler's.
-            self.assertEqual(self.press(self.option(butler_card.MODE, 'agent'), 'ev-e1'), 'main_panel')
-            self.assertTrue(butler.enabled())
-            self.assertEqual((self.title(), self.hub_record(token)['tab']), ('配置', 'config'))
-            self.assertIn(butler_panel.MODE_NOTICES[True], json.dumps(self.card(), ensure_ascii=False))
-            self.assertTrue(values(self.card(), butler_card.COMPACT))  # The butler's rows are there now.
-
-    @requires_extension()
-    def test_in_the_butler_mode_the_mode_row_asks_before_turning_it_off_and_an_older_button_acts_at_once(self):
+    def test_the_retired_mode_buttons_of_an_older_card_change_nothing(self):
+        """私聊顶层的消息 is retired (T946): the 管家 part has no mode row; an older card's row, its 确定改 and the older
+        开启/关闭 redraw 配置 with MODE_RETIRED, the butler stays on and nothing is saved."""
         self.addCleanup(butler.configure_state, butler.configure_state(self.state))
         self.open()
-        self.open_part('butler', 'ev-t1')
-        self.assertEqual(self.press(self.option(butler_card.MODE, 'topics'), 'ev-m1'), 'main_panel')
-        self.assertTrue(settings.load(self.state).enabled)  # Nothing saved yet: the question first.
-        self.assertIn(butler_card.MODE_CONFIRM, json.dumps(self.card(), ensure_ascii=False))
-        sure, = [v for _, v in values(self.card(), butler_card.ENABLE)]
-        self.assertIs(sure['on'], False)
-        self.assertEqual(self.press(sure, 'ev-m2'), 'main_panel')
-        self.assertFalse(settings.load(self.state).enabled)
-        self.assertEqual((self.title(), self.hub_record()['tab']), ('配置', 'config'))
-        self.assertNotIn(butler_card.MODE_CONFIRM, json.dumps(self.card(), ensure_ascii=False))
-        # An older card's button of the old kind takes effect as before, with no question.
+        self.assertEqual(self.open_part('butler', 'ev-t1'), 'main_panel')
+        self.assertTrue(values(self.card(), butler_card.COMPACT))
+        self.assertEqual([values(self.card(), kind) for kind in butler_card.MODE_KINDS], [[], []])
+        before = settings.load(self.state)
         token = self.hub.token('dm', 'ev-menu')
-        revision = self.hub_record()['view']['revision']
-        self.assertEqual(self.press({'kind': butler_card.ENABLE, 'token': token, 'revision': revision, 'on': True},
-                                    'ev-m3'), 'main_panel')
-        self.assertTrue(settings.load(self.state).enabled)
+        for n, value in enumerate(({'kind': butler_card.MODE, 'option': 'topics'}, {'kind': butler_card.MODE, 'option': 'agent'},
+                                   {'kind': butler_card.ENABLE, 'on': False}, {'kind': butler_card.ENABLE, 'on': True})):
+            revision = self.hub_record()['view']['revision']
+            self.assertEqual(self.press({**value, 'token': token, 'revision': revision}, f'ev-m{n}'), 'main_panel')
+            self.assertEqual(settings.load(self.state), before)
+            self.assertTrue(butler.enabled())
+            self.assertEqual((self.title(), self.hub_record()['tab']), ('配置', 'config'))
+            self.assertIn(butler_card.MODE_RETIRED, json.dumps(self.card(), ensure_ascii=False))
+        self.assertFalse(settings.path(self.state).exists())
 
     def test_a_slow_proxy_result_after_the_card_turned_writes_nothing(self):
         with mock.patch.dict(os.environ, {'COVEY_BUTLER': ''}):

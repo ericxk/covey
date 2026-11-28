@@ -31,6 +31,7 @@ from covey.core.state import epoch_seconds, read_object, write_json
 from covey.core.topic_seen import read_seen
 from covey.core.topics import context_for_topic, message_topic, remember_topic_message
 from support.fake_backends import codex_context
+from support.butler import switch_on
 from test_butler import ButlerUnifiedCase
 
 from test_project_lead import CHAT, LEAD, PID, Case
@@ -1279,7 +1280,7 @@ class ButlerWebTest(ButlerUnifiedCase):
     def test_it_is_refused_with_a_reason_when_the_butler_is_off(self):
         env = SimpleNamespace(runtime=self.app.runtime, state_dir=self.state, topics=self.app.topics)
         ops = web_ops.Ops(env, self.app.web_message)
-        self.settings(enabled=False)  # 纯话题: a message of the private chat would open a topic of its own.
+        switch_on(self, "0")  # No butler: a message of the private chat would open a topic of its own.
         with mock.patch.object(self.app.runtime.access, "owner_chat", return_value=CHAT):
             state, message = ops.run({"kind": "say", "op_id": "op-e2", "topic_key": BUTLER, "payload": {"text": "喂"}})
         self.assertEqual(state, "failed")

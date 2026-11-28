@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from support import make_job
+from support.butler import switch_on
 from test_compat_desk_topics import OWNER, DeskCase
 from test_butler_topics import CHAT
 
@@ -145,9 +146,9 @@ class SettleTest(AreaCase):
         butler_relay.after_runner(gateway, turn, self.ctx)
         self.assertEqual(routed_topic(self.ctx.state_dir, CHAT, BUTLER_CARD), "")
 
-    def test_in_the_mode_topics_a_turn_is_not_relayed(self):
+    def test_with_the_butler_off_a_turn_is_not_relayed(self):
         data, job = self.opened()
-        butler_settings.update(self.ctx.state_dir, enabled=False)
+        switch_on(self, "0")
         turn = make_job(job_id=job.job_id, chat_id=CHAT, message_id="om_next", topic_id=data["topic_id"],
                         timings={"backend_requested": 1.0, "execution_finished": 200.0})
         send = mock.Mock()
@@ -232,7 +233,7 @@ class QuoteTest(AreaCase):
         self.assertEqual(message_topic(self.ctx.state_dir, CHAT, "om_q2_in"), data["topic_id"])
         self.assertEqual(message_topic(self.ctx.state_dir, CHAT, "om_q2"), self.main)
         self.assertEqual(message_topic(self.ctx.state_dir, CHAT, "omt_2"), "")
-        # The mode 纯话题: a thread stays its root's, as before.
+        # The butler off (COVEY_BUTLER=0): a thread stays its root's, as before.
         with mock.patch.object(butler, "enabled", return_value=False):
             off = context_for_topic(self.ctx, {**handed, "message_id": "om_q2_off"}, lambda w: w)
         self.assertEqual(off.topic_id, self.main)

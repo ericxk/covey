@@ -98,6 +98,11 @@ class ButlerUnifiedCase(UnifiedCase):
     def settings(self, **changes):
         butler_settings.update(self.state, **changes)
 
+    @staticmethod
+    def butler_on(on):
+        """The butler on or off (COVEY_BUTLER), within setUp's switch_on."""
+        os.environ[butler.ENV] = '1' if on else '0'
+
     def topic(self):
         return json.loads((self.state / 'topics' / BUTLER / 'topic.json').read_text())
 
@@ -126,9 +131,9 @@ class RoutingTest(ButlerUnifiedCase):
         self.assertIsNone(self.app.topics.target(self.state, BUTLER, CHAT))
 
     def open_topic(self, mid='om_t'):
-        self.settings(enabled=False)
+        self.butler_on(False)
         self.send(mid)
-        self.settings(enabled=True)
+        self.butler_on(True)
         return self.record(mid)['topic_id']
 
     def test_a_reply_in_a_topic_goes_to_that_topic(self):
@@ -214,7 +219,7 @@ class RoutingTest(ButlerUnifiedCase):
         self.assertIsNone(self.app.butler.app_for(self.ctx, self.event('om_x'), False))
 
     def test_settings_off_opens_a_topic_as_ever(self):
-        self.settings(enabled=False)
+        self.butler_on(False)
         self.send('om_1')
         self.assertNotEqual(self.record('om_1')['topic_id'], BUTLER)
         self.assertFalse((self.state / 'topics' / BUTLER).exists())
@@ -393,7 +398,7 @@ class ReplyPlaceTest(ButlerUnifiedCase):
 
 
 class SwitchOffTest(ButlerUnifiedCase):
-    switch = ''
+    switch = '0'
 
     def test_a_top_level_message_opens_a_topic_and_replies_are_in_threads(self):
         self.send('om_1')
@@ -411,13 +416,12 @@ class SwitchOffTest(ButlerUnifiedCase):
 
 
 class PrivateModeTest(ButlerUnifiedCase):
-    """The private chat mode (docs/butler.md 私聊模式) with the switch allowing the butler, not saying 1."""
+    """The butler with the switch allowing it, not saying 1, and the switch turned off (COVEY_BUTLER=0)."""
     switch = ''
 
     def setUp(self):
         super().setUp()
         self.addCleanup(butler.configure_state, butler.configure_state(self.state))
-        self.settings(enabled=True)  # 管家.
 
     def argv(self, reply_to):
         return message_request.message_argv('p', chat_id=CHAT, reply_to=reply_to, flag='--text', value='x', key='k')
@@ -427,11 +431,11 @@ class PrivateModeTest(ButlerUnifiedCase):
         self.assertEqual(self.job_of('om_1').topic_id, BUTLER)
         self.assertIn('--reply-in-thread', self.argv('om_1'))  # The butler's card in the message's thread.
 
-    def test_in_the_mode_topics_a_quote_of_a_butler_card_opens_its_own_topic(self):
+    def test_with_the_butler_off_a_quote_of_a_butler_card_opens_its_own_topic(self):
         self.send('om_1')
         self.done(self.job_of('om_1'))
         remember_topic_message(self.state, BUTLER, CHAT, 'om_card')
-        self.settings(enabled=False)
+        self.butler_on(False)
         self.send('om_2', root='om_1', parent_id='om_card')
         record = self.record('om_2')
         self.assertNotEqual(record['topic_id'], BUTLER)
@@ -444,22 +448,9 @@ class PrivateModeTest(ButlerUnifiedCase):
         self.assertIn('--reply-in-thread', self.argv('om_2'))
         self.send('om_t', root='om_2')  # In that topic's thread: that topic's.
         self.assertEqual(self.record('om_t')['topic_id'], record['topic_id'])
-        self.settings(enabled=True)  # Back: the same quote is the butler's again.
+        self.butler_on(True)  # Back: the same quote is the butler's again.
         self.send('om_3', root='om_1', parent_id='om_card')
         self.assertEqual(self.job_of('om_3').topic_id, BUTLER)
-
-    def test_the_start_settles_the_mode_once_and_not_when_ruled_out(self):
-        state = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        ctx = SimpleNamespace(state_dir=state)
-        with mock.patch.dict(os.environ, {butler.ENV: '0'}):
-            session.Butler.settle(ctx, self.logs.append)
-        self.assertFalse((state / butler_settings.FILE).exists())
-        session.Butler.settle(ctx, self.logs.append)
-        session.Butler.settle(ctx, self.logs.append)
-        self.assertEqual([line for line in self.logs if 'mode' in line], ['main thread mode settled mode=agent'])
-        with mock.patch.object(butler_settings, 'settle_mode', side_effect=OSError('disk')):
-            session.Butler.settle(ctx, self.logs.append)
-        self.assertEqual(self.logs[-1], 'main thread mode not settled: OSError: disk')
 
 
 class SupplementTest(ButlerUnifiedCase):
@@ -1308,7 +1299,7 @@ class TurnTest(ButlerUnifiedCase):
         switches = {name: cenv.get(name, '') for name in ('COVEY_KNOWLEDGE', 'COVEY_BUTLER_RULES', 'COVEY_PROJECTS', 'COVEY_PROJECT_TRIAGE', 'COVEY_PROJECT_TIDY')}
         self.assertEqual(config['env'], cenv.mirrored({butler.STATE_ENV: str(self.state), butler.JOB_ENV: 'om_1', **switches}))
         self.assertEqual(Path(config['args'][-1]), session.RELEASE / butler.MCP_ENTRY)
-        self.settings(enabled=False)
+        self.butler_on(False)
         self.send('om_2')
         other = SimpleNamespace(topic_id=self.record('om_2')['topic_id'], chat_id=CHAT)
         ctx, prompt = session.butler_turn(self.ctx, other, 'MSG', None, mock.Mock(), self.logs.append)
@@ -1401,7 +1392,7 @@ class CompactionTest(ButlerUnifiedCase):
         self.assertIsNotNone(self.claude.compaction.request(self.target))
 
     def test_a_topics_turn_is_left_alone(self):
-        self.settings(enabled=False)
+        self.butler_on(False)
         self.send('om_2')
         job = SimpleNamespace(topic_id=self.record('om_2')['topic_id'], chat_id=CHAT, job_id=2,
                               tool_trace=SimpleNamespace(context_tokens=10_000_000))
@@ -1423,7 +1414,7 @@ class CompactionTest(ButlerUnifiedCase):
         for text in ('2000 token', 'T 号', '主人', '偏好', '还没定的问题', '过程细节'):
             self.assertIn(text, session.COMPACT_INSTRUCTIONS)
         # A topic's turn, and the butler's own topic with the butler off: /compact as before.
-        self.settings(enabled=False)
+        self.butler_on(False)
         self.send('om_2')
         topic = SimpleNamespace(topic_id=self.record('om_2')['topic_id'], chat_id=CHAT)
         for job in (topic, self.job):
@@ -1549,14 +1540,14 @@ class IdleCompactionTest(ButlerUnifiedCase):
         self.ask()
         self.done(self.job)
         spawn, _ = self.started()
-        self.settings(enabled=False)
+        self.butler_on(False)
         with self.live(), mock.patch('threading.Thread') as thread:
             idle_compaction.after_runner(self.app, self.claude, self.job, self.claude.harness.context, self.launch())
         self.assertFalse(thread.called)
         self.assertIsNone(self.start())
         self.assertFalse(spawn.called)
         # Nor in a task runner or a test app (no detached jobs).
-        self.settings(enabled=True)
+        self.butler_on(True)
         with mock.patch('threading.Thread') as thread:
             idle_compaction.after_runner(self.app, self.claude, self.job, self.claude.harness.context, self.launch())
         self.assertFalse(thread.called)
@@ -1765,7 +1756,7 @@ class HarnessNoteTest(unittest.TestCase):
         with mock.patch.object(session.contract, "enabled", return_value=True):
             note = self.thread({}).harness_note(self.state)
             self.assertIn("no enabled Harness can take the Bridge tools", note)
-            self.assertIn("纯话题", note)
+            self.assertIn("COVEY_BUTLER=0", note)
             self.assertEqual(self.thread({session.HARNESS: self.app()}).harness_note(self.state), "")
             note = self.thread({"dsh": self.app(tools=False)}).harness_note(self.state)  # Enabled, but no Bridge tools.
             self.assertIn("no enabled Harness can take the Bridge tools", note)

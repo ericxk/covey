@@ -2,8 +2,8 @@
 chat. The butler only sends it (the tool ``settings_panel``, TOOLS); it cannot change its settings.
 
 It is the bot menu's 设置 card's tab 配置 (app/settings_hub.py, cards/settings_hub.py CONFIG), one section a use: 新话题
-(every new topic's preselection), 管家 (the butler's own, and the private chat mode: 每条直接开一个话题
-is saved only after 确定改, the record's view keeping ``confirm`` meanwhile), 专项负责人 (what a new
+(every new topic's preselection), 管家 (the butler's own; its 私聊顶层的消息 row is retired, MODE_KINDS: an older card's
+click says MODE_RETIRED and changes nothing), 专项负责人 (what a new
 project's lead runs on, with COVEY_PROJECTS=1: app/lead_harness.py) and 子 Agent; the
 pages 管家, 新话题 and 模型 it took the place of are retired into it. Its 工作区 and 运行方式 rows and the 工作区 tab's 保存用途 are gone
 (cards/butler_panel.py OFFLINE_KINDS): an older card's click on one says OFFLINE_NOTICE and changes nothing; the repositories are the 设置 card's
@@ -30,7 +30,8 @@ from covey.core.menu_choice import (budget_effort, butler_harnesses, default_ent
 from covey.app.butler_env import reply
 from covey.app.butler_model_choice import resolve
 from covey.app.menu_panel import MenuPanel, hub_top
-from covey.cards.butler_panel import (ASSIST, ASSIST_EFFORT, ASSIST_MODEL, ASSIST_PROVIDER, COMPACT, EFFORT, ENABLE, HARNESS, KINDS, MODE, MODE_CHOICES, MODEL, MODEL_FOLLOW,
+from covey.cards.butler_panel import (ASSIST, ASSIST_EFFORT, ASSIST_MODEL, ASSIST_PROVIDER, COMPACT, EFFORT, HARNESS, KINDS,
+                                                    MODE_KINDS, MODE_RETIRED, MODEL, MODEL_FOLLOW,
                                                     NOTE_LENGTH, OFFLINE_KINDS, OFFLINE_NOTICE, PAGE_OF, PROVIDER,
                                                     RETIRED_KINDS, RETIRED_NOTICE, SUBAGENTS,
                                                     TOPIC_EFFORT, TOPIC_HARNESS, TOPIC_MODEL, TOPIC_PROVIDER,
@@ -52,9 +53,6 @@ MENU_KEY = 'main_thread_settings'  # The bot menu's event key that opens the 设
 OWNER_ONLY = '⚠️ 只有机器人主人能改管家的设置。'
 GONE = '⚠️ 这个选项已不可用，卡片已按最新设置重画。'
 UNREADABLE_NOTICE = '⚠️ ' + butler_settings.UNREADABLE + '。'
-# Said on the card once the private chat mode changed (docs/butler.md 私聊模式).
-MODE_NOTICES = {True: '已改成交给管家：私聊顶层的消息交给管家。',
-                False: '已改成每条直接开一个话题；已开的话题照常在各自的话题串里继续。'}
 LEAD = 'lead'  # The scope of 专项负责人's rows (ROW_CHANGES).
 ASSIST_SCOPE = 'assist'  # The scope of 辅助模型's 供应商, 模型 and 思考预算 rows (ROW_CHANGES).
 # Said on the card once another setting was saved (docs/ui.md 5.2: 保存后用一句灰字回执), by the scope of the row
@@ -253,8 +251,7 @@ class ButlerPanel:
                                       top=hub_top(page or CONFIG, view['token'], view), page=page,
                                       follows=self.follows(ctx, defaults, choices, chat),
                                       fallback=self.fallback(ctx, defaults, choices, chat),
-                                      butler_on=butler.available() and settings.enabled,
-                                      butler_allowed=butler.available(),
+                                      butler_on=butler.enabled(),
                                       lead_on=projects.enabled(), assist=self.assist_row(ctx, settings))
 
     def assist_row(self, ctx, settings):
@@ -330,21 +327,18 @@ class ButlerPanel:
         if entry is None:
             return 'main_panel_unknown'
         token, path, _ = entry
-        outcome, confirm = 'main_panel', False
+        outcome = 'main_panel'
         if not owner:
             outcome, notice = 'owner_only', OWNER_ONLY
         elif value['kind'] == SECTION:
             notice = '' if value.get('open') in SECTIONS else GONE  # 展开: no setting changes, the view's ``open``.
-        elif value['kind'] == MODE and MODE_CHOICES.get(value.get('option'), (True,))[0] is False \
-                and butler_settings.load(ctx.state_dir).enabled:
-            notice, confirm = '', True  # 每条直接开一个话题 is saved by 确定改 only (mode_confirm).
         else:
             changes = self.changes(ctx, event, value)
             notice = GONE if changes is None else ''
             if changes:
                 try:
                     butler_settings.update(ctx.state_dir, **changes)
-                    notice = MODE_NOTICES.get(changes.get('enabled')) or saved_notice(value['kind'])
+                    notice = saved_notice(value['kind'])
                 except Unreadable as exc:  # Nothing written: the settings as they were, not reset (W1-F).
                     self.topics.runtime.log(f'main thread settings not saved: {exc}'[:300])
                     notice = UNREADABLE_NOTICE
@@ -352,15 +346,15 @@ class ButlerPanel:
                 notice = RETIRED_NOTICE
             elif value['kind'] in OFFLINE_KINDS:
                 notice = OFFLINE_NOTICE
+            elif value['kind'] in MODE_KINDS:
+                notice = MODE_RETIRED
         with self.menu.lock(path):
             record = self.menu.clicked(path, event)  # Read again: another click may have drawn it since.
             if record is None:
                 return 'main_panel_unknown'
             view = {**record['view'], 'token': token, 'notice': notice}
             view['revision'] += 1
-            view.pop('confirm', None)  # Any other click closes the question 每条直接开一个话题 asked.
-            if confirm:
-                view['confirm'] = True
+            view.pop('confirm', None)  # A card drawn while 私聊顶层的消息 asked to confirm (MODE_KINDS): the question goes.
             view.pop('more', None)  # 更多 stays open after a click on one of its rows (cards/butler_panel.py MORE_KINDS).
             if outcome == 'main_panel' and value['kind'] in MORE_KINDS:
                 view['more'] = True
@@ -383,12 +377,8 @@ class ButlerPanel:
         settings = butler_harness.drawn(saved, self.topics.apps)
         defaults = settings.topic_defaults
         kind, option = value['kind'], value.get('option')
-        if kind == ENABLE:
-            return {'enabled': value.get('on')} if isinstance(value.get('on'), bool) else None
-        if kind == MODE:  # 交给管家 (每条直接开一个话题 waits for 确定改: click); the mode it is already: nothing.
-            on = MODE_CHOICES.get(option, (None,))[0]
-            return None if on is None else {} if on == settings.enabled else {'enabled': on}
-        if kind in RETIRED_KINDS or kind in OFFLINE_KINDS:  # 直接开工, 记住的工作区 and the 工作区 rows are gone: an older card's click changes nothing.
+        if kind in RETIRED_KINDS or kind in OFFLINE_KINDS or kind in MODE_KINDS:
+            # 直接开工, 记住的工作区, the 工作区 rows and 私聊顶层的消息 are gone: an older card's click changes nothing.
             return {}
         if not isinstance(option, str):
             return None

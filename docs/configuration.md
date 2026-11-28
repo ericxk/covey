@@ -12,7 +12,7 @@
 
 | 功能 | 开关 | 怎么确认开着 | 怎么关 |
 | --- | --- | --- | --- |
-| [管家](#管家) | `COVEY_BUTLER`（不设即允许） | 私聊发一句话由管家回答或开话题；设置卡「配置」页有管家一段。管家没选 Harness 时用 Claude Code，没启用 Claude Code 时用启用了的 Codex 或 Antigravity（再没有时 DeepSeek Harness）；设置卡「配置」页的“管家”一段可换；选的 Harness 没启用时私聊照旧开话题 | `COVEY_BUTLER=0`；或主人在设置卡「配置」页的“管家”一段把私聊顶层改成“每条直接开一个话题” |
+| [管家](#管家) | `COVEY_BUTLER`（不设即开） | 私聊发一句话由管家回答或开话题；设置卡「配置」页有管家一段。管家没选 Harness 时用 Claude Code，没启用 Claude Code 时用启用了的 Codex 或 Antigravity（再没有时 DeepSeek Harness）；设置卡「配置」页的“管家”一段可换；选的 Harness 没启用时私聊照旧开话题 | `COVEY_BUTLER=0` |
 | [专项](projects.md) | `COVEY_PROJECTS` | 管家把长期要跟进的事开成专项时，私聊出现专项卡 | `COVEY_PROJECTS=0`（下面专项的几个开关跟着没用） |
 | [整理专项](#整理专项)（只提议） | `COVEY_PROJECT_TIDY`（不设是 `suggest`；要专项开着） | 话题多了以后私聊出现“建个专项？”的提议卡；看板卡上有「整理专项」 | `COVEY_PROJECT_TIDY=off` |
 | [到点回来看](usage.md#到点回来看) | `COVEY_REVISIT`（看和取消在菜单「看板」） | 话题要等训练、CI 这类外部的事时，这一轮说好几点回来看就结束，到点自己再起一轮；菜单「看板」里有“到点回来看”一组 | `COVEY_REVISIT=0` |
@@ -114,7 +114,7 @@
 | `harnesses.json`（`--harness-config`） | 其余 Harness 的参数和模型顺序 | 改文件后重启（`restart` 或重新注册） |
 | `devices.json`（`$COVEY_DATA_HOME/devices.json`，或 `COVEY_DEVICES_FILE` 指的文件） | 多设备（开发中，默认关）：每台设备怎么 ssh、能跑哪些 Harness、给任务的环境和谁能用；`COVEY_DEVICES=1` 才读 | 改文件后重启 |
 | 服务清单里的环境变量 | 可选功能的开关、Harness 的环境（`PATH`、`CODEX_HOME`、代理等） | `covey_service.py set`（[改开关三步](#改开关三步)），或在终端里设好后重新注册，见下文 |
-| 状态目录里的设置文件 | 主人在飞书里改的设置：工作区列表、私聊模式、代答等 | 在飞书的设置卡上改，实时生效 |
+| 状态目录里的设置文件 | 主人在飞书里改的设置：工作区列表、管家和新话题的配置、代答等 | 在飞书的设置卡上改，实时生效 |
 
 服务清单不保存 App Secret、访问令牌和 Harness 凭据。它们留在 lark-cli 和各 CLI 自己的配置里。
 
@@ -290,7 +290,7 @@
 
 同时做几件事的分流、整理专项（判断，和整理时先补的话题要点）、记忆自己长是后台的一问一答：给一段 JSON，要一行 JSON，不用工具、不留会话，到点连进程组一起杀掉。它们只从一个出口出去（`app/assist.py`），由设置卡「配置」和网页设置页的**辅助模型**一节决定问谁、用哪个模型和思考预算，所有后台活共用这一套，不再分轻重两套模型（存在 `main-thread.json` 的 `assist`：`harness`、`model`、`effort`、`off`；只有 `harness` 的旧文件照读，模型和预算按 Harness 自己的；旧版本读不到这个字段，回滚后这一项回到“自动”）：
 
-- **自动（跟随管家）**，默认：候选按这个顺序排，只取设置里出现过的 Harness：管家开着（`COVEY_BUTLER` 不是 `0`、私聊模式是管家）时管家的 Harness，再是新话题默认、专项负责人里点名的 Harness；这些都没点名时用 Bridge 默认的 Harness。跟着谁就连它的模型、思考预算和供应商一起跟（管家是 Antigravity 的 `gemini-4-neon`、`xhigh`，后台活就都用它、`xhigh`，不悄悄换低一档；管家在 Codex 的某个网关模型上，后台活也走那个网关；`ultra`、`ultracode` 这类编排档按它的思考预算 `xhigh` 问，一问一答用不上编排；跟的设置没写模型时模型和预算都用 Harness 自己的）。过滤掉不能一问一答的（DeepSeek Harness 和扩展里没声明 `ask_once` 的 Harness）、现在用不了的（可用性检查的最近一次结果和最近一轮的失败，只读内存不读盘）、Antigravity 没登录或多账号都被挡住的、正在熔断的，用剩下的第一个。
+- **自动（跟随管家）**，默认：候选按这个顺序排，只取设置里出现过的 Harness：管家开着（`COVEY_BUTLER` 不是 `0`）时管家的 Harness，再是新话题默认、专项负责人里点名的 Harness；这些都没点名时用 Bridge 默认的 Harness。跟着谁就连它的模型、思考预算和供应商一起跟（管家是 Antigravity 的 `gemini-4-neon`、`xhigh`，后台活就都用它、`xhigh`，不悄悄换低一档；管家在 Codex 的某个网关模型上，后台活也走那个网关；`ultra`、`ultracode` 这类编排档按它的思考预算 `xhigh` 问，一问一答用不上编排；跟的设置没写模型时模型和预算都用 Harness 自己的）。过滤掉不能一问一答的（DeepSeek Harness 和扩展里没声明 `ask_once` 的 Harness）、现在用不了的（可用性检查的最近一次结果和最近一轮的失败，只读内存不读盘）、Antigravity 没登录或多账号都被挡住的、正在熔断的，用剩下的第一个。
 - **点名一个 Harness**：只用它，和上面几节一样再选供应商、模型、思考预算（选 Harness 时先填上它的第一个模型和那个模型的推荐档，能改）。它没启用、用不了、在熔断，这次就不调模型，各功能走自己的退路，原因写清（“设置里选的 Codex 现在用不了（登录失效）”），**绝不换到别的 Harness**。点名的 Harness 下线了也照旧显示点名，不悄悄改回自动。
 - **不用模型（只按规则）**：后台活一律不调模型：分流按新开一件；整理专项没有只按规则的整理，定时整理不跑（不再每天发一张注定失败的卡），你手动点的整理卡写为什么；记忆自己长开着时，主人说“以后/别再”由话题自己在检查点里记（和不开记忆自己长时一样）。
 
@@ -340,10 +340,10 @@
 
 ### 管家
 
-`COVEY_BUTLER` 决定部署允不允许管家（私聊模式“管家”，见[管家](butler.md#私聊模式)和[使用指南 · 管家](usage.md#管家)）：
+`COVEY_BUTLER` 决定有没有管家（见[管家 · 开不开管家](butler.md#开不开管家)和[使用指南 · 管家](usage.md#管家)）：
 
-- `0`：不允许。不起后台线程、不改消息路由，设置卡没有管家的标签。
-- 不设或 `1`：允许。用不用由主人在设置卡上选的模式定（`<state>/main-thread.json` 的 `mode`），改模式不用重启。新部署第一次启动写成管家，日志 `main thread mode settled mode=agent|topics`。
+- `0`：没有管家。不起后台线程、不改消息路由，设置卡「配置」页没有管家一段，私聊顶层每条消息开一个话题。
+- 不设或其他值：有管家，私聊顶层的消息交给它。以前设置卡上能把“私聊顶层的消息”改成“每条直接开一个话题”，已下线：`main-thread.json` 里的 `mode` 不再读，以前选了纯话题的部署升级后有管家，要纯话题就设 `COVEY_BUTLER=0`（[已下线的功能](legacy.md)）。
 - 管家的设置在 `<state>/main-thread.json`，工具请求在 `<state>/main-thread/requests/`。管家的会话没选 Harness 时用 Claude Code，没启用 Claude Code 时用启用了的 Codex 或 Antigravity，再没有时 DeepSeek Harness（`app/butler_harness.py`）；设置卡「配置」页的管家一段可以换（`harness`，见[管家 · 换 Harness](butler.md#换-harness)）。Claude Code 没调通的新装，`./install` 在服务第一次启动前写好调通的那个，如 `"harness": "codex"`（`core/butler_settings.py` 的 `preset_harness`，文件里已经有 Harness 的不动）。
 - `main-thread.json` 里旧的 `"desk_topics": true` 读到也按 `false` 处理，启动时记一行 warning，见[已下线的功能与旧配置](legacy.md)。
 - 专项开着时，话题能把只有管家能办的事转给管家（检查点 `ask_butler`，记录在 `<state>/butler-asks/`），没有单独的开关，见[在话题里说开专项](projects.md#在话题里说开专项)。
@@ -523,7 +523,7 @@
 | `COVEY_PROJECTS` | `core/projects.py`、`core/butler.py`、`core/placement.py`、`core/board_read.py`、`core/butler_tool_specs.py` | 空：开专项和负责人的运行（入口是管家直接开，和 `COVEY_PROJECT_UPGRADE` 的转成专项）；`0`、`off`、`false`、`no` 关：谓词全为假，放置表和看板和没有专项时一样，不建记录。见[架构 · 专项](architecture.md#专项) | 否 |
 | `COVEY_BUTLER_HUNG_MINUTES` | `app/unstick.py`（`hung_seconds`，任务进程和 Bridge 都读） | `10`：管家或负责人的一轮这么多分钟没有任何动静（不在等命令、等回答、请求重试或排队等空位），而主人后来的话还在等它（没读到的补充、同一路排着的消息）时，停下这一轮（记失败、可检查并继续），后来的话接着跑；没动静满 3 分钟时先在每条等着的消息下说一句它在等哪一轮。`0` 关掉停下，只说那一句。0 到 1440 | 否 |
 | `COVEY_BUTLER_TRACKS_MAX`（旧名 COVEY_MAIN_TRACKS_MAX、LARK_BRIDGE_MAIN_TRACKS_MAX） | `core/butler_tracks.py`（`limit`） | 3：同时在跑的件数上限，取值限制在 2 到 4，读不出来按 3 | 否 |
-| `COVEY_BUTLER`（旧名 COVEY_MAIN_THREAD、LARK_BRIDGE_MAIN_THREAD） | `core/butler.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |
+| `COVEY_BUTLER`（旧名 COVEY_MAIN_THREAD、LARK_BRIDGE_MAIN_THREAD） | `core/butler.py` | 有管家；`0` 没有 | 否 |
 | `COVEY_TRACK_JUDGE` | `app/track_judge.py`（同时做几件事里，规则没能定的新消息交给小模型判断是并进哪件在做的事还是新开一件；`app/butler_tracks.py` 的 `Tracks.decide` 调用，`COVEY_BUTLER_TRACKS` 开着才会问） | `claude`（默认，名字沿用旧的）：问[辅助模型](#辅助模型)选的那个；`off` 不问，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准都按新开一件 | 否 |
 | `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py`（`limit_ms`） | 6000：小模型硬上限（毫秒，200 到 10000），超过按新开一件（Claude Code 冷启动一问约 3.4 秒）；问的是 Codex 或 Antigravity 自己的命令行时不设默认 10000（它们一次要 6 到 12 秒），设了就按设的 | 否 |
 | `COVEY_JUDGE_CODEX_MODEL` | `backends/codex/judge.py`（`choose`：辅助模型是 Codex 时用的模型） | 空：辅助模型的设置里没有模型时用 Codex 自己的默认模型和预算。写一个账号目录里有的模型 id：设置里没有模型时用它（目录里没有的不用），不带预算 | 否 |

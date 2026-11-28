@@ -538,7 +538,7 @@ class QuestionTest(Case):
 
 
 class SwitchOffTest(Case):
-    switch = ""
+    switch = "0"
 
     def test_nothing_is_sent(self):
         self.opened("t1", plan={"start": True}, topic_id=TOPIC)

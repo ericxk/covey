@@ -147,8 +147,8 @@ ACTIONS = {
     # The confirmation card the owner's first @ in a group sends to his private chat: 启用 / 先不启用 (app/group_manager.py).
     "bridge_group_confirm": CardAction("确认是否启用群"),
     # The 管家 settings card (cards/butler_panel.py KINDS).
-    "bridge_main_enable": CardAction("开关管家"),
-    "bridge_main_mode": CardAction("选择私聊模式"),
+    "bridge_main_enable": CardAction("开关管家（已下线）"),
+    "bridge_main_mode": CardAction("选择私聊模式（已下线）"),
     "bridge_main_start_row": CardAction("直接开工（已下线）"),
     "bridge_main_harness": CardAction("选择管家 Harness"),
     "bridge_main_workspace": CardAction("选择管家工作区（已下线）"),

@@ -1,13 +1,14 @@
 """The butler's settings (docs/butler.md): <state>/main-thread.json. Only the owner changes them, on the
 settings card (app/butler_panel.py); the butler cannot change its own. A missing or bad field reads as
-its default, so an older or hand-edited file still loads. The private chat mode (``enabled``) is read through
-core/butler.py ``agent_mode``, the one rule every process (task runners, the MCP server) shares.
+its default, so an older or hand-edited file still loads.
 
 A topic the butler opens always starts at once (its only wait is a worktree's launch card). The settings 直接开工
 (``start``) and 记住的工作区 (``trusted``) that decided it are retired (docs/legacy.md): a file that still has them
 loads, they are not read and not written back. 独立复核 is retired too (docs/legacy.md): its model (``review``) is not
 read, and a write keeps what the file has (``KEPT``) so an older release goes on reading it. So is 敏感词脱敏: ``redaction``
 and ``topic_defaults.redaction`` are not read, and a write keeps them as the file has them (``KEPT``, ``KEPT_TOPIC``).
+So is the private chat mode (私聊顶层的消息, ``mode`` and ``enabled``): whether the butler serves the chat is COVEY_BUTLER's
+alone (core/butler.py ``enabled``); the file's mode is kept, unread.
 """
 from __future__ import annotations
 
@@ -65,9 +66,6 @@ class AssistChoice:
 
 @dataclasses.dataclass(frozen=True)
 class Settings:
-    # The private chat mode (docs/butler.md 私聊模式): True 管家, False 纯话题, the chat's top level
-    # opening topics as before. Saved as ``mode``, and as ``enabled`` for an older release.
-    enabled: bool = True
     # The butler's own Harness (core/roster.py NAMES; "" follows what is enabled: Claude Code while it can run the butler,
     # else the first enabled Harness that can, app/butler_harness.py), model and budget; "" the Harness's default model. A
     # Harness named here that cannot run the butler (no Bridge tools, not enabled) is not replaced: app/butler.py says so
@@ -120,7 +118,6 @@ def from_json(data) -> Settings:
     assist = data.get("assist") if isinstance(data.get("assist"), dict) else {}
     harness, model, effort = _choice(data)
     return Settings(
-        enabled=contract.agent_mode(data),
         harness=harness, model=model, effort=effort,
         workspace=_text(data.get("workspace")),
         compact_tokens=compact if type(compact) is int and compact >= 0 else base.compact_tokens,
@@ -140,8 +137,7 @@ def from_json(data) -> Settings:
 
 def to_json(settings: Settings) -> dict:
     data = dataclasses.asdict(settings)
-    data.update(schema_version=SCHEMA, mode=contract.AGENT if settings.enabled else contract.TOPICS,
-                workspace_notes=dict(settings.workspace_notes))
+    data.update(schema_version=SCHEMA, workspace_notes=dict(settings.workspace_notes))
     return data
 
 
@@ -179,8 +175,9 @@ def _for_write(state_dir) -> dict:
 
 
 # Keys of retired settings no Settings field reads, written back as the file has them so an older release goes on
-# reading what it wrote: desk_topics (front-desk topics), review (独立复核's model) and redaction (敏感词脱敏 of the butler).
-KEPT = ("desk_topics", "review", "redaction")
+# reading what it wrote: desk_topics (front-desk topics), review (独立复核's model), redaction (敏感词脱敏 of the butler)
+# and the private chat mode (``mode``, and ``enabled`` an older release wrote beside it).
+KEPT = ("desk_topics", "review", "redaction", "mode", "enabled")
 KEPT_TOPIC = ("redaction",)  # The same inside topic_defaults (敏感词脱敏 of the topics it opens).
 
 
@@ -225,7 +222,6 @@ def save(state_dir, settings: Settings) -> None:
         data = _for_write(state_dir)
         before = from_json(data)
         _write(state_dir, settings, data)
-    contract.forget_mode()
     _told(state_dir, before, settings)
 
 
@@ -237,44 +233,18 @@ def update(state_dir, **changes) -> Settings:
         before = from_json(data)
         settings = dataclasses.replace(before, **changes)
         _write(state_dir, settings, data)
-    contract.forget_mode()
     _told(state_dir, before, settings)
     return settings
 
 
 def preset_harness(state_dir, harness) -> bool:
-    """The butler's Harness written into a settings file that names none yet, the rest of the file left as it is (no mode:
-    ``settle_mode`` writes that at the Bridge's first start, 管家 for a new deployment): what ./install does for a new service
-    where Claude Code did not answer and this Harness did (service/installer.py butler_preset, docs/install.md 没有 Claude
-    Code 时). A file that names a Harness (the owner chose it on the 设置 card) stays as it is. Whether it was written."""
+    """The butler's Harness written into a settings file that names none yet, the rest of the file left as it is: what
+    ./install does for a new service where Claude Code did not answer and this Harness did (service/installer.py
+    butler_preset, docs/install.md 没有 Claude Code 时). A file that names a Harness (the owner chose it on the 设置 card) stays as it is. Whether it was written."""
     with resource_lock("main-thread-settings", str(path(state_dir))):
         data = _for_write(state_dir)
         if _text(data.get("harness")):
             return False
         write_json(path(state_dir), {**data, "harness": harness}, ensure_ascii=False, indent=1)
-    contract.forget_mode()
     _told(state_dir, None, None)
     return True
-
-
-def _fresh(state_dir) -> bool:
-    """No job and no topic yet: a new deployment's first start."""
-    jobs, topics = Path(state_dir) / "jobs", Path(state_dir) / "topics"
-    return not (jobs.is_dir() and any(jobs.glob("*.json"))) \
-        and not (topics.is_dir() and any(p.name != "aliases" and p.is_dir() for p in topics.iterdir()))
-
-
-def settle_mode(state_dir):
-    """Write the private chat mode once, at the Bridge's start (core/migrate.py private-mode): 管家 for a new
-    deployment, else what the settings said without one (``agent_mode``: on only with COVEY_BUTLER=1 and
-    the card's 开启), so a deployment the owner had keeps its way. From then on the mode alone decides, whatever the
-    switch says (but 0). The mode written, or None when the file has one already."""
-    with resource_lock("main-thread-settings", str(path(state_dir))):
-        data = _for_write(state_dir)
-        if data.get("mode") in contract.MODES:
-            return None
-        settings = dataclasses.replace(from_json(data), enabled=_fresh(state_dir) or contract.agent_mode(data))
-        write_json(path(state_dir), _topic_kept({**data, **to_json(settings)}, data), ensure_ascii=False, indent=1)
-    contract.forget_mode()
-    _told(state_dir, None, None)
-    return contract.AGENT if settings.enabled else contract.TOPICS

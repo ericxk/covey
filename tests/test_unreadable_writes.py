@@ -73,14 +73,13 @@ class SettingsTest(Case):
 
     def setUp(self):
         super().setUp()
-        butler_settings.update(self.state, enabled=True, harness="codex", compact_tokens=200000)
+        butler_settings.update(self.state, harness="codex", compact_tokens=200000)
         self.path = butler_settings.path(self.state)
 
     def writes(self):
         return {"update": lambda: butler_settings.update(self.state, subagents="off"),
                 "save": lambda: butler_settings.save(self.state, butler_settings.Settings()),
-                "preset_harness": lambda: butler_settings.preset_harness(self.state, "agy"),
-                "settle_mode": lambda: butler_settings.settle_mode(self.state)}
+                "preset_harness": lambda: butler_settings.preset_harness(self.state, "agy")}
 
     def test_a_torn_file_refuses_every_write_and_stays_byte_for_byte(self):
         body = self.torn(self.path)
@@ -99,7 +98,7 @@ class SettingsTest(Case):
         self.assertEqual(sum(isinstance(exc, Unreadable) for exc in raised), 1, raised)
         self.assertEqual([exc for exc in raised if exc is not None and not isinstance(exc, Unreadable)], [])
         after = butler_settings.load(self.state)
-        self.assertEqual((after.enabled, after.harness, after.compact_tokens), (True, "codex", 200000))  # Never the defaults.
+        self.assertEqual((after.harness, after.compact_tokens), ("codex", 200000))  # Never the defaults.
 
     def test_the_old_way_would_have_reset_them(self):
         """The bug itself: read_object gives {} for the torn file, so a write of one field resets the rest."""

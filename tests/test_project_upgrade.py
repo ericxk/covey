@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from support.records import write_topic
+from support.butler import switch_on
 from test_dispatch_cards import ASK, ASK_URL, CHAT, DispatchCase
 
 from covey.app import butler_topics, project_cards, project_clicks, project_lead
@@ -44,9 +45,7 @@ class UpCase(DispatchCase):
         self.state = self.ctx.state_dir
         previous = butler.configure_state(self.state)
         self.addCleanup(butler.configure_state, previous)
-        write_json(self.state / butler_settings.FILE, {"mode": "agent"})  # the butler: the lead needs the butler.
-        butler.forget_mode()
-        self.addCleanup(butler.forget_mode)
+        switch_on(self)  # the butler: the lead needs the butler.
         write_topic(self.state, topic_id=butler.butler_topic_id(CHAT), chat_id=CHAT, harness_id="claude", model="claude-opus-x",
                     effort="medium", main_thread=True, workspace_name="main-space", workdir="/absolute/main", root_id="")
         self.up = upgrades.Projects(self.env)

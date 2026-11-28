@@ -33,7 +33,7 @@
 | 收消息、路由、建任务 | `app/card_routing.py`、`app/topics.py`、`app/submission.py` | [一条消息的数据流](docs/architecture.md#一条消息的数据流) |
 | 卡片按钮与点击 | `app/card_actions.py`、`app/card_routing.py`、`app/card_lanes.py` | [卡片点击的数据流](docs/architecture.md#卡片点击的数据流)、[cards.md](docs/cards.md) |
 | 谁被服务、群聊、别人私聊时回一句（`COVEY_STRANGER_REPLY`，默认开） | `app/access.py`、`core/groups.py`、`app/group_manager.py`、`app/strangers.py` | [谁被服务](docs/architecture.md#谁被服务) |
-| 管家（私聊模式） | `app/butler.py`、`core/butler.py`、`core/placement.py`、`app/butler_tools.py`；跑在哪个 Harness `app/butler_harness.py` | [butler.md](docs/butler.md) |
+| 管家 | `app/butler.py`、`core/butler.py`、`core/placement.py`、`app/butler_tools.py`；跑在哪个 Harness `app/butler_harness.py` | [butler.md](docs/butler.md) |
 | 辅助模型：后台的一问一答（分流、整理专项和整理时补的话题要点、记忆自己长；看看、整理记忆只按规则）的唯一出口，设置里一项（自动跟随管家 / 点名 / 不用模型），熔断、拒绝冷却和最近一次记在 `assist-state.json` | `app/assist.py`（`route`、`ask`、`judge`、`on_settings_changed`）、`core/assist.py`（记录、原因码）、`app/track_judge.py`（只管怎么问，每问现起一个进程）、`backends/codex/judge.py`、`backends/agy/judge.py`、`core/one_shot.py` | [配置 · 辅助模型](docs/configuration.md#辅助模型) |
 | 话题与回带 | `app/butler_topics.py`（新话题的 Harness、模型、预算在 `app/butler_model_choice.py`；请求幂等账本 `core/butler_opened.py`）、`app/butler_relay.py`、`app/relay_targets.py`、`app/relay_send.py`；停住卡的原因、按钮和点击 `app/relay_stops.py` | [butler.md](docs/butler.md) |
 | 引用卡片接着说（顶层引用结论卡、问题卡副本等直达话题的那句话上的表情） | `app/butler_reactions.py` 的 `top_message`、`top_queued` 等，接入点在 `app/submission.py`、`app/steering.py`、`app/questions.py`、`app/held_notes.py`、`app/task_controls.py` | [引用卡片接着说的表情](docs/architecture.md#引用卡片接着说的表情) |
@@ -101,7 +101,7 @@
 | `app/batch_switch.py` | 批量换配置 (T786): the butler or a project's lead proposes switching several topics to another Harness, model or … |
 | `app/binding.py` | A topic's binding (Harness, model, budget, work mode and place) and what may change it |
 | `app/bot_menu.py` | The bot's custom menu (机器人自定义菜单): the owner's commands, since typed ones misfired |
-| `app/butler.py` | The butler's session, only in the private chat mode 管家 |
+| `app/butler.py` | The butler's session, unless COVEY_BUTLER=0 |
 | `app/butler_asks.py` | 话题转交管家: what the owner asks of a topic that only the butler can do (open a project, put this topic into one … |
 | `app/butler_env.py` | What a butler tool handler gets besides its request |
 | `app/butler_handoff.py` | What a topic gets when the butler hands it work |
@@ -371,7 +371,7 @@
 | `core/backup.py` | The daily backup of a state directory |
 | `core/board_read.py` | What the owner's private chat's topics are doing, as the records say it |
 | `core/browser_env.py` | Where the headless browser lives and how it starts |
-| `core/butler.py` | The butler (管家), in the private chat mode 管家 |
+| `core/butler.py` | The butler (管家): the owner's private chat with the bot, at its top level, talks to one long-lived Claude Code … |
 | `core/butler_mcp.py` | The MCP server in the butler's session, run as bin/covey_butler_mcp.py by the Claude Code of a butler job |
 | `core/butler_opened.py` | The butler's requests that opened, forked or handed on to a topic |
 | `core/butler_requests.py` | The butler's tool channel |

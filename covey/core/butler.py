@@ -1,11 +1,12 @@
-"""The butler (管家), in the private chat mode 管家 (docs/butler.md 私聊模式): the owner's private
-chat with the bot, at its top level, talks to one long-lived Claude Code session. It answers by itself, or with the
-Bridge's tools it opens a topic, hands the message to a topic, forks one, or answers a topic's choice question for
-the owner. Topics keep working as before; a reply in a topic's thread still goes to that topic. The other mode, 纯话题,
-is the chat as it was before the butler: each top-level message opens a topic.
+"""The butler (管家) (docs/butler.md): the owner's private chat with the bot, at its top level, talks to one
+long-lived Claude Code session. It answers by itself, or with the Bridge's tools it opens a topic, hands the message to
+a topic, forks one, or answers a topic's choice question for the owner. Topics keep working as before; a reply in a
+topic's thread still goes to that topic. With COVEY_BUTLER=0 the chat is as it was before the butler: each top-level
+message opens a topic.
 
-Two layers decide it (``enabled``): the deployment allows it unless COVEY_BUTLER=0 (``available``), and
-the owner picks the mode on the settings card, saved as ``mode`` in <state>/main-thread.json (``agent_mode``).
+The deployment alone decides it (``enabled``): on unless COVEY_BUTLER=0. The private chat mode the owner once picked on
+the settings card (main-thread.json ``mode``, 私聊顶层的消息) is retired (docs/legacy.md): a file that has it loads, it
+is not read.
 
 The names every part shares: the switch, the butler's topic id, and its tool channel's entry and environment
 (core/butler_requests.py carries the calls, core/butler_tool_specs.py names the tools). Standard library only (with
@@ -14,7 +15,6 @@ core/metrics.py, itself standard library only): the MCP server (bin/covey_butler
 from __future__ import annotations
 
 import dataclasses
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,10 +34,8 @@ JOB_ENV = "COVEY_BUTLER_JOB"  # The key of the butler job whose session runs the
 LEAD_ENV = "COVEY_PROJECT_LEAD"  # The project's id, in the session of that project's lead only: it lists the lead's tools.
 
 
-# The owner's settings (core/butler_settings.py), the mode among them: the file ``enabled`` reads.
+# The owner's settings (core/butler_settings.py).
 SETTINGS_FILE = "main-thread.json"
-AGENT, TOPICS = "agent", "topics"  # The private chat modes: 管家, 纯话题.
-MODES = (AGENT, TOPICS)
 
 
 def _switch() -> str:
@@ -46,56 +44,14 @@ def _switch() -> str:
 
 def available() -> bool:
     """Whether this deployment lets the butler run: unless COVEY_BUTLER=0. Then the settings card has
-    its 管家 tab and the butler's workers run; whether the chat talks to it is the mode (``enabled``)."""
+    its 管家 section, the butler's workers run and the chat's top level talks to it (``enabled``)."""
     return _switch() != "0"
 
 
-def agent_mode(data) -> bool:
-    """Whether the settings ``data`` (main-thread.json, a mapping) choose 管家: its ``mode``; without one
-    (written by an older release, or never written) as then: on only with COVEY_BUTLER=1 and the card's
-    ``enabled`` not false. The Bridge's start writes the mode once (core/migrate.py private-mode)."""
-    data = data if isinstance(data, Mapping) else {}
-    mode = data.get("mode")
-    if mode in MODES:
-        return mode == AGENT
-    return _switch() == "1" and data.get("enabled") is not False
-
-
-_mode_seen = None  # (settings file, its stat, the switch, agent_mode): the last read of the mode (``enabled``).
-
-
 def enabled() -> bool:
-    """Whether the butler is on: ``available`` and the mode 管家, read from the state directory
-    ``configure_state`` set (none: as main-thread.json without a mode says). With it off nothing of the butler
-    happens and the chat works as before it; its records stay. One stat a call; the file is read again only once it
-    changed."""
-    if not available():
-        return False
-    global _mode_seen
-    if _state is None:
-        return agent_mode({})
-    path, switch = _state / SETTINGS_FILE, _switch()
-    try:
-        stat = path.stat()
-        stamp = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
-    except OSError:
-        stamp = None
-    seen = _mode_seen
-    if seen is not None and seen[:3] == (path, stamp, switch):
-        return seen[3]
-    try:
-        data = json.loads(path.read_text(encoding="utf-8")) if stamp is not None else {}
-    except (OSError, ValueError):
-        data = {}
-    on = agent_mode(data)
-    _mode_seen = (path, stamp, switch, on)
-    return on
-
-
-def forget_mode() -> None:
-    """The settings file was just written in this process: ``enabled`` reads it again, whatever its stat says."""
-    global _mode_seen
-    _mode_seen = None
+    """Whether the butler is on: ``available``, the one switch since the private chat mode was retired. With it off
+    nothing of the butler happens and the chat works as before it; its records stay."""
+    return available()
 
 
 def butler_topic_id(chat_id: str) -> str:
@@ -152,7 +108,7 @@ class Traits:
     numbered: bool  # Gets a T number (core/topics.py topic_number).
     top_level: bool  # Answers quoting each message at the chat's top level, not in a thread (core/topics.py).
     listed: bool  # Pinned on the board and listed on 手上的事 (core/board_read.py read, app/overview.py view).
-    # Its session: only with the butler on (``enabled``: COVEY_BUTLER not 0, the mode 管家).
+    # Its session: only with the butler on (``enabled``: COVEY_BUTLER not 0).
     own_turn: bool  # Its rules, snapshot and tools open each turn, compacted past compact_tokens (app/butler.py).
     answers_in_place: bool  # The reply is the task card's body, no answer card (app/butler_reply.py answers_in_place).
     lists_supplements: bool  # Its supplements have no receipt card: a stopped or refused card lists them
@@ -179,7 +135,7 @@ BUTLER = Traits("butler", keeps_slot=True, switch_config=False, rewind=False, ca
               top_level=True, listed=False, own_turn=True, answers_in_place=True, lists_supplements=True,
               hold_seconds=HOLD_SECONDS, wording=WORDING, slim_card=True, relays=False, has_thread=False,
               linkify_body=True)
-# The butler's topic with the butler off now (the switch 0 or the mode 纯话题; its records stay): its topic is still no topic's, but its
+# The butler's topic with the butler off now (COVEY_BUTLER=0; its records stay): its topic is still no topic's, but its
 # session's ways are gone, so its texts read as a topic's again. The two old predicates, topic.json's flag and the
 # switch-gated id check, parted here; this row keeps what each call site did.
 BUTLER_OFF = dataclasses.replace(BUTLER, name="butler_off", own_turn=False, answers_in_place=False, lists_supplements=False,
@@ -197,16 +153,14 @@ CHANNEL = dataclasses.replace(TOPIC, name="channel", switch_config=False, rewind
                               listed=False, relays=False, has_thread=False)
 
 
-_state = None  # The process's state directory (``configure_state``); None: the mode as main-thread.json without one.
+_state = None  # The process's state directory (``configure_state``): whose records ``is_lead`` reads; None: none.
 
 
 def configure_state(state_dir):
-    """Set the state directory whose settings ``enabled`` reads, in this process (the Bridge and every task runner:
+    """Set the state directory whose records ``is_lead`` reads, in this process (the Bridge and every task runner:
     app/butler.py Butler.configure); None, none. The previous one, to restore."""
     global _state
     previous, _state = _state, (Path(state_dir) if state_dir else None)
-    if _state != previous:
-        forget_mode()
     return previous
 
 
@@ -217,8 +171,8 @@ def run_seconds(job):
 
 
 def traits(topic_id, chat_id) -> Traits:
-    """The row of ``topic_id`` in ``chat_id``: BUTLER, BUTLER_OFF with the butler off (``enabled``: the switch or
-    the mode 纯话题), TOPIC for every other (an old front-desk topic too: retired, core/topics.py retired_topic; a
+    """The row of ``topic_id`` in ``chat_id``: BUTLER, BUTLER_OFF with the butler off (``enabled``: COVEY_BUTLER=0),
+    TOPIC for every other (an old front-desk topic too: retired, core/topics.py retired_topic; a
     project's thread too). A project's lead topic is LEAD, LEAD_OFF with the butler off; a 咨询通道 is CHANNEL."""
     if not topic_id:
         return TOPIC

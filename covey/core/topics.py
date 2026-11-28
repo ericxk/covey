@@ -404,7 +404,7 @@ def _place(ctx, event, base: Path, legacy_harness_id, *, write: bool, make: bool
     topic_id = _key(chat_id, root_id or parent_id or message_id)
     # In a thread, with the butler on, only the quoted message's routes_to counts (the butler's
     #  card is in the owner's message's thread, so quoting it there is the topic it handed on to; the
-    # thread is not that topic's). The mode 纯话题 keeps a thread its root's.
+    # thread is not that topic's). With the butler off (COVEY_BUTLER=0) a thread stays its root's.
     quoted = _routes_to(base, chat_id, parent_id) if not thread_id or butler.enabled() else ""
     if quoted:
         # A reply quoting a message routed to a topic (``route_message``): its chain's root is the owner's
@@ -419,7 +419,7 @@ def _place(ctx, event, base: Path, legacy_harness_id, *, write: bool, make: bool
             topic_id = json.loads(alias.read_text())["topic_id"]
             break
     if not thread_id and butler.is_butler_topic(topic_id, chat_id) and not butler.enabled():
-        # The mode 纯话题 (docs/butler.md 私聊模式): a top-level reply quoting one of the butler's
+        # The butler off (COVEY_BUTLER=0; its records stay): a top-level reply quoting one of the butler's
         # messages is a new message like any other, its own topic; the butler's messages stay its own.
         root_id = parent_id = ""
         topic_id, identifiers = _key(chat_id, message_id), [message_id]

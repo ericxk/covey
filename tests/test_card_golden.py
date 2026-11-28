@@ -1282,7 +1282,7 @@ def butler_panels():
     from covey.core.butler_settings import Settings, TopicDefaults
 
     names = ["bridge", "docs", "scratch"]
-    changed = Settings(enabled=False, model="claude-opus-5-5", effort="high", compact_tokens=300_000,
+    changed = Settings(model="claude-opus-5-5", effort="high", compact_tokens=300_000,
                        topic_defaults=TopicDefaults(harness="codex", model="gpt-6", effort="xhigh", run_mode="worktree",
                                                     workspace="bridge"),
                        workspace_notes=(("bridge", "Harness Bridge 本体"), ("docs", "文档")))
@@ -1322,7 +1322,7 @@ def doctor_trouble():
 
 def settings_cards():
     """The 设置 card on each tab (cards/settings_hub.py): the panel's card with the tab row on top; the butler's
-    two pages, 新话题 and 管家 (its question before 每条直接开一个话题, and in the mode 纯话题; no 工作区 or 运行方式 row, v43), 仓库
+    two pages, 新话题 and 管家 (no 私聊顶层的消息 row since T946; no 工作区 or 运行方式 row, v43), 仓库
     (the home and the repositories, read only: with the web page's link, without it, and with none) and 诊断. 代答 is an older card's
     tab; a record on the retired 工作区 or 其他 folds as 仓库."""
     from covey.app.doctor_panel import summarize
@@ -1373,16 +1373,12 @@ def settings_cards():
         "config_assist_named": butler_panel_card(
             "c" * 24, {**view, "open": "assist"}, Settings(assist=AssistChoice(harness="codex", model="gpt-6", effort="high")),
             LEAD_CHOICES, ["bridge", "docs"], top=row("config"), page="config", assist=ASSIST_NAMED),
-        "config_assist_closed": butler_panel_card("c" * 24, view, Settings(enabled=False), BUTLER_CHOICES,
+        "config_assist_closed": butler_panel_card("c" * 24, view, Settings(), BUTLER_CHOICES,
                                                   ["bridge", "docs"], top=row("config"), page="config", assist=ASSIST_ROW,
-                                                  butler_on=False, butler_allowed=False),
+                                                  butler_on=False),
         # U4 (T898, the owner's choice B): the rows nobody changes in their section's 更多, open after a click on one.
         "config_butler_more": butler_panel_card("c" * 24, {**view, "open": "butler", "more": True}, Settings(), BUTLER_CHOICES,
                                                 ["bridge", "docs"], top=row("config"), page="config"),
-        "config_confirm": butler_panel_card("c" * 24, {**view, "confirm": True}, Settings(), BUTLER_CHOICES,
-                                            ["bridge", "docs"], top=row("config"), page="config"),
-        "config_topics": butler_panel_card("c" * 24, {**view, "open": "butler"}, Settings(enabled=False), BUTLER_CHOICES,
-                                           ["bridge", "docs"], top=row("config"), page="config"),
         # A record still on a retired page (管家, 新话题, 模型) is drawn as 配置.
         "main_retired": butler_panel_card("c" * 24, view, Settings(), BUTLER_CHOICES, ["bridge", "docs"],
                                           top=row("main"), page="main"),

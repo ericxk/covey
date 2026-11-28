@@ -21,12 +21,11 @@ from covey.core.butler_tool_specs import NAMES, TOOLS
 
 
 class ButlerNamesTest(unittest.TestCase):
-    def test_the_switch_allows_unless_0_and_without_a_mode_only_1_turns_it_on(self):
-        for value, allowed, on in (("1", True, True), (" 1 ", True, True), ("0", False, False),
-                                   (" 0 ", False, False), ("true", True, False), ("", True, False)):
+    def test_the_switch_allows_and_turns_it_on_unless_0(self):
+        for value, on in (("1", True), (" 1 ", True), ("0", False), (" 0 ", False), ("true", True), ("", True)):
             with mock.patch.dict(os.environ, {butler.ENV: value}):
-                self.assertIs(butler.available(), allowed, value)
-                self.assertIs(butler.enabled(), on, value)  # No state configured: no mode to read.
+                self.assertIs(butler.available(), on, value)
+                self.assertIs(butler.enabled(), on, value)
 
     def test_topic_id_is_hex_stable_and_per_chat(self):
         one = butler.butler_topic_id("oc_a")
@@ -52,27 +51,26 @@ class SettingsTest(unittest.TestCase):
 
     def test_bad_fields_read_as_defaults(self):
         with mock.patch.dict(os.environ, {butler.ENV: "1"}):
-            loaded = settings.from_json({"enabled": "yes", "mode": "both", "compact_tokens": -1,
+            loaded = settings.from_json({"enabled": False, "mode": "topics", "compact_tokens": -1,  # Retired: read past.
                                          "start": ["readonly"], "trusted": [1, "x|read"],  # Retired: ignored.
                                          "topic_defaults": {"run_mode": "elsewhere", "redaction": "on"},
                                          "workspace_notes": {"a": "用途", "b": 3}})
-        self.assertTrue(loaded.enabled)
         self.assertEqual(loaded.compact_tokens, settings.COMPACT_TOKENS)
-        self.assertFalse(hasattr(loaded, "start") or hasattr(loaded, "trusted"))
+        self.assertFalse(hasattr(loaded, "start") or hasattr(loaded, "trusted") or hasattr(loaded, "enabled"))
         self.assertEqual(loaded.topic_defaults.run_mode, "direct")
         self.assertEqual(loaded.workspace_notes, (("a", "用途"),))
         self.assertEqual(loaded.note("a"), "用途")
 
     def test_round_trip_and_update(self):
         with tempfile.TemporaryDirectory() as tmp:
-            first = settings.Settings(enabled=False, compact_tokens=0,
+            first = settings.Settings(compact_tokens=0,
                                       topic_defaults=settings.TopicDefaults(workspace="ws"),
                                       workspace_notes=(("ws", "Bridge 仓库"),))
             settings.save(tmp, first)
             self.assertEqual(settings.load(tmp), first)
             self.assertEqual(json.loads((Path(tmp) / settings.FILE).read_text())["schema_version"], settings.SCHEMA)
-            second = settings.update(tmp, enabled=True)
-            self.assertTrue(second.enabled)
+            second = settings.update(tmp, compact_tokens=100_000)
+            self.assertEqual(second.compact_tokens, 100_000)
             self.assertEqual(settings.load(tmp), second)
 
     def test_the_retired_start_and_trusted_fields_are_read_past_and_not_written_back(self):
@@ -113,7 +111,7 @@ class SettingsTest(unittest.TestCase):
             self.assertEqual(written["topic_defaults"], {"redaction": True, "harness": "", "model": "x", "effort": "",
                                                          "run_mode": "direct", "workspace": ""})
             (Path(tmp) / settings.FILE).write_text(json.dumps({"topic_defaults": {"redaction": True}}))
-            self.assertIsNotNone(settings.settle_mode(tmp))  # Writes the mode; topic_defaults is rewritten whole.
+            settings.update(tmp, compact_tokens=0)  # topic_defaults is rewritten whole.
             self.assertEqual(json.loads((Path(tmp) / settings.FILE).read_text())["topic_defaults"]["redaction"], True)
 
     def test_a_retired_harness_chosen_before_reads_as_none_chosen(self):
@@ -212,75 +210,32 @@ class ToolSpecsTest(unittest.TestCase):
         self.assertIn("title", tools["topic_send"]["input_schema"]["properties"])
 
 
-class PrivateModeTest(unittest.TestCase):
-    """The private chat mode (docs/butler.md 私聊模式): the deployment allows the butler unless the switch
-    is 0, the owner's mode in main-thread.json turns it on, and the Bridge's first start writes the mode once."""
+class RetiredModeTest(unittest.TestCase):
+    """The private chat mode (私聊顶层的消息) is retired (docs/legacy.md): COVEY_BUTLER alone turns the butler on or
+    off, main-thread.json's ``mode`` and ``enabled`` are read past and a save keeps them for an older release."""
 
     def setUp(self):
         self.state = Path(enter_context(self, tempfile.TemporaryDirectory()))
         previous = butler.configure_state(self.state)
         self.addCleanup(butler.configure_state, previous)
-        enter_context(self, mock.patch.dict(os.environ, {butler.ENV: ""}))
 
-    def write(self, data):
-        (self.state / settings.FILE).write_text(json.dumps(data))
-        butler.forget_mode()  # Two writes in one clock tick with the same size share a stat stamp.
+    def test_the_switch_alone_decides_whatever_the_file_says(self):
+        for data in ({"mode": "topics", "enabled": False}, {"mode": "agent"}, {"enabled": False}, {}):
+            (self.state / settings.FILE).write_text(json.dumps(data))
+            for switch, on in (("", True), ("1", True), ("0", False)):
+                with self.subTest(data=data, switch=switch), mock.patch.dict(os.environ, {butler.ENV: switch}):
+                    self.assertIs(butler.enabled(), on)
 
-    def test_the_mode_decides_whatever_the_switch_but_0(self):
-        for mode, switch, on in (("agent", "", True), ("agent", "1", True), ("agent", "0", False),
-                                 ("topics", "1", False), ("topics", "", False)):
-            self.write({"mode": mode, "enabled": not on})  # ``enabled`` is only for an older release.
-            with mock.patch.dict(os.environ, {butler.ENV: switch}):
-                self.assertIs(butler.enabled(), on, (mode, switch))
-
-    def test_without_a_mode_it_reads_as_before(self):
-        for data, switch, on in (({}, "1", True), ({"enabled": True}, "1", True), ({"enabled": False}, "1", False),
-                                 ({"enabled": True}, "", False), ({}, "", False)):
-            self.write(data)
-            with mock.patch.dict(os.environ, {butler.ENV: switch}):
-                self.assertIs(butler.enabled(), on, (data, switch))
-                self.assertIs(settings.load(self.state).enabled, on, (data, switch))
-
-    def test_a_file_another_process_writes_is_read_again_and_an_update_at_once(self):
-        self.write({"mode": "agent"})
-        self.assertTrue(butler.enabled())
-        self.write({"mode": "topics", "x": 1})  # Another process: its stat differs.
-        self.assertFalse(butler.enabled())
-        settings.update(self.state, enabled=True)
-        self.assertTrue(butler.enabled())
+    def test_a_save_keeps_the_mode_as_the_file_has_it(self):
+        (self.state / settings.FILE).write_text(json.dumps({"mode": "topics", "enabled": False, "model": "m"}))
+        settings.update(self.state, effort="high")
+        settings.save(self.state, settings.load(self.state))
         data = json.loads((self.state / settings.FILE).read_text())
-        self.assertEqual((data["mode"], data["enabled"]), ("agent", True))
-        settings.update(self.state, enabled=False)
-        self.assertFalse(butler.enabled())
+        self.assertEqual((data["mode"], data["enabled"], data["model"], data["effort"]), ("topics", False, "m", "high"))
         (self.state / settings.FILE).unlink()
-        self.assertFalse(butler.enabled())  # No file, no mode: as before, off without the switch's 1.
-
-    def test_a_new_deployment_settles_on_personal_agent(self):
-        (self.state / "topics" / "aliases").mkdir(parents=True)  # Aliases alone are no topic.
-        self.assertEqual(settings.settle_mode(self.state), "agent")
-        self.assertTrue(butler.enabled())
-        self.assertIsNone(settings.settle_mode(self.state))  # Once: the file has a mode.
-
-    def test_a_deployment_with_records_keeps_its_way(self):
-        for switch, saved, mode in (("", {}, "topics"), ("1", {}, "agent"), ("1", {"enabled": False}, "topics"),
-                                    ("", {"enabled": True, "compact_tokens": 0}, "topics")):
-            with self.subTest(switch=switch, saved=saved), tempfile.TemporaryDirectory() as tmp, \
-                    mock.patch.dict(os.environ, {butler.ENV: switch}):
-                state = Path(tmp)
-                (state / "jobs").mkdir()
-                (state / "jobs" / "om_1.json").write_text("{}")
-                if saved:
-                    (state / settings.FILE).write_text(json.dumps({**saved, "custom": "kept"}))
-                self.assertEqual(settings.settle_mode(state), mode)
-                data = json.loads((state / settings.FILE).read_text())
-                self.assertEqual(data["mode"], mode)
-                if saved:
-                    self.assertEqual((data["custom"], data["compact_tokens"]),
-                                     ("kept", saved.get("compact_tokens", settings.COMPACT_TOKENS)))
-        with tempfile.TemporaryDirectory() as tmp:  # A topic without any job yet counts too.
-            (Path(tmp) / "topics" / "abc").mkdir(parents=True)
-            self.assertEqual(settings.settle_mode(tmp), "topics")
-
+        settings.update(self.state, effort="high")  # A new file: no mode is written.
+        self.assertFalse({"mode", "enabled"} & set(json.loads((self.state / settings.FILE).read_text())))
+        self.assertFalse(hasattr(settings, "settle_mode") or hasattr(butler, "agent_mode") or hasattr(butler, "MODES"))
 
 
 class TraitsFieldsTest(unittest.TestCase):
@@ -299,7 +254,7 @@ class TraitsFieldsTest(unittest.TestCase):
 
 
 class PlacementTest(unittest.TestCase):
-    """core/placement.py: the layout from the mode, a cell for each layout and role."""
+    """core/placement.py: the layout from the switch, a cell for each layout and role."""
 
     def setUp(self):
         from covey.core import placement
@@ -308,20 +263,15 @@ class PlacementTest(unittest.TestCase):
         self.state = Path(enter_context(self, tempfile.TemporaryDirectory()))
         previous = butler.configure_state(self.state)
         self.addCleanup(butler.configure_state, previous)
-        enter_context(self, mock.patch.dict(os.environ, {butler.ENV: ""}))
+        enter_context(self, mock.patch.dict(os.environ, {butler.ENV: ""}))  # Unset: the butler on.
 
-    def write(self, data):
-        (self.state / settings.FILE).write_text(json.dumps(data))
-        butler.forget_mode()
-
-    def test_the_layout_follows_the_mode_alone(self):
-        # desk_topics was retired on 2026-11-09: a file that still says true is read as false.
+    def test_the_layout_follows_the_switch_alone(self):
+        # desk_topics was retired on 2026-11-09 and the mode on 2026-11-28: a file that still says them is read past.
         p = self.placement
-        for data, layout in (({"mode": "topics"}, p.TOPICS), ({"mode": "agent"}, p.AREA),
-                             ({"mode": "agent", "desk_topics": True}, p.AREA),
-                             ({"mode": "topics", "desk_topics": True}, p.TOPICS)):
-            self.write(data)
-            self.assertEqual(p.layout(), layout, data)
+        (self.state / settings.FILE).write_text(json.dumps({"mode": "topics", "desk_topics": True}))
+        for switch, layout in (("", p.AREA), ("1", p.AREA), ("0", p.TOPICS)):
+            with mock.patch.dict(os.environ, {butler.ENV: switch}):
+                self.assertEqual(p.layout(), layout, switch)
         self.assertFalse(hasattr(p, "DESK"))
 
     def test_every_layout_and_role_has_a_cell(self):
@@ -350,15 +300,14 @@ class PlacementTest(unittest.TestCase):
         chat = "oc_chat"
         main = {"topic_id": butler.butler_topic_id(chat), "chat_id": chat}
         topic = {"topic_id": "ab" * 32, "chat_id": chat}
-        self.write({"mode": "agent"})
         self.assertEqual([(x.layout, x.role) for x in (p.plan(self.state, main), p.plan(self.state, topic))],
                          [(p.AREA, p.BUTLER_ROLE), (p.AREA, p.TOPIC_ROLE)])
         self.assertIs(p.plan(self.state, main).top_level(), False)  # In the owner's message's thread.
-        self.write({"mode": "agent", "desk_topics": True})  # Retired: as without it.
+        (self.state / settings.FILE).write_text(json.dumps({"desk_topics": True}))  # Retired: as without it.
         self.assertIs(p.plan(self.state, main).top_level(), False)
         self.assertIs(p.plan(self.state, topic).top_level(), False)
-        self.write({"mode": "topics"})
-        plan = p.plan(self.state, main)
+        with mock.patch.dict(os.environ, {butler.ENV: "0"}):
+            plan = p.plan(self.state, main)
         self.assertEqual((plan.traits, plan.role, plan.top_level()), (butler.BUTLER_OFF, p.BUTLER_ROLE, False))
 
 

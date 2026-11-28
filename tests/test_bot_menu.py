@@ -49,7 +49,7 @@ class MenuTests(UnifiedCase):
     @requires_extension()
     def test_the_real_features_are_wired_to_the_keys(self):
         fresh = type(self.app)(script_path=self.app.runtime.script_path)
-        # The butler's old key too, unless COVEY_BUTLER=0 (docs/butler.md 私聊模式).
+        # The butler's old key too, unless COVEY_BUTLER=0 (docs/butler.md 开不开管家).
         self.assertEqual(set(fresh.menu.actions), set(KEYS) | set(STALE) | {'main_thread_settings', 'digest_board'})
         self.assertEqual({key: getattr(action, '__func__', None) or action.func.__func__
                           for key, action in fresh.menu.actions.items()}, {

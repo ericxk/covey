@@ -71,8 +71,8 @@ class ButlerTools:
         self.env, self.handlers = env, dict(handlers)
 
     def threads(self):
-        """Its worker, unless the deployment rules the butler out (app/unified.py worker_targets): the owner
-        switches the mode while the Bridge runs, and only a butler turn asks it anything."""
+        """Its worker, unless the deployment rules the butler out (app/unified.py worker_targets): only a butler turn
+        asks it anything."""
         return (("main-tools", self.run),) if butler.available() else ()
 
     def run(self, ctx):

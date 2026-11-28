@@ -174,15 +174,13 @@ const Choice: React.FC<{ row: SettingsRow; busy: boolean; onPick: (v: string) =>
 };
 
 /** 字长的项：手机上占整行 */
-const WIDE: Set<string> = new Set(['t_model', 'model', 'r_model', 'l_model', 'a_model', 't_space', 'space', 'mode', 'subagent', 'assist']);
+const WIDE: Set<string> = new Set(['t_model', 'model', 'r_model', 'l_model', 'a_model', 't_space', 'space', 'subagent', 'assist']);
 
 const RowView: React.FC<{ row: SettingsRow; ops: Ops; feishu: string; mk?: (row: SettingsRow, option: string) => Record<string, unknown>; cell?: boolean; stale?: boolean }> = ({ row, ops, feishu, mk, cell, stale }) => {
   const s: Phase | undefined = ops.st[row.key];
   const busy: boolean = s?.phase === 'saving';
   // 点了就先照选的画，Covey 推来新快照（current 变了）再以快照为准；没成功就回到快照的值
   const [want, setWant] = useState<string | null>(null);
-  // 要先确认的选项（管家的“私聊顶层的消息”改成 topics）：先在行内问，确定才发
-  const [ask, setAsk] = useState<string | null>(null);
   useEffect(() => setWant(null), [row.current]);
   const shown: SettingsRow =
     want !== null && s?.phase === 'saving'
@@ -200,11 +198,6 @@ const RowView: React.FC<{ row: SettingsRow; ops: Ops; feishu: string; mk?: (row:
             row={shown}
             busy={busy}
             onPick={(v: string) => {
-              if (v === 'topics' && row.confirm?.topics) {
-                setAsk(v);
-                return;
-              }
-              setAsk(null);
               setWant(v);
               void ops.run(row.key, mk ? mk(row, v) : { what: 'row', kind: row.kind, option: v });
             }}
@@ -212,18 +205,6 @@ const RowView: React.FC<{ row: SettingsRow; ops: Ops; feishu: string; mk?: (row:
         ) : (
           <div className="st-ro"><span className="st-val" title={row.text}>{row.text}</span><FeishuBtn feishu={feishu} link /></div>
         )}
-        {ask !== null && row.confirm?.topics ? (
-          <Confirm
-            text={row.confirm.topics}
-            ok="确定改"
-            onOk={() => {
-              setAsk(null);
-              setWant(ask);
-              void ops.run(row.key, { what: 'row', kind: row.kind, option: ask, confirm: true });
-            }}
-            onNo={() => setAsk(null)}
-          />
-        ) : null}
         <Receipt s={s} cell={cell} />
       </div>
     </div>

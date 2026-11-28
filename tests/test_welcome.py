@@ -78,7 +78,7 @@ class RecordTest(unittest.TestCase):
 
     def test_a_new_deployment_is_pending_and_one_used_before_is_skipped(self):
         (self.state / "topics" / "aliases").mkdir(parents=True)  # Aliases alone are no topic.
-        write_json(self.state / "main-thread.json", {"mode": "agent"})  # Written at every start: no history.
+        write_json(self.state / "main-thread.json", {"harness": "codex"})  # The settings: no history.
         self.assertEqual(welcome.settle(self.state), welcome.PENDING)
         for used in ("job", "topic", "chat"):
             with self.subTest(used=used), tempfile.TemporaryDirectory() as other:
@@ -174,7 +174,7 @@ class CardTest(unittest.TestCase):
         self.assertEqual(card["config"]["summary"]["content"], "欢迎使用 Covey · 有事直接在这里说")
 
     def test_without_the_butler_it_says_why_how_to_get_it_and_that_a_launch_card_comes(self):
-        for why in (cards.NO_CLAUDE, cards.OFF, cards.TOPICS, cards.DOWN):
+        for why in (cards.NO_CLAUDE, cards.OFF, cards.DOWN):
             with self.subTest(why=why):
                 words = texts(cards.welcome_card({**VIEW, "butler": why}))
                 reason, how = cards.BUTLER_WORDS[why]
@@ -371,7 +371,7 @@ class ClickTest(WelcomeCase):
         self.assertEqual(self.app.messenger.send_text.call_count, 1)
 
     def test_with_the_butler_the_example_is_the_butlers_turn_with_reactions_on_it(self):
-        switch_on(self)  # The mode 管家 (no mode written: on with COVEY_BUTLER=1, core/butler.py agent_mode).
+        switch_on(self)  # The butler (COVEY_BUTLER not 0, core/butler.py enabled).
         self.addCleanup(configure_top_level, None)
         self.sent()
         self.assertEqual(self.record()["view"]["butler"], "")

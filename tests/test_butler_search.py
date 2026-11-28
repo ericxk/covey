@@ -176,22 +176,6 @@ class WarmTest(Fixture, unittest.TestCase):
             with mock.patch.dict(os.environ, {butler.ENV: value}):
                 self.assertEqual([name for name, _ in search.threads()], ["main-search"])
 
-    def test_in_the_mode_topics_it_waits_for_personal_agent_before_it_reads(self):
-        self.topic("a1" * 16, 1, "t", ("x", "y", {"phase": "一"}, "done"))
-        modes = iter((False, False, True))
-        waited = []
-        self.runtime.shutdown.wait = lambda *a: waited.append(a)
-        with mock.patch.object(butler, "enabled", side_effect=lambda: next(modes)):
-            butler_search.ButlerSearch(self.env).run(SimpleNamespace())
-        self.assertEqual(waited, [(butler_search.MODE_POLL,), (butler_search.MODE_POLL,), ()])
-        self.assertEqual(list(butler_search._checkpoints), [str(self.state / "checkpoints" / "k1.json")])
-
-    def test_a_shutdown_while_it_waits_reads_nothing(self):
-        self.runtime.shutdown.set()
-        with mock.patch.object(butler, "enabled", return_value=False):
-            butler_search.ButlerSearch(self.env).run(SimpleNamespace())
-        self.assertEqual((list(butler_search._checkpoints), self.logs), ([], []))
-
     def test_it_reads_the_ended_turns_checkpoints_once_then_waits(self):
         self.topic("a1" * 16, 1, "t", ("x", "y", {"phase": "一"}, "done"), ("x", "y", {"phase": "二"}, "running"))
         waited = []

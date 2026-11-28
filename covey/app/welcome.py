@@ -14,7 +14,7 @@ a task as if the owner had typed it. Off: COVEY_WELCOME=0 (no record, no thread,
 - What: ``view`` (cards/welcome.py): the Harnesses this Bridge enables and those its availability watch found
   unavailable, the default workspace (and, while it holds no project yet, how to add one: core/welcome.py
   ``bare_workspace``), and with the butler a word on its reactions; without it why not (Claude Code not
-  enabled, COVEY_BUTLER=0, the mode 纯话题, Claude Code not started) and how to get it, and that each message opens a
+  enabled, COVEY_BUTLER=0, Claude Code not started) and how to get it, and that each message opens a
   topic with its launch card.
 - The examples (``EXAMPLES`` with the butler, ``TOPIC_EXAMPLES`` without it: ``view`` picks by ``butler_state``, the card keeps
   the words it was sent with): a topic that ends in an answer, a topic whose reply is a choice (a question card), and
@@ -94,8 +94,6 @@ def butler_state(apps, harness=HARNESS) -> str:
     app = apps.get(harness)
     if app is None or not backend_capabilities(app.backend, app.harness.context).bridge_tools:
         return cards.NO_CLAUDE
-    if not contract.enabled():
-        return cards.TOPICS
     try:
         app.harness.refuse_while_unavailable()
     except RuntimeError:

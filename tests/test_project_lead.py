@@ -20,6 +20,7 @@ from support import UNSET_OFF
 from support import enter_context
 from support.fake_backends import codex_context
 from support.records import state_dir, write_job, write_topic
+from support.butler import switch_on
 
 from covey.app import dispatch_cards, butler_handoff, butler_reply, butler as session, butler_tools, project_lead, project_tools
 from covey.app import project_loop
@@ -29,7 +30,6 @@ from covey.backends.claude.argv import stream_argv
 from covey.backends.claude.bridge import ClaudeBackend
 from covey.core import butler_mcp, butler, butler_tool_specs, checkpoint, project_memory, project_proposals, projects, quota_hold
 from covey.core import memory_review, memstore
-from covey.core import butler_settings as settings
 from covey.core.jobs import find_job_record, job_key, job_path, read_job_record
 from covey.core.topics import topic_file
 from covey.core.harness import CONSULT, LEAD as HELD, READ, TOOL_LIMIT  # LEAD here is the lead topic's id.
@@ -49,15 +49,14 @@ LEAD_NAMES = ["topics_list", "topics_search", "topic_read", "repos_list", "memor
 
 
 class Case(unittest.TestCase):
-    """A state directory with the butler on (mode agent) and a project with its lead topic."""
+    """A state directory with the butler on and a project with its lead topic."""
 
     def setUp(self):
         self.state = state_dir(self)
         self.addCleanup(butler.configure_state, butler.configure_state(self.state))
         env = {name: value for name, value in os.environ.items() if not name.startswith(("COVEY_", "LARK_BRIDGE_"))}
         enter_context(self, mock.patch.dict(os.environ, {**env, **UNSET_OFF, **ON}, clear=True))
-        write_json(self.state / settings.FILE, {"mode": "agent"})
-        butler.forget_mode()
+        switch_on(self)
         self.record = projects.create(self.state, projects.new_record(chat_id=CHAT, name="迁移账单", goal="把账单迁到新库，对账一致",
                                                                       project_id=PID, now=NOW))[0]
         write_topic(self.state, topic_id=LEAD, chat_id=CHAT, harness_id="claude",
@@ -566,8 +565,7 @@ class TurnTest(Case):
         self.assertTrue(message.startswith("[管家规则]"))
 
     def test_a_lead_turn_of_a_stopped_butler_is_not_one(self):
-        write_json(self.state / settings.FILE, {"mode": "topics"})
-        butler.forget_mode()
+        switch_on(self, "0")
         ctx, message = self.run_turn()
         self.assertEqual(message, "叫醒")
         self.assertNotIn("tools", ctx.options)
@@ -646,8 +644,7 @@ class ToolsCase(ButlerTopicsCase):
         super().setUp()
         self.state = self.ctx.state_dir
         enter_context(self, mock.patch.dict(os.environ, ON))
-        settings.update(self.state, enabled=True)
-        butler.forget_mode()
+        switch_on(self)
         self.record = projects.create(self.state, projects.new_record(chat_id=CHAT, name="迁移账单", goal="目标",
                                                                       project_id=PID, now=NOW))[0]
         write_topic(self.state, topic_id=LEAD, chat_id=CHAT, harness_id="claude",

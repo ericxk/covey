@@ -230,11 +230,10 @@ class JudgeCallersTest(Case):
         apps = {"claude": app("claude"), **self.apps()}
         topics = topics_with(self.state, apps, default="claude")
         self.assertEqual(assist.route(topics).harness, "claude")  # Butler off, nothing named: the Bridge's default.
-        butler_settings.save(self.state, butler_settings.Settings(enabled=True, harness="codex"))
+        butler_settings.save(self.state, butler_settings.Settings(harness="codex"))
         with mock.patch("covey.core.butler.available", return_value=True):
             self.assertEqual(assist.route(topics).harness, "codex")
-            butler_settings.update(self.state, enabled=False)
-            self.assertEqual(assist.route(topics).harness, "claude")  # 纯话题: the butler is not followed.
+        self.assertEqual(assist.route(topics).harness, "claude")  # The butler off: it is not followed.
 
 
 if __name__ == "__main__":

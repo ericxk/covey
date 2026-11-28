@@ -45,6 +45,7 @@ from support import make_context
 from support.git import init_git_repo
 from support.records import write_job, write_topic
 from support.world import UnifiedCase
+from support.butler import switch_on
 from test_web_sync import T0, WebCase
 
 from covey.app import butler_harness, home_turn, lead_harness, prompts, relay_targets, repos_turn, rules_sent, tool_limits, web_launch
@@ -426,9 +427,7 @@ class HarnessCellsCase(UnifiedCase):
         self.addCleanup(patch.stop)
         self.state = self.ctx.state_dir
         self.addCleanup(butler.configure_state, butler.configure_state(self.state))
-        write_json(self.state / butler_settings.FILE, {"mode": "agent"})
-        butler.forget_mode()
-        self.addCleanup(butler.forget_mode)
+        switch_on(self)
         self.apps = self.app.apps
         self.choices = available_models(self.app.topics, self.ctx)
         self.chat = "oc_owner_dm"

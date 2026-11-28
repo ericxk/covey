@@ -1,6 +1,6 @@
 """topics_search, the butler's tool that finds which topic, and which turn of it, a clue came from
 (docs/butler.md 按线索找话题): a Feishu link or its token, a path, a keyword. Only for the butler
-(app/butler_tools.py ButlerTools runs it; ButlerSearch's thread waits for the mode 管家).
+(app/butler_tools.py ButlerTools runs it; ButlerSearch's thread warms its reads).
 
 Every turn of the owner's private chat's topics is searched, the butler's own excepted: the owner's words
 (user_text; saved_user_answers in the checkpoint, the answers the Bridge keeps there, count as the owner's too), the
@@ -260,13 +260,10 @@ def topics_search(env, request):
                  best={"topic": label(env, best.topic_id), "job": best.record.get("job_id"), "topic_id": best.topic_id})
 
 
-MODE_POLL = 30  # Seconds between two looks at the mode while it is 纯话题 (ButlerSearch.run).
-
-
 class ButlerSearch:
     """Reads the checkpoints of the owner's ended turns once after the Bridge starts, so the first topics_search does
-    not wait on the disk: once the butler is on, unless the deployment rules it out (the owner switches the mode
-    while the Bridge runs). ``env``: app/butler_env.py ButlerEnv."""
+    not wait on the disk, unless the deployment rules the butler out (COVEY_BUTLER=0). ``env``: app/butler_env.py
+    ButlerEnv."""
 
     def __init__(self, env):
         self.env = env
@@ -275,9 +272,6 @@ class ButlerSearch:
         return (("main-search", self.run),) if butler.available() else ()
 
     def run(self, ctx):
-        while not butler.enabled():  # The mode 纯话题: nothing to search for yet.
-            if self.env.runtime.shutdown.wait(MODE_POLL):
-                return
         started = time.monotonic()
         try:
             count = self.warm()

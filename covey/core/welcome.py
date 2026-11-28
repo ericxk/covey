@@ -77,7 +77,7 @@ def update(state_dir, change) -> dict:
 
 
 def history(state_dir) -> bool:
-    """Whether the deployment has been used: a job or a topic (core/butler_settings.py settle_mode asks the same), or
+    """Whether the deployment has been used: a job or a topic, or
     the owner's private chat saved (he wrote to the bot, or its menu opened the chat)."""
     state = Path(state_dir)
     jobs, topics = state / "jobs", state / "topics"

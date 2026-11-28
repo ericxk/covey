@@ -46,8 +46,10 @@ os.environ["COVEY_FEISHU_DIRECT"] = "0"
 os.environ["COVEY_AVATARS"] = "0"  # No test uploads an avatar to Feishu (covey/feishu/avatars.py); the tests of avatars switch it on.
 # The switches on unset (core/switches.py DEFAULTS, T813) are off here, as they were unset before: a test of a feature
 # switches it on itself, and tests/test_switches.py checks what each holds unset in an environment without them. A test
-# that clears the COVEY_ names puts these back (``UNSET_OFF``).
-UNSET_OFF = {"COVEY_PROJECT_TIDY": "off", "COVEY_PROJECT_UPGRADE": "off", "COVEY_DIGEST_TIMES": "off",
+# that clears the COVEY_ names puts these back (``UNSET_OFF``). The butler (COVEY_BUTLER, on unless 0) too: the tests were
+# written with it off unset (the private chat mode it once had, 私聊顶层的消息, read so); a test of it switches it on
+# (support/butler.py switch_on).
+UNSET_OFF = {"COVEY_BUTLER": "0", "COVEY_PROJECT_TIDY": "off", "COVEY_PROJECT_UPGRADE": "off", "COVEY_DIGEST_TIMES": "off",
              **{name: "0" for name in ("COVEY_PROJECTS", "COVEY_PROJECT_AUTOWAKE", "COVEY_PROJECT_ASK", "COVEY_PROJECT_MEMORY",
                                        "COVEY_PROJECT_TRIAGE", "COVEY_REVISIT", "COVEY_MEMORY",
                                        "COVEY_MEMORY_LEARN", "COVEY_KNOWLEDGE",

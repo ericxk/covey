@@ -172,7 +172,7 @@ Bridge 自己停了、或者和飞书断了，它自己说不了话。所以由�
 │  ├─ memory/                      记忆（`core/memstore.py`）：全局条目 `global.json`、待审核 `review.json`、旧版 Harness 记忆导入留下的 `imports.json`（不再读写）、变更记录 `log.jsonl`（留 90 天，撤销用）、短码表 `codes.json`、有记忆的话题 `topics.json`、用到的次数 `usage.json`、同类问题静默到哪天 `dedup.json`（问前查重，Bridge 写）、自定义同义词 `synonyms.json`、给网页看有没有变的哨兵 `.rev`
 │  ├─ repos.json、home.json        仓库地图（`core/repomap.py`）、主目录的设置（`core/home.py`）
 │  ├─ repos.md                     从仓库地图画出来给每轮看的那份（接管已有主目录时放这里，不写进主目录）
-│  ├─ main-thread.json             私聊模式和管家设置，子 Agent 的模型 `subagents`（`COVEY_BUTLER=0` 时设置卡没有它，默认 `light`，要跟主模型手写 `"same"`）
+│  ├─ main-thread.json             管家和新话题的设置，子 Agent 的模型 `subagents`（`COVEY_BUTLER=0` 时设置卡没有它，默认 `light`，要跟主模型手写 `"same"`）
 │  └─ redaction/                   已下线的敏感词脱敏留下的词表等，不再读写、不进备份，原样留着（[已下线的功能](legacy.md)）
 ├─ 可选功能
 │  ├─ main-thread/                 管家的工具请求、开过的话题、回带记录（目录名和上面的 main-thread.json 沿用旧名，不改：新旧版本混跑时互相认得）

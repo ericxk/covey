@@ -319,7 +319,7 @@ class WorkerTargetsTest(unittest.TestCase):
                   "memguard", "storage-alerts", *(["proxy", "proxy-in"] if proxy else [])]
         # 手上的事 is on unless COVEY_PINNED_OVERVIEW=0 (and it is what shows 看板 in the menu).
         off = {"COVEY_PINNED_OVERVIEW": "0"}
-        # The butler's workers and menu key, unless the deployment rules it out (docs/butler.md 私聊模式).
+        # The butler's workers and menu key, unless the deployment rules it out (docs/butler.md 开不开管家).
         main, ruled_out = ["main-tools", "main-search"], {"COVEY_BUTLER": "0", **off}
         # The Feishu app's check (app/app_setup.py), on unless COVEY_APP_CHECK=0; the owner's recalled or edited messages
         # (app/source_watch.py), on unless COVEY_SOURCE_WATCH=0; 等主人的账's 对账 (app/owner_ledger.py Reconcile), on
@@ -331,8 +331,9 @@ class WorkerTargetsTest(unittest.TestCase):
         stale = ["manage_workspaces", "redaction_dashboard", "manage_groups"]
         for env, extra in ((off, main + app_setup), ({}, ["overview", *main, *app_setup]), (ruled_out, app_setup)):
             with self.subTest(env=sorted(env)), mock.patch.dict(os.environ, env):
-                if "COVEY_PINNED_OVERVIEW" not in env:
-                    os.environ.pop("COVEY_PINNED_OVERVIEW", None)
+                for name in ("COVEY_PINNED_OVERVIEW", "COVEY_BUTLER"):  # Unset: on.
+                    if name not in env:
+                        os.environ.pop(name, None)
                 app = UnifiedBridgeApp(script_path=REPO / "bin/covey_bridge.py")
                 self.assertEqual([name for name, _ in app.worker_targets()], always + extra)
                 self.assertEqual(list(app.menu.actions), menu + ([] if env is ruled_out else ["main_thread_settings"]) + ["digest_board"] + stale)  # 看板 is always in the menu.

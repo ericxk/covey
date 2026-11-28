@@ -7,12 +7,12 @@ itself draws and writes with. Nothing here is a second copy of a rule.
   page has no card's size), 常用路径 (v43 ``repos``, the card's 仓库: the home, the repository map, the worktrees; v46 a plain directory's
   ``kind`` and a device's path, the devices a path may be added on; the old 工作区 page ``workspace`` is still pushed, for a page that
   draws it, but is no tab), 群聊, 设备 with COVEY_NODE_LISTEN, with devices on or with a node (v46 ``devices_page``: devices.json
-  and the nodes as one row a machine, app/web_panels.py); not 记忆, 能做什么 and 诊断, the card's alone: CARD_ONLY, each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``mode_setting``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
+  and the nodes as one row a machine, app/web_panels.py); not 记忆, 能做什么 and 诊断, the card's alone: CARD_ONLY, each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
   (cards/workspace_manager.py ``list_entries``, ``tag_words``) on the old 工作区 page, the groups with their state and 免@
   (cards/group_manager.py ``state_words``, ``free_words``; a group is named by a hash of its chat id) and the nodes' lines (app/node_panel.py
   ``facts``). ``editable`` says which rows the page may change (EDITABLE); every other row says 去飞书改 (``feishu``: the bot's applink).
 - What the page may change: every row of 新话题; 管家's 供应商, 模型, 思考预算 and
-  压缩阈值 (its 私聊顶层的消息 is read only); a workspace's 用途; a group's 停用 / 启用 (its 免@ is read only).
+  压缩阈值; a workspace's 用途; a group's 停用 / 启用 (its 免@ is read only).
   Data contract v46: a device of devices.json added (checked first), changed, removed or checked (``device_add``, ``device_set``,
   ``device_remove``, ``device_check``: app/web_panels.py), and a path added on a device (``repos_add``'s ``device``).
   Data contract v43: a repository's 用途, 状态 and 写法 (``repos_set``), one added by its path (``repos_add``) or taken out of the map
@@ -21,11 +21,11 @@ itself draws and writes with. Nothing here is a second copy of a rule.
   (a directory with ``.git`` is added to it). The map is repos.json (core/repomap.py); before it exists the page shows the old workspace
   list as a read-only view, and the first change makes the file (``edit_repos``). The 新话题 and 管家 rows have no 工作区 or 运行方式
   row any more (cards/butler_panel.py OFFLINE_KINDS).
-  Data contract v15: the butler's 私聊顶层的消息 (每条直接开一个话题 with
-  ``confirm``), 免@ set to 关闭 or 只有你 (``free``), a workspace added by its path, removed, the missing ones removed, and the 设备 and 代答
+  Data contract v15: 免@ set to 关闭 or 只有你 (``free``), a workspace added by its path, removed, the missing ones removed, and the 设备 and 代答
   pages (app/web_panels.py); 本周用量 as the card counts it (``usage``, the item key USAGE_KEY).
   敏感词脱敏 is retired: the page no longer draws it, and a change of its two switches (``redaction``) or its terms (``terms``) from a
-  page drawn before is refused, REDACTION_RETIRED.
+  page drawn before is refused, REDACTION_RETIRED. So is the butler's 私聊顶层的消息 (v15, 每条直接开一个话题 with ``confirm``): a
+  page that still sends it is told so (cards/butler_panel.py MODE_KINDS, MODE_RETIRED).
   A row's change is the card's own (app/butler_panel.py ButlerPanel ``changes`` then core/butler_settings.py ``update``), so both write the one
   main-thread.json and the card and the page show the same; the page's receipt is the card's (``SAVED``). Only the owner: app/access.py
   ``is_owner`` of the owner the Bridge knows (the page's own check is its login).
@@ -69,7 +69,7 @@ NOTE_LENGTH = cards.NOTE_LENGTH
 EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MODEL, cards.TOPIC_EFFORT,
                       cards.SUBAGENTS,
                       cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT,
-                      cards.MODE, cards.LEAD_HARNESS, cards.LEAD_PROVIDER, cards.LEAD_MODEL, cards.LEAD_EFFORT, cards.ASSIST,
+                      cards.LEAD_HARNESS, cards.LEAD_PROVIDER, cards.LEAD_MODEL, cards.LEAD_EFFORT, cards.ASSIST,
                       cards.ASSIST_PROVIDER, cards.ASSIST_MODEL, cards.ASSIST_EFFORT})
 BUTLER_KINDS = frozenset({cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT})
 CHANGES = ("row", "untrust", "note", "redaction", "terms", "group", "free", "workspace_add", "workspace_remove", "workspace_prune",
@@ -78,7 +78,6 @@ CHANGES = ("row", "untrust", "note", "redaction", "terms", "group", "free", "wor
 PAGE_LABELS = {REPOS: "常用路径"}  # The page's own word for a tab where it is not the card's (the card's 仓库 tab is read only).
 PROXY_TAB, PROXY_LABEL = "proxy", "代答"  # The bot menu's own 代答 card, a tab of the page's 设置 (not of the card's).
 FREE_ON_PAGE = ("", "owner")  # 免@ the page may set: only ever tighter; 你和选中的人 and 群里所有人 stay on the card.
-MODE_TOPICS = "topics"  # cards/butler_panel.py MODE_CHOICES: 每条直接开一个话题, saved only with ``confirm`` (the card's 确定改).
 APPLINK = "https://applink.feishu.cn/client/bot/open?appId="
 OWNER_ONLY = "只有机器人主人能改设置"
 GONE = "这个选项已不可用，页面会按最新设置重画"
@@ -706,10 +705,10 @@ class WebSettings:
         (管家, unless COVEY_BUTLER=0), ``lead`` (专项负责人, with COVEY_PROJECTS=1, v36; no ``review`` since 独立复核 was taken out),
         ``assist`` (辅助模型, always: ``assist``; an older page leaves it out), each with its ``title``; under 更多 (``more``) 子
         Agent; ``summary`` the card's title bar."""
-        on = butler.available() and settings.enabled
-        found = {"summary": cards.config_subtitle(settings, choices, on, butler.available(), projects.enabled()),
+        on = butler.enabled()
+        found = {"summary": cards.config_subtitle(settings, choices, on, projects.enabled()),
                  "topic": {"title": cards.SECTIONS[cards.TOPIC_PART], **self.topic(ctx, settings, choices, chat)}}
-        if butler.available():
+        if on:
             found["main"] = {"title": cards.SECTIONS[cards.BUTLER_PART], **self.butler(ctx, settings, choices)}
         if projects.enabled():
             found["lead"] = {"title": cards.SECTIONS[cards.LEAD_PART], "note": cards.LEAD_NOTE,
@@ -737,23 +736,16 @@ class WebSettings:
     def topic(self, ctx, settings, choices, chat) -> dict:
         """配置's 新话题: its rows (every one the page may change), in the card's two lines."""
         panel, defaults = self.panel(), settings.topic_defaults
-        on = butler.available() and settings.enabled
         found = cards.topic_settings(defaults, choices, panel_rules.workspace_names(ctx.state_dir), LIMIT,
                                      panel.follows(ctx, defaults, choices, chat), LIMIT, panel.fallback(ctx, defaults, choices, chat),
-                                     butler=on)
+                                     butler=butler.enabled())
         return {"note": cards.TOPIC_NOTE, "rows": rows_of(found)}
 
     def butler(self, ctx, settings, choices) -> dict:
-        """配置's 管家, its rows as the card's section has them: off (纯话题), the mode's row alone; else its own (Harness first,
-        压缩阈值 where it counts) and the mode last. The page may change them all; 每条直接开一个话题 only after it asked
-        ``mode_confirm`` (the card's 确定改). ``note``: MODE_OFF when it is off."""
-        mode = cards.mode_setting(settings)
-        confirm = lambda rows: [{**each, "confirm": {MODE_TOPICS: cards.MODE_CONFIRM}} if each["key"] == mode.key else each
-                                for each in rows]
-        if not settings.enabled:
-            return {"on": False, "rows": confirm(rows_of([mode])), "note": cards.MODE_OFF}
+        """配置's 管家, its rows as the card's section has them (Harness first, 压缩阈值 where it counts); the page may change
+        them all. ``on`` is always true (an older page drew the retired 私聊顶层的消息's 每条直接开一个话题 by it)."""
         own = cards.butler_setting_list(settings, choices, LIMIT, panel_rules.workspace_names(ctx.state_dir))
-        return {"on": True, "rows": confirm(rows_of(own + [mode]))}
+        return {"on": True, "rows": rows_of(own)}
 
     def nodes(self, ctx) -> dict:
         """设备: app/web_panels.py ``nodes_tab`` (the card's panel only with COVEY_NODE_LISTEN: adding a node needs its gateway)."""
@@ -859,7 +851,7 @@ class WebSettings:
         if not changes:
             return "没有变化"
         _update_settings(ctx.state_dir, changes)
-        return panel_rules.MODE_NOTICES.get(changes.get("enabled")) or panel_rules.saved_notice(kind)
+        return panel_rules.saved_notice(kind)
 
     def change_row(self, ctx, payload) -> str:
         kind, option = str(payload.get("kind") or ""), payload.get("option")
@@ -869,19 +861,14 @@ class WebSettings:
             raise ValueError(REDACTION_RETIRED)
         if kind in REVIEW_KINDS:  # 独立复核's rows on a page drawn before it was taken out (app/card_actions.py).
             raise ValueError(REVIEW_RETIRED)
+        if kind in cards.MODE_KINDS:  # 私聊顶层的消息 on a page drawn before it was taken out.
+            raise ValueError(cards.MODE_RETIRED)
         if kind not in EDITABLE:
             raise ValueError(READ_ONLY)
         if not isinstance(option, str):
             raise ValueError(GONE)
-        settings = butler_harness.drawn(butler_settings.load(ctx.state_dir), self.apps())  # Never saved.
-        on = butler.available() and settings.enabled
-        if kind in BUTLER_KINDS and not on:
+        if kind in BUTLER_KINDS and not butler.enabled():
             raise ValueError("管家没开，这一项现在不起作用")
-        if kind == cards.MODE:
-            if not butler.available():
-                raise ValueError(READ_ONLY)
-            if option == MODE_TOPICS and settings.enabled and payload.get("confirm") is not True:
-                raise ValueError("改成每条直接开一个话题要先确认")
         return self.apply(ctx, kind, {"option": option})
 
     def change_untrust(self, ctx, payload) -> str:

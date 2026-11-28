@@ -1345,11 +1345,10 @@ class WithoutClaudeTest(InstallerCase):
                 self.lines.clear()
                 ins = self.start(working=working)
                 self.assertEqual(self.switches_of(ins), {key: switches.INSTALL.get(key) for key in switches.SHOWCASE})
-                self.assertEqual(json.loads(butler_settings.path(self.state).read_text()), {"harness": butler})  # No mode.
+                self.assertEqual(json.loads(butler_settings.path(self.state).read_text()), {"harness": butler})
                 self.assertEqual(self.order, [("service-install", False), ("bootstrap", True)])  # Before the first start.
                 self.assertIn(f"Claude Code 没调通：管家用 {title}；专项、整理专项照常开，负责人和小模型判断也用 {title}",
                               self.text())
-                self.assertEqual(butler_settings.settle_mode(self.state), "agent")  # The first start: the butler.
                 self.assertEqual(butler_settings.load(self.state).butler_harness, butler)
 
     def test_with_claude_code_working_nothing_changes(self):

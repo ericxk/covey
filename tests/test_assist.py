@@ -90,7 +90,12 @@ class Case(unittest.TestCase):
         topics.runtime.log = self.logs.append
         return topics
 
-    def setting(self, choice, **more):
+    def setting(self, choice, butler=None, **more):
+        """辅助模型 set to ``choice`` and the other settings ``more``; ``butler``: the butler on or off from now (setUp has it on)."""
+        if butler is not None:
+            patch = mock.patch("covey.core.butler.available", return_value=butler)
+            patch.start()
+            self.addCleanup(patch.stop)
         butler_settings.update(self.state, assist=choice, **more)
 
     def message(self):
@@ -128,20 +133,20 @@ class MatrixTest(Case):
 
     def test_automatic_follows_the_butler_then_the_named_harnesses(self):
         topics = self.topics()
-        self.setting(SETTINGS["auto"], enabled=True, harness="agy")
+        self.setting(SETTINGS["auto"], butler=True, harness="agy")
         self.assertEqual(assist.route(topics).harness, "agy")
-        self.setting(SETTINGS["auto"], enabled=False,
+        self.setting(SETTINGS["auto"], butler=False,
                      topic_defaults=butler_settings.TopicDefaults(harness="codex"))
-        self.assertEqual(assist.route(topics).harness, "codex")  # 纯话题: the butler is not followed.
-        self.setting(SETTINGS["auto"], enabled=False, topic_defaults=butler_settings.TopicDefaults())
+        self.assertEqual(assist.route(topics).harness, "codex")  # The butler off: it is not followed.
+        self.setting(SETTINGS["auto"], butler=False, topic_defaults=butler_settings.TopicDefaults())
         self.assertEqual(assist.route(topics).harness, "claude")  # Nothing named anywhere: the Bridge's default.
-        self.setting(SETTINGS["auto"], enabled=True, harness="codex")
+        self.setting(SETTINGS["auto"], butler=True, harness="codex")
         found = assist.route(topics)
         self.assertEqual((found.harness, found.rest), ("codex", ()))  # Only the Harnesses the settings name, no others.
 
     def test_the_followed_settings_model_goes_with_it(self):
         topics = self.topics()
-        self.setting(SETTINGS["auto"], enabled=True, harness="codex", model="acme/gpt-6-astra")
+        self.setting(SETTINGS["auto"], butler=True, harness="codex", model="acme/gpt-6-astra")
         self.assertEqual(assist.route(topics).first.follow, "acme/gpt-6-astra")
         self.setting(SETTINGS["codex"])
         self.assertEqual(assist.route(topics).first.follow, "")  # Named: its own provider.
@@ -172,12 +177,12 @@ class FollowedBudgetTest(Case):
 
     def test_the_route_carries_the_model_and_budget_of_the_setting(self):
         topics = self.topics()
-        self.setting(SETTINGS["auto"], enabled=True, harness="agy", model="gemini-4-neon", effort="xhigh",
+        self.setting(SETTINGS["auto"], butler=True, harness="agy", model="gemini-4-neon", effort="xhigh",
                      topic_defaults=butler_settings.TopicDefaults(harness="claude", model="opus", effort="ultracode"))
         found = assist.route(topics, assist.TIDY)
         self.assertEqual((found.first.name, found.first.follow, found.first.effort), ("agy", "gemini-4-neon", "xhigh"))
         self.assertEqual((found.rest[0].follow, found.rest[0].effort), ("opus", "xhigh"))  # Its budget, not the orchestration.
-        self.setting(SETTINGS["auto"], enabled=True, harness="agy", model="", effort="xhigh")
+        self.setting(SETTINGS["auto"], butler=True, harness="agy", model="", effort="xhigh")
         self.assertEqual(assist.route(topics, assist.TIDY).first.effort, "")  # No model named: the Harness's own.
         self.setting(butler_settings.AssistChoice(harness="codex", model="gpt-big", effort="high"))
         found = assist.route(topics, assist.TRACK)
@@ -190,7 +195,7 @@ class FollowedBudgetTest(Case):
         app, asked = self.native("agy")
         topics = topics_with(self.state, {"claude": claude_app(self.state), "agy": app}, default="claude")
         topics.runtime.log = self.logs.append
-        self.setting(SETTINGS["auto"], enabled=True, harness="agy", model="gemini-4-neon", effort="xhigh")
+        self.setting(SETTINGS["auto"], butler=True, harness="agy", model="gemini-4-neon", effort="xhigh")
         for feature in (assist.TIDY, assist.BACKFILL, assist.LEARN):
             self.call(topics, feature)
         assist.judge(self.message(), topics=topics, log=self.logs.append)
@@ -198,7 +203,7 @@ class FollowedBudgetTest(Case):
 
     def test_claude_code_runs_on_the_settings_model_and_budget_else_the_variable_else_its_own(self):
         topics = self.topics()
-        self.setting(SETTINGS["auto"], enabled=True, harness="claude", model="opus", effort="xhigh")
+        self.setting(SETTINGS["auto"], butler=True, harness="claude", model="opus", effort="xhigh")
         for feature in (assist.TIDY, assist.LEARN):
             self.call(topics, feature)
             self.assertEqual(self.claude_asked, {"model": "opus", "effort": "xhigh"})
@@ -259,7 +264,7 @@ class NoStandbyTest(Case):
 class FallbackTest(Case):
     def test_a_timeout_never_goes_to_another_harness(self):
         topics = self.topics(answers={"codex": AskFailed("timeout")})
-        self.setting(SETTINGS["auto"], enabled=True, harness="codex")
+        self.setting(SETTINGS["auto"], butler=True, harness="codex")
         for feature in (assist.TIDY, assist.LEARN, assist.TRACK):
             with self.subTest(feature=feature):
                 self.spawns.calls.clear()
@@ -269,7 +274,7 @@ class FallbackTest(Case):
 
     def test_an_environment_failure_goes_to_the_next_but_for_the_track_judge(self):
         topics = self.topics(answers={"codex": AskFailed("quota_exhausted", "quota exceeded")})
-        self.setting(SETTINGS["auto"], enabled=True, harness="codex",
+        self.setting(SETTINGS["auto"], butler=True, harness="codex",
                      topic_defaults=butler_settings.TopicDefaults(harness="claude"))
         verdict = assist.judge(self.message(), topics=topics, log=self.logs.append)
         self.assertEqual((verdict.route, verdict.why), ("new", "quota_exhausted"))
@@ -321,7 +326,7 @@ class FallbackTest(Case):
 class RefusalTest(Case):
     def test_a_batch_features_refusal_cools_it_on_that_harness_and_a_settings_change_clears_it(self):
         topics = self.topics(answers={"codex": AskFailed("policy_refusal", "Invalid prompt")})
-        self.setting(SETTINGS["auto"], enabled=True, harness="codex",
+        self.setting(SETTINGS["auto"], butler=True, harness="codex",
                      topic_defaults=butler_settings.TopicDefaults(harness="claude"))
         self.assertEqual(self.call(topics, assist.TIDY).reason, "policy_refusal")
         self.assertEqual(self.spawns.calls, ["codex"])  # Not sent to the next Harness.
@@ -399,7 +404,7 @@ class OtherCasesTest(Case):
         self.assertEqual(assist.describe(topics)["words"], "现在：Codex · codex-own，分流、整理专项、记忆自己长都用它。")
         self.setting(butler_settings.AssistChoice(harness="codex", model="gpt-big", effort="high"))
         self.assertEqual(assist.describe(topics)["words"], "现在：Codex · gpt-big · high，分流、整理专项、记忆自己长都用它。")
-        self.setting(SETTINGS["auto"], enabled=True, harness="codex", model="gpt-big", effort="xhigh")
+        self.setting(SETTINGS["auto"], butler=True, harness="codex", model="gpt-big", effort="xhigh")
         self.assertEqual(assist.describe(topics)["words"],
                          "现在：跟随管家，Codex · gpt-big · xhigh，分流、整理专项、记忆自己长都用它。")
         self.setting(SETTINGS["none"])

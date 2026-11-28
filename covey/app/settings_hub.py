@@ -33,10 +33,10 @@ A card sent before this record existed (gen 286) is held by its panel's own reco
 tab click moves that record here under the same token (``takeover``: its sequence, view and fields go on, the old
 record is MOVED) and then turns as above. A card whose record was MOVED by the scheme before finds nothing.
 
-The menu opens it on 配置 (``first_tab``), in either private chat mode and with COVEY_BUTLER=0 too; the pages 模型,
+The menu opens it on 配置 (``first_tab``), with COVEY_BUTLER=0 too; the pages 模型,
 新话题 and 管家 it took the place of are retired into it (cards/settings_hub.py RETIRED): an older card's tab click
 on one of them, or a record still on one, lands on 配置. Its 管家 part is there unless COVEY_BUTLER=0 rules the butler
-out, in the mode 纯话题 too (its row of the mode turns the butler on). The butler's menu key (app/butler_panel.py
+out. The butler's menu key (app/butler_panel.py
 MENU_KEY) and its tool settings_panel send it on 配置. The chat keeps one 设置 card (app/bot_menu.py Panels, key
 MENU_KEY). The bot menu's older 工作区, 脱敏 and 群聊 keys are gone from the menu; a client's cached copy is told where
 the page went (app/bot_menu.py). The bot menu's 代答 key sends its own card, without tabs.

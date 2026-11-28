@@ -11,7 +11,7 @@ the launch card), 这台机器 (the Harnesses, those unavailable now, the home),
   those the availability watch found unavailable;
 - ``workspace``, ``workdir``: the default workspace's name and directory, the deployment's home (shown as 主目录, its directory);
   ``bare_workspace``: True while it holds no project (BARE_WORKSPACE under it);
-- ``butler``: '' with the butler, else why not: NO_CLAUDE, OFF, TOPICS, DOWN (BUTLER_WORDS);
+- ``butler``: '' with the butler, else why not: NO_CLAUDE, OFF, DOWN (BUTLER_WORDS);
 - ``examples``: their words; ``tried``: the examples clicked, by their index as a string, and what came of each
   (TRIED: 已发出, the button off; anything else, FAILED, the button again); ``notice``: one grey line under them.
 """
@@ -29,13 +29,12 @@ TRY, TRIED_LABEL = "发这句", "已发出"
 BARE_WORKSPACE = "里面还没有项目：把你的项目放进主目录，或在网页设置的「仓库」页加上；新话题都从主目录开始"
 STARTING, SENT, FAILED, UNCERTAIN = "starting", "sent", "failed", "uncertain"  # What became of a click on an example.
 TRIED = frozenset({STARTING, SENT, UNCERTAIN})  # The button is off: never sent twice (a failed one is offered again).
-NO_CLAUDE, OFF, TOPICS, DOWN = "no_claude", "off", "topics", "down"  # Why the private chat has no butler.
+NO_CLAUDE, OFF, DOWN = "no_claude", "off", "down"  # Why the private chat has no butler.
 # Why there is no butler (the band's grey line) and how to get it (its 要你做 bar, labelled 要管家).
 BUTLER_WORDS = {
     NO_CLAUDE: ("管家用的 Harness 在这台机器上没启用",
                 "装好并登录 Claude Code、Codex 或 Antigravity 中的一个，再运行一次 ./install；选过别的 Harness 的，在「设置」→「配置」的管家一段换成启用了的"),
     OFF: ("部署时关了管家（COVEY_BUTLER=0）", "去掉这个设置，照 docs/configuration.md 的「改开关三步」重新注册服务"),
-    TOPICS: ("私聊顶层的消息设成了每条直接开一个话题", "菜单「设置」→「配置」的管家一段，改成交给管家"),
     DOWN: ("管家用的 Harness 刚才没起来", "几分钟后自动再试，不用做什么"),
 }
 

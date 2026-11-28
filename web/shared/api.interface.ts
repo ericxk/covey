@@ -931,8 +931,6 @@ export interface SettingsRow {
   text: string;
   options: SettingsOption[];
   editable: boolean;
-  /** v15：要先确认的选项（管家的“私聊顶层的消息”改成 topics） */
-  confirm?: { topics?: string };
 }
 export interface SettingsError {
   error: string;

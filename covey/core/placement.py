@@ -109,7 +109,7 @@ class Placement:
 
 
 def layout() -> str:
-    """TOPICS with the butler off, else AREA: the mode as core/butler.py reads it (set up per process)."""
+    """TOPICS with the butler off (COVEY_BUTLER=0, core/butler.py enabled), else AREA."""
     return AREA if butler.enabled() else TOPICS
 
 

@@ -144,7 +144,7 @@
 
 - 话题列表显示最新一条消息的预览，任务卡的 `config.summary` 跟着任务走：`build_stream_card` 发卡时写“🕒 … 排队中”（任务已开始时的替换卡写“⏳ … 执行中”）；检查点阶段或原生问题变化时 `Cards.show_running_summary` 只 `PATCH settings` 的 `summary`；`show_outcome` 写“话题号或 #任务号 · 结局 · 用时”（`task_card_summary`）；`StreamingCard.close` 关流式时带上它。header 发出后只有整卡 `PUT` 能改，任务卡不整卡替换。
 - 单独发出的回答也是卡片（`cards/review.py` 的 `answer_card`，摘要由 `answer_summary` 写），见[投递、重投与 outbox](architecture.md#投递重投与-outbox)。
-- 回答单独发出时正文写成“**结论**”下一行开头（`TurnDelivery.delivered_note`；管家模式下话题里的答案卡已发在话题串里时正文留空）。
+- 回答单独发出时正文写成“**结论**”下一行开头（`TurnDelivery.delivered_note`；有管家时话题里的答案卡已发在话题串里时正文留空）。
 - 回答开头跳过“## 结论”这类标题（`answer_lead` 的 `GENERIC_HEADINGS`）。
 
 ### 之前发出的卡
@@ -238,7 +238,7 @@
 
 ### 设置卡配置页的格子版式
 
-配置页一段里的各项排成格子（`cards/butler_panel.py` 的 `tile_lines`、`cards/launch_config.py` 的 `setting_line`），顺序不变：新话题 Harness、供应商、模型、思考预算 / 工作区、运行方式；管家 Harness、供应商、模型、思考预算 / 工作区、压缩阈值、私聊顶层的消息；专项负责人四项；更多是子 Agent。每段里 `FOLDED` 的几项（且是平常的值）不排在格子里，排在段末“更多：…”折叠里，顺序同上。（网页设置页读的 `lines` 仍是原来的三行分法，没变。）
+配置页一段里的各项排成格子（`cards/butler_panel.py` 的 `tile_lines`、`cards/launch_config.py` 的 `setting_line`），顺序不变：新话题 Harness、供应商、模型、思考预算 / 工作区、运行方式；管家 Harness、供应商、模型、思考预算 / 工作区、压缩阈值；专项负责人四项；更多是子 Agent。每段里 `FOLDED` 的几项（且是平常的值）不排在格子里，排在段末“更多：…”折叠里，顺序同上。（网页设置页读的 `lines` 仍是原来的三行分法，没变。）
 
 - 每项还是原来的折叠行 `setting_row`（`cell=True`：灰色标签后面跟当前值，同一行，格子只有一行高），点开列选项，点一个选项照旧记下并整卡重画，现在是一个带细边框（`TILE_BORDER`，灰色、圆角 8px）的格子，下拉箭头都在格子右缘；去掉了原来整块灰底。不用下拉框（`select`）的原因不变：iOS 飞书的 select 是全屏选择器，取消按钮在状态栏下面（见 `cards/launch_config.py` 的模块说明）。
 - 两格一行，`column_set` 的 `flex_mode` 取 `LINE_FLEX`（`stretch`），两个等宽（`weighted`）的 `column`：卡片宽时左右并排，窄（话题侧栏约 250–300px，手机）时自动上下叠成单列，所以不会把“Claude 自带”折成“Claude 自 / 带”。选的值很长的项（显示宽度超过 `WIDE`，如工作区、子 Agent）单独一行占满；落单的一项占半行（另一半放空的 `column`），格子不错位。`bisect`（任何宽度都两列，窄屏会断词）和 `flow` + `auto`（宽度参差）都试过，不用。

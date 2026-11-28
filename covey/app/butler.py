@@ -1,7 +1,7 @@
-"""The butler's session (docs/butler.md), only in the private chat mode 管家 (core/butler.py
-enabled: COVEY_BUTLER not 0, the mode on the settings card): what the owner writes at the top level of the private chat goes to one long-lived session (on the
-Harness app/butler_harness.py picks: the settings', else Claude Code while it can, else Codex or Antigravity), whose topic
-(butler_topic_id) has no root message and no T number; its topic.json says ``main_thread: true`` (the field keeps its old name on disk).
+"""The butler's session (docs/butler.md), unless COVEY_BUTLER=0 (core/butler.py enabled): what the owner writes at the
+top level of the private chat goes to one long-lived session (on the Harness app/butler_harness.py picks: the settings',
+else Claude Code while it can, else Codex or Antigravity), whose topic (butler_topic_id) has no root message and no T
+number; its topic.json says ``main_thread: true`` (the field keeps its old name on disk).
 
 - ``Butler.handle_event``, called after the extensions' in app/card_routing.py: claims the message, keeps the topic's binding
   to the settings and hands it to the usual submission (app/app.py handle_event).
@@ -120,7 +120,7 @@ class Butler:
     def __init__(self, topics) -> None:
         self.topics = topics
         self.runtime = topics.runtime
-        self.tracks = Tracks(self)  # 多路并行 (app/butler_tracks.py); idle when COVEY_BUTLER_TRACKS is 0 or the mode says so.
+        self.tracks = Tracks(self)  # 多路并行 (app/butler_tracks.py); idle when COVEY_BUTLER_TRACKS is 0 or the butler is off.
 
     def harness_app(self, state_dir):
         """(name, app) of the Harness the butler runs on (app/butler_harness.py chosen): the settings', else Claude Code
@@ -140,17 +140,16 @@ class Butler:
         if not butler_settings.load(state_dir).harness:  # None named, and no enabled Harness takes the Bridge's tools.
             return ("main thread is on but no enabled Harness can take the Bridge tools (Claude Code, Codex, Antigravity "
                     "or DeepSeek Harness): "
-                    "private chat messages open topics instead; enable one of them in harnesses.json, or choose 纯话题")
+                    "private chat messages open topics instead; enable one of them in harnesses.json, or set COVEY_BUTLER=0")
         return (f"main thread is on but its Harness {name} is not enabled or cannot take the Bridge tools: private chat "
                 f"messages open topics instead; enable {name} in harnesses.json, choose another Harness in the settings "
-                f"card's 配置, its 管家 part, or choose 纯话题")
+                f"card's 配置, its 管家 part, or set COVEY_BUTLER=0")
 
     @staticmethod
     def configure(ctx) -> None:
         """Where replies go, in this process. A reply to one of the butler's messages goes in that message's
         thread (the owner's message gets the butler's card in its thread, no card of its own
-        beside it). With the butler off (the switch 0 or the mode 纯话题, which the owner changes while the
-        process runs), every reply is in its thread."""
+        beside it). With the butler off (COVEY_BUTLER=0), every reply is in its thread."""
         state = ctx.state_dir
 
         def top_level(chat, message):
@@ -159,34 +158,23 @@ class Butler:
             return placement.plan(state, {"topic_id": message_topic(state, chat, message), "chat_id": chat}).top_level()
 
         configure_top_level(top_level if contract.available() else None)
-        contract.configure_state(state)  # The mode (core/butler.py enabled).
+        contract.configure_state(state)  # Whose records core/butler.py is_lead reads.
 
     @staticmethod
     def settle(ctx, log) -> None:
-        """At the Bridge's start, before any event: the private chat mode written once (core/butler_settings.py
-        settle_mode), 管家 on a new deployment. A failure is a log line; the next start tries again. An idle
-        compaction the last Bridge started stops (app/idle_compaction.py clear_left), whatever the switch says."""
+        """At the Bridge's start, before any event: an idle compaction the last Bridge started stops
+        (app/idle_compaction.py clear_left), whatever the switch says. A failure is a log line."""
         try:
             idle_compaction.clear_left(ctx.state_dir, log)
         except (OSError, ValueError) as exc:
             log(f"idle compaction not cleared: {type(exc).__name__}")
-        if not contract.available():
-            return
-        try:
-            mode = butler_settings.settle_mode(ctx.state_dir)
-        except (OSError, ValueError) as exc:
-            log(f"main thread mode not settled: {type(exc).__name__}: {exc}"[:300])
-            return
-        if mode:
-            log(f"main thread mode settled mode={mode}")
 
     def app_for(self, ctx, event, owner):
         """The app that runs this message as the butler's, or None when it is not the butler's: not a chat
         with a butler (Access.agent_chat: the owner's private chats, the personal groups), in
-        or under a topic, the butler off (the switch 0 or the mode 纯话题), or its Harness not available
+        or under a topic, the butler off (COVEY_BUTLER=0), or its Harness not available
         (``harness_app``). The app is the settings' Harness; ``keep_topic`` may keep the one a running turn has."""
         chat = str(event.get("chat_id") or "")
-        # ``enabled`` reads the mode of the state ``configure`` set: this one (app/unified.py, one state a process).
         if not owner or not contract.enabled() \
                 or not self.runtime.access.agent_chat(chat, event.get("chat_type") == "group"):
             return None

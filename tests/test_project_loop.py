@@ -20,12 +20,12 @@ from covey.app import auto_retry, project_lead, project_loop
 from covey.app.cards import Cards
 from covey.app.project_facts import facts
 from covey.app.project_loop import ProjectLoop
-from covey.core import butler, butler_settings, failure, placement, projects, quota_hold
+from covey.core import butler, failure, placement, projects, quota_hold
 from covey.core.jobs import find_job_record, job_key, topic_job_records
 from covey.core.state import write_json
 from covey.core.topics import load_topic
 
-from support.butler import CHAT as BUTLER_CHAT
+from support.butler import CHAT as BUTLER_CHAT, switch_on
 from test_butler_quiet import DeliverCase
 from test_project_lead import CHAT, LEAD, NOW, ON, PID, Case
 from test_quota_hold import configure, spent_text
@@ -1374,8 +1374,7 @@ class SilentTest(DeliverCase):
         mock.patch.dict(os.environ, ON).start()
         self.addCleanup(mock.patch.stopall)
         self.addCleanup(butler.configure_state, butler.configure_state(self.state))
-        write_json(self.state / butler_settings.FILE, {"mode": "agent"})
-        butler.forget_mode()
+        switch_on(self)
         self.lead_topic = projects.lead_topic_id(BUTLER_CHAT, PID)
         projects.create(self.state, projects.new_record(chat_id=BUTLER_CHAT, name="迁移账单", project_id=PID, now=NOW))
         write_topic(self.state, topic_id=self.lead_topic, chat_id=BUTLER_CHAT, harness_id="claude",
@@ -1804,8 +1803,7 @@ class RelayRaceTest(DeliverCase):
         mock.patch.dict(os.environ, ON).start()
         self.addCleanup(mock.patch.stopall)
         self.addCleanup(butler.configure_state, butler.configure_state(self.state))
-        write_json(self.state / butler_settings.FILE, {"mode": "agent"})
-        butler.forget_mode()
+        switch_on(self)
         self.lead_topic = projects.lead_topic_id(BUTLER_CHAT, PID)
         projects.create(self.state, projects.new_record(chat_id=BUTLER_CHAT, name="迁移账单", project_id=PID, now=NOW))
         write_topic(self.state, topic_id=self.lead_topic, chat_id=BUTLER_CHAT, harness_id="claude",

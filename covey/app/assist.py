@@ -13,7 +13,7 @@ every feature (T924, the owner: 这块不用分开): no light model is picked fo
   watch's last preflight and the latest task outcomes the Bridge holds in memory, app/availability.py), not signed in
   (Antigravity), broken for the background (core/assist.py ``breakers``), cooling for this feature or gated for the day:
   no call, and the reason says so. Never another Harness.
-- 自动（跟随管家）: the butler's Harness while the butler is on (core/butler.py ``available`` and the mode 管家), then the
+- 自动（跟随管家）: the butler's Harness while the butler is on (core/butler.py ``enabled``), then the
   Harness of 新话题默认 and 专项负责人, each where the settings name one (none named: the Bridge's default
   Harness), each with that setting's model and budget (``follow``, ``effort``: the butler's gemini-4-neon at xhigh is asked
   at xhigh, never a lower one put in its place; an orchestration mode at its budget alone, core/defaults.py budget_of; a
@@ -281,7 +281,7 @@ def followed(settings, apps, default) -> list:
     runs its model with ('' with no model named: the Harness's own)."""
     from covey.app import butler_harness
     out = []
-    if butler.available() and settings.enabled:
+    if butler.enabled():
         name = butler_harness.name_of(settings, apps)
         out.append((name, *butler_harness.model_of(settings, name)))
     for row in (settings.topic_defaults, settings.lead):

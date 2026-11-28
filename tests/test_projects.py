@@ -20,7 +20,6 @@ from covey.app import answer_cards, butler_tools, pins, policy_retry
 from covey.app.butler_env import ButlerEnv
 from covey.app.butler_tools import ButlerTools, reply
 from covey.core import board_read, butler, butler_tracks, placement, projects, topics
-from covey.core import butler_settings as settings
 from covey.core.maintenance import maintain
 from covey.core.state import DAY, write_json
 
@@ -44,11 +43,11 @@ class Case(unittest.TestCase):
         enter_context(self, mock.patch.dict(os.environ, {**env, **UNSET_OFF}, clear=True))
         if self.flag:
             os.environ[projects.ENV] = self.flag
-        self.mode("agent")
+        self.butler(True)
 
-    def mode(self, mode):
-        write_json(self.state / settings.FILE, {"mode": mode})
-        butler.forget_mode()
+    @staticmethod
+    def butler(on):
+        os.environ[butler.ENV] = "1" if on else "0"  # Within setUp's patch of the environment.
 
     def topic(self, topic_id, **fields):
         return write_topic(self.state, topic_id=topic_id, chat_id=CHAT, harness_id="claude", **fields)
@@ -415,7 +414,7 @@ class ButlerTest(Case):
 
     def test_with_the_butler_off_it_is_the_off_row(self):
         lead = self.lead()
-        self.mode("topics")
+        self.butler(False)
         row = butler.traits(lead, CHAT)
         self.assertIs(row, butler.LEAD_OFF)
         self.assertEqual((row.own_turn, row.answers_in_place, row.lists_supplements, row.wording, row.slim_card, row.linkify_body),
@@ -499,7 +498,7 @@ class PlacementTest(Case):
         main = butler.butler_topic_id(CHAT)
         plan = self.plan(main)
         self.assertEqual((plan.role, plan.row.answer_on_card, plan.row.quiet), ("butler", placement.ROUTES, True))
-        self.mode("topics")
+        self.butler(False)
         plan = self.plan(self.thread())
         self.assertEqual((plan.layout, plan.role, plan.row), (placement.TOPICS, "project_member",
                                                               placement.TABLE[(placement.TOPICS, "topic")]))

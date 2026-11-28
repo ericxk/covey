@@ -15,6 +15,7 @@ FIXTURE = os.environ.get("COVEY_WEB_SETTINGS_FIXTURE", "")  # Writes the snapsho
 from unittest import mock
 
 from support.world import UnifiedCase
+from support.butler import switch_on
 from covey.app import butler_panel, web_settings, web_switch as web_switch_words
 from covey.app.butler_env import ButlerEnv
 from covey.app.web_ops import Ops
@@ -36,7 +37,7 @@ class SettingsCase(UnifiedCase):
         (self.root / ".git").mkdir(exist_ok=True)  # docs is a checkout: before repos.json the page lists only those (T870 Wave 3.5).
         write_json(config_path(self.ctx.state_dir), {"default": "project", "workspaces": {
             "project": str(self.work), "docs": str(self.root), "gone": str(self.root / "nope")}})
-        settings.update(self.ctx.state_dir, enabled=True)
+        switch_on(self)
         self.env = ButlerEnv(runtime=self.app.runtime, topics=self.app.topics, messenger=self.app.messenger, voice=self.app.voice,
                              state_dir=self.ctx.state_dir, profile=self.ctx.profile, settings=self.app.settings_hub)
         self.ops = Ops(self.env)
@@ -90,10 +91,9 @@ class WebSettingsTest(SettingsCase):
         butler = config["main"]
         self.assertEqual([r["label"] for r in butler["rows"]][0], "Harness")
         self.assertNotIn("工作区", [r["label"] for r in butler["rows"]])
-        self.assertEqual([r["label"] for r in butler["rows"]][-2:], ["压缩阈值", "私聊顶层的消息"])
-        mode = butler["rows"][-1]
-        self.assertEqual((mode["text"], mode["editable"]), ("交给管家", True))  # T554 2nd round: with a confirm on the page.
-        self.assertEqual(mode["confirm"], {"topics": cards.MODE_CONFIRM})
+        self.assertEqual([r["label"] for r in butler["rows"]][-1], "压缩阈值")  # T946: no 私聊顶层的消息 row.
+        self.assertTrue(butler["on"])
+        self.assertFalse(any("confirm" in r for r in butler["rows"]))
         self.assertEqual(data["repos"]["home"], {"tail": web_settings.tail(str(self.work), web_settings.PATH_SIZE)})  # v43: the 仓库 page; the old 工作区 page is still pushed.
         names = [w["name"] for w in data["workspace"]["items"]]
         self.assertEqual(names[0], "project")  # The default first, as on the card.
@@ -167,7 +167,6 @@ class WebSettingsTest(SettingsCase):
         self.assertTrue(settings.load(self.ctx.state_dir).assist.off)
         assist.forget()
         self.assertEqual(self.snap()["config"]["assist"]["words"], "后台活不调模型，只按规则做。")
-        settings.update(self.ctx.state_dir, enabled=False)  # 纯话题: still the page's to change.
         self.assertEqual(self.op(what="row", kind=cards.ASSIST, option="claude")[0], "done")
         chosen = settings.load(self.ctx.state_dir).assist  # A Harness named takes its first model and that model's budget (T924).
         self.assertEqual((chosen.harness, bool(chosen.model)), ("claude", True))
@@ -204,20 +203,20 @@ class WebSettingsTest(SettingsCase):
         self.assertEqual(self.row("main", cards.COMPACT)["current"], "300000")
 
     def test_rows_kept_to_feishu_an_option_gone_and_anyone_else_are_refused(self):
-        self.assertEqual(self.op(what="row", kind=cards.MODE, option="topics"), ("failed", "改成每条直接开一个话题要先确认"))
-        self.assertEqual(self.op(what="row", kind=cards.ENABLE, option="on"), ("failed", web_settings.READ_ONLY))
+        for kind, option in ((cards.MODE, "topics"), (cards.MODE, "agent"), (cards.ENABLE, "on")):  # Retired (T946).
+            self.assertEqual(self.op(what="row", kind=kind, option=option, confirm=True), ("failed", cards.MODE_RETIRED))
         self.assertEqual(self.op(what="row", kind=cards.TOPIC_HARNESS, option="nowhere"), ("failed", web_settings.GONE))
         for kind in (cards.TOPIC_WORKSPACE, cards.TOPIC_RUN_MODE, cards.SPACE):  # Offline: the rows are gone from the page.
             self.assertEqual(self.op(what="row", kind=kind, option="worktree"), ("failed", cards.OFFLINE_NOTICE))
         self.assertEqual(self.op(operator="ou_other", what="row", kind=cards.TOPIC_HARNESS, option="codex"),
                          ("failed", web_settings.OWNER_ONLY))
         self.assertEqual(self.op(what="nope", kind=cards.TOPIC_HARNESS), ("failed", "不认识的设置改动"))
-        self.assertTrue(settings.load(self.ctx.state_dir).enabled)
+        self.assertFalse(settings.path(self.ctx.state_dir).exists())  # Nothing written.
         self.assertEqual(settings.load(self.ctx.state_dir).topic_defaults.harness, "")
         self.assertEqual(settings.load(self.ctx.state_dir).topic_defaults.run_mode, "direct")
-        settings.update(self.ctx.state_dir, enabled=False)  # 纯话题: the butler's rows count for nothing.
+        switch_on(self, "0")  # COVEY_BUTLER=0: the butler's rows count for nothing, the page has no 管家.
         self.assertEqual(self.op(what="row", kind=cards.COMPACT, option="0")[0], "failed")
-        self.assertEqual([r["kind"] for r in self.snap()["config"]["main"]["rows"]], [cards.MODE])
+        self.assertNotIn("main", self.snap()["config"])
 
     def test_a_workspaces_use_and_the_retired_untrust_and_redaction_changes(self):
         self.assertEqual(self.op(what="note", workspace="docs", note="  文档 和 手册 "), ("done", "已保存。"))
@@ -296,14 +295,6 @@ class WebSettingsTest(SettingsCase):
 
     # -- T554 second round (2026-11-19): what the page could only look at -------------------------------------------------------
 
-    def test_the_private_chat_mode_changes_on_the_page(self):
-        self.assertEqual(self.op(what="row", kind=cards.MODE, option="topics", confirm=True),
-                         ("done", butler_panel.MODE_NOTICES[False]))
-        self.assertFalse(settings.load(self.ctx.state_dir).enabled)
-        mode, = self.snap()["config"]["main"]["rows"]
-        self.assertTrue(mode["editable"])  # 纯话题: the row that turns the butler on again.
-        self.assertEqual(self.op(what="row", kind=cards.MODE, option="agent"), ("done", butler_panel.MODE_NOTICES[True]))
-        self.assertTrue(settings.load(self.ctx.state_dir).enabled)
 
     def test_a_settings_file_that_cannot_be_read_now_is_not_reset_and_the_page_says_so(self):
         """W1-F (RT-6): read as {} a moment, the write of one row put the defaults over every other setting."""

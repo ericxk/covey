@@ -1,30 +1,27 @@
 # 管家
 
-管家是私聊里一个常驻的会话（设置卡的私聊模式选“管家”时），没选 Harness 时跑在 Claude Code 上，这台机器没启用 Claude Code 时依次跑在启用了的 Codex、Antigravity 上（再没有时用 DeepSeek Harness）；也可以在设置卡「配置」页的“管家”一段换。主人在私聊**顶层**发的消息都交给它：能直接答的自己答，要干活的开话题或转给已有话题，主人说“T12 选 A”时替主人答选择题。用户视角见[使用指南 · 管家](usage.md#管家)，部署开关见[配置](configuration.md)。
+管家是私聊里一个常驻的会话（部署没有设 `COVEY_BUTLER=0` 时都有），没选 Harness 时跑在 Claude Code 上，这台机器没启用 Claude Code 时依次跑在启用了的 Codex、Antigravity 上（再没有时用 DeepSeek Harness）；也可以在设置卡「配置」页的“管家”一段换。主人在私聊**顶层**发的消息都交给它：能直接答的自己答，要干活的开话题或转给已有话题，主人说“T12 选 A”时替主人答选择题。用户视角见[使用指南 · 管家](usage.md#管家)，部署开关见[配置](configuration.md)。
 
 管家交给负责人跟进的长期的事见[专项](projects.md)，网页上的工作台见[网页工作台](web.md)。这篇讲管家是什么、由哪几块组成、一轮怎么走；放置表的每一格、工具通道的协议、各功能的记录和刷新方式等改代码时才查的细节在[管家的实现细节](butler-internals.md)，标题和这里一一对应。
 
 ## 组成
 
-- **私聊模式开关**：`core/butler.py` 的 `enabled`（见「私聊模式」），设置在 `core/butler_settings.py`。
+- **开关**：`core/butler.py` 的 `enabled`（见「开不开管家」），设置在 `core/butler_settings.py`。
 - **管家会话**：`app/butler.py` 把顶层消息交给管家话题，每轮带规则、快照和 MCP 配置（见「会话」）。
 - **MCP 工具**：会话里的 stdio MCP 服务 `core/butler_mcp.py`（入口 `bin/covey_butler_mcp.py`），清单 `core/butler_tool_specs.py`。
 - **请求通道**：`core/butler_requests.py`，一次调用一个请求文件，由 Bridge 进程里的 `app/butler_tools.py` 执行（见「工具通道」）。
 
 各模块的职责见 [AGENTS.md 的代码地图](../AGENTS.md#代码地图)和[架构 · 代码位置](architecture.md#代码位置)。
 
-## 私聊模式
+## 开不开管家
 
-`core/butler.py` 的 `enabled` 是唯一的判断，各处都问它。两层：
+`core/butler.py` 的 `enabled` 是唯一的判断，各处都问它，只看部署开关：`COVEY_BUTLER=0` 时没有管家（后台线程不起，菜单键不认，设置卡「配置」页没有管家一段），其他值（含不设）都有。改它要重新注册服务，见[配置 · 管家](configuration.md#管家)。
 
-1. **部署允许**（`available`）：`COVEY_BUTLER=0` 时不允许：管家的后台线程不起，菜单键不认，设置卡「配置」页没有管家一段。其他值都允许。
-2. **主人选的模式**（`agent_mode`）：`main-thread.json` 的 `mode`，`agent` 是管家，`topics` 是纯话题。主人在设置卡「配置」页“管家”一段里的“私聊顶层的消息”一行切换（选“每条直接开一个话题”要再点“确定改”），保存即生效；Bridge 和任务进程每次 stat 一下，变了才重读。保存时同时写 `enabled` 给旧版本。
+以前主人能在设置卡「配置」页“管家”一段的“私聊顶层的消息”一行改成“每条直接开一个话题”（纯话题模式，`main-thread.json` 的 `mode`），已下线（[legacy.md](legacy.md)）：文件里的 `mode`、`enabled` 不再读，保存设置时原样留着给旧版本；以前选了纯话题的部署升级后顶层消息交给管家，要纯话题就设 `COVEY_BUTLER=0`。旧卡上的这一行、它的“确定改”和更早的开关按钮点了只回一句已下线，不改设置；网页旧页面改这一行同样被拒。
 
-**默认值只写一次**：Bridge 启动、处理事件之前（`Butler.settle` → `settle_mode`），文件里没有 `mode` 就写：状态目录里没有任务也没有话题时写管家；否则 `COVEY_BUTLER=1` 且设置没关的写管家，其余写纯话题。之后只看 `mode`。
+**没有管家时**（`COVEY_BUTLER=0`）：顶层每条消息开一个话题；引用管家以前的卡当作新消息开话题（`core/topics.py` 的 `context_for_topic`），引用“交给一个话题”的管家卡照旧进那个话题；管家的会话和记录留着（按 `BUTLER_OFF` 读）；管家开过的话题不再回带、不再放顶层问题卡副本。群聊里没有管家。
 
-**纯话题**下和没有管家时一样：顶层每条消息开一个话题；引用管家以前的卡当作新消息开话题（`core/topics.py` 的 `context_for_topic`），引用“交给一个话题”的管家卡照旧进那个话题；正在跑的管家那一轮跑完，按 `BUTLER_OFF` 收尾；会话和记录留着；管家开过的话题不再回带、不再放顶层问题卡副本。群聊两种模式都没有管家。
-
-管家的 Harness 是设置里的 `harness`，只能选能接 Bridge 工具的（`core/harness.py` 的 `bridge_tools`：Claude Code、本机上的 Codex、Antigravity 和 DeepSeek Harness；扩展里的 Harness 看它自己声明没有；见[换 Harness](#换-harness)）。没选（空）时跟着启用了的走（`app/butler_harness.py`）：启用了 Claude Code 就用它，和以前一样；没启用时用启用了的、能接工具的第一个：先 Codex、再 Antigravity，然后才轮到 DeepSeek Harness（`FALLBACKS`）。设置卡和网页设置页上画的是它现在用的那个，不写进文件，以后装上 Claude Code 就回到 Claude Code。没选 Harness 时记下的模型和预算是 Claude Code 的（设置卡把 Claude Code 存成空），换到别的 Harness 上时用它自己的默认模型（`model_of`）；在设置卡上给 Codex 或 Antigravity 选模型时，Harness 一起记下。选了的 Harness 没启用或接不了工具时不替换：私聊消息照旧开话题，Bridge 启动日志写一行 `main thread is on but its Harness <名字> is not enabled or cannot take the Bridge tools`；没选、也没有一个启用了的能接工具时写 `main thread is on but no enabled Harness can take the Bridge tools (Claude Code, Codex, Antigravity or DeepSeek Harness)`。新部署私聊里的[欢迎卡](usage.md#第一次使用)（`app/welcome.py` 的 `butler_state`）也当面说：没有管家时写为什么（管家用的 Harness 没启用或接不了工具；`COVEY_BUTLER=0`；私聊模式是纯话题；或它刚才没起来）和怎么补（装好并登录 Claude Code、Codex 或 Antigravity 中的一个再运行一次 `./install`，选过别的 Harness 的在设置卡「配置」页的“管家”一段换成启用了的；纯话题时在同一页改回交给管家），并说明每条消息会开一个话题、先出启动卡；有管家时说明你的话下面出现表情就是收到了，有东西要给你看时才发卡（一轮跑过 90 秒才发任务卡，见[提问不开串](#提问不开串)）。
+管家的 Harness 是设置里的 `harness`，只能选能接 Bridge 工具的（`core/harness.py` 的 `bridge_tools`：Claude Code、本机上的 Codex、Antigravity 和 DeepSeek Harness；扩展里的 Harness 看它自己声明没有；见[换 Harness](#换-harness)）。没选（空）时跟着启用了的走（`app/butler_harness.py`）：启用了 Claude Code 就用它，和以前一样；没启用时用启用了的、能接工具的第一个：先 Codex、再 Antigravity，然后才轮到 DeepSeek Harness（`FALLBACKS`）。设置卡和网页设置页上画的是它现在用的那个，不写进文件，以后装上 Claude Code 就回到 Claude Code。没选 Harness 时记下的模型和预算是 Claude Code 的（设置卡把 Claude Code 存成空），换到别的 Harness 上时用它自己的默认模型（`model_of`）；在设置卡上给 Codex 或 Antigravity 选模型时，Harness 一起记下。选了的 Harness 没启用或接不了工具时不替换：私聊消息照旧开话题，Bridge 启动日志写一行 `main thread is on but its Harness <名字> is not enabled or cannot take the Bridge tools`；没选、也没有一个启用了的能接工具时写 `main thread is on but no enabled Harness can take the Bridge tools (Claude Code, Codex, Antigravity or DeepSeek Harness)`。新部署私聊里的[欢迎卡](usage.md#第一次使用)（`app/welcome.py` 的 `butler_state`）也当面说：没有管家时写为什么（管家用的 Harness 没启用或接不了工具；`COVEY_BUTLER=0`；或它刚才没起来）和怎么补（装好并登录 Claude Code、Codex 或 Antigravity 中的一个再运行一次 `./install`，选过别的 Harness 的在设置卡「配置」页的“管家”一段换成启用了的），并说明每条消息会开一个话题、先出启动卡；有管家时说明你的话下面出现表情就是收到了，有东西要给你看时才发卡（一轮跑过 90 秒才发任务卡，见[提问不开串](#提问不开串)）。
 
 ## 和话题的不同
 
@@ -247,7 +244,7 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 
 - **开**：管家开着、查得到提问、提问的别名还指向管家时（`core/topics.py` 的 `claim_area_root`），以这条提问为根：先把别名改给新话题（`move_topic_message`），再建上下文，不发话题卡。`opened/` 记 `area_root`、`area_taken`。
 - **一条提问只挂一个串**：同一条提问的第二个话题、查不到提问时，提问的串里已挂着同一轮转交的[派发卡](#派发卡)时，根是顶层新发的话题卡；分叉挂不上时把源话题合并转发到私聊当根。第二个话题的“你问”仍写那条提问，链接打开它自己的串。
-- **引用直达**：引用专项负责人的回答，交给负责人（`app/butler.py` 的 `app_for`；负责人算管家一家，`core/butler.py` 的 `is_lead`）。管家这一轮的卡只交给了一个话题时，卡的别名记上 `routes_to`。回带的结论、问题卡副本也记成话题的消息并带 `routes_to`。引用它们就是对那个话题说话（`context_for_topic` 先看 `routes_to`），不经管家。纯话题模式下串里不看 `routes_to`。这样说的话下面没有卡，表情跟着那个话题的这一轮走（[架构 · 引用卡片接着说的表情](architecture.md#引用卡片接着说的表情)）。
+- **引用直达**：引用专项负责人的回答，交给负责人（`app/butler.py` 的 `app_for`；负责人算管家一家，`core/butler.py` 的 `is_lead`）。管家这一轮的卡只交给了一个话题时，卡的别名记上 `routes_to`。回带的结论、问题卡副本也记成话题的消息并带 `routes_to`。引用它们就是对那个话题说话（`context_for_topic` 先看 `routes_to`），不经管家。没有管家（`COVEY_BUTLER=0`）时串里不看 `routes_to`。这样说的话下面没有卡，表情跟着那个话题的这一轮走（[架构 · 引用卡片接着说的表情](architecture.md#引用卡片接着说的表情)）。
 
 ## 结论回到顶层
 
@@ -351,7 +348,7 @@ Harness 自己的记忆在代答话题里不读不写，开没开这个开关都
 
 ## 设置
 
-`<state>/main-thread.json`，字段见 `Settings`：`mode`/`enabled`；管家的 `model`、`effort`、`workspace`、`compact_tokens`；新话题的 `topic_defaults`（`harness`、`model`、`effort`、`run_mode`、`workspace`）；子 Agent 用什么模型 `subagents`；工作区用途 `workspace_notes`。缺的或坏的字段按默认值读。旧文件里的 `redaction`（管家自己的和 `topic_defaults` 里的）不再读，保存设置时原样留着（见[已下线的功能](legacy.md#已下线的功能)）。只经 `update` 写，只有设置卡（和网页的设置页，走同一处）能写。
+`<state>/main-thread.json`，字段见 `Settings`：管家的 `model`、`effort`、`workspace`、`compact_tokens`；新话题的 `topic_defaults`（`harness`、`model`、`effort`、`run_mode`、`workspace`）；子 Agent 用什么模型 `subagents`；工作区用途 `workspace_notes`。缺的或坏的字段按默认值读。旧文件里的 `redaction`（管家自己的和 `topic_defaults` 里的）不再读，保存设置时原样留着（见[已下线的功能](legacy.md#已下线的功能)）。只经 `update` 写，只有设置卡（和网页的设置页，走同一处）能写。
 
 
 ### 换 Harness
@@ -363,7 +360,7 @@ Harness 自己的记忆在代答话题里不读不写，开没开这个开关都
 - **压缩和快照**：Claude Code 和 Antigravity 由 Bridge 压缩（capability `compaction`；Antigravity 用 agy 自己的 `/compact`，见 [harnesses.md](harnesses.md#antigravity)）。Codex 自己压缩，Bridge 看不到，所以每一轮都给完整快照，不只给变了的行。
 - **专项负责人**：有自己的 Harness、模型和预算（[专项 · 负责人用哪个 Harness](projects.md#负责人用哪个-harness)）：新建时先看管家开专项时你点名的，再看设置卡「配置」页“专项负责人”一段，都没有才照管家的（`app/lead_harness.py` 的 `binding`；管家还没在这个私聊跑过一轮时，照它现在会用的，`app/butler_harness.py` 的 `unwritten_topic`）；之后管家换 Harness 不影响已有的负责人，要换点专项卡上的「换配置」。负责人在哪个 Harness 上都只读（[专项 · 负责人只读](projects.md#负责人只读)）。
 - **后台活跟着管家换**：同时做几件事的分流、整理专项、记忆自己长都经[辅助模型](configuration.md#辅助模型)（`app/assist.py`）：默认“自动（跟随管家）”，管家换到 Codex，它们也跟到 Codex（连同模型、思考预算和供应商，几样后台活用同一套）；设置卡「配置」的「辅助模型」一节可以点名某一个 Harness 再选模型和思考预算（只用它，用不了就说明原因、不换别家）或选“不用模型”。管家关着时这一项照样在、照样生效。子 Agent 一项只对 Claude Code 生效。
-- **新装没有 Claude Code 时**：`./install` 第 3 步 Claude Code 没调通、Codex 或 Antigravity 调通了时，在服务第一次启动前把 `harness` 写成调通的第一个（先 Codex 后 Antigravity；`core/butler_settings.py` 的 `preset_harness`，只写这一项，私聊模式照旧由第一次启动写成管家）；专项、整理专项照常开。之后装好 Claude Code 也不自动换回，在这一段换；见[安装 · 没有 Claude Code 时](install.md#没有-claude-code-时)。
+- **新装没有 Claude Code 时**：`./install` 第 3 步 Claude Code 没调通、Codex 或 Antigravity 调通了时，在服务第一次启动前把 `harness` 写成调通的第一个（先 Codex 后 Antigravity；`core/butler_settings.py` 的 `preset_harness`，只写这一项）；专项、整理专项照常开。之后装好 Claude Code 也不自动换回，在这一段换；见[安装 · 没有 Claude Code 时](install.md#没有-claude-code-时)。
 - **回退旧版本**：旧版本不读 `harness`，管家回到 Claude Code，但模型还是新 Harness 的模型 id；回退前先在设置卡上把 Harness 换回 Claude Code。
 
 ### 设置卡
@@ -372,12 +369,12 @@ Harness 自己的记忆在代答话题里不读不写，开没开这个开关都
 
 | 页 | 内容 |
 | --- | --- |
-| 配置 | 一段一处，一次只展开一段（`SECTIONS`，卡片的 `view.open`；CardKit 一张卡约 200 个元素，放不下所有段的选项），其余段是标题、“展开”和一行灰字写着现在的值（`summary`）；点哪一行就展开哪一段（`PART_OF`）。展开的段里没人改的几项（`FOLDED`，供应商、私聊模式、负责人的模型等几项）收在段末一条默认收起的“更多：…”折叠里（`more_fold`），点了其中一项重画时它还开着（`view.more`，`MORE_KINDS`）。**新话题**（默认展开）：所有新话题的预选，启动卡 `app/preselection.py` 和管家开的话题都照它，第一行 Harness、供应商、模型、思考预算，第二行工作区、运行方式（`lines`：模型四项一行、其余一行，私聊模式单独一行；一行里各项是并排的小格，标签和当前值同一行，窄屏自动换行，各自点开选项，见 [cards.md](cards.md#设置卡配置页的格子版式)）。**管家**（部署不允许时没有）：第一行 Harness（能跑管家的才列）、供应商、模型、思考预算，第二行工作区、压缩阈值（Bridge 会压缩的 Harness 才有，即 Claude Code、Antigravity），私聊模式单独一行（`MODE_CHOICES`）；纯话题模式下只有私聊模式一行。**专项负责人**（专项没关才有，`lead_setting_list`）：新建专项的负责人用什么，Harness 第一项“跟管家一样”，只列能接 Bridge 工具的，选了 Harness 才有供应商、模型、思考预算，存在 `main-thread.json` 的 `lead`；已有的负责人在专项卡上换。“更多”里子 Agent：轻量（Sonnet，搜索用 Haiku）/ 跟主模型 |
+| 配置 | 一段一处，一次只展开一段（`SECTIONS`，卡片的 `view.open`；CardKit 一张卡约 200 个元素，放不下所有段的选项），其余段是标题、“展开”和一行灰字写着现在的值（`summary`）；点哪一行就展开哪一段（`PART_OF`）。展开的段里没人改的几项（`FOLDED`，供应商、负责人的模型等几项）收在段末一条默认收起的“更多：…”折叠里（`more_fold`），点了其中一项重画时它还开着（`view.more`，`MORE_KINDS`）。**新话题**（默认展开）：所有新话题的预选，启动卡 `app/preselection.py` 和管家开的话题都照它，第一行 Harness、供应商、模型、思考预算，第二行工作区、运行方式（`lines`：模型四项一行、其余一行，私聊模式单独一行；一行里各项是并排的小格，标签和当前值同一行，窄屏自动换行，各自点开选项，见 [cards.md](cards.md#设置卡配置页的格子版式)）。**管家**（部署不允许时没有）：第一行 Harness（能跑管家的才列）、供应商、模型、思考预算，第二行工作区、压缩阈值（Bridge 会压缩的 Harness 才有，即 Claude Code、Antigravity），私聊模式单独一行（`MODE_CHOICES`）；纯话题模式下只有私聊模式一行。**专项负责人**（专项没关才有，`lead_setting_list`）：新建专项的负责人用什么，Harness 第一项“跟管家一样”，只列能接 Bridge 工具的，选了 Harness 才有供应商、模型、思考预算，存在 `main-thread.json` 的 `lead`；已有的负责人在专项卡上换。“更多”里子 Agent：轻量（Sonnet，搜索用 Haiku）/ 跟主模型 |
 | 工作区 | 工作区列表；每行一行灰字写用途，“改用途”换成输入框，“保存用途”存 |
 | 记忆（`COVEY_MEMORY` 开着） | 飞书上只留看数、处理待审核、去网页：副标题一行“规矩：全局 N · 专项 N · 话题 N · 待审核 N”；待审核列最旧的几条，每条写明是哪一种、点了「采纳」「不要」各会怎样，多了翻页；有网页时给“打开网页”链接，没网页时多列全局、各专项和话题规矩的标题（短码 + 标题 + 在哪，只带标题的标出），每条“收起”（两步确认）；管理都在网页的「记忆」（`app/memory_panel.py`）。旧卡片上的工作区、升为全局、常驻按钮点了只回“这个选项已下线” |
 | 诊断下半的“能做什么”（以前单独一个标签） | 只读：启用的 Harness 和现在用不了的、开着的功能和读的开关、没开的怎么开、启用的扩展（`app/about_panel.py`，由 `app/doctor_panel.py` 画在诊断报告下面） |
 
-每行点开是选项，点一个就记下并整卡重画；只有主人能改。模型和思考预算只列说得出是哪一个的选项：模型行没有 Claude Code 目录里的“Default (recommended)”，思考预算行没有“推荐”和“模型原生默认”（`core/menu_choice.py` 的 `explicit`、`plain_budgets`），因为看不出它们实际跑哪个；管家、专项负责人两段的这两行也没有“默认”。新话题段的空选项留着，写的是它现在跟到哪个（“跟上次一样：Opus 5.5”）。以前存下的这类值照旧画出、打勾，换掉后就不再出现。代答的模型行（`cards/proxy_panel.py`）用同一套行，也一样。启动卡、换配置卡和网页开新话题也一样（`cards/launch_config.py` 的 `model_settings` 用 `offered_models`、`plain_budgets`，预选和点击记下的档用 `named_budget`）：不列“Default (recommended)”“推荐 · xhigh”“模型原生默认”，以前记下的这几项画成它实际跑的那一档；新话题段只选了 Harness、或上次用的是“Default (recommended)”时，预选这个 Harness 的具体模型（`app/preselection.py` 的 `harness_model`），话题正绑在它上面时换配置卡照旧列出它（[UI 规范 · 拍板记录](ui.md#13-拍板记录) U5）。私聊模式改成纯话题要再点“确定改”。子 Agent 一项对 Bridge 起的每一轮 Claude Code 都生效（`backends/claude/subagents.py`）。旧卡按钮的去向（独立复核一段已下线，旧卡上点它的行只回一句已下线，见[已下线的功能](legacy.md#已下线的功能)）和子 Agent 的参数见[实现细节 · 设置卡的细节](butler-internals.md#设置卡的细节)。
+每行点开是选项，点一个就记下并整卡重画；只有主人能改。模型和思考预算只列说得出是哪一个的选项：模型行没有 Claude Code 目录里的“Default (recommended)”，思考预算行没有“推荐”和“模型原生默认”（`core/menu_choice.py` 的 `explicit`、`plain_budgets`），因为看不出它们实际跑哪个；管家、专项负责人两段的这两行也没有“默认”。新话题段的空选项留着，写的是它现在跟到哪个（“跟上次一样：Opus 5.5”）。以前存下的这类值照旧画出、打勾，换掉后就不再出现。代答的模型行（`cards/proxy_panel.py`）用同一套行，也一样。启动卡、换配置卡和网页开新话题也一样（`cards/launch_config.py` 的 `model_settings` 用 `offered_models`、`plain_budgets`，预选和点击记下的档用 `named_budget`）：不列“Default (recommended)”“推荐 · xhigh”“模型原生默认”，以前记下的这几项画成它实际跑的那一档；新话题段只选了 Harness、或上次用的是“Default (recommended)”时，预选这个 Harness 的具体模型（`app/preselection.py` 的 `harness_model`），话题正绑在它上面时换配置卡照旧列出它（[UI 规范 · 拍板记录](ui.md#13-拍板记录) U5）。子 Agent 一项对 Bridge 起的每一轮 Claude Code 都生效（`backends/claude/subagents.py`）。旧卡按钮的去向（独立复核一段已下线，旧卡上点它的行只回一句已下线，见[已下线的功能](legacy.md#已下线的功能)）和子 Agent 的参数见[实现细节 · 设置卡的细节](butler-internals.md#设置卡的细节)。
 
 ## 话题链接
 

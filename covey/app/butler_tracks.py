@@ -131,8 +131,8 @@ class Tracks:
 
     @staticmethod
     def enabled() -> bool:
-        """COVEY_BUTLER_TRACKS=1, and the butler on in the mode 管家 (the switch alone does not check it,
-        core/butler_tracks.py enabled)."""
+        """COVEY_BUTLER_TRACKS=1, and the butler on (the switch alone does not check it, core/butler_tracks.py
+        enabled)."""
         return core.enabled() and contract.enabled()
 
     # -- what is live ------------------------------------------------------------------------------------------------

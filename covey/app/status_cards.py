@@ -5,7 +5,7 @@ topic's number and title, its state with when and which round, and one small lin
 the conclusion's lead or why it stopped. The state is a core/look.py STATES key, as the 看板 and 手上的事 say it (``tone``):
 等你, 停住了 (failed, interrupted, stopped by someone other than the owner: core/look.py record_tone), 可能卡住, 有结果
 (a result not seen yet) or 做完 (seen), 在做, 排队, 已停止 (the owner's own stop). Only where the
-placement table says so (core/placement.py Row.status_card: 纯话题): a 话题区's topic is pinned by its turn's own
+placement table says so (core/placement.py Row.status_card: the butler off, COVEY_BUTLER=0): a 话题区's topic is pinned by its turn's own
 cards in its thread (app/pins.py aimed), and the status cards sent before stay in their
 threads, their records readable (``card_message``), never written again.
 

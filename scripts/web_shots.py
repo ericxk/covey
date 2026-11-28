@@ -85,7 +85,6 @@ def demo_state(state, now):
     sys.path[:0] = [str(REPO), str(REPO / "tests")]
     from support.records import write_job, write_topic
     from covey.core import butler, project_memory, projects
-    from covey.core import butler_settings as settings
     from covey.core.butler import butler_topic_id
     from covey.core.history_storage import append_history
     from covey.core.state import write_json
@@ -93,8 +92,6 @@ def demo_state(state, now):
     os.environ.update(SWITCHES)  # After the imports: the tests' support package clears COVEY_* for its own isolation.
 
     butler.configure_state(state)
-    write_json(state / settings.FILE, {"mode": "agent"})
-    butler.forget_mode()
 
     def history(topic, rows):
         for i, (role, text) in enumerate(rows):

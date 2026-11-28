@@ -289,7 +289,7 @@ def after_runner(gateway, job, ctx) -> None:
     project_loop.after_runner(gateway.runtime.log, ctx.state_dir, job)  # A project's task: its tokens, a thread's receipt.
     revisits.after_runner(gateway.runtime.log, ctx.state_dir, job)  # 到点回来看: the topic's next look (COVEY_REVISIT=1).
     try:
-        if not butler.available():  # Not only with it on: a card handed on before the owner chose 纯话题 too.
+        if not butler.available():
             return
         topic, chat = job_field(job, "topic_id"), job_field(job, "chat_id")
         if not butler.is_butler_topic(topic, chat) or butler.is_lead(topic, chat):

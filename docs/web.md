@@ -118,7 +118,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 - **停、重开、记为看过、不管了**：和飞书卡片上的同名按钮做同一件事。
 - **停住了的一轮**：原因和下一步和任务卡同一句话，按钮也和任务卡一样：检查并继续（结果没发出去时是“重新投递结果”，只重发保存的结果，不重跑模型；限流是“现在重试”）、看原因、拆小再试做的和飞书里点同名按钮一样；自动重试已经排好时写几点重试，只给“现在重试”和“停止自动重试”，不会和排好的那次一起跑；换个模型用网页自己的换配置（负责人的也是，v36；管家的配置只在飞书的设置卡上换）。
 - **开新话题**：选项和启动卡一样（模型、思考预算、工作模式、工作区、运行方式），直接开工；要独立 worktree 的话题会在飞书里出一张填好的启动卡，点开始。
-- **设置**：设置卡的各页都能看，第一页和卡上一样是“配置”，分新话题、管家、专项负责人（开了专项才有）、辅助模型、更多几段；卡片一次只展开一段，网页各段都展开。能改的有新话题的每一行，管家的每一行（Harness、供应商、模型、思考预算、工作区、压缩阈值）和私聊顶层的消息，专项负责人的模型，[辅助模型](configuration.md#辅助模型)（Harness，点名了再有供应商、模型、思考预算，和专项负责人一样；管家关着也能改；下面一行写现在实际用的 Harness、模型和思考预算，再下面直接展开“后台活最近一次”小表：功能、用了谁、结果、原因、耗时、时间，只有原因码，不写原话），子 Agent，常用路径（仓库、目录和设备上的路径）的用途、状态、写法和增删，群的停用与免@（只能改成关闭或只有你），设备名单的增删改、可写或只读、体检和装监控节点，代答的开关和白名单。其余只读，每页有“去飞书改”。
+- **设置**：设置卡的各页都能看，第一页和卡上一样是“配置”，分新话题、管家、专项负责人（开了专项才有）、辅助模型、更多几段；卡片一次只展开一段，网页各段都展开。能改的有新话题的每一行，管家的每一行（Harness、供应商、模型、思考预算、工作区、压缩阈值），专项负责人的模型，[辅助模型](configuration.md#辅助模型)（Harness，点名了再有供应商、模型、思考预算，和专项负责人一样；管家关着也能改；下面一行写现在实际用的 Harness、模型和思考预算，再下面直接展开“后台活最近一次”小表：功能、用了谁、结果、原因、耗时、时间，只有原因码，不写原话），子 Agent，常用路径（仓库、目录和设备上的路径）的用途、状态、写法和增删，群的停用与免@（只能改成关闭或只有你），设备名单的增删改、可写或只读、体检和装监控节点，代答的开关和白名单。其余只读，每页有“去飞书改”。
 - **记忆**（v37，默认开，[记忆](butler.md#记忆)没关时）：设置页的「记忆」一页是主人的主记忆：全局和每个工作区的原则、知识条目（`COVEY_KNOWLEDGE` 开着时）和待确认的候选（开了 `COVEY_MEMORY_LEARN` 时）。每组写着用了多少字、上限多少、下一轮带不带每一条（放不下的标出来），常驻的排在前面；能搜、能按全局或工作区筛，能看某个工作区下一轮实际带上的那一段。新建、改正文（数着字，⌘/Ctrl+S 保存）、标或取消常驻、删除或作废、候选的「记下」「不用」都在页上（办完在列表上方留一条回执，几秒后或点掉才消失；常驻只在那一行上写），和飞书设置卡「记忆」改的是同一份。专项和话题的记忆还在专项页、话题页的右栏。
 - **账号与额度**（v42，有额度来源时，`COVEY_QUOTA` 没关）：设置页的「账号与额度」一页，一张表：账号｜5 小时剩余｜周剩余，格里只有百分比、细条和重置时刻，写上海时间的几月几号几点几分（`11月27日 03:30`；表窄时时刻换到条下面一行）。剩余不到 20% 红色；用完写“用完”和恢复时刻（`11月27日 03:30 恢复`）；读不到写“—”、不画条；旧读数数字变灰。agy 的号展开，一行一个号，写这个号登录的 Google 邮箱（读不到才写 `agy-accounts.json` 里的名字），在用的号前一个蓝点，只画这个号近 7 天真跑过的模型池（Gemini、Claude/GPT 都跑过的，同一格上下两行）；网关和外接命令的来源折成一行平均值和“k/n 个能用”，有冷却或低额度的号时组名后一个红点，点开看每个号（外接命令的来源有号要重新登录或用完时直接展开），来源给了 `link` 才有“运维台↗”。有号要重新登录时表上方一行红条。右上角只有「刷新」：Covey 立刻重读所有来源、agy 查一遍每个号的 `/usage`（5 分钟冷却）。页面上没有暂停、只用这个号、查全部账号。某个来源整体见底（能用的号都用完或剩不到 20%）或有号要重新登录时，侧栏顶上多一行（收起成窄条时是一个带红点的小图标），点了到这一页。
 - **整理专项**：开了[整理专项](projects.md#整理专项)时，看板首屏“要你处理”下面有整理专项的建议。
@@ -283,11 +283,11 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 
 另推几条 `settings` 条目。设置条目由取操作的线程（`web-inbox`，每秒一次）单独推：网页改了一项设置，回执之前就推（网页看到“已保存”时读到的已是新值）；`main-thread.json`或工作区列表一改，下一秒就推；推的线程全量对时也推一次（内容没变 `rev` 不变就不发）。
 
-- **`settings`**（v7）：飞书设置卡的各页，同名同序：配置（v22；v21 及以前是新话题、管家两页 `topic`、`main`）、工作区（v43 起是「常用路径」`repos`）、群聊、设备（设了 `COVEY_NODE_LISTEN`、开着多设备 `COVEY_DEVICES=1` 或有监控节点时有，v46）。`config` 是 `{summary, topic, main?, lead?, more, more_note, locked}`：`topic`（新话题：`title`、`rows`、`note`）、`main`（管家，`COVEY_BUTLER=0` 时没有：`title`、`on`、`rows`、`note`，私聊顶层的消息是 `rows` 的最后一行）（独立复核的 `review` 已下线，新版不再推，页面也不画）、`lead`（专项负责人，v36，专项开着才有：`title`、`rows`、`note`，行的 key 是 `l_harness`、`l_provider`、`l_model`、`l_effort`），`assist`（辅助模型，可选：`title`、`rows`（Harness 一行 kind `bridge_main_assist_harness`；点名了 Harness 再有 `a_provider`、`a_model`、`a_effort`，kind `bridge_main_assist_provider`、`bridge_main_assist_model`、`bridge_main_assist_effort`，没有这几行的是旧版本）、`note`、`words`（现在实际用哪个）、`recent`（后台活最近一次，每行 `feature`、`label`、`harness`、`name`、`model`、`ok`、`code`、`words`、`ms`、`at`、`manual`，读 `<state>/assist-state.json`；它一变 `stamps` 就变，设置条目随即重推）；旧网页不认这个字段就不画），`more` 是子 Agent 一行，`summary` 是卡片标题栏那句。每页的行和卡片用同一套函数画（`cards/butler_panel.py` 的 `topic_settings`、`butler_setting_list` 等）：标签、当前值、可选项，`editable` 说网页能不能改。另带 `feishu`（打开机器人的 applink）。代码在 `app/web_settings.py`、`app/web_panels.py`。
+- **`settings`**（v7）：飞书设置卡的各页，同名同序：配置（v22；v21 及以前是新话题、管家两页 `topic`、`main`）、工作区（v43 起是「常用路径」`repos`）、群聊、设备（设了 `COVEY_NODE_LISTEN`、开着多设备 `COVEY_DEVICES=1` 或有监控节点时有，v46）。`config` 是 `{summary, topic, main?, lead?, more, more_note, locked}`：`topic`（新话题：`title`、`rows`、`note`）、`main`（管家，`COVEY_BUTLER=0` 时没有：`title`、`on`（一直是 true）、`rows`、`note`；以前 `rows` 的最后一行是私聊顶层的消息，已下线、不再推）（独立复核的 `review` 已下线，新版不再推，页面也不画）、`lead`（专项负责人，v36，专项开着才有：`title`、`rows`、`note`，行的 key 是 `l_harness`、`l_provider`、`l_model`、`l_effort`），`assist`（辅助模型，可选：`title`、`rows`（Harness 一行 kind `bridge_main_assist_harness`；点名了 Harness 再有 `a_provider`、`a_model`、`a_effort`，kind `bridge_main_assist_provider`、`bridge_main_assist_model`、`bridge_main_assist_effort`，没有这几行的是旧版本）、`note`、`words`（现在实际用哪个）、`recent`（后台活最近一次，每行 `feature`、`label`、`harness`、`name`、`model`、`ok`、`code`、`words`、`ms`、`at`、`manual`，读 `<state>/assist-state.json`；它一变 `stamps` 就变，设置条目随即重推）；旧网页不认这个字段就不画），`more` 是子 Agent 一行，`summary` 是卡片标题栏那句。每页的行和卡片用同一套函数画（`cards/butler_panel.py` 的 `topic_settings`、`butler_setting_list` 等）：标签、当前值、可选项，`editable` 说网页能不能改。另带 `feishu`（打开机器人的 applink）。代码在 `app/web_settings.py`、`app/web_panels.py`。
   - 工作区带标签、路径尾部、最近使用和用途；每条带 `removable`（默认的那个不能移除），另带 `missing`（目录确认不存在的有几个）（v15）。
   - 群用 chat id 的哈希当 key，带状态和免@；每个群带 `free_mode` 和 `free_choices`（v15）。群名照群聊卡的读法问飞书，同一个群 30 分钟问一次。
   - 设备每台带 `dot`（ok、tight、down、never，网页画色点）和去掉名字的那一行，另带 `joins`（网页发起的添加：安装中、失败及原因，30 分钟后不再列）和 `can_add`（v15）。v46 另带 `rows`（`devices.json` 和监控节点按别名并成的一行一台）、`adding`、`can_add_device`，见[数据约定 v46](#数据约定-v46常用路径与设备)。
-  - 管家的“私聊顶层的消息”行带 `confirm`（改成“每条直接开一个话题”前网页要问的那句话）（v15）。
+  - 行上以前可能带 `confirm`（管家的“私聊顶层的消息”改成“每条直接开一个话题”前要问的那句话，v15）；这一行已下线，新版不再推，页面也不再问。
   - 部署有代答发送器时多一页 `proxy`（v15）：开关、网页登录、发不出去的原因、模型的几行、白名单（名字、私聊或群 @我、暂停没有、来自哪个群）。名字会进网页应用的库。
   - `ops`（v34）：这个 Covey 收的网页操作（`core/web_sync.py` 的 `KINDS`，就是下面操作表里的那些）。网页只在列着某个操作时才画它的按钮（专项的「收尾」「停止」、记忆的「不对」、定时回看的「取消」）；旧 Covey 不推 `ops`，这些按钮就不画，不会点了才回“不认识的操作”。
 - **`launch`**（v17）：`settings` 条目另带的启动卡选项，用启动卡同一套函数读（`app/web_launch.py` 的 `catalog`）。
@@ -411,7 +411,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 
 **`settings`**：只认主人（`app/access.py` 的 `is_owner`），写设置走和卡片同一处，回执也是卡片那句。`payload.what`：
 
-- `row`：`kind` 是卡片那一行的 kind、`option` 是选项值。也收管家的“私聊顶层的消息”（`kind` 为 MODE；改成“每条直接开一个话题”要带 `confirm: true`）。
+- `row`：`kind` 是卡片那一行的 kind、`option` 是选项值。旧页面发来管家的“私聊顶层的消息”（`kind` 为 `bridge_main_mode` 或 `bridge_main_enable`）一律失败，回一句这一项已下线。
 - `untrust`（`key`）：已下线（v24），回 failed“记住的工作区已下线：管家开的话题一律直接开工”。
 - `note`（`workspace`、`note`）：工作区用途，空串清掉。
 - `group`（`group`、`on`）：群的停用与启用。

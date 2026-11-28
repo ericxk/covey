@@ -141,7 +141,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         for name, harness in self.harnesses.items():
             self.apps[name] = BridgeApp(harness, runtime=self.runtime, messenger=self.messenger, topics=self.topics)
         self.voice = self.topics.voice
-        self.butler = Butler(self.topics)  # 管家 (docs/butler.md 私聊模式).
+        self.butler = Butler(self.topics)  # 管家 (docs/butler.md).
         self.owner = ''
         self.expected_app_id = ''
         self.pairing_file = None
@@ -350,7 +350,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         else why not: the butler cannot take it, so it must not become a topic of its own."""
         ctx = self.topics.apps[self.topics.default].harness.context
         if self.butler.app_for(ctx, event, self.runtime.access.is_owner(str(event.get('sender_id') or ''))) is None:
-            return '管家现在没有开（私聊是纯话题模式，或管家的 Harness 不可用），话没有发出'
+            return '管家现在没有开（部署关了管家，或管家的 Harness 不可用），话没有发出'
         self.handle_event(event, ctx)
         return ''
 
@@ -413,7 +413,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             from covey.core.migrate import migrate
             migrate(ctx.state_dir, log=self.runtime.log, workdir=ctx.default_workdir)  # The home's steps too.
             warm_records(ctx.state_dir)  # Read meanwhile: the recovery below reads every job and question record.
-            self.butler.settle(ctx, self.runtime.log)  # The private chat mode, once (docs/butler.md 私聊模式).
+            self.butler.settle(ctx, self.runtime.log)  # An idle compaction the last Bridge left (app/butler.py).
             self.welcome.settle(ctx)  # Whether this deployment gets its welcome card, once (app/welcome.py).
             if butler_settings.desk_topics_left(ctx.state_dir):  # Retired (docs/butler.md 会话).
                 self.runtime.log(butler_settings.DESK_TOPICS_RETIRED)

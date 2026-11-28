@@ -229,7 +229,7 @@
 ## 设置卡的细节
 
 - 不用下拉框：每项点开是选项，点一个就记下并整卡重画；一行里几项并排（`lines`、`setting_line`，见 cards.md）。可选项和启动卡同源（`cards/launch_config.py` 的 `tiers`、`budget_options`）。留空的项（“跟上次一样”）写实际会用什么。
-- **私聊模式**：管家模式下选“每条直接开一个话题”不马上存，卡上出一句后果（`MODE_CONFIRM`）和“取消”“确定改”；“确定改”是 `bridge_main_enable`（`on: false`），点别的任何一项都收起这句。选“交给管家”马上存。旧卡上的“改成纯话题 / 改成管家”按钮（同一个 kind）照旧马上生效。
+- **私聊顶层的消息已下线**：旧卡上的这一行 `bridge_main_mode`、它的“确定改”和更早的“改成纯话题 / 改成管家”按钮 `bridge_main_enable` 仍归设置卡认领（`MODE_KINDS`），点了不改设置，回执写 `MODE_RETIRED`，管家一段展开、卡按现在的样子重画；网页旧页面改这一行回同一句。卡在问“确定改”时画的旧记录（`view.confirm`）下一次点击就去掉。
 - **直接开工已下线**：旧卡上的 `bridge_main_start`、`bridge_main_start_row`、`bridge_main_untrust` 仍归设置卡认领（`RETIRED_KINDS`），点了不改设置，回执写 `RETIRED_NOTICE`，卡按现在的样子重画。
 - **配置一页**：以前的新话题、管家两页（以及短暂存在过的模型页）合成「配置」（`cards/settings_hub.py` 的 `CONFIG`），旧页签的键 `topic`、`main`、`models` 退役到它（`RETIRED`）：旧卡上点这些页签、停在这些页上的记录、这些页上的按钮都落到配置页，按钮照存并展开它所在的段（`PAGE_OF`、`PART_OF`）。「展开」是 `bridge_main_section`，只改卡片的 `view.open`，不改设置。网页工作台的设置页仍是新话题、管家两页（`app/web_settings.py` 的 `web_tabs`）。
 - **专项负责人的模型**存在 `main-thread.json` 的 `lead`（`harness`、`model`、`effort`；`core/butler_settings.py` 的 `LeadModel`），`harness` 空是跟管家一样；选 Harness 时同管家，带上第一个模型和一档预算，选“跟管家一样”清空三项；只管新建的专项（`app/lead_harness.py` 的 `binding`）。旧版本不认这一项，回滚后再改设置会丢掉它。
