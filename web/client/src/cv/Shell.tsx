@@ -1,7 +1,8 @@
+/// <reference types="vite/client" />
 import React, { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate, useMatch } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Brain, ChevronDown, ChevronRight, FolderOpen, Gauge, LayoutDashboard, ListTree, Menu, PanelLeft, Plus, Search, Settings, Share2, Sparkles } from 'lucide-react';
+import { ArrowLeft, Brain, ChevronDown, ChevronRight, FolderOpen, Gauge, LayoutDashboard, ListTree, Menu, MessagesSquare, PanelLeft, Plus, Search, Settings, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { SnapshotProject, SnapshotResponse, SnapshotTopic } from '@shared/api.interface';
@@ -14,6 +15,10 @@ import { RoleAvatar, TopicBadge } from './RoleAvatar';
 import { setCollapsed, setMenu, useUi } from './store';
 import { ThemeToggle } from './ThemeToggle';
 import { listTone } from './topicText';
+import brandMark from './brand/covey.png';
+
+/** 大厅的图标：和看板、记忆一样是线条图标（侧栏和手机标签栏同一个）；管家头像只给管家自己，Covey 的鹌鹑只在品牌位 */
+const HallIcon = MessagesSquare;
 import { askNumbers, asks, askSum, haltWords, isHalted, stoppedSet, type Asks } from './projectData';
 import { PaneHandle } from './PaneHandle';
 import { StatusGroups } from './StatusGroups';
@@ -361,7 +366,7 @@ const Sidebar: React.FC<{ mini: boolean; drawer?: boolean }> = ({ mini, drawer }
   return (
     <aside className={`side a-side${mini ? ' mini' : ''}${drawer ? ' drawer-side' : ''}`} onClick={go} {...hold.bind} style={{ '--tw': logoChars } as React.CSSProperties}>
       <div className="brand">
-        <div className="logo">C</div>
+        <img className="logo" src={brandMark} alt="Covey" width={24} height={24} />
         {mini ? null : (
           <>
             <span className="name">Covey</span>
@@ -400,7 +405,7 @@ const Sidebar: React.FC<{ mini: boolean; drawer?: boolean }> = ({ mini, drawer }
             </Link>
           ) : null}
           <Link to="/butler" className={`row a-nav ${loc.pathname === '/butler' ? 'on' : ''}`} title="大厅：你、管家和各专项的负责人">
-            <RoleAvatar name="butler" />
+            <HallIcon className="ic" />
             {mini ? null : <span className="t">大厅</span>}
           </Link>
           <Link to="/" className={`row a-nav ${loc.pathname === '/' ? 'on' : ''}`} title="看板">
@@ -567,7 +572,7 @@ const TabBar: React.FC = () => {
         {act ? <em>{act}</em> : null}
       </Link>
       <Link to="/butler" className={loc.pathname === '/butler' && !ui.menu ? 'on' : ''}>
-        <Sparkles />
+        <HallIcon />
         <span>大厅</span>
       </Link>
       <Link to="/projects" className={(loc.pathname === '/projects' || loc.pathname.startsWith('/projects/')) && !ui.menu ? 'on' : ''}>
