@@ -22,6 +22,19 @@
 .cv .rp-addrow .st-in-t{min-width:0}
 .cv .rp-addrow .btn{flex:none;height:32px}
 .cv .rp-more{padding:2px 0}
+/* 常用路径的筛选（在哪 / 类型）、加路径时选设备 */
+.cv .rp-filters{display:flex;flex-wrap:wrap;gap:8px 16px;margin:0 0 10px}
+.cv .rp-filter{gap:4px}
+.cv .rp-addrow .rp-where{flex:none;width:auto;min-width:96px;max-width:40%}
+/* 设备页（v46）：一台机器一行，沿用 rp-row；可写 / 只读开关、灰字里没过的体检 */
+.cv .dv-alias{font-size:12px}
+.cv .dv-access{flex-wrap:nowrap;gap:0}
+.cv .dv-access .st-opt.sm{border-radius:0;margin-left:-1px}
+.cv .dv-access .st-opt.sm:first-child{border-radius:8px 0 0 8px;margin-left:0}
+.cv .dv-access .st-opt.sm:last-child{border-radius:0 8px 8px 0}
+.cv .dv-row .rp-act{flex-wrap:wrap;justify-content:flex-end}
+.cv .dv-bad{color:var(--fail)}
+.cv .dv-fl{display:flex;flex-direction:column;gap:6px}
 /* 可清理的 worktree */
 .cv .rp-none{margin:16px 0 0;font-size:12.5px;color:var(--t3)}
 .cv .rp-pr-hd{padding:8px 16px;border-bottom:1px solid var(--line)}
@@ -55,4 +68,8 @@
   .cv .rp-pr input,.cv .rp-chk input{width:18px;height:18px}
   .cv .rp-chk{min-height:40px}
   .cv .rp-pr-ft .btn{height:40px;width:100%}
+  .cv .rp-addrow .rp-where{max-width:none;width:100%;min-height:40px}
+  .cv .rp-filter .st-opt.sm{min-height:36px}
+  .cv .dv-row .rp-act{justify-content:flex-start}
+  .cv .dv-access .st-opt.sm{min-height:36px}
 }

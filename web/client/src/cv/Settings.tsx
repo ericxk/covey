@@ -7,6 +7,7 @@ import type {
   SettingsConfigAssist,
   SettingsConfigPage,
   SettingsData,
+  SettingsDeviceRow,
   SettingsError,
   SettingsGroupItem,
   SettingsGroupsPage,
@@ -38,6 +39,7 @@ import { appendLines, dropLine, planTerms, type TermLine, type TermPlan } from '
 import { opWords, plainReceipt } from './opWords';
 import { sendOp, type OpResult } from './sendOp';
 import * as RP from './reposPage';
+import * as DV from './devicesPage';
 import { recentLines, type RecentLine } from './assistRecent';
 import './settings.css';
 import './repos.css';
@@ -544,8 +546,8 @@ const WorkspaceTab: React.FC<{ p: SettingsWorkspacePage; ops: Ops; feishu: strin
   );
 };
 
-/* ---------- 仓库页（v43）：纯函数在 reposPage.ts，样式在 repos.css（类名前缀 rp-） ---------- */
-const RepoRow: React.FC<{ it: SettingsRepoItem; ops: Ops; now: number }> = ({ it, ops, now }) => {
+/* ---------- 常用路径页（v43 仓库页，v46 加目录和设备上的路径）：纯函数在 reposPage.ts，样式在 repos.css（类名前缀 rp-） ---------- */
+const RepoRow: React.FC<{ it: SettingsRepoItem; ops: Ops; now: number; devices?: RP.PathDevice[] }> = ({ it, ops, now, devices }) => {
   const [edit, setEdit] = useState<boolean>(false);
   const [ask, setAsk] = useState<boolean>(false);
   const [d, setD] = useState<RP.RepoDraft>(RP.draftOf(it));
@@ -564,6 +566,7 @@ const RepoRow: React.FC<{ it: SettingsRepoItem; ops: Ops; now: number }> = ({ it
       <div className="rp-main">
         <div className="rp-hd">
           <b className="rp-name">{it.name}</b>
+          {RP.placeTags(it, devices).map((t: string) => <span key={t} className="pill tone-running">{t}</span>)}
           {label ? <span className="pill tone-queued">{label}</span> : null}
         </div>
         {it.note ? <div className="rp-note">{it.note}</div> : null}
@@ -594,7 +597,8 @@ const RepoRow: React.FC<{ it: SettingsRepoItem; ops: Ops; now: number }> = ({ it
             <select className="st-sel" aria-label="状态" value={d.status} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setD({ ...d, status: e.target.value as RP.RepoStatus })}>
               {RP.STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.text}</option>)}
             </select>
-            <select className="st-sel" aria-label="写法" value={d.write_mode} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setD({ ...d, write_mode: e.target.value as RP.RepoWriteMode })}>
+            <select className="st-sel" aria-label="写法" value={d.write_mode} disabled={RP.fixedInPlace(it)} title={RP.fixedInPlace(it) ? '目录和设备上的路径只能原地改' : undefined}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setD({ ...d, write_mode: e.target.value as RP.RepoWriteMode })}>
               {RP.MODE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.text}</option>)}
             </select>
           </div>
@@ -619,14 +623,17 @@ const RepoRow: React.FC<{ it: SettingsRepoItem; ops: Ops; now: number }> = ({ it
   );
 };
 
-const RepoAdd: React.FC<{ ops: Ops }> = ({ ops }) => {
+const RepoAdd: React.FC<{ ops: Ops; devices?: RP.PathDevice[] }> = ({ ops, devices }) => {
   const [path, setPath] = useState<string>('');
   const [name, setName] = useState<string>('');
   const [note, setNote] = useState<string>('');
+  const [device, setDevice] = useState<string>('');
   const [more, setMore] = useState<boolean>(false);
   const s: Phase | undefined = ops.st['repo:add'];
   const busy: boolean = s?.phase === 'saving';
-  const payload = RP.repoAddPayload(path, name, note);
+  const list: RP.PathDevice[] = devices ?? [];
+  const where: string = list.some((d) => d.alias === device) ? device : '';
+  const payload = RP.repoAddPayload(path, name, note, where);
   const add = (): void => {
     if (!payload) return;
     void ops.run('repo:add', payload);
@@ -635,11 +642,17 @@ const RepoAdd: React.FC<{ ops: Ops }> = ({ ops }) => {
   const onKey = (e: React.KeyboardEvent): void => { if (e.key === 'Enter') add(); };
   return (
     <>
-      <h3 className="st-h">添加仓库</h3>
+      <h3 className="st-h">添加常用路径</h3>
       <div className="st-list">
         <div className="rp-add">
           <div className="rp-addrow">
-            <input className="st-in-t" value={path} maxLength={RP.PATH_MAX} disabled={busy} placeholder="绝对路径" aria-label="仓库路径"
+            {list.length ? (
+              <select className="st-sel rp-where" aria-label="在哪台机器上" value={where} disabled={busy} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDevice(e.target.value)}>
+                <option value="">本机</option>
+                {list.map((d: RP.PathDevice) => <option key={d.alias} value={d.alias}>{d.title || d.alias}</option>)}
+              </select>
+            ) : null}
+            <input className="st-in-t" value={path} maxLength={RP.PATH_MAX} disabled={busy} placeholder={RP.addHint(where, list)} aria-label="仓库路径"
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPath(e.target.value)} onKeyDown={onKey} />
             <button type="button" className="btn pri" disabled={busy || !payload} onClick={add}>添加</button>
           </div>
@@ -654,6 +667,7 @@ const RepoAdd: React.FC<{ ops: Ops }> = ({ ops }) => {
         </div>
       </div>
       <Receipt s={s} />
+      <Note text={list.length ? '有 .git 的记成仓库，没有的记成目录（只能原地改）。设备上的路径由那台设备查，最多等 5 秒。' : '有 .git 的记成仓库，没有的记成目录（只能原地改）。'} />
     </>
   );
 };
@@ -711,15 +725,37 @@ const RepoPrune: React.FC<{ p: SettingsReposPage; ops: Ops }> = ({ p, ops }) => 
   );
 };
 
+/** 一组小筛选（全部 / 本机 / 各台设备，或 全部 / 仓库 / 目录） */
+const Filter: React.FC<{ label: string; value: string; options: { value: string; text: string }[]; onPick: (v: string) => void }> = ({ label, value, options, onPick }) => (
+  <div className="st-opts rp-filter" role="radiogroup" aria-label={label}>
+    {options.map((o) => (
+      <button key={o.value || 'all'} type="button" role="radio" aria-checked={value === o.value} className={`st-opt sm${value === o.value ? ' on' : ''}`} onClick={() => onPick(o.value)}>{o.text}</button>
+    ))}
+  </div>
+);
+
 const ReposTab: React.FC<{ p: SettingsReposPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
   const now: number = useTick(60000);
+  const [place, setPlace] = useState<string>('');
+  const [kind, setKind] = useState<RP.KindFilter>('');
+  const places = RP.placeOptions(p);
+  const kinds: boolean = RP.showKindFilter(p.items);
+  const at: string = places.some((o) => o.value === place) ? place : '';
+  const shown: SettingsRepoItem[] = RP.filterItems(p.items, at, kinds ? kind : '');
   return (
     <>
       <Top summary={RP.summaryText(p)} feishu={feishu} />
+      {places.length || kinds ? (
+        <div className="rp-filters">
+          {places.length ? <Filter label="在哪" value={at} options={places} onPick={setPlace} /> : null}
+          {kinds ? <Filter label="类型" value={kind} options={RP.KIND_FILTERS} onPick={(v: string) => setKind(v as RP.KindFilter)} /> : null}
+        </div>
+      ) : null}
       <div className="st-list rp-list">
-        {p.items.length ? p.items.map((it) => <RepoRow key={it.name} it={it} ops={ops} now={now} />) : <div className="st-r st-tr"><span className="st-faint">还没有仓库</span></div>}
+        {shown.length ? shown.map((it) => <RepoRow key={it.name} it={it} ops={ops} now={now} devices={p.devices} />)
+          : <div className="st-r st-tr"><span className="st-faint">{p.items.length ? '没有符合筛选的' : '还没有常用路径'}</span></div>}
       </div>
-      <RepoAdd ops={ops} />
+      <RepoAdd ops={ops} devices={p.devices} />
       <RepoPrune p={p} ops={ops} />
     </>
   );
@@ -1018,7 +1054,180 @@ const NodeAdd: React.FC<{ can: boolean; ops: Ops }> = ({ can, ops }) => {
   );
 };
 
+/* ---------- 设备页（v46）：devices.json 和监控节点按别名并成一行；纯函数在 devicesPage.ts，样式在 repos.css（类名前缀 dv-） ---------- */
+const AccessSwitch: React.FC<{ r: SettingsDeviceRow; ops: Ops }> = ({ r, ops }) => {
+  const id = `device:access:${r.alias}`;
+  const s: Phase | undefined = ops.st[id];
+  const [want, setWant] = useState<DV.Access | null>(null);
+  useEffect(() => setWant(null), [r.access]);
+  const cur: string = want !== null && s?.phase !== 'failed' ? want : r.access;
+  return (
+    <div className="st-opts dv-access" role="radiogroup" aria-label={`${r.title} 可写还是只读`}>
+      {(['read', 'write'] as DV.Access[]).map((a: DV.Access) => (
+        <button key={a} type="button" role="radio" aria-checked={cur === a} disabled={s?.phase === 'saving'} className={`st-opt sm${cur === a ? ' on' : ''}`}
+          onClick={() => { if (cur === a) return; setWant(a); void ops.run(id, DV.accessPayload(r, a)); }}>{DV.accessText(a)}</button>
+      ))}
+    </div>
+  );
+};
+
+const DeviceRow: React.FC<{ r: SettingsDeviceRow; ops: Ops; now: number; canNode: boolean }> = ({ r, ops, now, canNode }) => {
+  const [ask, setAsk] = useState<boolean>(false);
+  const [edit, setEdit] = useState<boolean>(false);
+  const [d, setD] = useState<DV.EditDraft>(DV.editDraftOf(r));
+  const cid = `device:check:${r.alias}`;
+  const sid = `device:set:${r.alias}`;
+  const rid = `device:rm:${r.alias}`;
+  const nid = `device:node:${r.alias}`;
+  const check = DV.checkLine(r, now, ago);
+  const link: string = DV.linkLine(r);
+  const node: string = DV.nodeLine(r);
+  const payload = DV.deviceSetPayload(r, d);
+  const removable: boolean = !r.local && (r.listed || !!r.node);
+  const save = (): void => {
+    if (!payload) return;
+    setEdit(false);
+    void ops.run(sid, payload);
+  };
+  return (
+    <div className="rp-row dv-row">
+      <div className="rp-main">
+        <div className="rp-hd">
+          <i className={`st-dot ${DV.busy(r) ? 'busy' : DV.rowDot(r)}`} aria-hidden="true" />
+          <b className="rp-name">{r.title}</b>
+          {r.title !== r.alias && !r.local ? <span className="st-faint dv-alias">{r.alias}</span> : null}
+          {DV.rowTags(r).map((t: string) => <span key={t} className={`pill ${t === '可写' ? 'tone-result' : 'tone-queued'}`}>{t}</span>)}
+        </div>
+        {r.note ? <div className="rp-note">{r.note}</div> : null}
+        {link ? <div className="rp-meta">{link}</div> : null}
+        {node ? <div className="rp-meta">{node}</div> : null}
+        {check.text ? <div className={`rp-meta${check.bad ? ' dv-bad' : ''}`}>{check.text}</div> : null}
+      </div>
+      {!edit && !ask ? (
+        <div className="rp-act">
+          {r.listed ? <AccessSwitch r={r} ops={ops} /> : null}
+          {r.listed && r.runs ? <button type="button" className="st-link" disabled={DV.busy(r) || ops.st[cid]?.phase === 'saving'} onClick={() => void ops.run(cid, { what: 'device_check', alias: r.alias })}>体检</button> : null}
+          {DV.canInstallNode(r, canNode) ? <button type="button" className="st-link" disabled={ops.st[nid]?.phase === 'saving'} onClick={() => void ops.run(nid, DV.nodeAddPayload(r))}>装监控节点</button> : null}
+          {r.listed ? <button type="button" className="st-link" onClick={() => { setD(DV.editDraftOf(r)); setEdit(true); }}>改</button> : null}
+          {removable ? <button type="button" className="st-link danger" disabled={ops.st[rid]?.phase === 'saving'} onClick={() => setAsk(true)}>移除</button> : null}
+        </div>
+      ) : null}
+      {edit ? (
+        <div className="rp-edit">
+          <div className="rp-f">
+            <input className="st-in-t" value={d.title} maxLength={DV.TITLE_MAX} placeholder="名字" aria-label="名字" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, title: e.target.value })} />
+            <input className="st-in-t" value={d.note} maxLength={DV.NOTE_MAX} placeholder="用途（一行）" aria-label="用途" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, note: e.target.value })} />
+          </div>
+          {r.runs ? (
+            <div className="rp-f">
+              <input className="st-in-t" value={d.ssh} maxLength={DV.SSH_MAX} placeholder="ssh 地址，如 me@host -p 22" aria-label="ssh 地址" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, ssh: e.target.value })} />
+            </div>
+          ) : null}
+          <div className="rp-f">
+            <button type="button" className="btn pri sm" disabled={!payload} onClick={save}>保存</button>
+            <button type="button" className="btn sm st-quiet" onClick={() => setEdit(false)}>取消</button>
+          </div>
+        </div>
+      ) : null}
+      {ask ? (
+        <Confirm text={DV.removeAsk(r)} ok="确认移除" busy={ops.st[rid]?.phase === 'saving'} onOk={() => { setAsk(false); void ops.run(rid, { what: 'device_remove', alias: r.alias }); }} onNo={() => setAsk(false)} />
+      ) : null}
+      {r.checking?.state === 'done' && r.checking.message ? <div className="st-rc">{r.checking.message}</div> : null}
+      <Receipt s={ops.st[cid]} />
+      <Receipt s={ops.st[sid]} />
+      <Receipt s={ops.st[rid]} />
+      <Receipt s={ops.st[nid]} />
+      <Receipt s={ops.st[`device:access:${r.alias}`]} />
+    </div>
+  );
+};
+
+const DeviceAdd: React.FC<{ ops: Ops }> = ({ ops }) => {
+  const [d, setD] = useState<DV.DeviceDraft>(DV.emptyDraft());
+  const s: Phase | undefined = ops.st['device:add'];
+  const busy: boolean = s?.phase === 'saving';
+  const payload = DV.deviceAddPayload(d);
+  const bad: boolean = !!d.name && !DV.NAME.test(d.name);
+  const send = (): void => {
+    if (!payload || busy) return;
+    void ops.run('device:add', payload);
+    setD(DV.emptyDraft());
+  };
+  return (
+    <>
+      <h3 className="st-h">添加设备</h3>
+      <div className="st-list">
+        <div className="st-form">
+          <label className="st-fl">名字<input className="st-in-t" value={d.name} maxLength={24} disabled={busy} placeholder="小写字母开头，如 buildbox" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, name: e.target.value.trim() })} /></label>
+          <label className="st-fl">显示名<input className="st-in-t" value={d.title} maxLength={DV.TITLE_MAX} disabled={busy} placeholder="可不填" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, title: e.target.value })} /></label>
+          <label className="st-fl">ssh 地址<input className="st-in-t" value={d.ssh} maxLength={DV.SSH_MAX} disabled={busy} placeholder="~/.ssh/config 的别名或 user@host -p 22；可不填" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, ssh: e.target.value })} /></label>
+          <label className="st-fl">用途<input className="st-in-t" value={d.note} maxLength={DV.NOTE_MAX} disabled={busy} placeholder="一行，可不填" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, note: e.target.value })} /></label>
+          <div className="st-fl dv-fl">可写还是只读
+            <div className="st-opts dv-access" role="radiogroup" aria-label="新设备可写还是只读">
+              {(['read', 'write'] as DV.Access[]).map((a: DV.Access) => (
+                <button key={a} type="button" role="radio" aria-checked={d.access === a} disabled={busy} className={`st-opt sm${d.access === a ? ' on' : ''}`} onClick={() => setD({ ...d, access: a })}>{DV.accessText(a)}</button>
+              ))}
+            </div>
+          </div>
+          <div className="st-bar st-bar-in">
+            <span className={`st-why${bad ? ' bad' : ''}`}>{bad ? '名字只用小写字母、数字和 -，小写字母开头，最多 24 个' : d.ssh.trim() ? '先体检（ssh、设备端小程序、hello），过了才加进名单' : '不填 ssh：只能看状况，不能执行'}</span>
+            <button type="button" className="btn pri" disabled={!payload || busy} onClick={send}>{DV.addLabel(d)}</button>
+          </div>
+        </div>
+      </div>
+      <Receipt s={s} />
+      <Note text="新加的设备默认只读。网页不收密码和私钥：ssh 要能免密登录，钥匙留在 ~/.ssh。只装监控节点不填 ssh 的方式，请到飞书设置卡上拿命令。" />
+    </>
+  );
+};
+
+const DevicesTab: React.FC<{ p: SettingsNodesPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
+  const now: number = useTick(30000);
+  const rs: Phase | undefined = ops.st['node:refresh'];
+  const rows: SettingsDeviceRow[] = p.rows ?? [];
+  return (
+    <>
+      <Top
+        summary={p.summary}
+        feishu={feishu}
+        extra={<button type="button" className="btn" disabled={rs?.phase === 'saving'} onClick={() => void ops.run('node:refresh', { what: 'refresh' })}>刷新</button>}
+      />
+      <Receipt s={rs} />
+      {p.error ? <ul className="st-problems"><li>devices.json 有问题，先手工改好：{p.error}</li></ul> : null}
+      <div className="st-list rp-list">
+        {rows.length ? rows.map((r: SettingsDeviceRow) => <DeviceRow key={r.alias} r={r} ops={ops} now={now} canNode={!!p.can_add} />)
+          : <div className="st-r st-tr"><span className="st-faint">还没有设备</span></div>}
+        {(p.adding ?? []).filter((j) => j.state !== 'done').map((j) => (
+          <div key={`add-${j.alias}`} className="st-ws">
+            <div className="st-wh">
+              <i className={`st-dot ${j.state === 'checking' ? 'busy' : 'down'}`} aria-hidden="true" />
+              <b className="st-wn">{j.alias}</b>
+              <span className={`st-nl ${j.state === 'failed' ? 'st-fail' : 'st-usev'}`}>{j.state === 'checking' ? '体检中…' : `没加上：${j.message}`}</span>
+            </div>
+          </div>
+        ))}
+        {(p.joins ?? []).filter((j) => j.state !== 'done').map((j) => (
+          <div key={`join-${j.alias}`} className="st-ws">
+            <div className="st-wh">
+              <i className={`st-dot ${j.state === 'joining' ? 'busy' : 'down'}`} aria-hidden="true" />
+              <b className="st-wn">{j.alias}</b>
+              <span className={`st-nl ${j.state === 'failed' ? 'st-fail' : 'st-usev'}`}>{j.state === 'joining' ? '监控节点安装中…' : `监控节点没装上：${j.message}`}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      {p.can_add_device ? <DeviceAdd ops={ops} /> : <Note text="多设备没开（COVEY_DEVICES=1）：这里只看监控节点，加不了设备。" />}
+    </>
+  );
+};
+
 const NodesTab: React.FC<{ p: SettingsNodesPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
+  if (DV.hasRows(p)) return <DevicesTab p={p} ops={ops} feishu={feishu} />;
+  return <OldNodesTab p={p} ops={ops} feishu={feishu} />;
+};
+
+/** 旧 Covey（v45 及以前）：只有节点 */
+const OldNodesTab: React.FC<{ p: SettingsNodesPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
   const rs: Phase | undefined = ops.st['node:refresh'];
   return (
     <>

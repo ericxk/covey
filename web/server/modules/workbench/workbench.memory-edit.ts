@@ -64,6 +64,7 @@ export function reposSettingsError(what: string, payload: Record<string, unknown
     if (!str(payload.path).trim() || len(payload.path) > 500) return 'repos_add 要 path（最多 500 字）';
     if (tooLong('name', 64)) return 'repos_add 的 name 最多 64 字';
     if (tooLong('note', 200)) return 'repos_add 的 note 最多 200 字';
+    if (payload.device !== undefined && payload.device !== '' && !DEVICE_ALIAS.test(str(payload.device))) return 'repos_add 的 device 要是设备名';
   } else if (what === 'repos_remove') {
     if (!str(payload.name) || len(payload.name) > 64) return 'repos_remove 要 name（最多 64 字）';
   } else if (what === 'worktrees_prune') {
@@ -71,6 +72,24 @@ export function reposSettingsError(what: string, payload: Record<string, unknown
     if (!Array.isArray(p) || !p.every((x: unknown) => isStr(x) && x.length > 0 && len(x) <= 500)) return 'worktrees_prune 要 paths（文字列表，每个 1–500 字）';
     if (p.length > 50) return 'worktrees_prune 的 paths 最多 50 个';
   }
+  return null;
+}
+
+const DEVICE_ALIAS = /^[a-z][a-z0-9-]{0,23}$/u;
+
+/* v46：settings 的 device_add、device_set、device_remove、device_check（设备名单 devices.json）。返回错误文字，没问题返回 null。
+   不收密码、私钥：ssh 只是地址（~/.ssh/config 的别名或 user@host 加选项），能不能连由 Covey 体检说 */
+export function devicesSettingsError(what: string, payload: Record<string, unknown>): string | null {
+  const line = (k: string, max: number): boolean =>
+    payload[k] !== undefined && (!isStr(payload[k]) || len(payload[k]) > max || /[\r\n]/u.test(payload[k] as string));
+  const key: string = what === 'device_add' ? 'name' : 'alias';
+  if (!DEVICE_ALIAS.test(str(payload[key]))) return `${what} 要 ${key}：小写字母开头，只用小写字母、数字和 -，最多 24 个`;
+  if (what === 'device_remove' || what === 'device_check') return null;
+  if (line('title', 40)) return `${what} 的 title 最多 40 字、一行`;
+  if (line('note', 60)) return `${what} 的 note 最多 60 字、一行`;
+  if (line('ssh', 200)) return `${what} 的 ssh 最多 200 字、一行`;
+  if (payload.access !== undefined && payload.access !== 'write' && payload.access !== 'read') return `${what} 的 access 要是 write 或 read`;
+  for (const k of ['password', 'key', 'private_key', 'identity']) if (payload[k] !== undefined) return '不收密码和私钥：钥匙留在 ~/.ssh 里';
   return null;
 }
 

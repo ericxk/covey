@@ -192,11 +192,11 @@ class ConfigTest(unittest.TestCase):
             "devices": {"gpu1": {"ssh": {"host": "-oProxyCommand=x"}, "harnesses": ["claude", "gemini"],
                                  "spaces": ["everyone"], "env": {"HTTPS_PROXY": "http://user:pw@proxy.example:3128"},
                                  "login_shell": "yes", "unknown": 1},
-                        "gpu2": {"title": "no ssh"}}}))
+                        "gpu2": {"title": "no ssh", "ssh": "gpu2.example"}}}))
         for expected in ("schema: must be 1", "control_dir: must be an absolute path", "defaults.patience_minutes",
                          "defaults: unknown key 'nonsense'", "devices.gpu1.ssh.host", "devices.gpu1.harnesses",
                          "devices.gpu1.spaces", "HTTPS_PROXY holds a login", "devices.gpu1.login_shell",
-                         "devices.gpu1: unknown keys unknown", "devices.gpu2.ssh: is required"):
+                         "devices.gpu1: unknown keys unknown", "devices.gpu2.ssh: must be {"):
             self.assertIn(expected, text)
         self.assertNotIn("pw@", text, "a password never appears in a message")
 
@@ -1067,6 +1067,142 @@ class SelfCheckTest(unittest.TestCase):
             device_probe.self_check(self.config, "gpu1")
         with self.assertRaises(devices.UnknownDevice):
             device_probe.self_check(self.config, "nope", transport=self.device.transport)
+
+
+class ListTest(unittest.TestCase):
+    """F1 (T930 5.2): devices.json as the settings page writes it: ``ssh`` optional (a machine only watched), ``access`` and ``note``
+    written, the whole file checked and written back under its lock with what the change did not touch kept."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "devices.json"
+        self.env = {**ON, "COVEY_DEVICES_FILE": str(self.path)}
+
+    def test_an_entry_without_ssh_is_only_watched_never_a_device_to_run_on(self):
+        config = devices.parse(json.dumps({"schema": 1, "devices": {
+            "gpu1": {"ssh": {"host": "h"}, "access": "write", "note": "训练"}, "pi": {"title": "树莓派", "access": "read"}}}))
+        self.assertEqual((list(config.devices), list(config.watched)), (["gpu1"], ["pi"]))
+        self.assertEqual((config.watched["pi"].host, config.watched["pi"].title, config.devices["gpu1"].note), ("", "树莓派", "训练"))
+        with self.assertRaises(devices.UnknownDevice):
+            config.device("pi")  # Nothing opens a link to it, nothing binds a workspace on it.
+        self.assertIn("devices.pi.ssh: must be {", problems(json.dumps({"schema": 1, "devices": {"pi": {"ssh": "h"}}})))
+
+    def test_update_writes_the_whole_file_under_its_lock_and_keeps_what_it_did_not_touch(self):
+        self.path.write_text(json.dumps({"schema": 1, "defaults": {"connect_seconds": 7}, "devices": {
+            "gpu1": {"ssh": {"host": "h", "options": ["-p", "22"]}, "env": {"HTTPS_PROXY": "http://proxy.example:3128"},
+                     "harnesses": ["claude"], "home": "~/work"}}}))
+        locked = []
+        real = devices.file_lock
+
+        def counted(path, **kwargs):
+            locked.append(Path(path).name)
+            return real(path, **kwargs)
+        with mock.patch.object(devices, "file_lock", side_effect=counted):
+            config = devices.update(lambda raw: {**raw, "devices": {**raw["devices"], "gpu1": {**raw["devices"]["gpu1"],
+                                                                                             "access": "write", "note": "训练机"}}},
+                                    environ=self.env)
+        self.assertEqual(locked, ["devices.json.lock"])
+        raw = json.loads(self.path.read_text())
+        self.assertEqual(raw["defaults"], {"connect_seconds": 7})
+        self.assertEqual(raw["devices"]["gpu1"], {"ssh": {"host": "h", "options": ["-p", "22"]},
+                                                  "env": {"HTTPS_PROXY": "http://proxy.example:3128"}, "harnesses": ["claude"],
+                                                  "home": "~/work", "access": "write", "note": "训练机"})
+        self.assertEqual((config.devices["gpu1"].access, config.devices["gpu1"].note), ("write", "训练机"))
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+        self.assertEqual(devices.current(self.env).devices["gpu1"].note, "训练机")  # The next call reads it.
+
+    def test_an_update_that_makes_the_file_invalid_or_a_file_that_cannot_be_read_writes_nothing(self):
+        self.path.write_text(json.dumps({"schema": 1, "devices": {"gpu1": {"ssh": {"host": "h"}}}}))
+        before = self.path.read_text()
+        for bad in ({"access": "all"}, {"note": "x" * 61}, {"note": "两\n行"}, {"ssh": {"host": "-oProxyCommand=x"}}):
+            with self.assertRaises(devices.Unwritable, msg=bad):
+                devices.update(lambda raw, bad=bad: {**raw, "devices": {"gpu1": {**raw["devices"]["gpu1"], **bad}}}, environ=self.env)
+            self.assertEqual(self.path.read_text(), before)
+        self.path.write_text("{not json")
+        with self.assertRaises(devices.Unwritable):
+            devices.update(lambda raw: raw, environ=self.env)
+        self.assertEqual(self.path.read_text(), "{not json")
+
+    def test_a_missing_file_starts_as_an_empty_list(self):
+        devices.update(lambda raw: {**raw, "devices": {"pi": {"title": "pi", "access": "read"}}}, environ=self.env)
+        self.assertEqual(json.loads(self.path.read_text()), {"schema": 1, "devices": {"pi": {"title": "pi", "access": "read"}}})
+
+    def test_an_ssh_address_is_split_as_devices_json_keeps_it_and_one_that_runs_something_here_is_refused(self):
+        self.assertEqual(devices.split_ssh("me@box -p 2222 -J jump"), ("me@box", ["-p", "2222", "-J", "jump"]))
+        self.assertEqual(devices.split_ssh("box"), ("box", []))
+        for bad in ("", "a b", "-oProxyCommand=sh me@x", "me@x -o LocalCommand=id", "'unterminated", "-p 22"):
+            with self.assertRaises(ValueError, msg=bad):
+                devices.split_ssh(bad)
+        device = devices.parse(json.dumps({"schema": 1, "devices": {"b": {"ssh": {"host": "me@box", "options": ["-p", "22"]}}}})).devices["b"]
+        self.assertEqual(devices.ssh_text(device), "-p 22 me@box")
+        self.assertEqual(devices.split_ssh(devices.ssh_text(device)), ("me@box", ["-p", "22"]))
+
+
+class DeviceLookTest(unittest.TestCase):
+    """What the 常用路径 page and ``covey repo use`` ask of a device: whether a path is a directory and a repository
+    (``inspect_dir``), and the head of its rules (``read_head``), through the shim under a temporary HOME."""
+
+    def setUp(self):
+        self.device = FakeDevice()
+        self.addCleanup(lambda: self.assertEqual(self.device.cleanup(), []))
+        self.config = devices.parse(config_text(devices={"gpu1": {"ssh": {"host": "h"}}, "pi": {"title": "pi"}}))
+        self.state = short_dir(self)
+        patcher = mock.patch.object(devices, "open_transport", return_value=self.device.transport)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_directory_on_the_device_is_a_repository_with_git_and_a_plain_one_without(self):
+        (self.device.home / "proj" / ".git").mkdir(parents=True)
+        (self.device.home / "notes").mkdir()
+        (self.device.home / "file.txt").write_text("x")
+        look = lambda where: devices.inspect_dir(self.state, "gpu1", where, config=self.config)  # noqa: E731
+        self.assertEqual(look(str(self.device.home / "proj")), ("ok", "git", ""))
+        self.assertEqual(look(str(self.device.home / "notes")), ("ok", "dir", ""))
+        self.assertEqual(look(str(self.device.home / "file.txt"))[0:2], ("missing", ""))
+        self.assertEqual(look(str(self.device.home / "nowhere"))[0], "missing")
+        self.assertEqual(devices.inspect_dir(self.state, "pi", "/x", config=self.config)[0], "unknown")  # Watched only: no ssh.
+        self.device.faults.fail(1)
+        self.assertEqual(look(str(self.device.home / "proj"))[0], "offline")
+
+    def test_the_rules_head_is_read_with_the_shims_get_cut_at_a_line(self):
+        proj = self.device.home / "proj"
+        proj.mkdir()
+        (proj / "CLAUDE.md").write_text("第一行\n" * 10)
+        found = devices.read_head(self.state, "gpu1", str(proj), ["AGENTS.md", "CLAUDE.md"], limit=20, config=self.config)
+        self.assertEqual(found[0], "CLAUDE.md")
+        self.assertTrue(found[2] and found[1].endswith("\n") and len(found[1].encode()) <= 20)
+        self.assertEqual(found[3], "")
+        self.assertEqual(devices.read_head(self.state, "gpu1", str(proj), ["AGENTS.md"], config=self.config), ("", "", False, ""))
+
+
+class CheckupTest(SelfCheckTest):
+    """The settings page's 体检 (core/device_probe.py ``checkup``): ssh, the shim, hello, no Harness asked; the profile a turn reads
+    keeps everything else it had."""
+
+    def test_a_good_device_passes_three_steps_and_gets_a_first_profile(self):
+        result = device_probe.checkup(self.config, "gpu1", state_dir=self.state, transport=self.device.transport, now=lambda: 7000.0)
+        self.assertTrue(result.ok, result.lines())
+        self.assertEqual([s.name for s in result.steps], ["connect", "shim", "hello"])
+        self.assertIn("体检通过", result.explain())
+        profile = devices.read_profile(self.state, "gpu1")
+        self.assertEqual((profile["check"]["ok"], profile["check"]["steps"], profile["check"]["at"]), (True, 3, 7000.0))
+        self.assertIn("体检通过", device_probe.status_text(self.state, "gpu1", now=7060.0))
+
+    def test_a_checkup_keeps_the_profile_a_full_check_wrote(self):
+        devices.device_dir(self.state, "gpu1").mkdir(parents=True)
+        (devices.device_dir(self.state, "gpu1") / "profile.json").write_text(json.dumps({"env": {"HTTPS_PROXY": "http://p:1"}, "tools": {}}))
+        device_probe.checkup(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
+        profile = devices.read_profile(self.state, "gpu1")
+        self.assertEqual(profile["env"], {"HTTPS_PROXY": "http://p:1"})
+        self.assertTrue(profile["check"]["ok"])
+
+    def test_a_device_that_cannot_be_reached_records_nothing_new(self):
+        self.device.faults.fail(1)
+        result = device_probe.checkup(self.config, "gpu1", state_dir=self.state, transport=self.device.transport)
+        self.assertEqual((result.ok, result.failed.name), (False, "connect"))
+        self.assertIn("连不上 gpu1", result.explain())
+        self.assertFalse((self.state / "devices" / "gpu1" / "profile.json").exists())
 
 
 class ModuleHygieneTest(unittest.TestCase):

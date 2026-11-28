@@ -69,7 +69,7 @@ class WebSettingsTest(SettingsCase):
         from covey.app.proxy_send import available
         # 设备 only with nodes; 代答 only where a sender is (an extension, covey_internal).
         # T619: the card's 配置 is one page here too, every section open (no card's size to keep to).
-        self.assertEqual([t["label"] for t in data["tabs"]], ["配置", "仓库", "脱敏", "群聊"] + (["代答"] if available() else []))
+        self.assertEqual([t["label"] for t in data["tabs"]], ["配置", "常用路径", "脱敏", "群聊"] + (["代答"] if available() else []))
         # Data contract v34: the operations this Covey does, so the page shows 收尾、停止 and 不对 only where they are done.
         self.assertTrue({"project_finish", "project_stop", "memory_undo", "recover"} <= set(data["ops"]))
         self.assertNotIn("nodes", data)
@@ -401,11 +401,13 @@ class WebSettingsTest(SettingsCase):
     def test_the_repos_page_is_the_old_list_read_only_until_the_first_change(self):
         self.worktrees_root()
         page = self.snap()["repos"]
-        self.assertEqual(sorted(page), ["home", "items", "worktrees"])
+        self.assertEqual(sorted(page), ["devices", "home", "items", "worktrees"])
+        self.assertEqual(page["devices"], [])  # Devices off: paths of this machine only.
         self.assertEqual(page["home"], {"tail": web_settings.tail(str(self.work), web_settings.PATH_SIZE)})
         self.assertEqual([i["name"] for i in page["items"]], ["docs", "gone"])  # The home itself is no repository.
         docs = page["items"][0]
-        self.assertEqual(sorted(docs), ["branch", "live_topics", "name", "note", "rules", "status", "tail", "write_mode"])
+        self.assertEqual(sorted(docs), ["branch", "device", "kind", "live_topics", "name", "note", "rules", "status", "tail", "write_mode"])
+        self.assertEqual((docs["kind"], docs["device"]), ("git", ""))
         self.assertEqual((docs["status"], docs["write_mode"], docs["note"], docs["live_topics"], docs["rules"]),
                          ("active", "inplace", "", 0, ["AGENTS.md"]))
         self.assertEqual(page["worktrees"], {"total": 0, "prunable": []})
@@ -428,7 +430,7 @@ class WebSettingsTest(SettingsCase):
         docs = next(i for i in self.snap()["repos"]["items"] if i["name"] == "docs")
         self.assertEqual((docs["status"], docs["write_mode"], docs["note"]), ("readonly", "worktree", "文档 手册"))
         self.assertEqual(self.op(what="repos_set", name="docs", status="frozen"), ("done", "已改 docs：状态"))
-        for payload, why in (({"name": "nope", "note": "x"}, "没有叫 nope 的仓库"), ({"name": "docs"}, "没有要改的项"),
+        for payload, why in (({"name": "nope", "note": "x"}, "没有叫 nope 的常用路径"), ({"name": "docs"}, "没有要改的项"),
                              ({"name": "docs", "status": "gone"}, "状态要是 active、readonly 或 frozen"),
                              ({"name": "docs", "write_mode": "x"}, "写法要是 worktree 或 inplace"),
                              ({"name": "docs", "note": "x" * 201}, "note 要是不超过 200 个字的文字"),
@@ -437,53 +439,64 @@ class WebSettingsTest(SettingsCase):
         self.assertEqual(self.op(operator="ou_other", what="repos_set", name="docs", note="x"), ("failed", web_settings.OWNER_ONLY))
         self.assertEqual(next(r for r in repomap.read(self.ctx.state_dir) if r.name == "docs").status, "frozen")
 
-    def test_repos_add_takes_only_an_existing_absolute_git_directory_and_names_it(self):
+    def test_repos_add_takes_an_existing_absolute_directory_a_repository_or_a_plain_one_and_names_it(self):
         self.worktrees_root()
         extra = self.make_repo(self.root / "a" / "extra")
-        self.assertEqual(self.op(what="repos_add", path=str(extra), note="新仓库"), ("done", "已加入仓库地图：extra"))
+        self.assertEqual(self.op(what="repos_add", path=str(extra), note="新仓库"), ("done", "已加入常用路径：extra（仓库）"))
         added = next(r for r in repomap.read(self.ctx.state_dir) if r.name == "extra")
-        self.assertEqual((added.path, added.note, added.status, added.added_by), (str(extra), "新仓库", "active", "owner"))
-        self.assertEqual(self.op(what="repos_add", path=str(extra)), ("done", "该目录已在仓库地图里：extra"))
+        self.assertEqual((added.path, added.note, added.status, added.added_by, added.kind, added.device),
+                         (str(extra), "新仓库", "active", "owner", "git", ""))
+        self.assertEqual(self.op(what="repos_add", path=str(extra)), ("done", "这个路径已在常用路径里：extra"))
         again = self.make_repo(self.root / "b" / "extra")
-        self.assertEqual(self.op(what="repos_add", path=str(again)), ("done", "已加入仓库地图：extra-2"))
+        self.assertEqual(self.op(what="repos_add", path=str(again)), ("done", "已加入常用路径：extra-2（仓库）"))
         self.assertEqual(self.op(what="repos_add", path=str(self.make_repo(self.root / "c" / "other")), name="extra")[0], "failed")
         self.assertEqual(self.op(what="repos_add", path=str(self.make_repo(self.root / "d" / "other")), name="mine"),
-                         ("done", "已加入仓库地图：mine"))
+                         ("done", "已加入常用路径：mine（仓库）"))
         plain = self.root / "plain"
         plain.mkdir()
-        self.assertEqual(self.op(what="repos_add", path=str(plain)), ("failed", f"{plain} 不是 git 仓库（里面没有 .git）"))
+        (plain / "README.md").write_text("怎么用这些脚本\n")
+        # No .git: a 目录, written in place; its README.md is its rules when it has no AGENTS.md or CLAUDE.md (T930 5.1).
+        self.assertEqual(self.op(what="repos_add", path=str(plain)), ("done", "已加入常用路径：plain（目录）"))
+        found = next(r for r in repomap.read(self.ctx.state_dir) if r.name == "plain")
+        self.assertEqual((found.kind, found.write_mode, found.rules, found.device), ("dir", "inplace", ("README.md",), ""))
+        self.assertEqual(next(i for i in self.snap()["repos"]["items"] if i["name"] == "plain")["kind"], "dir")
+        self.assertEqual(self.op(what="repos_set", name="plain", write_mode="worktree"), ("failed", "目录和设备上的路径只能原地改"))
         self.assertEqual(self.op(what="repos_add", path=str(self.root / "nowhere")), ("failed", f"目录不存在：{self.root / 'nowhere'}"))
         self.assertEqual(self.op(what="repos_add", path="relative/dir")[0], "failed")
         self.assertEqual(self.op(what="repos_add", path=str(extra), name="a/b")[0], "failed")  # No path in a name.
-        self.assertEqual(sorted(r.name for r in repomap.read(self.ctx.state_dir)), ["docs", "extra", "extra-2", "gone", "mine"])
+        # A device's path with devices off is refused before anything is asked.
+        self.assertEqual(self.op(what="repos_add", path="gpu1:/srv/x"), ("failed", "多设备没开（COVEY_DEVICES=1），加不了设备上的路径"))
+        self.assertEqual(self.op(what="repos_add", path="/srv/x", device="gpu1")[0], "failed")
+        self.assertEqual(self.op(what="repos_add", path="gpu1:~/x"), ("failed", "设备上的路径要写成 设备名:/绝对路径"))
+        self.assertEqual(sorted(r.name for r in repomap.read(self.ctx.state_dir)), ["docs", "extra", "extra-2", "gone", "mine", "plain"])
 
     def test_repos_remove_leaves_the_directory_and_keeps_what_a_newer_release_wrote(self):
         self.worktrees_root()
         write_json(self.repos_file(), {"version": 1, "exclude": ["node_modules/"], "repos": [
             {"name": "docs", "path": str(self.root), "future": {"k": 1}}, {"name": "gone", "path": str(self.root / "nope")},
-            {"name": "device", "path": "gpu1:/srv/x"}]})
+            {"name": "device", "path": "gpu1:~/x"}]})
         self.assertEqual(self.op(what="repos_set", name="docs", note="n"), ("done", "已改 docs：用途"))
         raw = read_json(self.repos_file())
         self.assertEqual(raw["exclude"], ["node_modules/"])
         self.assertEqual(next(r for r in raw["repos"] if r["name"] == "docs")["future"], {"k": 1})
-        self.assertIn({"name": "device", "path": "gpu1:/srv/x"}, raw["repos"])  # What read() passes over stays as it was.
+        self.assertIn({"name": "device", "path": "gpu1:~/x"}, raw["repos"])  # What read() passes over stays as it was.
         raw["repos"][0]["status"] = "archived"  # A newer release's status: set on the page, the page's from then on.
         write_json(self.repos_file(), raw)
         self.assertEqual(self.op(what="repos_set", name="docs", status="active"), ("done", "已改 docs：状态"))
         self.assertEqual(next(r for r in read_json(self.repos_file())["repos"] if r["name"] == "docs")["status"], "active")
-        self.assertEqual(self.op(what="repos_remove", name="docs"), ("done", "已从仓库地图去掉 docs，磁盘目录没有动"))
+        self.assertEqual(self.op(what="repos_remove", name="docs"), ("done", "已从常用路径去掉 docs，目录没有动"))
         self.assertTrue(self.root.is_dir())
-        self.assertEqual(self.op(what="repos_remove", name="docs"), ("failed", "没有叫 docs 的仓库"))
+        self.assertEqual(self.op(what="repos_remove", name="docs"), ("failed", "没有叫 docs 的常用路径"))
         self.assertEqual(sorted(r.name for r in repomap.read(self.ctx.state_dir)), ["gone"])
         self.assertEqual(self.op(what="repos_remove", name="")[0], "failed")
 
     def test_a_map_that_cannot_be_read_is_never_written_over(self):
         self.worktrees_root()
         self.repos_file().write_text("{not json")
-        self.assertEqual(self.op(what="repos_set", name="docs", note="x"), ("failed", "仓库地图读不出来，没有改动"))
+        self.assertEqual(self.op(what="repos_set", name="docs", note="x"), ("failed", "常用路径（repos.json）读不出来，没有改动"))
         self.assertEqual(self.repos_file().read_text(), "{not json")
         self.repos_file().write_text("[1, 2]")
-        self.assertEqual(self.op(what="repos_remove", name="docs"), ("failed", "仓库地图的格式不对，没有改动"))
+        self.assertEqual(self.op(what="repos_remove", name="docs"), ("failed", "常用路径（repos.json）的格式不对，没有改动"))
         self.assertEqual(self.repos_file().read_text(), "[1, 2]")
         # A turn's settle leaves it too (core/repomap.py note_used), no error.
         repomap.note_used(self.ctx.state_dir, [SimpleNamespace(name="x", path="/w/x")])
@@ -504,8 +517,8 @@ class WebSettingsTest(SettingsCase):
         mirrored = self.make_repo(self.root / "m" / "mirrored")
         with mock.patch.object(repomap, "_locked", side_effect=counted):
             self.assertEqual(self.op(what="repos_set", name="docs", note="文档"), ("done", "已改 docs：用途"))
-            self.assertIn("| docs | `" + str(self.root) + "` | 文档 |", rendered.read_text())
-            self.assertEqual(self.op(what="repos_add", path=str(extra)), ("done", "已加入仓库地图：extra"))
+            self.assertIn("| docs | `" + str(self.root) + "` | 本机 | 仓库 | 文档 |", rendered.read_text())
+            self.assertEqual(self.op(what="repos_add", path=str(extra)), ("done", "已加入常用路径：extra（仓库）"))
             self.assertIn("| extra |", rendered.read_text())
             self.assertEqual(self.op(what="repos_remove", name="extra")[0], "done")
             self.assertNotIn("| extra |", rendered.read_text())
@@ -613,7 +626,7 @@ class WebSettingsTest(SettingsCase):
     def test_the_old_workspace_changes_still_come_in_and_follow_into_the_map(self):
         self.worktrees_root()
         extra = self.make_repo(self.root / "g" / "extra")
-        self.assertEqual(self.op(what="workspace_add", path=str(extra)), ("done", "已添加工作区 extra，也加进了仓库地图"))
+        self.assertEqual(self.op(what="workspace_add", path=str(extra)), ("done", "已添加工作区 extra，也加进了常用路径"))
         self.assertIn("extra", [r.name for r in repomap.read(self.ctx.state_dir)])
         self.assertIn("extra", [w["name"] for w in self.snap()["workspace"]["items"]])  # The old page has it too.
         self.assertEqual(self.op(what="workspace_add", path=str(extra)), ("done", "该目录已在列表中：extra"))
@@ -1041,6 +1054,158 @@ class WebSettingsTest(SettingsCase):
         self.assertIn("还有任务在排队或执行，请先停止", words)
         with mock.patch.object(self.app.runtime.access, "is_owner", return_value=False):
             self.assertEqual(self.switch(topic, "op-r6", **base), ("failed", "只有主人能换配置"))
+
+
+class DevicesPageTest(SettingsCase):
+    """F1 (T930 第 7 节): the 设置 page's 设备 tab with devices on, even without nodes: devices.json and the node registry as one row a
+    machine; 添加 checked first (off the inbox), 改, 移除 (records kept, the node revoked), 体检; and 常用路径 on a device."""
+
+    def setUp(self):
+        super().setUp()
+        from covey.app import web_panels
+        from covey.core import devices
+        self.devices, self.panels = devices, web_panels
+        self.file = Path(self.root) / "devices.json"
+        self.file.write_text(json.dumps({"schema": 1, "devices": {
+            "macmini": {"title": "Mac mini", "ssh": {"host": "me@mac", "options": ["-p", "22"]}, "access": "write", "note": "构建"},
+            "testbox": {"title": "testbox", "ssh": {"host": "tb"}, "harnesses": ["claude"]}}}))
+        patcher = mock.patch.dict(os.environ, {"COVEY_DEVICES": "1", "COVEY_DEVICES_FILE": str(self.file)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.started = []
+        start = mock.patch.object(web_panels, "_start", side_effect=lambda start, work, name: self.started.append(work))
+        start.start()
+        self.addCleanup(start.stop)
+        self.raw = lambda: json.loads(self.file.read_text())
+
+    op = WebSettingsTest.op
+
+    def checked(self, ok=True, text="体检通过"):
+        return mock.patch("covey.core.device_probe.checkup", return_value=SimpleNamespace(ok=ok, explain=lambda: text))
+
+    def test_the_tab_shows_with_devices_on_and_joins_devices_json_and_the_nodes_by_alias(self):
+        from covey.core import nodes
+        state = self.ctx.state_dir
+        write_json(nodes.nodes_dir(state) / "registry.json", {"schema": 1, "nodes": {"local": {"title": "本机"}, "macmini": {"title": "mac"},
+                                                                                     "nas": {"title": "NAS"}}})
+        for alias in ("local", "macmini", "nas"):
+            nodes.write_link(state, alias, connected=True, heard=time.time())
+        write_json(self.devices.device_dir(state, "macmini") / "health.json", {"at": time.time() - 120, "ok": True})
+        write_json(self.devices.device_dir(state, "testbox") / "health.json", {"at": time.time(), "ok": False, "error": "Unreachable"})
+        write_json(self.devices.device_dir(state, "macmini") / "profile.json",
+                   {"check": {"at": time.time(), "ok": True, "text": "macmini 体检通过", "steps": 3}})
+        data = self.snap()
+        self.assertIn("设备", [t["label"] for t in data["tabs"]])  # No COVEY_NODE_LISTEN: shown for the devices.
+        page = data["nodes"]
+        rows = {row["alias"]: row for row in page["rows"]}
+        self.assertEqual(list(rows), ["local", "macmini", "nas", "testbox"])
+        mac = rows["macmini"]
+        self.assertEqual((mac["title"], mac["note"], mac["access"], mac["ssh"], mac["runs"], mac["listed"]),
+                         ("Mac mini", "构建", "write", "-p 22 me@mac", True, True))
+        self.assertEqual(mac["link"]["state"], "ok")
+        self.assertIn("连得上", mac["link"]["text"])
+        self.assertEqual((mac["check"]["ok"], mac["check"]["steps"]), (True, 3))
+        self.assertIsNotNone(mac["node"])
+        self.assertEqual((rows["testbox"]["link"]["state"], rows["testbox"]["access"], rows["testbox"]["node"]), ("down", "", None))
+        self.assertIn("ssh 连不上", rows["testbox"]["link"]["text"])
+        self.assertEqual((rows["nas"]["listed"], rows["nas"]["title"], rows["nas"]["link"]), (False, "NAS", None))
+        self.assertTrue(rows["local"]["local"])
+        self.assertEqual(page["summary"], "3 台设备 · 可写 1 台 · 监控在线 3 台")
+        self.assertTrue(page["can_add_device"])
+        self.assertEqual([i["alias"] for i in page["items"]], ["local", "macmini", "nas"])  # An older page's rows stay.
+        self.assertEqual(data["repos"]["devices"], [{"alias": "macmini", "title": "Mac mini", "access": "write"},
+                                                    {"alias": "testbox", "title": "testbox", "access": ""}])
+
+    def test_a_device_is_added_only_after_its_checkup_passed_read_only_by_default(self):
+        self.assertIn("正在体检 box1", self.op(what="device_add", name="box1", title="盒子", ssh="me@box1 -p 2222", note="跑数据")[1])
+        self.assertNotIn("box1", self.raw()["devices"])  # Not before the 体检.
+        self.assertEqual(self.panels.read_checks(self.ctx.state_dir)["box1"]["state"], "checking")
+        self.assertEqual(self.snap()["nodes"]["adding"], [{"alias": "box1", "state": "checking", "message": ""}])
+        with self.checked(ok=False, text="连不上 box1：x"):
+            self.started.pop()()
+        self.assertNotIn("box1", self.raw()["devices"])
+        self.assertEqual(self.snap()["nodes"]["adding"][0]["state"], "failed")
+        self.op(what="device_add", name="box1", ssh="me@box1 -p 2222", note="跑数据")
+        with self.checked() as checkup:
+            self.started.pop()()
+        config = checkup.call_args.args[0]
+        self.assertEqual(config.devices["box1"].host, "me@box1")  # Checked as it will be written, before it is.
+        self.assertEqual(self.raw()["devices"]["box1"], {"title": "box1", "access": "read", "note": "跑数据",
+                                                         "ssh": {"host": "me@box1", "options": ["-p", "2222"]}})
+        self.assertEqual(self.snap()["nodes"]["adding"], [])
+        self.assertIn("testbox", self.raw()["devices"])  # The others as they were.
+        self.assertEqual(self.raw()["devices"]["testbox"]["harnesses"], ["claude"])
+        for payload, why in (({"name": "1box"}, "名字只用小写字母"), ({"name": "macmini"}, "已经有 macmini"),
+                             ({"name": "b2", "ssh": "-oProxyCommand=sh me@x"}, "本机执行命令"), ({"name": "b2", "access": "all"}, "write 或 read"),
+                             ({"name": "b2", "note": "两\n行"}, "一行"), ({"name": "b2", "ssh": "pw@x", "password": "x"}, None)):
+            if why is None:
+                continue
+            state, words = self.op(what="device_add", **payload)
+            self.assertEqual(state, "failed", payload)
+            self.assertIn(why, words)
+
+    def test_a_machine_without_ssh_is_written_at_once_as_only_watched(self):
+        self.assertEqual(self.op(what="device_add", name="nas", title="NAS"), ("done", "已加入设备名单：nas（没有 ssh：只能看状况，不能执行）"))
+        self.assertEqual(self.raw()["devices"]["nas"], {"title": "NAS", "access": "read"})
+        self.assertEqual(self.started, [])
+        row = next(r for r in self.snap()["nodes"]["rows"] if r["alias"] == "nas")
+        self.assertEqual((row["runs"], row["listed"], row["link"]), (False, True, None))
+        self.assertEqual(self.op(what="device_check", alias="nas"), ("failed", "nas 没有 ssh，只能看状况，体检不了"))
+
+    def test_a_device_is_changed_checked_and_removed_with_its_records_kept_and_its_node_revoked(self):
+        from covey.core import nodes
+        state = self.ctx.state_dir
+        self.assertEqual(self.op(what="device_set", alias="testbox", access="read", note="同事的机器"), ("done", "已改 testbox：用途、可写还是只读"))
+        self.assertEqual(self.raw()["devices"]["testbox"], {"title": "testbox", "ssh": {"host": "tb"}, "harnesses": ["claude"],
+                                                            "access": "read", "note": "同事的机器"})
+        self.assertEqual(self.op(what="device_set", alias="testbox", ssh="me@tb2 -p 23")[0], "done")
+        self.assertEqual(self.raw()["devices"]["testbox"]["ssh"], {"host": "me@tb2", "options": ["-p", "23"]})
+        self.assertEqual(self.op(what="device_set", alias="testbox", note="")[0], "done")
+        self.assertNotIn("note", self.raw()["devices"]["testbox"])
+        self.assertEqual(self.op(what="device_set", alias="nope", note="x"), ("failed", "设备名单里没有 nope"))
+        self.assertEqual(self.op(what="device_set", alias="testbox"), ("failed", "没有要改的项"))
+        self.assertIn("正在体检 macmini", self.op(what="device_check", alias="macmini")[1])
+        self.assertEqual(self.op(what="device_check", alias="macmini"), ("done", "macmini 正在体检"))
+        with self.checked(text="macmini 体检通过：…"):
+            self.started.pop()()
+        self.assertEqual(self.panels.read_checks(state)["macmini"]["state"], "done")
+        write_json(self.devices.device_dir(state, "testbox") / "profile.json", {"check": {"at": 1.0, "ok": True}})
+        write_json(nodes.nodes_dir(state) / "registry.json", {"schema": 1, "nodes": {"local": {}, "testbox": {"title": "tb"}}})
+        with mock.patch.object(nodes, "revoke", return_value=True) as revoked:
+            self.assertEqual(self.op(what="device_remove", alias="testbox"),
+                             ("done", "testbox：已从设备名单去掉，撤销了它的监控节点；它的记录留着"))
+        revoked.assert_called_once_with(state, "testbox")
+        self.assertNotIn("testbox", self.raw()["devices"])
+        self.assertTrue((self.devices.device_dir(state, "testbox") / "profile.json").exists())
+        write_json(nodes.nodes_dir(state) / "registry.json", {"schema": 1, "nodes": {"local": {}}})  # Revoked by now.
+        self.assertEqual(self.op(what="device_remove", alias="testbox"), ("failed", "testbox 已经不在了"))
+
+    def test_devices_off_change_nothing_and_a_bad_file_is_never_written_over(self):
+        with mock.patch.dict(os.environ, {"COVEY_DEVICES": ""}):
+            self.assertEqual(self.op(what="device_add", name="b1")[0], "failed")
+            self.assertNotIn("nodes", self.snap())  # No devices, no nodes: no tab.
+        self.file.write_text("{not json")
+        self.assertEqual(self.op(what="device_set", alias="macmini", note="x")[0], "failed")
+        self.assertEqual(self.file.read_text(), "{not json")
+        page = self.snap()["nodes"]
+        self.assertIn("error", page)
+
+    def test_a_path_on_a_device_is_checked_there_and_kept_as_alias_and_path(self):
+        from covey.core import devices
+        with mock.patch.object(devices, "inspect_dir", return_value=("ok", "git", "")) as inspected:
+            self.assertEqual(self.op(what="repos_add", path="/srv/proj", device="macmini", note="远端"),
+                             ("done", "已加入常用路径：proj（设备 macmini 上的仓库）"))
+        self.assertEqual(inspected.call_args.args[1:3], ("macmini", "/srv/proj"))
+        with mock.patch.object(devices, "inspect_dir", return_value=("ok", "dir", "")):
+            self.assertEqual(self.op(what="repos_add", path="testbox:/srv/proj")[1], "已加入常用路径：proj-testbox（设备 testbox 上的目录）")
+        with mock.patch.object(devices, "inspect_dir", return_value=("offline", "", "设备 macmini 没有答复（连接超时）")):
+            self.assertEqual(self.op(what="repos_add", path="/srv/other", device="macmini"), ("failed", "设备 macmini 没有答复（连接超时）"))
+        found = {repo.name: repo for repo in repomap.read(self.ctx.state_dir)}
+        self.assertEqual((found["proj"].path, found["proj"].device, found["proj"].kind, found["proj"].write_mode),
+                         ("macmini:/srv/proj", "macmini", "git", "inplace"))
+        item = next(i for i in self.snap()["repos"]["items"] if i["name"] == "proj")
+        self.assertEqual((item["device"], item["kind"], item["tail"]), ("macmini", "git", "/srv/proj"))
+        self.assertEqual(self.op(what="repos_set", name="proj", write_mode="worktree"), ("failed", "目录和设备上的路径只能原地改"))
 
 
 class StampCoverageTest(SettingsCase):

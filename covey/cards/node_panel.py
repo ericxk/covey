@@ -38,7 +38,8 @@ def box(name, placeholder, *, limit=200):
 
 def node_panel_card(token, view, data, *, top=()):
     """The tab for ``view`` (revision, notice, adding, confirm) over ``data`` (app/node_panel.py ``facts``: address,
-    rows of {alias, title, line, grey, local})."""
+    rows of {alias, title, line, grey, local}; with devices on ``devices``, the devices.json line, and ``manage``, the web
+    page's 设备)."""
     def value(kind, **more):
         return {'kind': kind, 'token': token, 'revision': view['revision'], **more}
 
@@ -58,6 +59,9 @@ def node_panel_card(token, view, data, *, top=()):
             elements.append(note(row['grey']))
     if not data['rows']:
         elements.append(md('还没有设备。'))
+    if data.get('devices'):  # devices.json, with devices on: shown here, changed on the web page only.
+        manage = f" · [去网页管理]({data['manage']})" if data.get('manage') else ' · 在网页工作台的「设置 → 设备」里管理'
+        elements.append(note(safe_text(data['devices'], 300) + manage))
     adding = view.get('adding') if isinstance(view.get('adding'), dict) else None
     elements.append(md('**添加设备**'))
     if adding and adding.get('command'):

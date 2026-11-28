@@ -629,11 +629,12 @@ def repos_context(env, request):
 
 
 def repo_line(row) -> str:
-    """One repository of repos_list: 名字 · 状态 (· 原地改) (· 用途) · 路径 (· 本话题在改/在读)."""
+    """One entry of repos_list: 名字 · 状态 (· 目录) (· 设备 别名) (· 原地改) (· 用途) · 路径 (· 本话题在改/在读)."""
     return " · ".join(part for part in (
         row.get("name"), REPO_STATUS.get(row.get("status"), row.get("status") or ""),
-        "原地改" if row.get("write_mode") == "inplace" else "", f"用途：{row['note']}" if row.get("note") else "",
-        row.get("path"), REPO_USED.get(row.get("used"), "")) if part)
+        "目录" if row.get("kind") == "dir" else "", f"设备 {row['device']}" if row.get("device") else "",
+        "原地改" if row.get("write_mode") == "inplace" and not row.get("device") else "",
+        f"用途：{row['note']}" if row.get("note") else "", row.get("path"), REPO_USED.get(row.get("used"), "")) if part)
 
 
 def repos_list(env, request):

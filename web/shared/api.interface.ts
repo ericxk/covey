@@ -1071,6 +1071,39 @@ export interface SettingsNodesPage {
   /** v15：正在经 ssh 添加的和失败的 */
   joins?: { alias: string; state: 'joining' | 'failed' | 'done'; message: string }[];
   can_add?: boolean;
+  /** v46：devices.json 和节点按别名并成一行（新页面画它；旧页面照画 items） */
+  rows?: SettingsDeviceRow[];
+  /** v46：页面上正在添加（先体检）的设备 */
+  adding?: { alias: string; state: 'checking' | 'failed' | 'done'; message: string }[];
+  /** v46：这里能不能加设备（多设备开着） */
+  can_add_device?: boolean;
+  /** v46：devices.json 读不出来时的原因 */
+  error?: string;
+}
+/** v46：设备页的一行：一台机器（devices.json 里的、只装了监控节点的，或两者都有） */
+export interface SettingsDeviceRow {
+  alias: string;
+  title: string;
+  /** 用途，一行 */
+  note: string;
+  /** 可写还是只读；'' 是 devices.json 里没写 */
+  access: 'write' | 'read' | '';
+  /** 在 devices.json 里 */
+  listed: boolean;
+  /** ssh 写法（选项在前，主机在后）；没有 ssh 是 '' */
+  ssh: string;
+  /** 有 ssh，能去执行；false 是只能看状况 */
+  runs: boolean;
+  /** Covey 上次经 ssh 看它：ok 连得上，down 连不上，never 还没连过；没有 ssh 是 null */
+  link: { state: 'ok' | 'down' | 'never'; text: string } | null;
+  /** 监控节点的状况；没装节点是 null */
+  node: { dot: SettingsNodeDot; line: string; grey: string | boolean } | null;
+  /** 上次体检（或自检）：steps 3 是网页上的体检（ssh、设备端小程序、hello） */
+  check: { ok: boolean; at: number; text: string; steps?: number } | null;
+  /** 网页上点的体检正在跑或刚结束 */
+  checking: { state: 'checking' | 'failed' | 'done'; message: string } | null;
+  /** Covey 自己这台（本机的节点） */
+  local: boolean;
 }
 export interface SettingsProxyContact {
   key: string;
@@ -1281,6 +1314,8 @@ export const SETTINGS_WHATS = [
   'free', 'workspace_add', 'workspace_remove', 'workspace_prune', 'node_add', 'node_remove', 'refresh', 'proxy',
   // v43：仓库（旧 workspace_add/remove/prune 照收，Bridge 转成 repos_*）
   'repos_set', 'repos_add', 'repos_remove', 'worktrees_prune',
+  // v46：设备名单（devices.json）
+  'device_add', 'device_set', 'device_remove', 'device_check',
 ] as const;
 export type SettingsWhat = (typeof SETTINGS_WHATS)[number];
 /** v15：proxy 的 op */
@@ -1784,11 +1819,17 @@ export interface TurnMemory { count: number; used: TurnMemoryUsed[]; codes: stri
 export interface SettingsRepoItem {
   name: string; tail: string; note: string; status: 'active' | 'readonly' | 'frozen';
   write_mode: 'worktree' | 'inplace'; branch: string; rules: string[]; last_used?: number; live_topics: number;
+  /** v46：git 是仓库，dir 是普通目录（原地改）；旧 Covey 不推，当 git */
+  kind?: 'git' | 'dir';
+  /** v46：在哪台设备上（devices.json 的别名）；本机是 ''，旧 Covey 不推 */
+  device?: string;
 }
 export interface SettingsReposPage {
   home: { tail: string };
   items: SettingsRepoItem[];
   worktrees: { total: number; prunable: { repo: string; branch: string; tail: string; topic_number?: number; ended_at?: number }[] };
+  /** v46：能在上面加路径的设备（devices.json 里有 ssh 的）；多设备没开是空 */
+  devices?: { alias: string; title: string; access: 'write' | 'read' | '' }[];
 }
 // SettingsData.repos?: SettingsReposPage | SettingsError;（「工作区」页 workspace 保留给旧 Covey）
 /** v43（WEB 包加）：GET /api/memory?key=<memory:* 键> 的响应，sync_state 里那一行（rev 是 Covey 给的内容哈希）；没推过是 null */

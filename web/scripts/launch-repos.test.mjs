@@ -112,6 +112,14 @@ test('仓库名单：排除冻结，已选但不在名单的留着', () => {
   const out = R.repoChoices(items, [{ name: 'old', mode: 'read' }]);
   assert.deepEqual(out.map((x) => x.name), ['a', 'c', 'old']);
   assert.equal(out[1].readonly, true);
+  assert.deepEqual(out.map((x) => x.where), ['', '', '']);
+});
+
+test('v46：常用路径里的目录和设备上的路径，块上说在哪、是什么', () => {
+  const items = [{ name: 'a', status: 'active', note: '' }, { name: 'n', status: 'active', note: '', kind: 'dir' },
+    { name: 'm', status: 'active', note: '', device: 'macmini' }, { name: 'd', status: 'active', note: '', kind: 'dir', device: 'pi' }];
+  assert.deepEqual(R.repoChoices(items, []).map((x) => x.where), ['', '目录', '在 macmini 上', '目录 · 在 pi 上']);
+  assert.equal(R.repoWhere({}), '');
 });
 
 test('repos 比较和标签文字', () => {

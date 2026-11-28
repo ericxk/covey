@@ -223,6 +223,15 @@ def settle(ctx, job, task_dir, *, later=False):
                 item["rules_inlined_at" if inlined[item["name"]] else "rules_read_at"] = now
         for request in asked:
             name = str(request.get("name") or "")
+            if name and request.get("device") and repomap.device_path(request.get("path"))[0] == request["device"]:
+                # A device's path (core/repomap.py ``_use_device``): recorded with its device, nothing of this machine's.
+                item = by_name.setdefault(name, {"name": name, "path": request["path"], "device": request["device"],
+                                                 "mode": "read", "source": "cli", "first_at": request.get("at") or now})
+                if item not in entries:
+                    entries.append(item)
+                if request.get("mode") == "write":
+                    item["mode"] = "write"
+                continue
             if not name or not str(request.get("path") or "").startswith("/"):
                 continue
             item = by_name.get(name)
@@ -281,6 +290,10 @@ def settle(ctx, job, task_dir, *, later=False):
     names = {repo.name for repo in found} | {str(request.get("name")) for request in asked}
     listed_now = [repo for repo in map(topic_repos.from_dict, entries) if repo is not None]
     used = [repo for repo in listed_now if repo.name in names]
+    # A device's path this turn asked for: its ``last_used`` in the map too (it is always listed there: ``use`` finds it by name).
+    used += [topic_repos.TopicRepo(name=str(item["name"]), path=str(item["path"]), mode=str(item.get("mode") or "read"))
+             for item in entries if isinstance(item, dict) and item.get("device") and item.get("name") in names
+             and repomap.device_path(item.get("path"))[0]]
     # The read worktrees the topic reads in: a turn of it keeps them (core/repomap.py READ_IDLE counts from its last).
     reading = [repo.worktree for repo in listed_now if repo.mode != "write" and topic_repos.is_read_worktree(repo.worktree)]
 
@@ -310,7 +323,8 @@ def repos_list(ctx) -> dict:
     for repo in repomap.read(ctx.state_dir):
         entry = used.pop(repo.name, None)
         rows.append({"name": repo.name, "path": repo.path, "note": repo.note, "status": repo.status,
-                     "write_mode": repo.write_mode, "branch": repo.branch,
+                     "write_mode": repo.write_mode, "branch": repo.branch, "kind": repo.kind,
+                     **({"device": repo.device} if repo.device else {}),
                      **({"used": entry.mode, "worktree": entry.worktree} if entry else {})})
     return {"home": str(where), "map": str(repomap.rendered_path(ctx.state_dir, where)), "repos": rows,
             "unmapped": [{"name": e.name, "path": e.path, "used": e.mode, "worktree": e.worktree} for e in used.values()]}

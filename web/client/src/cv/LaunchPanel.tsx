@@ -92,7 +92,7 @@ const RepoPicker: React.FC<{ box: PanelBox; choices: ReturnType<typeof repoChoic
               className={`lx-rp ${mode}`}
               aria-pressed={mode !== 'none'}
               aria-label={`${c.name}：${REPO_WORD[mode]}，点一下切换`}
-              title={c.note || (c.readonly ? '只读仓库：不用 → 只读' : '点一下：不用 → 只读 → 可写')}
+              title={[c.where, c.note || (c.readonly ? '只读仓库：不用 → 只读' : '点一下：不用 → 只读 → 可写')].filter(Boolean).join(' · ')}
               data-mode={mode}
               onClick={() => box.edit((_d, s) => ({ ...s, repos: cycleRepo(s.repos, c.name, c.readonly) }))}
             >

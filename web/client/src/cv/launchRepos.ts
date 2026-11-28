@@ -70,12 +70,17 @@ export function cycleRepo(repos: LaunchRepo[] | undefined, name: string, readonl
   return rest;
 }
 
-/** 仓库选择行列哪些块：名单里非冻结的，加上已选但名单里没有的（话题带着、后来冻结了的，要能取消） */
-export function repoChoices(items: SettingsRepoItem[], selected: LaunchRepo[] | undefined): { name: string; readonly: boolean; note: string }[] {
+/** 一块的“在哪、是什么”（v46）：目录写“目录”，设备上的写设备名；本机的仓库是空串 */
+export function repoWhere(i: Pick<SettingsRepoItem, 'kind' | 'device'>): string {
+  return [i.kind === 'dir' ? '目录' : '', i.device ? `在 ${i.device} 上` : ''].filter(Boolean).join(' · ');
+}
+
+/** 仓库选择行列哪些块：常用路径里非冻结的，加上已选但名单里没有的（话题带着、后来冻结了的，要能取消）；where 见 repoWhere */
+export function repoChoices(items: SettingsRepoItem[], selected: LaunchRepo[] | undefined): { name: string; readonly: boolean; note: string; where: string }[] {
   const out = items
     .filter((i: SettingsRepoItem) => i.status !== 'frozen')
-    .map((i: SettingsRepoItem) => ({ name: i.name, readonly: i.status === 'readonly', note: i.note }));
-  for (const r of selected ?? []) if (!out.some((o) => o.name === r.name)) out.push({ name: r.name, readonly: false, note: '' });
+    .map((i: SettingsRepoItem) => ({ name: i.name, readonly: i.status === 'readonly', note: i.note, where: repoWhere(i) }));
+  for (const r of selected ?? []) if (!out.some((o) => o.name === r.name)) out.push({ name: r.name, readonly: false, note: '', where: '' });
   return out;
 }
 

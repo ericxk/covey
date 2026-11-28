@@ -216,11 +216,13 @@ class MapWriterTest(Sandbox):
 
     def test_update_keeps_the_files_other_keys_and_the_entries_read_passes_over(self):
         (self.state / "repos.json").write_text(json.dumps({"version": 1, "exclude": ["node_modules/"], "future": {"k": 1}, "repos": [
-            {"name": "a", "path": "/absolute/a", "later": True}, {"name": "gpu", "path": "gpu1:/srv/x"}]}))
+            {"name": "a", "path": "/absolute/a", "later": True}, {"name": "gpu", "path": "gpu1:~/x"},
+            {"name": "", "path": "/absolute/nameless"}]}))
         repomap.update(self.state, lambda repos: [*repos, repomap.Repo(name="b", path="/absolute/b")])
         raw = json.loads((self.state / "repos.json").read_text())
         self.assertEqual((raw["exclude"], raw["future"]), (["node_modules/"], {"k": 1}))
-        self.assertEqual([item["name"] for item in raw["repos"]], ["a", "b", "gpu"])
+        self.assertEqual([item["name"] for item in raw["repos"]], ["a", "b", "gpu", ""])
+        self.assertEqual(raw["repos"][2:], [{"name": "gpu", "path": "gpu1:~/x"}, {"name": "", "path": "/absolute/nameless"}])
         self.assertTrue(raw["repos"][0]["later"])
 
     def test_a_file_that_cannot_be_read_raises_and_stays(self):
@@ -404,7 +406,7 @@ class CommandTest(Sandbox):
         (row,) = json.loads(out)
         self.assertEqual((code, row["mode"], row["worktree"], row["changes"]), (0, "write", str(tree), 1))
         code, out = self.run_main("list")
-        self.assertIn("core\t可用", out)
+        self.assertIn("core\t仓库\t可用", out)
         (tree / "new.py").unlink()
         old = time.time() - 3 * 86400
         for path in (tree, tree / ".git"):
@@ -421,6 +423,140 @@ class CommandTest(Sandbox):
         rows = json.loads(self.run_main("prune-plan", "--legacy", str(legacy), "--json")[1])
         (left,) = [r for r in rows if r["legacy"]]
         self.assertEqual((left["prunable"], left["changes"]), (False, 1))
+
+
+class PathsTest(Sandbox):
+    """F1 (T930 5.1): 常用路径 is the map widened: a plain directory (``kind`` dir) and a device's path ``<别名>:/abs``, both
+    written in place, a release before them reading the file without losing either."""
+
+    def raw(self) -> dict:
+        return json.loads((self.state / "repos.json").read_text())
+
+    def test_kinds_and_device_entries_are_read_each_written_in_place(self):
+        (self.state / "repos.json").write_text(json.dumps({"version": 1, "repos": [
+            {"name": "core", "path": "/absolute/core"},
+            {"name": "misc", "path": "/absolute/misc", "kind": "dir", "write_mode": "worktree"},
+            {"name": "mac", "path": "macmini:/Users/me//proj/", "write_mode": "worktree", "device": "other"},
+            {"name": "future", "path": "/absolute/f", "kind": "remote-git"}]}))
+        found = {repo.name: repo for repo in repomap.read(self.state)}
+        self.assertEqual((found["core"].kind, found["core"].device, found["core"].write_mode), ("git", "", "worktree"))
+        self.assertEqual((found["misc"].kind, found["misc"].write_mode), ("dir", "inplace"))
+        self.assertEqual((found["mac"].path, found["mac"].device, found["mac"].write_mode), ("macmini:/Users/me/proj", "macmini", "inplace"))
+        self.assertEqual((found["future"].kind, found["future"].extra), ("git", {"kind": "remote-git"}))
+        repomap.update(self.state, lambda repos: [repomap.replace(repo, note="n") for repo in repos])
+        written = {item["name"]: item for item in self.raw()["repos"]}
+        self.assertEqual(written["future"]["kind"], "remote-git")  # A newer release's kind written back as it was.
+        self.assertEqual((written["misc"]["kind"], written["misc"]["write_mode"]), ("dir", "inplace"))
+        self.assertEqual(repomap.device_path("macmini:~/x"), ("", ""))  # Only an absolute path on a device is an entry's.
+
+    def test_a_release_before_device_entries_passes_them_over_and_writes_them_back_as_they_were(self):
+        """The rollback (T930 5.1): the release before F1 read an entry only with a path starting with /, and wrote what it passed over
+        back untouched (``_passed_over``). Its rule is kept here as it was; the new entries are written so that it holds."""
+        def before_f1(item):  # core/repomap.py _repos / _passed_over of 33c0907c, the release F1 rolls back to.
+            return isinstance(item, dict) and bool(str(item.get("name") or "").strip()) and str(item.get("path") or "").startswith("/")
+
+        repomap.write(self.state, [repomap.Repo(name="core", path="/absolute/core"),
+                                   repomap.Repo(name="misc", path="/absolute/misc", kind="dir", write_mode="inplace"),
+                                   repomap.Repo(name="mac", path="macmini:/srv/proj", device="macmini", write_mode="inplace")])
+        written = self.raw()["repos"]
+        device = next(item for item in written if item["name"] == "mac")
+        self.assertFalse(before_f1(device))  # Passed over by the old reader ...
+        self.assertTrue(before_f1(next(item for item in written if item["name"] == "misc")))  # ... a 目录 read, written in place:
+        self.assertEqual(next(item for item in written if item["name"] == "misc")["write_mode"], "inplace")  # never a worktree.
+        with mock.patch.object(repomap, "_readable", before_f1):
+            self.assertEqual([repo.name for repo in repomap.read(self.state)], ["core", "misc"])
+            repomap.update(self.state, lambda repos: [repomap.replace(repo, note="old release") for repo in repos])
+        self.assertIn(device, self.raw()["repos"])  # ... and written back exactly as it was.
+        self.assertEqual([repo.name for repo in repomap.read(self.state)], ["core", "misc", "mac"])
+
+    def test_repos_md_has_the_device_and_kind_columns_and_the_device_table(self):
+        devices_file = self.data / "devices.json"
+        devices_file.write_text(json.dumps({"schema": 1, "devices": {
+            "macmini": {"title": "Mac mini", "ssh": {"host": "mac"}, "access": "write", "note": "构建 iOS"},
+            "pi": {"title": "树莓派", "access": "read"}}}))
+        repomap.write(self.state, [repomap.Repo(name="core", path="/absolute/core"),
+                                   repomap.Repo(name="misc", path="/absolute/misc", kind="dir", write_mode="inplace", rules=("README.md",)),
+                                   repomap.Repo(name="mac", path="macmini:/srv/proj", device="macmini", write_mode="inplace")])
+        text = repomap.render_md(repomap.read(self.state), home="/absolute/home")
+        self.assertIn("# 常用路径", text)
+        self.assertIn("| 名字 | 路径 | 设备 | 类型 | 用途 | 状态 | 怎么改 | 规范 |", text)
+        self.assertIn("| misc | `/absolute/misc` | 本机 | 目录 | — | 可用 | 原地改 | README.md |", text)
+        self.assertIn("| mac | `/srv/proj` | macmini | 仓库 | — | 可用 | 在设备上 | AGENTS.md |", text)
+        self.assertNotIn("常用设备", text)  # Devices off: no table.
+        with mock.patch.dict(os.environ, {"COVEY_DEVICES": "1"}):
+            rendered = repomap.render(self.state, self.home).read_text()
+        self.assertIn("## 常用设备", rendered)
+        self.assertIn("| macmini | Mac mini | 构建 iOS | 可写 |", rendered)
+        self.assertIn("| pi | 树莓派 | — | 只能看状况，不能执行 |", rendered)
+
+
+class PathsCommandTest(CommandTest):
+    """``covey repo use`` of a 目录 (no worktree; ``--write`` is in place, so a Codex turn's writable roots take it) and of a device's
+    path (nothing here: the rules head through the device's ``get``, ``--write`` only recorded, with its device)."""
+
+    def setUp(self):
+        super().setUp()
+        self.misc = self.home / "misc"
+        self.misc.mkdir()
+        (self.misc / "README.md").write_text("# 杂活\n脚本放 sessions/。\n", encoding="utf-8")
+        repomap.write(self.state, [repomap.Repo(name="core", path=str(self.repo), note="核心"),
+                                   repomap.Repo(name="misc", path=str(self.misc), kind="dir", write_mode="inplace", rules=("README.md",)),
+                                   repomap.Repo(name="mac", path="macmini:/srv/proj", device="macmini", write_mode="inplace"),
+                                   repomap.Repo(name="ro", path="testbox:/srv/ro", device="testbox", write_mode="inplace")])
+        (self.data / "devices.json").write_text(json.dumps({"schema": 1, "devices": {
+            "macmini": {"title": "Mac mini", "ssh": {"host": "mac"}, "access": "write"},
+            "testbox": {"ssh": {"host": "tb"}, "access": "read"}}}))
+
+    def test_a_directory_is_used_in_place_with_its_readme_as_rules(self):
+        code, out = self.run_main("--json", "use", "misc", "--write")
+        self.assertEqual(code, 0, out)
+        made = json.loads(out)
+        self.assertEqual((made["worktree"], made["branch"], made["kind"], made["base_oid"]), (str(self.misc), "", "dir", ""))
+        self.assertIn("脚本放 sessions/", made["rules"]["text"])
+        self.assertFalse((self.data / "worktrees").exists())
+        (request,) = topic_repos.requests(self.task)
+        self.assertEqual((request["mode"], request["worktree"]), ("write", str(self.misc)))
+        code, out = self.run_main("use", "misc")
+        self.assertIn("目录 misc（读）", out)
+        self.assertIn(f"\n目录：{self.misc}\n", out)
+        self.assertIn("这个目录原地改", self.run_main("use", "misc", "--write")[1])
+
+    def test_a_devices_path_is_only_recorded_and_its_rules_head_read_on_the_device(self):
+        code, out = self.run_main("use", "mac")
+        self.assertEqual(code, 0, out)
+        self.assertIn("设备上的路径：/srv/proj", out)
+        self.assertIn("多设备没开", out)  # Devices off: no head, said so.
+        with mock.patch.dict(os.environ, {"COVEY_DEVICES": "1"}), \
+                mock.patch.object(repomap.device_list, "read_head", return_value=("AGENTS.md", "# 远端规范\n", False, "")) as head:
+            code, out = self.run_main("--json", "use", "mac", "--write")
+        self.assertEqual(code, 0, out)
+        made = json.loads(out)
+        self.assertEqual((made["device"], made["worktree"], made["rules"]["text"]), ("macmini", "", "# 远端规范\n"))
+        self.assertEqual(head.call_args.args[1:3], ("macmini", "/srv/proj"))
+        requests = topic_repos.requests(self.task)
+        self.assertEqual([(r["name"], r["mode"], r["device"], r["path"]) for r in requests],
+                         [("mac", "read", "macmini", "macmini:/srv/proj"), ("mac", "write", "macmini", "macmini:/srv/proj")])
+        self.assertFalse((self.data / "worktrees").exists())
+        code, out = self.run_main("status")
+        self.assertIn("- mac（写）设备 macmini:/srv/proj；设备上的改动这里查不了", out)
+
+    def test_a_read_only_devices_path_is_not_written(self):
+        with mock.patch.dict(os.environ, {"COVEY_DEVICES": "1"}):
+            code, out = self.run_main("use", "ro", "--write")
+        self.assertEqual(code, 3)
+        self.assertIn("设备 testbox 是只读的", out)
+        self.assertEqual(topic_repos.requests(self.task), [])
+
+    def test_the_bridge_folds_a_devices_request_into_the_topic_with_its_device_and_nothing_reads_it_as_a_path_here(self):
+        self.run_main("use", "mac", "--write")
+        job = SimpleNamespace(topic_id=TOPIC, job_id=3, message_id="om_1", tool_trace=None)
+        repos_turn.settle(self.ctx(), job, self.task)
+        entries = self.topic_data()["repos"]
+        self.assertIn({"name": "mac", "path": "macmini:/srv/proj", "device": "macmini", "mode": "write", "source": "cli",
+                       "first_at": topic_repos.requests(self.task)[0]["at"]}, entries)
+        self.assertEqual([repo.name for repo in topic_repos.of_topic(self.topic_data())], [])  # No local path anywhere.
+        self.assertEqual(topic_repos.writable_roots(self.topic_data()), [])
+        self.assertGreater(next(r for r in repomap.read(self.state) if r.name == "mac").last_used, 0)
 
 
 class TouchedTest(Sandbox):

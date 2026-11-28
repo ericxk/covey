@@ -68,6 +68,7 @@
     "test:memcenter": "node --import ./scripts/alias.mjs --test scripts/memory-center.test.mjs",
     "test:repos": "node --import ./scripts/alias.mjs --test scripts/repos-page.test.mjs",
     "test:launchrepos": "node --import ./scripts/alias.mjs --test scripts/launch-repos.test.mjs",
+    "test:devices": "node --import ./scripts/alias.mjs --test scripts/devices-page.test.mjs",
     "test:quota": "node --import ./scripts/alias.mjs --test scripts/quota.test.mjs",
     "test:progress": "node --import ./scripts/alias.mjs --test scripts/progress.test.mjs",
     "test:brief": "node --import ./scripts/alias.mjs --test scripts/brief.test.mjs",

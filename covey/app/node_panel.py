@@ -14,8 +14,6 @@ The same click delivered again acts once: the view keeps the last ``seen`` event
 """
 from __future__ import annotations
 
-import re
-import shlex
 import subprocess
 import threading
 import time
@@ -26,36 +24,18 @@ from covey.app.node_gateway import paste_command
 from covey.cards.node_cards import machine_lines
 from covey.cards.node_panel import ADD, LABEL, NAME, REFRESH, REMOVE, SSH, KINDS, node_panel_card
 from covey.cards.settings_hub import NODES
-from covey.core import nodes
+from covey.core import devices, nodes
 
 SEEN = 8
-WITH_VALUE = set('bcDEeFIiJLlmOoPpQRSWw')  # ssh options that take the next word.
+WITH_VALUE = devices.SSH_WITH_VALUE  # ssh options that take the next word (core/devices.py).
 SSH_SECONDS = 90
 OWNER_ONLY = '⚠️ 仅机器人主人可以管理设备。'
-UNSAFE_SSH = re.compile(r'(?i)(proxycommand|localcommand|knownhostscommand|^-[^-]*[MSWw])')  # Run something here.
+UNSAFE_SSH = devices.SSH_UNSAFE  # Run something here.
 
 
 def ssh_args(text):
-    """The ssh arguments for the address the owner typed; ValueError when it cannot be one."""
-    try:
-        args = shlex.split(text or '')
-    except ValueError:
-        raise ValueError('ssh 地址的引号没有配对')
-    if not args:
-        raise ValueError('ssh 地址是空的')
-    if any(UNSAFE_SSH.search(arg) for arg in args):
-        raise ValueError('ssh 地址里有会在本机执行命令的选项，不支持')
-    hosts, skip = [], False
-    for arg in args:
-        if skip:
-            skip = False
-        elif arg.startswith('-'):
-            skip = len(arg) == 2 and arg[1] in WITH_VALUE  # ``-p 22``: the next word is the option's.
-        else:
-            hosts.append(arg)
-    if len(hosts) != 1:
-        raise ValueError('ssh 地址里要有且只有一个 user@host')
-    return args
+    """The ssh arguments for the address the owner typed; ValueError when it cannot be one (core/devices.py ``ssh_words``)."""
+    return devices.ssh_words(text)
 
 
 def facts(state_dir, address, now=None):
@@ -71,7 +51,27 @@ def facts(state_dir, address, now=None):
             title = f'{title}（{alias}）'
         line, grey = machine_lines(title, link, latest, online=nodes.online(link, now), now=now)
         rows.append({'alias': alias, 'title': title, 'line': line, 'grey': grey, 'local': alias == nodes.LOCAL})
-    return {'address': address, 'rows': rows}
+    return {'address': address, 'rows': rows, **device_summary()}
+
+
+ACCESS_WORDS = {'write': '可写', 'read': '只读'}
+
+
+def device_summary():
+    """The card's one line on devices.json, with devices on (COVEY_DEVICES=1): ``devices`` (每台的名字和可写 / 只读) and ``manage``
+    (the web page's 设备, with the page on): the card only shows it, the page changes it. {} with devices off."""
+    if not devices.enabled():
+        return {}
+    try:
+        config = devices.current()
+    except devices.DeviceConfigError:
+        return {'devices': 'devices.json 有问题，先手工改好'}
+    found = [*config.devices.items(), *config.watched.items()]
+    words = [f"{device.title}（{ACCESS_WORDS.get(device.access, '没设可写还是只读') if device.host else '只能看状况'}）"
+             for _, device in sorted(found)]
+    from covey.core import web_sync
+    url = web_sync.page_url()
+    return {'devices': '设备名单：' + ('、'.join(words) if words else '还没有'), **({'manage': url.rstrip('/') + '/settings/nodes'} if url else {})}
 
 
 class NodePanel:

@@ -63,7 +63,7 @@ import {
   revisitCancelShape, revisitOf,
 } from './workbench.v4';
 import { upgradeOf, upgradeShape } from './workbench.upgrade';
-import { checkMemoryEdit, launchReposError, reposSettingsError, turnMemoryOf } from './workbench.memory-edit';
+import { checkMemoryEdit, devicesSettingsError, launchReposError, reposSettingsError, turnMemoryOf } from './workbench.memory-edit';
 import { quotaOf, quotaRefreshShape } from './workbench.quota';
 
 interface TopicRow {
@@ -1217,6 +1217,10 @@ export class WorkbenchQueryService {
     } else if (what === 'repos_set' || what === 'repos_add' || what === 'repos_remove' || what === 'worktrees_prune') {
       // v43：仓库页的操作（形状校验放在 workbench.memory-edit.ts，纯函数）
       const err: string | null = reposSettingsError(what, payload);
+      if (err) throw new BadRequestException(err);
+    } else if (what === 'device_add' || what === 'device_set' || what === 'device_remove' || what === 'device_check') {
+      // v46：设备名单的操作（形状校验放在 workbench.memory-edit.ts，纯函数）
+      const err: string | null = devicesSettingsError(what, payload);
       if (err) throw new BadRequestException(err);
     } else if (what === 'node_add') {
       if (!/^[a-z][a-z0-9-]{0,23}$/u.test(str(payload.name))) throw new BadRequestException('名字要小写字母开头，只用小写字母、数字和 -，最多 24 个');

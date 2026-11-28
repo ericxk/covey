@@ -1,4 +1,5 @@
-// 设置页「仓库」页（v43）的纯函数：页签替换、概要、灰字、改动字段、清理 worktree 的选择与分批。不碰 DOM，测试直接导入。
+// 设置页「常用路径」页（v43 起，v46 加目录和设备上的路径）的纯函数：页签替换、概要、筛选、灰字、改动字段、清理 worktree 的选择与分批。
+// 不碰 DOM，测试直接导入。
 import type { SettingsData, SettingsRepoItem, SettingsReposPage, SettingsTab } from '@shared/api.interface';
 
 /** 一次 worktrees_prune 最多带几个路径（服务端上限 50） */
@@ -11,7 +12,26 @@ export type RepoStatus = SettingsRepoItem['status'];
 export type RepoWriteMode = SettingsRepoItem['write_mode'];
 export type Prunable = SettingsReposPage['worktrees']['prunable'][number];
 
-export const REPOS_TAB: SettingsTab = { key: 'repos', label: '仓库' };
+export const REPOS_TAB: SettingsTab = { key: 'repos', label: '常用路径' };
+export type RepoKind = NonNullable<SettingsRepoItem['kind']>;
+export type PathDevice = NonNullable<SettingsReposPage['devices']>[number];
+
+/** 类型：旧 Covey 不推 kind，都是 git 仓库 */
+export const kindOf = (it: Pick<SettingsRepoItem, 'kind'>): RepoKind => (it.kind === 'dir' ? 'dir' : 'git');
+/** 在哪台设备上：本机是 '' */
+export const deviceOf = (it: Pick<SettingsRepoItem, 'device'>): string => it.device ?? '';
+/** 目录和设备上的路径只能原地改（Covey 也这么拦） */
+export const fixedInPlace = (it: Pick<SettingsRepoItem, 'kind' | 'device'>): boolean => kindOf(it) === 'dir' || !!deviceOf(it);
+
+/** 筛选「在哪」：'' 全部，'local' 本机，别的是设备别名 */
+export const LOCAL_PLACE = 'local';
+/** 筛选「类型」：'' 全部 */
+export type KindFilter = '' | RepoKind;
+export const KIND_FILTERS: { value: KindFilter; text: string }[] = [
+  { value: '', text: '全部' },
+  { value: 'git', text: '仓库' },
+  { value: 'dir', text: '目录' },
+];
 
 /** 状态下拉的叫法 */
 export const STATUS_OPTIONS: { value: RepoStatus; text: string }[] = [
@@ -59,11 +79,34 @@ export function tailText(tail: string): string {
   return t ? `…/${t}` : '';
 }
 
-/** 概要一行：主目录 …/x · 仓库 N 个 · 可清理 worktree M 个 */
+/** 概要一行：主目录 …/x · 常用路径 N 个（目录 a 个、在设备上 b 个） · 可清理 worktree M 个 */
 export function summaryText(p: SettingsReposPage): string {
   const home: string = tailText(p.home?.tail ?? '');
-  return [home ? `主目录 ${home}` : '', `仓库 ${p.items.length} 个`, `可清理 worktree ${p.worktrees?.prunable?.length ?? 0} 个`].filter(Boolean).join(' · ');
+  const dirs: number = p.items.filter((it) => kindOf(it) === 'dir').length;
+  const remote: number = p.items.filter((it) => !!deviceOf(it)).length;
+  const more: string[] = [dirs ? `目录 ${dirs} 个` : '', remote ? `在设备上 ${remote} 个` : ''].filter(Boolean);
+  const count = `常用路径 ${p.items.length} 个${more.length ? `（${more.join('、')}）` : ''}`;
+  return [home ? `主目录 ${home}` : '', count, `可清理 worktree ${p.worktrees?.prunable?.length ?? 0} 个`].filter(Boolean).join(' · ');
 }
+
+/** 「在哪」的选项：全部、本机，再是名单里出现过的设备（列表里的和能加路径的都算）；没有设备是空（不画这一组） */
+export function placeOptions(p: SettingsReposPage): { value: string; text: string }[] {
+  const titles = new Map<string, string>();
+  for (const d of p.devices ?? []) titles.set(d.alias, d.title || d.alias);
+  for (const it of p.items) if (deviceOf(it) && !titles.has(deviceOf(it))) titles.set(deviceOf(it), deviceOf(it));
+  if (!titles.size) return [];
+  return [{ value: '', text: '全部' }, { value: LOCAL_PLACE, text: '本机' },
+    ...[...titles.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([value, text]) => ({ value, text }))];
+}
+
+/** 按「在哪」「类型」筛 */
+export function filterItems(items: SettingsRepoItem[], place: string, kind: KindFilter): SettingsRepoItem[] {
+  return items.filter((it) => (place === '' || (place === LOCAL_PLACE ? !deviceOf(it) : deviceOf(it) === place))
+    && (kind === '' || kindOf(it) === kind));
+}
+
+/** 「类型」这一组只在两种都有时才画 */
+export const showKindFilter = (items: SettingsRepoItem[]): boolean => items.some((it) => kindOf(it) === 'dir') && items.some((it) => kindOf(it) === 'git');
 
 /** 状态标签字样；正常（active）不画 */
 export function statusLabel(s: RepoStatus): string {
@@ -77,13 +120,28 @@ export function rulesText(rules: string[] | undefined): string {
   return r.length === 1 ? `规范 ${r[0]}` : `规范 ${r[0]} 等 ${r.length} 个`;
 }
 
+/** 写法的说法：设备上的写“在设备上改”，目录和原地改的写“原目录” */
+export function modeText(it: SettingsRepoItem): string {
+  if (deviceOf(it)) return '在设备上改';
+  return it.write_mode === 'inplace' || kindOf(it) === 'dir' ? '原目录' : '独立 worktree';
+}
+
+/** 行上的小标签：类型（目录才画）和设备（设备上的才画），状态另画 */
+export function placeTags(it: SettingsRepoItem, devices: PathDevice[] | undefined): string[] {
+  const out: string[] = [];
+  if (kindOf(it) === 'dir') out.push('目录');
+  const dv: string = deviceOf(it);
+  if (dv) out.push((devices ?? []).find((d) => d.alias === dv)?.title || dv);
+  return out;
+}
+
 /** 每行灰字的各段：…/tail、分支、写法、规范、最近、在跑话题；空的、为 0 的不写。agoOf 由调用方传（现有的 ago） */
 export function repoMeta(it: SettingsRepoItem, now: number, agoOf: (sec: number | null | undefined, now: number) => string): string[] {
   const out: string[] = [];
   const tail: string = tailText(it.tail);
   if (tail) out.push(tail);
   if (it.branch) out.push(it.branch);
-  out.push(`写法 ${it.write_mode === 'inplace' ? '原目录' : '独立 worktree'}`);
+  out.push(`写法 ${modeText(it)}`);
   const rules: string = rulesText(it.rules);
   if (rules) out.push(rules);
   const last: string = it.last_used ? agoOf(it.last_used, now) : '';
@@ -109,17 +167,24 @@ export function repoSetPayload(it: SettingsRepoItem, d: RepoDraft): Record<strin
   return n ? out : null;
 }
 
-/** repos_add：路径必填；名字、用途空的不带 */
-export function repoAddPayload(path: string, name: string, note: string): Record<string, unknown> | null {
+/** repos_add：路径必填；名字、用途空的不带；device 是选了设备（v46，本机不带） */
+export function repoAddPayload(path: string, name: string, note: string, device = ''): Record<string, unknown> | null {
   const p: string = path.trim();
   if (!p) return null;
   const out: Record<string, unknown> = { what: 'repos_add', path: p.slice(0, PATH_MAX) };
+  if (device) out.device = device;
   if (name.trim()) out.name = name.trim().slice(0, NAME_MAX);
   if (note.trim()) out.note = Array.from(note.trim()).slice(0, NOTE_MAX).join('');
   return out;
 }
 
 export const repoRemovePayload = (name: string): Record<string, unknown> => ({ what: 'repos_remove', name });
+
+/** 加路径输入框的提示：本机写“绝对路径”，选了设备写“<设备> 上的绝对路径” */
+export function addHint(device: string, devices: PathDevice[] | undefined): string {
+  if (!device) return '绝对路径';
+  return `${(devices ?? []).find((d) => d.alias === device)?.title || device} 上的绝对路径`;
+}
 
 /** 可清理项的稳定键（tail 就是 Bridge 认的标识） */
 export const pruneKey = (p: Prunable): string => p.tail;

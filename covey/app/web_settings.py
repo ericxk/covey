@@ -4,9 +4,10 @@ itself draws and writes with. Nothing here is a second copy of a rule.
 
 - What is pushed: the tabs ``hub_tabs`` shows (app/menu_panel.py): 配置 as the card has it (v22 ``config``: its sections 新话题,
   管家 unless COVEY_BUTLER=0, 专项负责人 with COVEY_PROJECTS=1 (v36 ``lead``), and 更多, all open: the
-  page has no card's size), 仓库 (v43 ``repos``: the home, the repository map, the worktrees; the old 工作区 page ``workspace`` is still
-  pushed, for a page that draws it, but is no tab), 脱敏, 群聊, 设备 with
-  COVEY_NODE_LISTEN; not 记忆, 能做什么 and 诊断, the card's alone: CARD_ONLY, each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``mode_setting``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
+  page has no card's size), 常用路径 (v43 ``repos``, the card's 仓库: the home, the repository map, the worktrees; v46 a plain directory's
+  ``kind`` and a device's path, the devices a path may be added on; the old 工作区 page ``workspace`` is still pushed, for a page that
+  draws it, but is no tab), 脱敏, 群聊, 设备 with COVEY_NODE_LISTEN, with devices on or with a node (v46 ``devices_page``: devices.json
+  and the nodes as one row a machine, app/web_panels.py); not 记忆, 能做什么 and 诊断, the card's alone: CARD_ONLY, each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``mode_setting``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
   (cards/workspace_manager.py ``list_entries``, ``tag_words``) on the old 工作区 page, 脱敏's figures, the topics it is on in, its two switches (app/redaction_panel.py
   ``facts``) and its terms as they are (the page edits the list, so the terms go into the page's database;
   never a stand-in), the groups with their state and 免@
@@ -14,6 +15,8 @@ itself draws and writes with. Nothing here is a second copy of a rule.
   ``facts``). ``editable`` says which rows the page may change (EDITABLE); every other row says 去飞书改 (``feishu``: the bot's applink).
 - What the page may change: every row of 新话题; 管家's 供应商, 模型, 思考预算 and
   压缩阈值 (its 脱敏 and 私聊顶层的消息 are read only); a workspace's 用途; 脱敏's two switches and terms; a group's 停用 / 启用 (its 免@ is read only).
+  Data contract v46: a device of devices.json added (checked first), changed, removed or checked (``device_add``, ``device_set``,
+  ``device_remove``, ``device_check``: app/web_panels.py), and a path added on a device (``repos_add``'s ``device``).
   Data contract v43: a repository's 用途, 状态 and 写法 (``repos_set``), one added by its path (``repos_add``) or taken out of the map
   (``repos_remove``; the directory stays), and the worktrees the owner named removed (``worktrees_prune``: no --force, only those). The
   old ``workspace_add``, ``workspace_remove`` and ``workspace_prune`` still change the workspace list and are mirrored into the map
@@ -74,7 +77,8 @@ EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MOD
 BUTLER_KINDS = frozenset({cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION})
 CHANGES = ("row", "untrust", "note", "redaction", "terms", "group", "free", "workspace_add", "workspace_remove", "workspace_prune",
            "node_add", "node_remove", "refresh", "proxy", "repos_set", "repos_add", "repos_remove",
-           "worktrees_prune")  # payload["what"].
+           "worktrees_prune", "device_add", "device_set", "device_remove", "device_check")  # payload["what"].
+PAGE_LABELS = {REPOS: "常用路径"}  # The page's own word for a tab where it is not the card's (the card's 仓库 tab is read only).
 PROXY_TAB, PROXY_LABEL = "proxy", "代答"  # The bot menu's own 代答 card, a tab of the page's 设置 (not of the card's).
 FREE_ON_PAGE = ("", "owner")  # 免@ the page may set: only ever tighter; 你和选中的人 and 群里所有人 stay on the card.
 MODE_TOPICS = "topics"  # cards/butler_panel.py MODE_CHOICES: 每条直接开一个话题, saved only with ``confirm`` (the card's 确定改).
@@ -86,9 +90,24 @@ TERMS_SHAPE = "词表改动的格式不对，页面会按最新词表重画"
 TERMS_UNREADABLE = "词表读不出来，请到飞书设置卡上看"
 
 
-def web_tabs() -> list:
-    """The 设置 card's tabs (hub_tabs) as the page has them: the card's own tabs (CARD_ONLY) left out."""
-    return [tab for tab in hub_tabs() if tab not in CARD_ONLY]
+def devices_page(state_dir=None) -> bool:
+    """Whether the page has a 设备 tab without the card having one (COVEY_NODE_LISTEN unset): devices on (COVEY_DEVICES=1, so the
+    first one can be added) or a node in the registry besides the hub's own."""
+    from covey.core import devices, nodes
+    if devices.enabled():
+        return True
+    try:
+        return bool(state_dir) and any(alias != nodes.LOCAL for alias in nodes.active(state_dir))
+    except OSError:
+        return False
+
+
+def web_tabs(state_dir=None) -> list:
+    """The 设置 card's tabs (hub_tabs) as the page has them: the card's own tabs (CARD_ONLY) left out, 设备 also when ``devices_page``."""
+    tabs = [tab for tab in hub_tabs() if tab not in CARD_ONLY]
+    if NODES not in tabs and devices_page(state_dir):
+        tabs = [tab for tab in LABELS if tab in tabs or tab == NODES]
+    return tabs
 
 
 def group_key(chat_id) -> str:
@@ -160,16 +179,18 @@ def edit_repos(state_dir, home, change) -> str:
     try:
         repomap.update(state_dir, apply, start=lambda: derived_repos(state_dir, home))
     except repomap.Unreadable as exc:
-        raise ValueError(("仓库地图的格式不对，" if str(exc) == "format" else "仓库地图读不出来，") + NOT_CHANGED) from None
+        raise ValueError(("常用路径（repos.json）的格式不对，" if str(exc) == "format" else "常用路径（repos.json）读不出来，")
+                         + NOT_CHANGED) from None
     except OSError:
-        raise ValueError("仓库地图写不进去，" + NOT_CHANGED) from None
+        raise ValueError("常用路径（repos.json）写不进去，" + NOT_CHANGED) from None
     repomap.render(state_dir, home)  # None when it cannot be written: the map is changed, the next turn's render tries again.
     return receipt[0]
 
 
 def checked_directory(text, timeout=DIR_SECONDS):
     """(the directory as resolved, whether it holds ``.git``) of the absolute path ``text``, asked for at most ``timeout`` seconds so a
-    slow disk holds up this call alone; ValueError says why not."""
+    slow disk holds up this call alone; ValueError says why not (no absolute path, no such directory, no answer in time). A directory
+    without ``.git`` is one too: the 常用路径 page adds it as a 目录 (``kind`` dir)."""
     path = Path(text.strip())
     if not path.is_absolute():
         raise ValueError("请填写目录的绝对路径，例如 /home/me/project")
@@ -190,38 +211,85 @@ def checked_directory(text, timeout=DIR_SECONDS):
         raise ValueError(f"目录 {timeout:g} 秒内没有答复，请稍后重试")
     if found["path"] is None:
         raise ValueError(f"目录不存在：{path}")
-    if not found["git"]:
-        raise ValueError(f"{path} 不是 git 仓库（里面没有 .git）")
-    return found["path"], True
+    return found["path"], found["git"]
 
 
-def add_repo(state_dir, home, text, name="", note="") -> str:
-    """repos_add: the directory ``text`` (an existing absolute directory with ``.git``) into the map as ``name`` (the directory's name
-    by default, -2, -3 on a clash; a ``name`` given that is taken is refused), with ``note``. One already in the map by its path changes
-    nothing. The receipt."""
-    resolved, _ = checked_directory(text)  # Before the lock: a slow disk waits here.
+README_RULES = ("README.md",)  # A 目录's rules when it has no AGENTS.md or CLAUDE.md but a README.md (e.g. a scripts folder).
+
+
+def dir_rules(directory) -> tuple:
+    """The ``rules`` a 目录 added here gets: README.md when that is its only guide, else the default (AGENTS.md, then CLAUDE.md)."""
+    try:
+        if not any((Path(directory) / name).is_file() for name in ("AGENTS.md", "CLAUDE.md")) and (Path(directory) / "README.md").is_file():
+            return README_RULES
+    except OSError:
+        pass
+    return repomap.Repo.__dataclass_fields__["rules"].default
+
+
+def device_target(text, device=""):
+    """(alias, the absolute path on it) of what the page asked to add on a device: ``device`` with an absolute path, or a path typed
+    ``<别名>:/abs``; ('', '') for a path of this machine. ValueError: a device's path that is not absolute, an alias not listed."""
+    from covey.core import devices
+    text = str(text or "").strip()
+    if device:
+        if not devices.ALIAS.match(str(device)):
+            raise ValueError("设备名不对")
+        if not text.startswith("/"):
+            raise ValueError(f"请填写设备 {device} 上的绝对路径，例如 /home/me/project")
+        return str(device), devices.normalize_remote(text)
+    alias, where = repomap.device_path(text)
+    if not alias and devices.device_shaped(text):
+        raise ValueError("设备上的路径要写成 设备名:/绝对路径")
+    return alias, where
+
+
+def add_repo(state_dir, home, text, name="", note="", device="") -> str:
+    """repos_add: the directory ``text`` into the map as ``name`` (the directory's name by default, then ``<名字>-<设备>``, -2, -3 on a
+    clash; a ``name`` given that is taken is refused), with ``note``. On this machine an existing absolute directory: a 仓库 (``kind``
+    git) when it holds ``.git``, else a 目录 (``dir``, written in place, its rules README.md when that is its only guide). On a device
+    (``device``, or the path typed ``<别名>:/abs``) the device is asked (core/devices.py ``inspect_dir``, DIR_SECONDS) and the entry
+    is ``<别名>:/abs``, written in place. One already in the map by its path changes nothing. The receipt."""
+    from covey.core import devices
+    alias, where = device_target(text, device)
+    if alias:
+        if not devices.enabled():
+            raise ValueError("多设备没开（COVEY_DEVICES=1），加不了设备上的路径")
+        state, kind, why = devices.inspect_dir(state_dir, alias, where, timeout=DIR_SECONDS)
+        if state != "ok":
+            raise ValueError(why or f"设备 {alias} 上查不了 {where}")
+        path, base, rules = f"{alias}:{where}", (where.rstrip("/").rpartition("/")[2] or "dir"), None
+    else:
+        resolved, git = checked_directory(text)  # Before the lock: a slow disk waits here.
+        path, base, kind = str(resolved), resolved.name or "repo", "git" if git else "dir"
+        rules = None if git else dir_rules(resolved)
     name, note = clean_line(name, NAME_MAX), clean_line(note, NOTE_MAX)
     if "/" in name:
-        raise ValueError("仓库名里不能有 /")
+        raise ValueError("名字里不能有 /")
+    word = repomap.KIND_WORDS.get(kind, "仓库")
 
     def change(repos):
-        same = next((repo for repo in repos if repo.path.rstrip("/") == str(resolved)), None)
+        same = next((repo for repo in repos if repo.path.rstrip("/") == path.rstrip("/")), None)
         if same is not None:
-            return repos, f"该目录已在仓库地图里：{same.name}"
+            return repos, f"这个路径已在常用路径里：{same.name}"
         taken = {repo.name for repo in repos}
         if name:
             if name in taken:
-                raise ValueError(f"已经有叫 {name} 的仓库")
+                raise ValueError(f"已经有叫 {name} 的常用路径")
             chosen = name
         else:
-            base = (resolved.name or "repo")[:NAME_MAX - 3]
-            chosen, number = base, 2
+            stem = base[:NAME_MAX - 3]
+            chosen, number = stem, 2
+            if alias and chosen in taken:
+                chosen = f"{stem}-{alias}"[:NAME_MAX - 3]
+                stem = chosen
             while chosen in taken:
-                chosen, number = f"{base}-{number}", number + 1
-        mode = "worktree" if any(repo.write_mode == "worktree" for repo in repos) and not any(
-            repo.write_mode == "inplace" for repo in repos) else "inplace"
-        added = repomap.Repo(name=chosen, path=str(resolved), note=note, write_mode=mode, added_by="owner")
-        return [*repos, added], f"已加入仓库地图：{chosen}"
+                chosen, number = f"{stem}-{number}", number + 1
+        mode = "worktree" if not alias and kind == "git" and any(repo.write_mode == "worktree" for repo in repos) and not any(
+            repo.write_mode == "inplace" and not repo.device and repo.kind == "git" for repo in repos) else "inplace"
+        added = repomap.Repo(name=chosen, path=path, note=note, write_mode=mode, added_by="owner", kind=kind, device=alias,
+                             **({"rules": rules} if rules else {}))
+        return [*repos, added], f"已加入常用路径：{chosen}（{('设备 ' + alias + ' 上的') if alias else ''}{word}）"
 
     return edit_repos(state_dir, home, change)
 
@@ -238,7 +306,9 @@ def set_repo(state_dir, home, name, *, note=None, status=None, write_mode=None) 
     def change(repos):
         index = next((i for i, repo in enumerate(repos) if repo.name == name), None)
         if index is None:
-            raise ValueError(f"没有叫 {name} 的仓库")
+            raise ValueError(f"没有叫 {name} 的常用路径")
+        if write_mode == "worktree" and (repos[index].kind == "dir" or repos[index].device):
+            raise ValueError("目录和设备上的路径只能原地改")
         fields = {key: value for key, value in (("note", None if note is None else clean_line(note, NOTE_MAX)),
                                                 ("status", status), ("write_mode", write_mode)) if value is not None}
         # What the owner sets here is the value from now on, not one of a newer release's this one could not read (repomap.to_json).
@@ -253,8 +323,8 @@ def remove_repo(state_dir, home, name) -> str:
     """repos_remove: the repository ``name`` out of the map; the directory stays. The receipt."""
     def change(repos):
         if not any(repo.name == name for repo in repos):
-            raise ValueError(f"没有叫 {name} 的仓库")
-        return [repo for repo in repos if repo.name != name], f"已从仓库地图去掉 {name}，磁盘目录没有动"
+            raise ValueError(f"没有叫 {name} 的常用路径")
+        return [repo for repo in repos if repo.name != name], f"已从常用路径去掉 {name}，目录没有动"
 
     return edit_repos(state_dir, home, change)
 
@@ -500,8 +570,8 @@ class WebSettings:
         """{tab: [path]}: the state a tab of ``snapshot`` reads (``CONFIG`` also the 新话题 choices the page's chat box takes, ``launch``),
         fixed paths only: nothing is listed or read here, so ``stamps`` stays a few stats. 设备's per-node files come from the
         registry (read again only when its mtime moved)."""
-        from covey.app.web_panels import joins_path
-        from covey.core import nodes, proxy as proxy_records
+        from covey.app.web_panels import checks_path, joins_path
+        from covey.core import devices, nodes, proxy as proxy_records
         from covey.core.redaction import config_path as terms_path
         from covey.core.redaction import stats_path as turns_path
         from covey.core.workspaces import config_path
@@ -511,10 +581,12 @@ class WebSettings:
             # cache, the recent selections) and what the 工作区 names list reads.
             CONFIG: [butler_settings.path(state), assist_records.path(state), config_path(state), state / "launch-defaults.json",
                      state / "launch-defaults", state / "launch-models", state / "model-settings", state / "model-usage.json"],
-            REPOS: [repomap.path(state), config_path(state), state / "jobs" / ".index"],  # The topics that run in a repository.
+            REPOS: [repomap.path(state), config_path(state), state / "jobs" / ".index",  # The topics that run in a repository.
+                    devices.config_path()],  # The devices a path may be added on.
             REDACTION: [terms_path(state), turns_path(state)],
             GROUPS: [state / "groups"],
-            NODES: [nodes.nodes_dir(state) / "registry.json", joins_path(state), *self.node_files(state)],
+            NODES: [nodes.nodes_dir(state) / "registry.json", joins_path(state), *self.node_files(state),
+                    devices.config_path(), checks_path(state), *self.device_files(state)],
             PROXY_TAB: [proxy_records.proxy_dir(state) / "settings.json", proxy_records.proxy_dir(state) / "contacts"],
         }
 
@@ -531,6 +603,18 @@ class WebSettings:
         if kept is None or kept[0] != (str(state), stamp):
             kept = self.node_aliases = ((str(state), stamp), [alias for alias in nodes.active(state) if nodes.ALIAS.match(alias)])  # Never raises: read_object.
         return [nodes.node_dir(state, alias) / name for alias in kept[1] for name in ("link.json", "latest.json")]
+
+    @staticmethod
+    def device_files(state) -> list:
+        """The last look and the last 体检 of each device of devices.json (the 设备 rows): its aliases from core/devices.py ``current``,
+        which reads the file again only when it changed; none with devices off or a file that cannot be read."""
+        from covey.core import devices
+        try:
+            config = devices.current()
+        except devices.DeviceConfigError:
+            return []
+        return [devices.device_dir(state, alias) / name for alias in sorted({*config.devices, *config.watched})
+                for name in ("health.json", "profile.json")]
 
     def stamps(self) -> tuple:
         """What a change of the settings shows in, read each second (the pass thread, app/web_sync.py settings_items): one stat of each
@@ -558,10 +642,10 @@ class WebSettings:
         """The item's data: {tabs: [{key, label}], feishu, <tab key>: what it shows}."""
         now = time.time() if now is None else now
         ctx = self.context()
-        tabs = web_tabs()
+        tabs = web_tabs(ctx.state_dir)
         settings = butler_harness.drawn(butler_settings.load(ctx.state_dir), self.apps())  # Never saved.
         choices = self.choices(ctx)
-        labels = {**LABELS, PROXY_TAB: PROXY_LABEL}
+        labels = {**LABELS, **PAGE_LABELS, PROXY_TAB: PROXY_LABEL}
         tabs = [*tabs, *([PROXY_TAB] if self.proxy_panel() is not None else [])]
         # ``ops``: the page's operations this Covey does (core/web_sync.py KINDS, data contract v34), so a page shows a button only
         # for what is done (收尾、停止 of a project, 不对 on a memory line) and an older Covey's page stays as it was.
@@ -678,8 +762,8 @@ class WebSettings:
                 "rows": confirm(rows_of(own + [mode]))}
 
     def nodes(self, ctx) -> dict:
-        """设备: app/web_panels.py ``nodes_tab``."""
-        return web_panels.nodes_tab(ctx.state_dir, self.hub.panel(NODES))
+        """设备: app/web_panels.py ``nodes_tab`` (the card's panel only with COVEY_NODE_LISTEN: adding a node needs its gateway)."""
+        return web_panels.nodes_tab(ctx.state_dir, (getattr(self.hub, "panels", None) or {}).get(NODES))
 
     def workspaces(self, ctx, settings) -> dict:
         """工作区: the list in the card's order, each row's tags, path's tail, last use and 用途 (with the butler)."""
@@ -701,15 +785,30 @@ class WebSettings:
         (``worktrees_page``, kept WORKTREE_CACHE seconds). A path is its tail (PATH_SIZE)."""
         repos, _ = repo_entries(ctx.state_dir, ctx.default_workdir)
         repos = repos[:200]
-        live = live_counts(ctx.state_dir, repos)
-        items = [{"name": repo.name, "tail": tail(repo.path, PATH_SIZE), "note": repo.note, "status": repo.status,
-                  "write_mode": repo.write_mode, "branch": repo.branch, "rules": list(repo.rules),
+        live = live_counts(ctx.state_dir, [repo for repo in repos if not repo.device])
+        items = [{"name": repo.name, "tail": tail(repomap.device_path(repo.path)[1] if repo.device else repo.path, PATH_SIZE),
+                  "note": repo.note, "status": repo.status, "write_mode": repo.write_mode, "branch": repo.branch, "rules": list(repo.rules),
+                  "kind": repo.kind, "device": repo.device,
                   **({"last_used": int(repo.last_used)} if repo.last_used else {}), "live_topics": live.get(repo.name, 0)}
                  for repo in repos]
         kept = self.worktrees
         if kept is None or kept[1] != str(ctx.state_dir) or not 0 <= now - kept[0] < WORKTREE_CACHE:
             kept = self.worktrees = (now, str(ctx.state_dir), worktrees_page(ctx.state_dir, now))
-        return {"home": {"tail": tail(str(ctx.default_workdir or ""), PATH_SIZE)}, "items": items, "worktrees": kept[2]}
+        return {"home": {"tail": tail(str(ctx.default_workdir or ""), PATH_SIZE)}, "items": items, "worktrees": kept[2],
+                "devices": self.path_devices()}
+
+    @staticmethod
+    def path_devices() -> list:
+        """The devices a path may be added on (v46 ``devices``): devices.json's with ssh, {alias, title, access}; [] with devices off or a
+        devices.json that cannot be read (the page then adds paths of this machine only)."""
+        from covey.core import devices
+        if not devices.enabled():
+            return []
+        try:
+            found = devices.current().devices
+        except devices.DeviceConfigError:
+            return []
+        return [{"alias": alias, "title": device.title, "access": device.access} for alias, device in sorted(found.items())]
 
     def redaction(self, ctx) -> dict:
         """脱敏: the figures, the topics it is on in and the two switches, as the tab's ``facts`` read them, and the terms in the list's
@@ -920,9 +1019,9 @@ class WebSettings:
         if value.startswith("/") and Path(value).joinpath(".git").exists():
             try:
                 self.mirror_repo(ctx, value, name)
-                words += "，也加进了仓库地图" if added else ""
+                words += "，也加进了常用路径" if added else ""
             except ValueError as exc:  # The workspace list is changed; the map says why it is not.
-                words += f"（仓库地图没有加：{exc}）"
+                words += f"（常用路径没有加：{exc}）"
         return words
 
     def mirror_repo(self, ctx, path, name) -> str:
@@ -937,7 +1036,7 @@ class WebSettings:
         try:
             forget_repos(ctx.state_dir, ctx.default_workdir, pairs)
         except ValueError as exc:
-            return f"（仓库地图没有改：{exc}）"
+            return f"（常用路径没有改：{exc}）"
         return ""
 
     def change_workspace_remove(self, ctx, payload) -> str:
@@ -979,10 +1078,11 @@ class WebSettings:
         return set_repo(ctx.state_dir, ctx.default_workdir, name, note=note, status=status, write_mode=mode)
 
     def change_repos_add(self, ctx, payload) -> str:
-        """repos_add: an existing absolute directory with ``.git`` into the map."""
+        """repos_add: an existing absolute directory into the map, a 仓库 with ``.git`` and a 目录 without; v46 one on a device (``device``,
+        or the path typed ``<别名>:/abs``)."""
         path = self.text_of(payload, "path", 500, need=True)
         return add_repo(ctx.state_dir, ctx.default_workdir, path, name=self.text_of(payload, "name", NAME_MAX) or "",
-                        note=self.text_of(payload, "note", NOTE_MAX) or "")
+                        note=self.text_of(payload, "note", NOTE_MAX) or "", device=self.text_of(payload, "device", 24) or "")
 
     def change_repos_remove(self, ctx, payload) -> str:
         """repos_remove: a repository out of the map; its directory stays."""
@@ -1010,6 +1110,18 @@ class WebSettings:
 
     def change_node_remove(self, ctx, payload) -> str:
         return web_panels.node_remove(ctx, self.nodes_panel(), payload)
+
+    def change_device_add(self, ctx, payload) -> str:
+        return web_panels.device_add(ctx, payload)
+
+    def change_device_set(self, ctx, payload) -> str:
+        return web_panels.device_set(ctx, payload)
+
+    def change_device_remove(self, ctx, payload) -> str:
+        return web_panels.device_remove(ctx, (getattr(self.hub, "panels", None) or {}).get(NODES), payload)
+
+    def change_device_check(self, ctx, payload) -> str:
+        return web_panels.device_check(ctx, payload)
 
     def change_refresh(self, ctx, payload) -> str:
         """刷新: nothing changes; the settings are pushed again now (app/web_sync.py makes them due after any settings op)."""

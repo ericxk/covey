@@ -306,7 +306,7 @@ def declared_repos(state_dir, value, *, workspace="", now=None) -> list:
     spaces = read_object(config_path(Path(state_dir))).get("workspaces")  # Read only: a missing list is made by no one here.
     spaces = spaces if isinstance(spaces, dict) else {}
     now = time.time() if now is None else now
-    found = {}
+    found, on_device = {}, {}
     for item in asked:
         name, mode = item["name"], item["mode"]
         repo = repomap.find(repos, name)
@@ -314,6 +314,8 @@ def declared_repos(state_dir, value, *, workspace="", now=None) -> list:
             if mode == "write" and repo.status in NO_WRITE:
                 raise ValueError(f"仓库「{repo.name}」{NO_WRITE[repo.status]}，不能改；只读就把 mode 写成 read")
             name, path = repo.name, repo.path
+            if repo.device:
+                on_device[name] = repo.device  # Recorded with its device; core/topic_repos.py reads no such entry as a path here.
         elif name in spaces and not devices.is_device_value(spaces[name]):
             path = str(Path(spaces[name]).expanduser())
         else:
@@ -322,7 +324,7 @@ def declared_repos(state_dir, value, *, workspace="", now=None) -> list:
         kept = found.get(name)
         if kept is None or mode == "write":
             found[name] = {"name": name, "path": path, "mode": mode if kept is None else "write", "source": "declared",
-                           "first_at": now}
+                           "first_at": now, **({"device": on_device[name]} if name in on_device else {})}
     return list(found.values())
 
 

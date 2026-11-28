@@ -474,7 +474,7 @@
 | `core/redaction_views.py` | What the 设置 card's 脱敏 tab shows of the relays' records |
 | `core/redactor.py` | Matching for sensitive-term redaction: terms to stand-ins in requests, stand-ins back in replies |
 | `core/reply_state.py` | The verified reply and the outcome of one turn of Codex or dsh |
-| `core/repomap.py` | The repo map: the git repositories this deployment works in, and the `covey repo` command |
+| `core/repomap.py` | The repo map: the git repositories and plain directories this deployment works in, on this machine or on a … |
 | `core/result.py` | Validated root reply identity, separate from execution and continuation rights |
 | `core/revisits.py` | 到点回来看: a topic ends its turn with `revisit` in its checkpoint (when, and what to look at) and the Bridge … |
 | `core/roster.py` | The Harness backends the unified bot routes, in one table |

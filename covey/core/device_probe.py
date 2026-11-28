@@ -4,6 +4,7 @@ one minimal real request per declared Harness on the device, with the profile's 
 core/harness_probe.py ``command_for``, is only looked for). Its outcome, in words
 (``CheckResult.explain``), is kept in ``profile.json`` (core/devices.py ``build_profile``) and read back by
 ``status_text`` (the workspace card's device line, ``service/doctor.py``). The command line is service/device_check.py.
+``checkup`` is the settings page's 体检: the first three steps only (ssh, the shim, hello), no Harness asked for.
 
 Standard library plus core/devices and what it imports."""
 from __future__ import annotations
@@ -94,6 +95,7 @@ class CheckResult:
     hello: dict | None = None
     profile: dict | None = None
     env: dict = dataclasses.field(default_factory=dict)  # What the minimal requests ran with: for the words.
+    checkup: bool = False  # ``checkup``'s three steps only: ssh, the shim, hello.
 
     @property
     def ok(self):
@@ -111,6 +113,10 @@ class CheckResult:
     def explain(self):
         """The outcome in words: one line when it passed (what was found, and that the minimal requests passed), else
         what failed first and what to do about it, a line each for every failed step."""
+        if self.ok and self.checkup:
+            python = ".".join(map(str, (self.hello or {}).get("python") or [])) or "?"
+            return "%s 体检通过：ssh 连得上，设备端小程序放好了，hello 有答复（%s %s，Python %s）" % (
+                self.alias, (self.hello or {}).get("os") or "?", (self.hello or {}).get("machine") or "?", python)
         if self.ok:
             tools = ((self.profile or {}).get("tools") or {})
             found = " · ".join("%s %s" % (name, short_version(name, info)) for name, info in tools.items()
@@ -178,7 +184,31 @@ def self_check(config, alias, *, state_dir=None, transport=None, probe=None, now
     return result
 
 
-def _run_check(config, device, transport, data, probe, now, state_dir, result):
+def checkup(config, alias, *, state_dir, transport=None, now=time.time, data=None):
+    """The settings page's 体检 of ``alias`` (in ``config``: a device about to be added is given in a config of its own):
+    ``connect`` (ssh BatchMode, ``connect_seconds``), ``shim`` (pushed unless there) and ``hello``, stopping at the first that
+    fails; no Harness is looked for or asked (a device here needs none). ``hello.json`` and ``profile.json`` record it: the
+    profile there gets ``check`` (``steps`` 3) and keeps everything else it had (the environment a turn there runs with); a
+    device without one gets a first profile from the hello. ``transport`` defaults to ``devices.open_transport``."""
+    device = config.device(alias)
+    data = devices.shim_bytes() if data is None else data
+    result = CheckResult(alias, [], checkup=True)
+    try:
+        if transport is None:
+            transport = devices.open_transport(config, alias, state_dir)
+        _run_check(config, device, transport, data, None, now, None, result, through="hello")
+        if result.ok and state_dir is not None:
+            devices.write_hello(state_dir, alias, result.hello, now=now())
+            path = devices.device_dir(state_dir, alias) / "profile.json"
+            result.profile = read_object(path) or devices.build_profile(device, result.hello, login_env={}, now=now())
+    except (LinkError, ShimError, OSError) as exc:
+        result.steps.append(Step("connect", False, str(exc)[:300]))
+    finally:
+        _record_check(state_dir, alias, result, now)
+    return result
+
+
+def _run_check(config, device, transport, data, probe, now, state_dir, result, *, through=""):
     alias = device.alias
 
     def step(name, action):
@@ -234,6 +264,8 @@ def _run_check(config, device, transport, data, probe, now, state_dir, result):
     if not step("connect", connect) or not step("shim", push) or not step("hello", say_hello):
         return
     result.hello = dict(hello)
+    if through == "hello":
+        return
     if not step("profile", make_profile):
         return
     step("tools", tools)
@@ -264,7 +296,8 @@ def _record_check(state_dir, alias, result, now):
     if not profile:
         return
     failed = result.failed
-    profile["check"] = {"at": now(), "ok": result.ok, "failed": failed.name if failed else "", "text": result.explain()}
+    profile["check"] = {"at": now(), "ok": result.ok, "failed": failed.name if failed else "", "text": result.explain(),
+                        **({"steps": 3} if result.checkup else {})}
     write_json(path, profile, ensure_ascii=False)
 
 
@@ -292,6 +325,8 @@ def status_text(state_dir, alias, *, now=None):
     if not check:
         return "还没自检：在 Bridge 所在机器上运行 covey_devices.py check %s" % alias
     when = age_text((now if now is not None else time.time()) - float(check.get("at") or 0))
+    if check.get("ok") and check.get("steps") == 3:
+        return "体检通过（%s）：ssh、设备端小程序、hello 都正常；没查 Harness" % when
     if check.get("ok"):
         tools = (profile.get("tools") or {})
         found = " · ".join("%s %s" % (name, short_version(name, info)) for name, info in tools.items() if info.get("found"))

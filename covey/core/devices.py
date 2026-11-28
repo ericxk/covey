@@ -10,8 +10,13 @@ nothing changes. A switch that is on with no device listed behaves the same.
   Harnesses whose turns run on a device (``harness_names``: core/roster.py ``devices``), Claude Code and Codex unless
   it names them.
 - **Device home** (``home_of``): an entry may name its ``home`` (``/abs/path`` or ``~/path``, as the device reads it);
-  without one callers keep what they did. ``access`` (``write`` or ``read``) and ``note`` (one line) are read and checked
-  but not used yet (``ACCESS``).
+  without one callers keep what they did. ``access`` (``write`` or ``read``; the web page adds a device ``read``) and
+  ``note`` (its use, one line, shown in ``repos.md``'s device table) are written by the settings page (``update``); the
+  channel that obeys ``access`` comes later (``ACCESS``).
+- **Watched only**: an entry without ``ssh`` (a machine whose node reports its state but the hub cannot ssh to) is
+  ``Config.watched``, never ``Config.devices``: nothing runs there, nothing opens a link to it; the settings page lists it.
+- **The file as the page changes it** (``update``): ``change(raw) -> raw`` under ``devices.json.lock``, the whole file
+  checked by ``parse`` and written back at once; keys and entries the change did not touch stay as they were.
 - **Workspace values** (``bind_workdir``): ``gpu1:/home/me/proj`` becomes a ``Binding``: the hub path
   ``<state>/devices/gpu1/standin/<sha12>`` (which never exists, so a place that was not taught about devices fails
   loudly instead of touching a hub directory) with ``device`` and ``remote_workdir``. Callers use it only when
@@ -28,7 +33,8 @@ nothing changes. A switch that is on with no device listed behaves the same.
   ``ls``; one ``exec`` of a small script), for the directory browser. **Codex's model list** (``codex_root``): the
   device's ``models_cache.json`` fetched with the shim's ``get`` into ``<state>/devices/<alias>/codex-home/``.
 
-Standard library plus core/env, core/paths, core/state and core/device_transport (core/roster, read on use).
+Standard library plus core/env, core/paths, core/state, core/file_lock and core/device_transport (core/roster, read on
+use).
 """
 from __future__ import annotations
 
@@ -39,6 +45,7 @@ import os
 import posixpath
 import re
 import secrets
+import shlex
 import threading
 import time
 from pathlib import Path
@@ -46,8 +53,9 @@ from pathlib import Path
 import covey.core.env as cenv
 from covey.core import device_transport as transport_module
 from covey.core.device_transport import LinkError, SshTransport, shim_bytes, shim_id
+from covey.core.file_lock import file_lock
 from covey.core.paths import data_home
-from covey.core.state import ensure_private_dir, read_object, write_json
+from covey.core.state import ensure_private_dir, read_object, write_json, write_private_text
 
 SWITCH = "COVEY_DEVICES"
 FILE_ENV = "COVEY_DEVICES_FILE"
@@ -61,8 +69,8 @@ FILE_NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}\Z")
 DEFAULT_HARNESSES = ("claude", "codex")
 SPACES = ("owner_private", "personal_groups", "team")
 DEFAULTS = {"patience_minutes": 15, "waiting_patience_hours": 6, "connect_seconds": 5}
-# A device's ``access`` and ``note`` (its use, one line): read and checked, not used and never written here yet, so a later
-# release that writes them can be rolled back to this one (an unknown key fails the whole file).
+# A device's ``access`` and ``note`` (its use, one line): the settings page writes them (``update``); a release before the one
+# that wrote them only checks them, so a rollback still reads the file. Nothing obeys ``access`` yet.
 ACCESS = ("write", "read")
 NOTE_MAX = 60
 LIMITS = {"patience_minutes": (1, 1440), "waiting_patience_hours": (1, 168), "connect_seconds": (1, 60)}
@@ -121,6 +129,8 @@ class Config:
     waiting_patience_hours: float = DEFAULTS["waiting_patience_hours"]
     connect_seconds: float = DEFAULTS["connect_seconds"]
     note: str = ""  # Why there is nothing (switch off, no file, no devices), for one log line.
+    # The entries without ``ssh``: watched (their node), never run on, never linked to; not in ``devices``.
+    watched: dict = dataclasses.field(default_factory=dict)
 
     def __bool__(self):
         return bool(self.devices)
@@ -239,7 +249,7 @@ def parse(text, *, environ=None):
                      "Unix socket path, so the directory is at most %d bytes" % (size, "/%C.sock", SOCKET_PATH_MAX,
                                                                                 CONTROL_DIR_MAX))
     entries = raw.get("devices", {})
-    devices = {}
+    devices, watched = {}, {}
     if not isinstance(entries, dict):
         fail("devices", "must be an object of aliases")
         entries = {}
@@ -250,11 +260,11 @@ def parse(text, *, environ=None):
             continue
         device = _device(alias, entry, fail)
         if device is not None:
-            devices[alias] = device
+            (devices if device.host else watched)[alias] = device
     if problems:
         raise DeviceConfigError("devices.json has %d problem(s):\n  %s" % (len(problems), "\n  ".join(problems)))
     return Config(devices, control, numbers["patience_minutes"], numbers["waiting_patience_hours"],
-                  numbers["connect_seconds"], "" if devices else "no devices listed")
+                  numbers["connect_seconds"], "" if devices else "no devices listed", watched=watched)
 
 
 def _device(alias, entry, fail):
@@ -273,8 +283,10 @@ def _device(alias, entry, fail):
         title = alias
     ssh = entry.get("ssh")
     host, options, python = "", (), "python3"
-    if not isinstance(ssh, dict):
-        fail(where + ".ssh", "is required: {\"host\": ...}")
+    if ssh is None:
+        pass  # Watched only (Config.watched): its node reports, nothing runs there.
+    elif not isinstance(ssh, dict):
+        fail(where + ".ssh", "must be {\"host\": ...} (or left out for a machine that is only watched)")
         ok = False
     else:
         extra = sorted(set(ssh) - {"host", "options", "python"})
@@ -387,6 +399,53 @@ def current(environ=None):
     if _CACHE.get("key") != key:
         _CACHE["value"], _CACHE["key"] = load(environ, path=path), key
     return _CACHE["value"]
+
+
+class Unwritable(ValueError):
+    """devices.json cannot be changed now: it cannot be read, or what the change makes is not valid (the message says)."""
+
+
+def _lock_path(path):
+    return Path(path).with_name(Path(path).name + ".lock")
+
+
+def raw(path=None, environ=None):
+    """devices.json as it is written ({} when there is none); Unwritable when it is there and is no JSON object."""
+    path = Path(path) if path else config_path(environ)
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        return {}
+    except OSError as exc:
+        raise Unwritable("devices.json 读不出来（%s）" % type(exc).__name__)
+    try:
+        found = json.loads(text, object_pairs_hook=_unique_pairs)
+    except ValueError:
+        raise Unwritable("devices.json 不是正确的 JSON，请先手工改好")
+    if not isinstance(found, dict):
+        raise Unwritable("devices.json 不是 JSON 对象，请先手工改好")
+    return found
+
+
+def update(change, *, path=None, environ=None):
+    """``change(raw) -> raw`` applied to devices.json under its lock (``devices.json.lock`` beside it), the whole file then
+    checked by ``parse`` and written back at once: every key and entry the change does not touch stays as it was (a newer
+    release's included, as far as this one can check the file). A missing file starts as ``{"schema": 1, "devices": {}}``.
+    The ``Config`` written; Unwritable when the file cannot be read or the result is not valid (nothing written then)."""
+    path = Path(path) if path else config_path(environ)
+    ensure_private_dir(path.parent)
+    with file_lock(_lock_path(path)):
+        before = raw(path)
+        start = json.loads(json.dumps(before)) if before else {"schema": SCHEMA, "devices": {}}
+        after = change(start)
+        text = json.dumps(after, ensure_ascii=False, indent=2) + "\n"
+        try:
+            config = parse(text, environ=environ)
+        except DeviceConfigError as exc:
+            raise Unwritable(str(exc))
+        if after != before:
+            write_private_text(path, text)
+    return config
 
 
 # ---------------------------------------------------------------- workspace values
@@ -555,6 +614,78 @@ def check_dir(state_dir, alias, remote_workdir, *, timeout=CHECK_SECONDS, config
     return found.get("state") or ("offline", "设备 %s 在 %g 秒内没有答复" % (alias, timeout))
 
 
+def _asked(work, timeout, name):
+    """``work()`` on a daemon thread, at most ``timeout`` seconds (plus one): its result, or ``("offline", text)`` when it
+    did not end by then. ``work`` turns its own failures into results."""
+    found = {}
+
+    def run():
+        found["result"] = work()
+
+    worker = threading.Thread(target=run, name=name, daemon=True)
+    worker.start()
+    worker.join(timeout + 1.0)
+    return found.get("result")
+
+
+def inspect_dir(state_dir, alias, remote_dir, *, timeout=CHECK_SECONDS, config=None, environ=None):
+    """``(state, kind, text)`` of ``remote_dir`` on ``alias`` for the 常用路径 page: state as ``check_dir`` says it (``ok``,
+    ``missing``, ``offline``, ``unknown``), kind ``git`` when it holds ``.git``, else ``dir`` ('' unless ok). One shim
+    ``stat`` of ``.`` and ``.git``; the hub never touches the path."""
+    config = config if config is not None else current(environ)
+    try:
+        config.device(alias)
+    except UnknownDevice:
+        return "unknown", "", "设备 %s 不在 devices.json 里（或没有 ssh）" % alias
+
+    def ask():
+        try:
+            link = open_transport(config, alias, state_dir)
+            push_file(link, shim_bytes())
+            answer = link.call("stat", paths=[".", ".git"], base=remote_dir, patience=timeout)
+            here, git = ((answer.get("results") or []) + [{}, {}])[:2]
+            if here.get("is_dir"):
+                return "ok", "git" if git.get("exists") else "dir", ""
+            if here.get("exists"):
+                return "missing", "", "%s 不是目录" % remote_dir
+            return "missing", "", "%s 上没有目录 %s" % (alias, remote_dir)
+        except Exception as exc:  # noqa: BLE001 - any failure to ask is "the device did not answer"
+            return "offline", "", "设备 %s 没有答复（%s）" % (alias, OFFLINE_REASONS.get(type(exc).__name__, type(exc).__name__))
+
+    return _asked(ask, timeout, "device-inspect") or ("offline", "", "设备 %s 在 %g 秒内没有答复" % (alias, timeout))
+
+
+def read_head(state_dir, alias, remote_dir, names, *, limit=4096, timeout=CHECK_SECONDS, config=None, environ=None):
+    """``(file name, its first ``limit`` bytes cut at a line, cut short, why not)`` of the first of ``names`` that is a file
+    in ``remote_dir`` on ``alias``, read with the shim's ``get`` (``limit`` + 1 bytes at most); ``("", "", False, why)``
+    when none is there or the device did not answer within ``timeout`` seconds (``why`` '' for none there)."""
+    config = config if config is not None else current(environ)
+    try:
+        config.device(alias)
+    except UnknownDevice:
+        return "", "", False, "设备 %s 不在 devices.json 里（或没有 ssh）" % alias
+
+    def ask():
+        try:
+            link = open_transport(config, alias, state_dir)
+            push_file(link, shim_bytes())
+            for name in names:
+                try:
+                    _, data = link.get(posixpath.join(remote_dir, name), limit=limit + 1, patience=timeout)
+                except transport_module.ShimError:
+                    continue  # Not there, not a file, not readable: the next name.
+                cut = len(data) > limit
+                text = data[:limit].decode("utf-8", errors="ignore")
+                if cut and "\n" in text:
+                    text = text[:text.rindex("\n") + 1]
+                return name, text, cut, ""
+            return "", "", False, ""
+        except Exception as exc:  # noqa: BLE001 - said as the device not answering
+            return "", "", False, "设备 %s 没有答复（%s）" % (alias, OFFLINE_REASONS.get(type(exc).__name__, type(exc).__name__))
+
+    return _asked(ask, timeout, "device-head") or ("", "", False, "设备 %s 在 %g 秒内没有答复" % (alias, timeout))
+
+
 def stat_paths(state_dir, alias, remote_workdir, *, timeout=CHECK_SECONDS, config=None, environ=None):
     """A function that looks at paths on ``alias`` for ``checkpoint.audit_recovery``: ``paths`` (relative to
     ``remote_workdir``, ``~`` the device's home) in, one shim ``stat`` out: a list of ``{path, exists, size,
@@ -572,6 +703,58 @@ def stat_paths(state_dir, alias, remote_workdir, *, timeout=CHECK_SECONDS, confi
 
 
 # ---------------------------------------------------------------- ssh
+
+SSH_WITH_VALUE = set("bcDEeFIiJLlmOoPpQRSWw")  # ssh options that take the next word.
+# Options that make ssh run something on this machine (or forward its sockets): never taken from what the owner typed.
+SSH_UNSAFE = re.compile(r"(?i)(proxycommand|localcommand|knownhostscommand|^-[^-]*[MSWw])")
+
+
+def ssh_words(text):
+    """The ssh arguments of an address typed as a shell would split it (``user@host -p 22 -J jump``): ValueError when it
+    cannot be one, or when it has an option that runs something here (``SSH_UNSAFE``). app/node_panel.py's add uses it."""
+    try:
+        args = shlex.split(text or "")
+    except ValueError:
+        raise ValueError("ssh 地址的引号没有配对")
+    if not args:
+        raise ValueError("ssh 地址是空的")
+    if any(SSH_UNSAFE.search(arg) for arg in args):
+        raise ValueError("ssh 地址里有会在本机执行命令的选项，不支持")
+    hosts, skip = [], False
+    for arg in args:
+        if skip:
+            skip = False
+        elif arg.startswith("-"):
+            skip = len(arg) == 2 and arg[1] in SSH_WITH_VALUE  # ``-p 22``: the next word is the option's.
+        else:
+            hosts.append(arg)
+    if len(hosts) != 1:
+        raise ValueError("ssh 地址里要有且只有一个 user@host")
+    return args
+
+
+def split_ssh(text):
+    """``(host, options)`` of a typed address (``ssh_words``) as devices.json keeps them: ``{"host", "options"}``. ValueError
+    says why not (a host devices.json would refuse too: spaces, a leading -)."""
+    args, host, options, skip = ssh_words(text), "", [], False
+    for arg in args:
+        if skip:
+            options.append(arg)
+            skip = False
+        elif arg.startswith("-"):
+            options.append(arg)
+            skip = len(arg) == 2 and arg[1] in SSH_WITH_VALUE
+        else:
+            host = arg
+    if not HOST.match(host):
+        raise ValueError("ssh 主机要是 ~/.ssh/config 里的别名或 user@host")
+    return host, options
+
+
+def ssh_text(device):
+    """How a device's ssh is written back to the owner: its options, then its host (``-p 22 me@box``); '' for none."""
+    return shlex.join([*getattr(device, "options", ()), device.host]) if getattr(device, "host", "") else ""
+
 
 def ssh_argv(device, config, *, remote=None, op=None, ssh="ssh", persist=600, alive=15):
     """The ssh command line for ``device``.

@@ -1,8 +1,14 @@
-"""The repo map (仓库地图, ``<state>/repos.json``): the git repositories this deployment works in, and the ``covey repo`` command.
+"""The repo map (常用路径, ``<state>/repos.json``): the git repositories and plain directories this deployment works in, on
+this machine or on a device, and the ``covey repo`` command.
 
-Each repository has a name, a path, what it is for (``note``), a status (``frozen`` and ``readonly`` ones are never
+Each entry has a name, a path, what it is for (``note``), a status (``frozen`` and ``readonly`` ones are never
 written to) and how a topic writes to it (``write_mode``: ``worktree`` makes the topic's own worktree under
 ``<数据根>/worktrees/T<号>-<id8>/<仓库>/``, ``inplace`` edits the checkout; a home Covey made defaults to ``inplace``).
+``kind`` is ``git`` (the default: an entry written before kinds were) or ``dir``, a directory with no ``.git``; a ``dir``
+is always written in place. A device's path is written ``<别名>:/abs/path`` (core/devices.py ``DEVICE_VALUE``), its
+``device`` the alias, always in place: this machine never touches it (``covey repo use`` reads its rules head with the
+device's ``get``; ``--write`` only records it). A release before kinds reads a device's entry as one it passes over
+(``_passed_over``: no absolute path) and writes it back as it was.
 Reading a ``worktree`` repository is in a detached worktree of its latest main branch (``read_worktree``), never in its
 main checkout, which may be many commits behind.
 Read without ``LOCK`` (rule 2); written whole under its own file lock. ``repos.md`` is the map as a Harness reads it:
@@ -28,6 +34,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from covey.core import devices as device_list
 from covey.core import env as cenv
 from covey.core import home as homes
 from covey.core import state as cstate
@@ -39,13 +46,15 @@ REPOS_FILE = "repos.json"
 RENDERED_FILE = "repos.md"  # The map as the Harness reads it; rendered, never edited, never backed up.
 STATUSES = ("active", "readonly", "frozen")
 WRITE_MODES = ("worktree", "inplace")
+KINDS = ("git", "dir")
 ADDED_BY = ("migrate", "discover", "touched", "owner")
-NOT_YET = "这个命令在这一版还没有启用（仓库地图开发中）。"
+NOT_YET = "这个命令在这一版还没有启用（常用路径开发中）。"
 EXCLUDE = ("*-data/", "node_modules/", ".venv/")
 RULES_BYTES = 4096  # Of a repository's rules file, what `use` prints and a turn inlines (app/repos_turn.py RULES_INLINE_BYTES).
 GIT_SECONDS = 20  # A git call of the command: a fetch that takes longer is given up (the local branch is the base then).
 FETCH_SECONDS = 20
 STATUS_SECONDS = 5
+DEVICE_SECONDS = 8  # A device's ``get`` of the rules head ``covey repo use`` prints: no answer by then, no head.
 PRUNE_IDLE = 24 * 3600  # A worktree untouched this long, clean and merged, is listed by prune-plan.
 READ_IDLE = 24 * 3600  # A read worktree no turn used this long is removed, when clean, as `use` reads that repository again.
 # Beside a read worktree, ``<提交前 12 位>.used``: its mtime is when a turn last used it. Written only once the worktree's
@@ -54,6 +63,8 @@ READ_IDLE = 24 * 3600  # A read worktree no turn used this long is removed, when
 READ_USED = ".used"
 READ_SPARES = 3  # A read worktree with changes is never read again: the next of ``<12 位>``, ``<12 位>-2``, ``<12 位>-3`` is.
 STATUS_WORDS = {"active": "可用", "readonly": "只读", "frozen": "已冻结"}
+KIND_WORDS = {"git": "仓库", "dir": "目录"}
+ACCESS_WORDS = {"write": "可写", "read": "只读"}
 
 
 @dataclass(frozen=True)
@@ -69,11 +80,28 @@ class Repo:
     added_by: str = "owner"  # ADDED_BY
     last_used: float = 0.0
     extra: dict = field(default_factory=dict)  # Keys a newer release wrote, kept as they are.
+    kind: str = "git"  # KINDS
 
 
 # The fields whose value a newer release may write that this one cannot read: read as the default, written back as it was
 # (``to_json``) unless something here set it.
-UNREAD_VALUES = {"status": STATUSES, "write_mode": WRITE_MODES}
+UNREAD_VALUES = {"status": STATUSES, "write_mode": WRITE_MODES, "kind": KINDS}
+
+
+def device_path(path) -> tuple[str, str]:
+    """(alias, the absolute path on it) of a device's entry path ``<别名>:/abs/path``; ('', '') for any other path."""
+    found = device_list.DEVICE_VALUE.match(str(path or "").strip())
+    if not found or not found.group(2).startswith("/"):
+        return "", ""
+    return found.group(1), device_list.normalize_remote(found.group(2))
+
+
+def _readable(item) -> bool:
+    """Whether ``read`` takes this ``repos.json`` entry: a name, and an absolute path here or a device's ``<别名>:/abs``."""
+    if not isinstance(item, dict) or not str(item.get("name") or "").strip():
+        return False
+    where = str(item.get("path") or "")
+    return where.startswith("/") or bool(device_path(where)[0])
 
 
 def path(state_dir) -> Path:
@@ -96,7 +124,7 @@ def read(state_dir) -> list[Repo]:
 def _repos(data) -> list[Repo]:
     found = []
     for item in (data.get("repos") if isinstance(data, dict) else None) or []:
-        if not isinstance(item, dict) or not str(item.get("name") or "").strip() or not str(item.get("path") or "").startswith("/"):
+        if not _readable(item):
             continue
         known = {key: item[key] for key in Repo.__dataclass_fields__ if key in item and key != "extra"}
         rules = known.get("rules")
@@ -106,6 +134,13 @@ def _repos(data) -> list[Repo]:
         for key, values in UNREAD_VALUES.items():  # A newer release's value: read as the default, kept to write back.
             if key in known and known[key] not in values:
                 extra[key] = known.pop(key)
+        alias, where = device_path(known.get("path"))
+        if alias:  # A device's: its alias from the path, written in place (no worktree on a device).
+            known.update(path=f"{alias}:{where}", device=alias, write_mode="inplace")
+        else:
+            known["device"] = ""
+        if known.get("kind") == "dir":
+            known["write_mode"] = "inplace"
         try:
             found.append(Repo(**known, extra=extra))
         except TypeError:
@@ -155,9 +190,9 @@ def _raw(state_dir) -> dict:
 
 
 def _passed_over(raw) -> list:
-    """The entries of ``raw`` that ``read`` leaves out (no name, no absolute path: a device's, a newer release's)."""
-    return [item for item in (raw.get("repos") if isinstance(raw.get("repos"), list) else ())
-            if not (isinstance(item, dict) and str(item.get("name") or "").strip() and str(item.get("path") or "").startswith("/"))]
+    """The entries of ``raw`` that ``read`` leaves out (no name, no absolute path here or on a device: a newer release's).
+    A release before device entries passed those over the same way, so a rollback keeps them as they are."""
+    return [item for item in (raw.get("repos") if isinstance(raw.get("repos"), list) else ()) if not _readable(item)]
 
 
 def write(state_dir, repos, *, excluded=None, raw=None) -> None:
@@ -200,25 +235,53 @@ def rendered_path(state_dir, home) -> Path:
     return Path(home) / RENDERED_FILE if home and homes.seeded(home) else Path(state_dir) / RENDERED_FILE
 
 
-def render_md(repos, *, home="") -> str:
-    lines = ["# 仓库地图", "", "由 Covey 从 repos.json 生成，不要手改；改用途、状态用设置里的「仓库」页。", ""]
+def _cell(text) -> str:
+    """``text`` as one cell of a Markdown table: one line, no ``|``."""
+    return " ".join(str(text or "").split()).replace("|", "/") or "—"
+
+
+def device_rows(config=None) -> list[dict]:
+    """The devices ``repos.md`` lists at its end: ``{alias, title, note, access, runs}`` of each device of devices.json
+    (``runs`` false for one only watched: no ssh), by alias; [] with devices off or a devices.json that cannot be read."""
+    try:
+        config = config if config is not None else device_list.current()
+    except device_list.DeviceConfigError:
+        return []
+    found = [(alias, device, True) for alias, device in config.devices.items()]
+    found += [(alias, device, False) for alias, device in getattr(config, "watched", {}).items()]
+    return [{"alias": alias, "title": device.title, "note": device.note, "access": device.access, "runs": runs}
+            for alias, device, runs in sorted(found)]
+
+
+def render_md(repos, *, home="", devices=()) -> str:
+    """``repos.md``: the home, a row per entry (仓库 or 目录, here or on a device) and, with devices listed (``device_rows``),
+    the 常用设备 table. Read by a Harness on demand, never part of the rules a turn starts with."""
+    lines = ["# 常用路径", "", "由 Covey 从 repos.json 生成，不要手改；改用途、状态用设置里的「常用路径」页。", ""]
     if home:
         lines += [f"主目录：`{home}`", ""]
     if not repos:
-        return "\n".join(lines + ["（还没有仓库。）", ""])
-    lines += ["| 仓库 | 路径 | 用途 | 状态 | 怎么改 | 规范 |", "| --- | --- | --- | --- | --- | --- |"]
-    for repo in sorted(repos, key=lambda r: r.name.lower()):
-        how = "原地改" if repo.write_mode == "inplace" else "按话题建 worktree"
-        lines.append(f"| {repo.name} | `{repo.path}` | {repo.note or '—'} | {STATUS_WORDS.get(repo.status, repo.status)} | "
-                     f"{how} | {'、'.join(repo.rules)} |")
-    lines += ["", "要改：`covey repo use <仓库> --write`；只读：`covey repo use <仓库>`；本话题用到的：`covey repo status`。", ""]
+        lines += ["（还没有常用路径。）", ""]
+    else:
+        lines += ["| 名字 | 路径 | 设备 | 类型 | 用途 | 状态 | 怎么改 | 规范 |", "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for repo in sorted(repos, key=lambda r: r.name.lower()):
+            where = device_path(repo.path)[1] if repo.device else repo.path
+            how = "在设备上" if repo.device else "原地改" if repo.write_mode == "inplace" else "按话题建 worktree"
+            lines.append(f"| {_cell(repo.name)} | `{where}` | {_cell(repo.device or '本机')} | {KIND_WORDS.get(repo.kind, repo.kind)} | "
+                         f"{_cell(repo.note)} | {STATUS_WORDS.get(repo.status, repo.status)} | {how} | {'、'.join(repo.rules)} |")
+        lines += ["", "要改：`covey repo use <名字> --write`；只读：`covey repo use <名字>`；本话题用到的：`covey repo status`。", ""]
+    if devices:
+        lines += ["## 常用设备", "", "| 别名 | 名字 | 用途 | 可写还是只读 |", "| --- | --- | --- | --- |"]
+        for row in devices:
+            access = ACCESS_WORDS.get(row["access"], "没设") if row["runs"] else "只能看状况，不能执行"
+            lines.append(f"| {row['alias']} | {_cell(row['title'])} | {_cell(row['note'])} | {access} |")
+        lines += ["", "设备上的路径本机读不到；只读的设备只能看，不能改。", ""]
     return "\n".join(lines)
 
 
 def render(state_dir, home="") -> Path | None:
     """Write ``repos.md`` where ``rendered_path`` says, when its text changed; the path, None when it cannot be written."""
     target = rendered_path(state_dir, home)
-    text = render_md(read(state_dir), home=str(home or ""))
+    text = render_md(read(state_dir), home=str(home or ""), devices=device_rows())
     try:
         if not target.is_file() or target.read_text(encoding="utf-8") != text:
             write_private_text(target, text)
@@ -682,12 +745,15 @@ def use(context, key, *, write=False, now=None) -> dict:
     repos = read(state) if state else []
     repo = _resolve_repo(repos, key, context.get("home", ""))
     if repo is None:
-        names = "、".join(r.name for r in repos[:20]) or "（地图是空的）"
-        raise RepoError(f"仓库地图里没有 {key}，也不是一个 git 仓库的路径。地图里有：{names}", code=2)
+        names = "、".join(r.name for r in repos[:20]) or "（还没有）"
+        raise RepoError(f"常用路径里没有 {key}，也不是一个 git 仓库的路径。常用路径有：{names}", code=2)
     out = {"name": repo.name, "path": repo.path, "mode": "write" if write else "read", "status": repo.status,
-           "write_mode": repo.write_mode, "worktree": "", "branch": "", "base": "", "base_oid": "", "note": ""}
+           "write_mode": repo.write_mode, "worktree": "", "branch": "", "base": "", "base_oid": "", "note": "",
+           "kind": repo.kind, "device": repo.device}
     if write and repo.status != "active":
-        raise RepoError(f"仓库 {repo.name} {STATUS_WORDS.get(repo.status, repo.status)}，不能改。", code=3)
+        raise RepoError(f"{KIND_WORDS.get(repo.kind, '仓库')} {repo.name} {STATUS_WORDS.get(repo.status, repo.status)}，不能改。", code=3)
+    if repo.device:
+        return _use_device(state, repo, out, write, now)
     directory = repo.path
     if not write and repo.write_mode != "inplace" and _has_origin(repo.path):
         # Read in the latest main branch, not the main checkout (T900 W0-5); without one, the checkout, said to be maybe behind.
@@ -703,9 +769,10 @@ def use(context, key, *, write=False, now=None) -> dict:
             if made["stale"]:
                 out["note"] = f"{made['stale']}：这是本机上次取到的 {made['base'].split('@')[0]}，可能落后，未能确认是最新主干。"
     elif write and repo.write_mode == "inplace":
-        out.update(worktree=repo.path, base_oid=_oid(repo.path))
+        out.update(worktree=repo.path, base_oid="" if repo.kind == "dir" else _oid(repo.path))
         if not _writable(repo.path):
-            out["note"] = "这一轮的沙箱写不了这个仓库；已记下，下一轮它会在可写范围里，这一轮先只读。"
+            out["note"] = (f"这一轮的沙箱写不了这个{KIND_WORDS.get(repo.kind, '仓库')}；已记下，下一轮它会在可写范围里，"
+                           "这一轮先只读。")
     elif write:
         data = _topic(state, topic)
         number = data.get("topic_number") if type(data.get("topic_number")) is int else 0
@@ -739,8 +806,59 @@ def use(context, key, *, write=False, now=None) -> dict:
     return out
 
 
+DEVICE_HINT = "这条路径在设备 {title}上，本机读不到；设备上的读写命令还没有开通，现在只能登记它、看它的规范开头。"
+
+
+def _use_device(state, repo, out, write, now) -> dict:
+    """``use`` of a device's entry: nothing on this machine; the rules head through the device's ``get`` (RULES_BYTES at most,
+    when devices are on and the alias can be reached), and the request recorded with its ``device`` (``--write`` only
+    records: no worktree on a device, no diff of it)."""
+    alias, where = device_path(repo.path)
+    try:
+        config = device_list.current()
+    except device_list.DeviceConfigError:
+        config = None
+    device = (config.devices.get(alias) or config.watched.get(alias)) if config is not None else None
+    if write and device is not None and device.access == "read":
+        raise RepoError(f"设备 {alias} 是只读的（设置里「设备」页可以改），{repo.name} 不能改。", code=3)
+    title = f"{device.title}（{alias}）" if device is not None and device.title != alias else alias
+    out.update(device=alias, remote_path=where, note=DEVICE_HINT.format(title=title))
+    name, text, cut = "", "", False
+    if not device_list.enabled():
+        out["rules_note"] = "多设备没开（COVEY_DEVICES），没能读它的规范开头。"
+    elif config is None or alias not in config.devices:
+        out["rules_note"] = f"设备 {alias} 不在 devices.json 里，或没有 ssh，没能读它的规范开头。"
+    else:
+        names = list(dict.fromkeys([*repo.rules, *topic_repos.RULE_FILES]))
+        name, text, cut, why = device_list.read_head(state, alias, where, names, limit=RULES_BYTES, timeout=DEVICE_SECONDS,
+                                                     config=config)
+        if why:
+            out["rules_note"] = f"没能读它的规范开头：{why}。"
+    out["rules"] = {"file": name, "text": text, "cut": cut}
+    task_dir = topic_repos.task_dir_of(state) if state else None
+    if task_dir is not None and task_dir.is_dir():
+        topic_repos.add_request(task_dir, {"at": now, "name": repo.name, "path": repo.path, "device": alias, "mode": out["mode"],
+                                           "worktree": "", "branch": "", "base": "", "base_oid": "", "rules_file": name,
+                                           "rules_cut": cut, "pending": False, "created": False})
+    return out
+
+
 def _show_use(out) -> str:
-    lines = [f"仓库 {out['name']}（{'写' if out['mode'] == 'write' else '读'}）", f"仓库目录：{out['path']}"]
+    word = KIND_WORDS.get(out.get("kind") or "git", "仓库")
+    if out.get("device"):
+        lines = [f"{word} {out['name']}（{'写' if out['mode'] == 'write' else '读'}，设备 {out['device']}）",
+                 f"设备上的路径：{out.get('remote_path') or out['path']}", out.get("note") or ""]
+        if out.get("rules_note"):
+            lines.append(out["rules_note"])
+        rules = out.get("rules") or {}
+        if rules.get("file"):
+            lines += ["", f"先照它的规范做（{rules['file']} 开头{'，后面还有' if rules.get('cut') else ''}）：", "-----",
+                      rules["text"].rstrip(), "-----"]
+        elif not out.get("rules_note"):
+            lines.append(f"这个{word}没有 AGENTS.md 或 CLAUDE.md。")
+        return "\n".join(line for line in lines if line is not None)
+    lines = [f"{word} {out['name']}（{'写' if out['mode'] == 'write' else '读'}）",
+             f"{'仓库目录' if word == '仓库' else word}：{out['path']}"]
     if out["mode"] != "write" and out.get("worktree") and out["worktree"] != out["path"]:
         lines.append(f"在这里读：{out['worktree']}（最新主干的只读 worktree，{read_words(out)}；detached，不要在这里改）")
     elif out.get("worktree") and out["worktree"] != out["path"]:
@@ -748,15 +866,15 @@ def _show_use(out) -> str:
         if out.get("branch"):
             lines.append(f"分支：{out['branch']}" + (f"（基于 {out['base']}）" if out.get("base") else ""))
     elif out.get("worktree"):
-        lines.append("这个仓库原地改：直接在仓库目录里改。")
+        lines.append(f"这个{word}原地改：直接在{word}目录里改。")
     if out.get("note"):
         lines.append(out["note"])
     rules = out.get("rules") or {}
     if rules.get("file"):
-        lines += ["", f"先照这个仓库的规范做（{rules['file']} 开头{'，后面还有，要用时读全文' if rules.get('cut') else ''}）：",
+        lines += ["", f"先照这个{word}的规范做（{rules['file']} 开头{'，后面还有，要用时读全文' if rules.get('cut') else ''}）：",
                   "-----", rules["text"].rstrip(), "-----"]
     else:
-        lines.append("这个仓库没有 AGENTS.md 或 CLAUDE.md。")
+        lines.append(f"这个{word}没有 AGENTS.md 或 CLAUDE.md。")
     return "\n".join(lines)
 
 
@@ -781,17 +899,24 @@ def status(context) -> list[dict]:
     for repo in topic_repos.of_topic(data):
         seen[repo.name] = {"name": repo.name, "mode": repo.mode, "path": repo.path, "worktree": repo.worktree,
                            "branch": repo.branch, "rules_read": bool(repo.rules_read_at)}
+    for item in data.get("repos") or () if isinstance(data.get("repos"), list) else ():
+        if isinstance(item, dict) and item.get("device") and device_path(item.get("path"))[0] and str(item.get("name") or ""):
+            seen.setdefault(str(item["name"]), {"name": str(item["name"]), "mode": "write" if item.get("mode") == "write" else "read",
+                                                "path": str(item["path"]), "worktree": "", "branch": "", "rules_read": True,
+                                                "device": str(item["device"])})
     task_dir = topic_repos.task_dir_of(context["state"]) if context.get("state") else None
     for item in topic_repos.requests(task_dir) if task_dir else ():
         row = seen.setdefault(str(item.get("name")), {"name": item.get("name"), "mode": "read", "path": item.get("path", ""),
-                                                      "worktree": "", "branch": "", "rules_read": True})
+                                                      "worktree": "", "branch": "", "rules_read": True,
+                                                      **({"device": str(item["device"])} if item.get("device") else {})})
         if item.get("mode") == "write":
             row["mode"] = "write"
         for key in ("worktree", "branch"):
             if item.get(key):
                 row[key] = item[key]
     for row in seen.values():
-        row["changes"] = _changes(row["worktree"] or row["path"]) if (row["worktree"] or row["path"]) else None
+        local = not row.get("device") and (row["worktree"] or row["path"])
+        row["changes"] = _changes(row["worktree"] or row["path"]) if local and os.path.isdir(row["worktree"] or row["path"]) else None
     return list(seen.values())
 
 
@@ -801,6 +926,9 @@ def _show_status(rows) -> str:
     lines = []
     for row in rows:
         where = row["worktree"] or row["path"]
+        if row.get("device"):
+            lines.append(f"- {row['name']}（{'写' if row['mode'] == 'write' else '读'}）设备 {where}；设备上的改动这里查不了")
+            continue
         changes = "未知" if row["changes"] is None else (f"{row['changes']} 个文件没提交" if row["changes"] else "没有未提交的改动")
         lines.append(f"- {row['name']}（{'写' if row['mode'] == 'write' else '读'}）{where}"
                      + (f"，分支 {row['branch']}" if row["branch"] else "") + f"；{changes}")
@@ -874,10 +1002,10 @@ def _show_prune(rows) -> str:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog="covey_repo.py", description="仓库地图：列出、声明和查看本话题用到的仓库")
+    parser = argparse.ArgumentParser(prog="covey_repo.py", description="常用路径：列出、声明和查看本话题用到的仓库和目录")
     parser.add_argument("--json", action="store_true", help="JSON 输出")
     sub = parser.add_subparsers(dest="action", required=True)
-    sub.add_parser("list", help="仓库地图")
+    sub.add_parser("list", help="常用路径")
     use_parser = sub.add_parser("use", help="声明本话题用到一个仓库")
     use_parser.add_argument("repo")
     use_parser.add_argument("--write", action="store_true", help="要改：建或复用本话题的 worktree")
@@ -896,11 +1024,11 @@ def main(argv=None) -> int:
         if args.json:
             print(json.dumps([{**asdict(repo), "used": repo.name in used} for repo in repos], ensure_ascii=False))
         elif not repos:
-            print("仓库地图是空的。")
+            print("常用路径是空的。")
         else:
             for repo in repos:
-                print(f"{repo.name}\t{STATUS_WORDS.get(repo.status, repo.status)}\t{repo.path}\t{repo.note}"
-                      + ("\t（本话题用到）" if repo.name in used else ""))
+                print(f"{repo.name}\t{KIND_WORDS.get(repo.kind, repo.kind)}\t{STATUS_WORDS.get(repo.status, repo.status)}\t"
+                      f"{repo.path}\t{repo.note}" + ("\t（本话题用到）" if repo.name in used else ""))
         return 0
     if args.action == "use":
         try:
