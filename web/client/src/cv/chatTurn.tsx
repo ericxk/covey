@@ -10,7 +10,8 @@ import { Dot, Pill, useTick } from './ui';
 import { ctxLimitOk, fmtDur, fmtTok, fmtWindow, hhmm, turnStats } from './lib';
 import { isAnswerBody, saidLabel, shownText } from './topicText';
 import { Notes, StartedChips } from './turnBits';
-import { SentImages, ShownImages, withoutImageLine } from './TurnImages';
+import { SentImages, ShownImages, withoutImageLine, type DrawnImage } from './TurnImages';
+import { useLocalImages, type LocalImage } from '@client/src/lib/conv-store';
 
 /* 一轮对话在大厅（管家、负责人）和话题页里画法一样（T623）：你说的是靠右的气泡，回答前一行是谁、几点，
    下面一颗“工具 N · 用时”点开是过程（瀑布和 token、速度、上下文），再是正文、产物（折叠，T645）、输入/输出两行、图。
@@ -52,8 +53,11 @@ export const OwnerBubble: React.FC<{
   const answer: boolean = isAnswer(o);
   const qa: TurnAnswer[] | null = answer ? (o.answers?.length ? o.answers : answers ?? null) : null;
   const label: string | null = answer || (o.by && o.by !== 'owner') || o.via || o.edited ? saidLabel(o, answer) : null;
+  // Covey 的图还没到时，先画刚发出时本页留下的图（T933）；到了就用 Covey 的
+  const local: LocalImage[] = useLocalImages(o.key);
+  const imgs: DrawnImage[] | undefined = o.images?.length ? o.images : local.length ? local : undefined;
   return (
-    <div className={`um${o.images?.length ? ' has-img' : ''}${qa ? ' has-qa' : ''}`} data-seq={o.seq} style={hl ? { boxShadow: JUMP_RING } : undefined}>
+    <div className={`um${imgs?.length ? ' has-img' : ''}${qa ? ' has-qa' : ''}`} data-seq={o.seq} style={hl ? { boxShadow: JUMP_RING } : undefined}>
       <div className="um-tx">
         {label ? (
           <span className="a-who">
@@ -72,14 +76,14 @@ export const OwnerBubble: React.FC<{
             {o.note ? <Md body={o.note} said /> : null}
           </>
         ) : (
-          <Md body={withoutImageLine(shownText(o), o.images)} said />
+          <Md body={withoutImageLine(shownText(o), imgs)} said />
         )}
       </div>
       <span className="tm">
         {hhmm(o.started_at)}
         {route ? <span className="rm-route"> {route}</span> : null}
       </span>
-      {o.images?.length ? <SentImages images={o.images} /> : null}
+      {imgs?.length ? <SentImages images={imgs} /> : null}
     </div>
   );
 };

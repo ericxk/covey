@@ -57,8 +57,45 @@ export interface Pending {
   baseSeq: number;
   phase: 'sending' | 'sent' | 'failed';
   error?: string;
-  /** v20：带的附件（只用来在气泡里列名字） */
-  files?: { name: string; mime: string }[];
+  /** v20：带的附件（气泡里列名字）；图片另带本地地址和尺寸（T933：发出就看得到图，不等 Covey 传上来） */
+  files?: PendingFile[];
+}
+
+export interface PendingFile {
+  name: string;
+  mime: string;
+  src?: string;
+  w?: number;
+  h?: number;
+}
+
+/** 你那一行回来了、Covey 的图还没到时先画的本地图：轮次 key -> 图；Covey 的图一到那一行就用它的（chatTurn） */
+export interface LocalImage {
+  id: string;
+  kind: 'sent';
+  src: string;
+  w?: number;
+  h?: number;
+}
+const NO_LOCAL: LocalImage[] = [];
+const locals = new Map<string, LocalImage[]>();
+const localListeners = new Set<() => void>();
+export const localImagesOf = (files: PendingFile[] | undefined): LocalImage[] =>
+  (files ?? []).filter((f: PendingFile) => !!f.src).map((f: PendingFile) => ({ id: '', kind: 'sent' as const, src: f.src as string, w: f.w, h: f.h }));
+export function keepLocalImages(turnKey: string, imgs: LocalImage[]): void {
+  if (!imgs.length || locals.get(turnKey) === imgs) return;
+  locals.set(turnKey, imgs);
+  if (locals.size > 60) locals.delete(locals.keys().next().value as string);
+  localListeners.forEach((l: () => void) => l());
+}
+export function useLocalImages(turnKey: string): LocalImage[] {
+  return useSyncExternalStore(
+    (cb: () => void) => {
+      localListeners.add(cb);
+      return () => localListeners.delete(cb);
+    },
+    () => locals.get(turnKey) ?? NO_LOCAL,
+  );
 }
 
 const EMPTY: Pending[] = [];

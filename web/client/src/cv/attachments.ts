@@ -98,12 +98,44 @@ function setList(conv: string, f: (cur: Attachment[]) => Attachment[]): void {
 const patch = (conv: string, key: string, p: Partial<Attachment>): void =>
   setList(conv, (cur: Attachment[]) => cur.map((a: Attachment) => (a.key === key ? { ...a, ...p } : a)));
 
+/** 发出去的图在本页的样子（T933）：上传编号 -> 原文件（这次打开页面以来传的）；地址按需建、最多留 LOCAL_KEPT 个 */
+const LOCAL_KEPT = 40;
+const sentById = new Map<string, File>();
+const sizes = new WeakMap<File, [number, number]>();
+const localUrls = new Map<string, string>();
+
+/** 刚发出的一张图的本地地址和尺寸：Covey 的图传上来之前，气泡和你那一行先用它，不用等。没有原文件（刷新过）时用草稿里存的小图 */
+export function localImage(id: string): { src: string; w?: number; h?: number } | undefined {
+  const f: File | undefined = sentById.get(id);
+  if (!f) {
+    for (const list of lists.values()) {
+      const a: Attachment | undefined = list.find((x: Attachment) => x.file?.id === id && x.thumb);
+      if (a?.thumb) return { src: a.thumb };
+    }
+    return undefined;
+  }
+  let src: string | undefined = localUrls.get(id);
+  if (!src) {
+    src = URL.createObjectURL(f);
+    localUrls.set(id, src);
+    if (localUrls.size > LOCAL_KEPT) {
+      const [oldId, oldUrl] = localUrls.entries().next().value as [string, string];
+      localUrls.delete(oldId);
+      sentById.delete(oldId);
+      URL.revokeObjectURL(oldUrl);
+    }
+  }
+  const wh: [number, number] | undefined = sizes.get(f);
+  return wh ? { src, w: wh[0], h: wh[1] } : { src };
+}
+
 /** 图片缩成长边 THUMB_PX 的 JPEG data URL（存得下）；读不了就 undefined */
 function thumbOf(f: File): Promise<string | undefined> {
   return new Promise((resolve) => {
     const url: string = URL.createObjectURL(f);
     const img = new Image();
     img.onload = () => {
+      if (img.naturalWidth && img.naturalHeight) sizes.set(f, [img.naturalWidth, img.naturalHeight]);
       const k: number = Math.min(1, THUMB_PX / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
       const c = document.createElement('canvas');
       c.width = Math.max(1, Math.round(img.naturalWidth * k));
@@ -140,6 +172,7 @@ async function upload(conv: string, key: string, f: File, name: string): Promise
       patch(conv, key, { progress: (n + 1) / parts });
     }
     const file: SayFile = await withRetry(() => uploadDone(id));
+    if (mime.startsWith('image/')) sentById.set(file.id, f);
     if (blobs.has(key)) patch(conv, key, { phase: 'done', progress: 1, file });
   } catch (e) {
     patch(conv, key, { phase: 'failed', error: errorText(e) });

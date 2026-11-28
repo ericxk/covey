@@ -6,9 +6,9 @@ import type { SayFile, SayPayload } from '@shared/api.interface';
 import { useIsDesktop } from '@client/src/hooks/use-breakpoint';
 import { newOpId } from '@client/src/hooks/use-workbench';
 import { useSendOutbox } from './sendOp';
-import { addPending, getDraft, patchPending, setDraft } from '@client/src/lib/conv-store';
+import { addPending, getDraft, patchPending, setDraft, type PendingFile } from '@client/src/lib/conv-store';
 import { errorText } from '@client/src/lib/workbench-format';
-import { blobOf, useAttachments, type Attachment } from './attachments';
+import { blobOf, localImage, useAttachments, type Attachment } from './attachments';
 import { BIG_HINT, ENTER_HINT, enterAction, fmtSize, lineBreak, listEnter, listIndent, SEND_KEY, type TextEdit } from './composerText';
 import type { LaunchBox } from './launch';
 import { LaunchLine, LaunchNote, LaunchPanel } from './LaunchPanel';
@@ -26,7 +26,7 @@ export function useSay(topicKey: string): (text: string, baseSeq: number, files?
     const value: string = text.trim();
     if (!value && !files.length) return;
     const id: string = newOpId();
-    const shown = files.map((f: SayFile) => ({ name: f.name, mime: f.mime }));
+    const shown: PendingFile[] = files.map((f: SayFile) => ({ name: f.name, mime: f.mime, ...(f.mime.startsWith('image/') ? localImage(f.id) ?? {} : {}) }));
     addPending(topicKey, { id, text: value, at: Date.now(), baseSeq, phase: 'sending', ...(shown.length ? { files: shown } : {}) });
     const payload: SayPayload = { text: value, ...(files.length ? { files } : {}) };
     send.mutate(

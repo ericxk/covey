@@ -8,7 +8,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { newOpId, useRoomTurns, useSnapshot, useTurns } from '@client/src/hooks/use-workbench';
 import { sendQuiet, useSendOutbox, useTrackedOp } from './sendOp';
 import {
-  addPending, getDraft, getScroll, markSeenSent, patchPending, removePending, setDraft, setScroll, usePending, type Pending,
+  addPending, getDraft, getScroll, keepLocalImages, localImagesOf, markSeenSent, patchPending, removePending, setDraft, setScroll, usePending,
+  type LocalImage, type Pending, type PendingFile,
 } from '@client/src/lib/conv-store';
 import { ageMs, errorText } from '@client/src/lib/workbench-format';
 import type { LaunchBox } from './launch';
@@ -24,7 +25,8 @@ import { progressNote, saidLabel, shownText, stopPressing } from './topicText';
 import { Dot, useTick } from './ui';
 import { JumpRail } from './JumpRail';
 import { oneLine, type Mark } from './jumpMarks';
-import { withoutImageLine } from './TurnImages';
+import { SentImages, withoutImageLine } from './TurnImages';
+import { localImage } from './attachments';
 import * as F from './scrollFollow';
 import './images.css';
 import { buildRoom, members as roomMembers, onlyLead, quoteText, speaker, type Member, type RoomTurn } from './room';
@@ -76,13 +78,14 @@ const PendingBubble: React.FC<{ p: Pending; row: OutboxView | undefined; onClose
   const w = bubbleWords(p, row, tr);
   const failed: boolean = w.tone === 'bad';
   const text: string = w.text;
+  const imgs: LocalImage[] = localImagesOf(p.files);
   return (
-    <div className="um" style={{ opacity: w.faded ? 0.8 : 1 }}>
+    <div className={`um${imgs.length ? ' has-img' : ''}`} style={{ opacity: w.faded ? 0.8 : 1 }}>
       <div className="um-tx">
         {p.text ? <Md body={p.text} said /> : null}
-        {p.files?.length ? (
+        {p.files?.some((f: PendingFile) => !f.src) ? (
           <div className="um-files">
-            {p.files.map((f: { name: string; mime: string }, i: number) => (
+            {p.files.filter((f: PendingFile) => !f.src).map((f: PendingFile, i: number) => (
               <span className="um-file" key={`${i}-${f.name}`}>
                 <Paperclip /> {f.name}
               </span>
@@ -96,6 +99,7 @@ const PendingBubble: React.FC<{ p: Pending; row: OutboxView | undefined; onClose
           <button type="button" aria-label="关闭" onClick={onClose} style={{ marginLeft: 6, background: 'none', border: 0, cursor: 'pointer', color: 'inherit' }}>×</button>
         ) : null}
       </span>
+      {imgs.length ? <SentImages images={imgs} /> : null}
     </div>
   );
 };
@@ -200,8 +204,11 @@ export const Conversation: React.FC<{
     const gone: string[] = [];
     for (const p of pending) {
       // 带附件的那一轮，Covey 在正文后面拼了附件块：比开头；只有附件没有字的，比“这之后来了你的一轮”
-      const echoed: boolean = turns.some((t: TurnView) => t.role === 'owner' && t.seq > p.baseSeq
+      const back: TurnView | undefined = turns.find((t: TurnView) => t.role === 'owner' && t.seq > p.baseSeq
         && (p.files?.length ? t.body.trim().startsWith(p.text.trim()) : t.body.trim() === p.text.trim()));
+      const echoed: boolean = !!back;
+      // 你那一行回来了、Covey 的图还没到：那一行先接着画这里的本地图（T933），不退回“附件：图片 N 张”
+      if (back && !back.images?.length) keepLocalImages(back.key, localImagesOf(p.files));
       const row: OutboxView | undefined = outbox.find((o: OutboxView) => o.op_id === p.id);
       const landed: boolean = !!room && turns.some((t: TurnView) => t.key === `ob-${p.id}`);
       if (echoed || landed || (row?.state === 'done' && (ageMs(p.at) ?? 0) > 20000)) gone.push(p.id);
@@ -492,7 +499,7 @@ export const Conversation: React.FC<{
     const target: string | null = sayPlan.topicKey;
     if (!target || (!body && !files.length)) return false;
     const id: string = newOpId();
-    const shown = files.map((f: SayFile) => ({ name: f.name, mime: f.mime }));
+    const shown: PendingFile[] = files.map((f: SayFile) => ({ name: f.name, mime: f.mime, ...(f.mime.startsWith('image/') ? localImage(f.id) ?? {} : {}) }));
     addPending(topicKey, { id, text: body, at: Date.now(), baseSeq: maxSeq, phase: 'sending', ...(shown.length ? { files: shown } : {}) });
     send.mutate(
       { op_id: id, kind: 'say', topic_key: target, payload },

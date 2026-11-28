@@ -9,6 +9,8 @@ import type { TurnImage } from '@shared/api.interface';
  *  /api 每个请求都要带 CSRF 头，<img src> 带不上（现网 403），所以和别的接口一样用 axios 取成 blob，再给 <img> 一个 blob: 地址。 */
 type Size = 'thumb' | 'full';
 type Got = { url: string } | 'gone' | 'failed';
+/** 一张要画的图：Covey 推来的按 id 取；刚发出、Covey 的图还没到的带本页的地址 src（T933），直接画 */
+export type DrawnImage = TurnImage & { src?: string };
 const KEPT = 300;
 const loaded = new Map<string, Promise<Got>>();
 
@@ -79,9 +81,10 @@ const Gone: React.FC = () => (
   <span className="ti-gone"><ImageOff />已过期</span>
 );
 
-const Tile: React.FC<{ img: TurnImage; cls: string; style?: React.CSSProperties; onOpen: () => void; more?: number }> = ({ img, cls, style, onOpen, more }) => {
+const Tile: React.FC<{ img: DrawnImage; cls: string; style?: React.CSSProperties; onOpen: () => void; more?: number }> = ({ img, cls, style, onOpen, more }) => {
   const [ref, near] = useNear<HTMLButtonElement>();
-  const got: Got | null = useImage(img.gone ? undefined : img.id, 'thumb', near);
+  const fetched: Got | null = useImage(img.gone || img.src ? undefined : img.id, 'thumb', near && !img.src);
+  const got: Got | null = img.src ? { url: img.src } : fetched;
   const gone: boolean = got === 'gone';
   return (
     <button ref={ref} type="button" className={`ti ${cls}${gone ? ' gone' : ''}`} style={style} onClick={onOpen} aria-label={gone ? '图片已过期' : img.note || '看大图'}
@@ -98,22 +101,22 @@ const Tile: React.FC<{ img: TurnImage; cls: string; style?: React.CSSProperties;
 
 /** 主人消息里的图（sent），主人 11-20 选的方案 A：一张按原比例（宽图最宽 360、竖图最宽 200）；2、4 张两列方块；
  *  其余三列方块，超过 6 张第 6 格写 +N，点开都能翻到 */
-export const SentImages: React.FC<{ images: TurnImage[] }> = ({ images }) => {
+export const SentImages: React.FC<{ images: DrawnImage[] }> = ({ images }) => {
   const [at, setAt] = useState<number | null>(null);
   let body: React.ReactNode;
   if (images.length === 1) {
-    const one: TurnImage = images[0];
+    const one: DrawnImage = images[0];
     const r: number = one.w && one.h ? one.w / one.h : 4 / 3;
     body = (
       <div className="tis tis-a">
-        <Tile img={one} cls="one" style={{ aspectRatio: String(Math.min(Math.max(r, 0.75), 2.4)), width: one.gone || !one.id ? 'min(100%, 160px)' : r >= 1 ? 'min(100%, 360px)' : 'min(100%, 200px)' }} onOpen={() => setAt(0)} />
+        <Tile img={one} cls="one" style={{ aspectRatio: String(Math.min(Math.max(r, 0.75), 2.4)), width: one.gone || (!one.id && !one.src) ? 'min(100%, 160px)' : r >= 1 ? 'min(100%, 360px)' : 'min(100%, 200px)' }} onOpen={() => setAt(0)} />
       </div>
     );
   } else {
-    const shown: TurnImage[] = images.slice(0, 6);
+    const shown: DrawnImage[] = images.slice(0, 6);
     body = (
       <div className={`tis tis-a grid${images.length === 2 || images.length === 4 ? ' two' : ''}`}>
-        {shown.map((img: TurnImage, i: number) => (
+        {shown.map((img: DrawnImage, i: number) => (
           <Tile key={`${img.id}-${i}`} img={img} cls="sq" onOpen={() => setAt(i)} more={i === shown.length - 1 && images.length > 6 ? images.length - 6 : 0} />
         ))}
       </div>
@@ -152,10 +155,11 @@ export const ShownImages: React.FC<{ images: TurnImage[] }> = ({ images }) => {
 };
 
 /** 看大图：全屏遮罩，左右切换（← → 键、两侧按钮、下方缩略条），Esc 或点空白处关 */
-export const Lightbox: React.FC<{ images: TurnImage[]; at: number; onAt: (i: number) => void; onClose: () => void }> = ({ images, at, onAt, onClose }) => {
-  const img: TurnImage = images[at];
+export const Lightbox: React.FC<{ images: DrawnImage[]; at: number; onAt: (i: number) => void; onClose: () => void }> = ({ images, at, onAt, onClose }) => {
+  const img: DrawnImage = images[at];
   const n: number = images.length;
-  const got: Got | null = useImage(img.gone ? undefined : img.id, 'full');
+  const fetched: Got | null = useImage(img.gone || img.src ? undefined : img.id, 'full', !img.src);
+  const got: Got | null = img.src ? { url: img.src } : fetched;
   const gone: boolean = got === 'gone';
   const go = useCallback((d: number) => onAt((at + d + n) % n), [at, n, onAt]);
   useEffect(() => {
@@ -202,7 +206,7 @@ export const Lightbox: React.FC<{ images: TurnImage[]; at: number; onAt: (i: num
           <button type="button" className="lbx-nav l" onClick={(e: React.MouseEvent) => { e.stopPropagation(); go(-1); }} aria-label="上一张"><ChevronLeft /></button>
           <button type="button" className="lbx-nav r" onClick={(e: React.MouseEvent) => { e.stopPropagation(); go(1); }} aria-label="下一张"><ChevronRight /></button>
           <div className="lbx-strip" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            {images.map((x: TurnImage, i: number) => (
+            {images.map((x: DrawnImage, i: number) => (
               <button type="button" key={`${x.id}-${i}`} className={i === at ? 'on' : ''} onClick={() => onAt(i)} aria-label={`第 ${i + 1} 张`}>
                 <StripThumb img={x} />
               </button>
@@ -215,7 +219,8 @@ export const Lightbox: React.FC<{ images: TurnImage[]; at: number; onAt: (i: num
   );
 };
 
-const StripThumb: React.FC<{ img: TurnImage }> = ({ img }) => {
-  const got: Got | null = useImage(img.gone ? undefined : img.id, 'thumb');
+const StripThumb: React.FC<{ img: DrawnImage }> = ({ img }) => {
+  const fetched: Got | null = useImage(img.gone || img.src ? undefined : img.id, 'thumb', !img.src);
+  const got: Got | null = img.src ? { url: img.src } : fetched;
   return got && typeof got === 'object' ? <img src={got.url} alt="" draggable={false} /> : <ImageOff />;
 };
