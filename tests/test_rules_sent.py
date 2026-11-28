@@ -99,10 +99,23 @@ class DecideTest(Case):
             self.recorded(number=10 + number, current="v2", reason="told")
         self.assertEqual(self.decide(current="v2"), (OVERRIDE, "every_n", False))
 
-    def test_a_harness_that_reads_them_again_never_needs_the_message(self):
-        self.assertEqual(self.decide(refresh=rules_sent.REREAD)[:2], (SYSTEM, "reread"))
-        self.assertEqual(self.decide(refresh=rules_sent.REREAD, previous={"status": "done", "compactions": 2}),
-                         (SYSTEM, "reread", False))  # Not intact all the same: a lead's pack goes whole.
+    def test_a_harness_that_reads_them_again_keeps_the_sessions_own_there_until_a_compaction(self):
+        # dsh, agy: the system prompt is the prefix of the whole conversation, so a turn's newer rules would cost its cache.
+        reread = rules_sent.REREAD
+        self.assertEqual(self.decide(sid=None, refresh=reread), (SYSTEM, "new_session", True))
+        self.assertEqual(self.decide(refresh=reread)[:2], (SYSTEM, "reread"))  # Nothing kept yet: the turn's, kept now.
+        rules_sent.record(self.ctx, self.job(1), SID, rules_sent.Plan(SYSTEM, "reread", rules_sent.version("OLD RULES"),
+                                                                      reread, text="OLD RULES"))
+        old = rules_sent.version("OLD RULES")
+        self.assertEqual(self.decide(current=old, refresh=reread), (SYSTEM, "", True))
+        found = rules_sent.make(self.ctx, self.job(), SID, current="v-new", refresh=reread, previous={"status": "done"},
+                                before=None, text="NEW RULES")
+        self.assertEqual((found.mode, found.pinned), (OVERRIDE, "OLD RULES"))  # The session's own stay there.
+        self.assertEqual(rules_sent.system_text(found, "NEW RULES"), "OLD RULES")
+        after = rules_sent.make(self.ctx, self.job(), SID, current="v-new", refresh=reread,
+                                previous={"status": "done", "compactions": 1}, before=None, text="NEW RULES")
+        self.assertEqual((after.mode, after.reason, after.pinned), (SYSTEM, "refresh", ""))  # Its cache was gone anyway.
+        self.assertEqual(rules_sent.system_text(after, "NEW RULES"), "NEW RULES")
 
     def test_a_switch_of_binding_or_model_counts_as_no_record_and_a_fork_reads_its_source(self):
         self.recorded()
@@ -138,9 +151,16 @@ class RecordTest(Case):
         rules_sent.record(self.ctx, self.job(6), OTHER, rules_sent.Plan(OVERRIDE, "changed", "v3", ""), compacted=True)
         self.assertEqual((self.entry(OTHER)["system"], self.entry(OTHER)["override"]), ("v1", "v3"))
 
-    def test_a_harness_that_reads_them_again_keeps_no_record(self):
-        self.recorded(refresh=rules_sent.REREAD)
-        self.assertEqual(self.entry(), {})
+    def test_a_harness_that_reads_them_again_keeps_the_text_it_took(self):
+        reread = rules_sent.REREAD
+        rules_sent.record(self.ctx, self.job(1), SID, rules_sent.Plan(SYSTEM, "new_session", rules_sent.version("R1"),
+                                                                      reread, text="R1"))
+        self.assertEqual(self.entry()["system"], rules_sent.version("R1"))
+        self.assertEqual(rules_sent.pinned_text(self.ctx, self.job(), self.entry()), "R1")
+        rules_sent.record(self.ctx, self.job(2), SID, rules_sent.Plan(OVERRIDE, "changed", "v2", reread, text="R2"))
+        self.assertEqual((self.entry()["system"], self.entry()["override"]), (rules_sent.version("R1"), "v2"))
+        rules_sent.pinned_path(self.state, TOPIC, rules_sent.version("R1")).write_text("tampered", encoding="utf-8")
+        self.assertEqual(rules_sent.pinned_text(self.ctx, self.job(), self.entry()), "")  # Not its version: none.
 
     def test_only_a_turn_that_ended_well_with_a_plan_is_recorded_and_its_compactions_are_read_from_its_record(self):
         job = self.job(7)
@@ -251,6 +271,13 @@ class RunsTest(Case):
         job, request = self.turn(reread, backend, 3, SID)
         self.assertEqual((job.rules_plan.mode, job.rules_plan.reason), (SYSTEM, "reread"))
         self.assertNotIn(CHECKPOINT_RULES, request.prompt)
+        self.end(job)
+        first = request.instructions
+        with mock.patch("covey.app.memory_turn.block", return_value="记忆 · 规矩：新加了一条"):
+            job, request = self.turn(reread, backend, 4, SID)  # The rules changed since: the session keeps its own.
+        self.assertEqual(request.instructions, first)
+        self.assertEqual(job.rules_plan.mode, OVERRIDE)
+        self.assertIn("新加了一条", request.prompt)
 
     def test_with_the_switch_off_or_on_a_harness_without_a_channel_the_rules_are_in_the_message(self):
         app, backend = self.app()
@@ -274,6 +301,25 @@ class RunsTest(Case):
             mark_system_rules(self.ctx, "claude", SID)
             job, request = self.turn(app, backend, 2, SID)
             self.assertNotIn("GISTS-OF-THE-WORKSPACE", request.prompt)
+
+    def test_the_fixed_rules_of_the_turns_notes_go_at_the_system_level_too(self):
+        from covey.app import revisits
+        from covey.core import project_proposals
+        from covey.core.checkpoint import GIST_NONE, TOPIC_GIST_RULE
+
+        app, backend = self.app()
+        with mock.patch.object(project_proposals, "enabled", return_value=True), \
+                mock.patch.object(revisits.records, "enabled", return_value=True), \
+                mock.patch.object(revisits, "ordinary", return_value=True):
+            job, request = self.turn(app, backend, 1, None)
+            for rule in (TOPIC_GIST_RULE, revisits.REVISIT_RULE):
+                self.assertIn(rule, request.instructions)
+                self.assertNotIn(rule, request.prompt)
+            self.assertIn(GIST_NONE, request.prompt)  # The topic's own gist stays in the message.
+            with mock.patch.dict(os.environ, {rules_sent.ENV: "0"}):
+                job, request = self.turn(app, backend, 2, None)
+            self.assertIn(TOPIC_GIST_RULE, request.prompt)  # Off: in each turn's message, as before.
+            self.assertIn(revisits.REVISIT_RULE, request.prompt)
 
     def test_a_backend_whose_notes_fail_gives_none(self):
         app, _ = self.app()

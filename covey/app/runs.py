@@ -31,7 +31,7 @@ from covey.app.switch_handoff import capped
 from covey.cards.trace_view import BRIDGE_NOTE
 from covey.core.attachments import encoded_size, fit_images, native_image_attachments
 from covey.core import criteria, devices, gateways, quota_hold, turn_source, turn_words
-from covey.core.checkpoint import (audit_recovery, checkpoint_note, checkpoint_rules, gist_note, images_note,
+from covey.core.checkpoint import (TOPIC_GIST_RULE, audit_recovery, checkpoint_note, checkpoint_rules, gist_note, images_note,
                                             needs_owner, normalize_questions, question_summary, read_checkpoint,
                                             release_user_wait)
 from covey.core.harness import (CONSULT, LEAD, TOOL_LIMIT, BridgeContext, JobCancelled, RunCallbacks, RunInputs, RunRequest, RunResult,
@@ -159,8 +159,9 @@ class Runs:
         every turn of the topic: no recent topics and no library index (a new session's message has them,
         ``_background``), and the butler's or a lead's own rules at their end (app/butler.py family_rules)."""
         text = self._rules_text(ctx, job, fresh=fresh and not system, library=not system)
-        family = family_rules(ctx, job, self.harness) if system and job is not None else ""
-        return text + "\n\n" + family if family else text
+        extra = "\n\n".join(part for part in ((self._system_notes(ctx, job), family_rules(ctx, job, self.harness))
+                                                if system and job is not None else ()) if part)
+        return text + "\n\n" + extra if extra else text
 
     def _background(self, ctx: BridgeContext, job: ReplyJob) -> str:
         """What a new session's first message starts with when its rules are at the system level: the workspace's recent
@@ -390,6 +391,8 @@ class Runs:
         if system and not live.rules_session:
             job.rules_plan = None  # A session from before: its rules in each resumed turn's message, as before.
         prompt = self._with_rules(ctx, job, prompt, rules, system=system, fresh=fresh, rules_session=live.rules_session)
+        # A Harness that reads them again at every turn keeps the session's own there (its cache), the turn's told above.
+        rules = rules_sent.system_text(job.rules_plan, rules) if system else rules
         self._note_rules(ctx, job, fresh=fresh)
         if ctx.options.get(TOOL_LIMIT) == CONSULT:
             # A 协作 ask: no checkpoint file, no context or repository note; its limit's words last.
@@ -637,7 +640,7 @@ class Runs:
                     if record.get("job_id") != job.job_id and record.get("status") not in RUNNING]
             previous, before = (done + [None, None])[:2]
             return rules_sent.make(ctx, job, session_id, current=current, refresh=caps.system_refresh,
-                                   previous=previous, before=before)
+                                   previous=previous, before=before, text=rules)
         except Exception as exc:  # noqa: BLE001 - the turn tells its rules whole
             self.runtime.log(f"rules plan of job=#{job.job_id} unavailable: {type(exc).__name__}")
             return rules_sent.Plan(rules_sent.OVERRIDE, "unreadable", current, caps.system_refresh, False)
@@ -687,8 +690,10 @@ class Runs:
             # A lead keeps no checkpoint: no file to name, only what an answered turn of it left to check (its questions).
             told = checkpoint_note(Path(job.checkpoint_path), prior).partition("\n")[2]
             return "\n\n" + told if told else ""
-        return ("\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown) + self._gist_note(ctx, job)
-                + self._revisit_note(ctx, job) + self._ask_note(ctx, job) + self._collab_note(ctx, job)
+        system = rules_sent.at_system(job)  # The notes' fixed rules are there with the bridge rules (``_system_notes``).
+        return ("\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown) + self._gist_note(ctx, job, system=system)
+                + self._revisit_note(ctx, job, system=system) + self._ask_note(ctx, job, system=system)
+                + self._collab_note(ctx, job)
                 + self._criteria_note(ctx, job) + self._images_note(ctx, job, resumed=resumed))
 
     def _turn_tail(self, ctx: BridgeContext, job: ReplyJob) -> str:
@@ -746,34 +751,44 @@ class Runs:
         return "\n\n" + note if note else ""
 
     @staticmethod
-    def _gist_note(ctx: BridgeContext, job: ReplyJob) -> str:
+    def _gist_note(ctx: BridgeContext, job: ReplyJob, *, system: bool = False) -> str:
         """话题要点's rule and the topic's current gist (COVEY_PROJECT_TIDY on, an ordinary topic or a project's topic: not the
-        butler's family, not a lead), '' otherwise (core/checkpoint.py TOPIC_GIST_RULE)."""
+        butler's family, not a lead), '' otherwise (core/checkpoint.py TOPIC_GIST_RULE). ``system``: the rule is at the
+        system level with the bridge rules (``_system_notes``): the gist alone."""
         from covey.core import project_proposals, topic_gist
 
         topic = job.topic_id or ctx.topic_id
         if not project_proposals.enabled() or not topic or is_butler_topic(topic, job.chat_id):
             return ""
-        return "\n\n" + gist_note(topic_gist.lines(topic_gist.read(ctx.state_dir, topic)))
+        note = gist_note(topic_gist.lines(topic_gist.read(ctx.state_dir, topic)))
+        return "\n\n" + (note.removeprefix(TOPIC_GIST_RULE + "\n") if system else note)
 
     @staticmethod
-    def _revisit_note(ctx: BridgeContext, job: ReplyJob) -> str:
-        """到点回来看's rule (COVEY_REVISIT=1, an ordinary topic: app/revisits.py ordinary), '' otherwise."""
+    def _revisit_note(ctx: BridgeContext, job: ReplyJob, *, system: bool = False) -> str:
+        """到点回来看's rule (COVEY_REVISIT=1, an ordinary topic: app/revisits.py ordinary), '' otherwise and when it is at
+        the system level (``system``)."""
         from covey.app import revisits
 
         topic = job.topic_id or ctx.topic_id
-        if not revisits.records.enabled() or not revisits.ordinary(ctx.state_dir, topic, job.chat_id):
+        if system or not revisits.records.enabled() or not revisits.ordinary(ctx.state_dir, topic, job.chat_id):
             return ""
         return "\n\n" + revisits.REVISIT_RULE
 
-    def _ask_note(self, ctx: BridgeContext, job: ReplyJob) -> str:
+    def _ask_note(self, ctx: BridgeContext, job: ReplyJob, *, system: bool = False) -> str:
         """话题转交管家's rule (app/butler_asks.py: COVEY_PROJECTS=1 with the butler on, the owner's own turn of a topic
-        in a chat with a butler), '' otherwise."""
+        in a chat with a butler), '' otherwise and when it is at the system level (``system``)."""
         from covey.app import butler_asks
 
-        if not butler_asks.offered(self.runtime.access, ctx.state_dir, job, job.topic_id or ctx.topic_id):
+        if system or not butler_asks.offered(self.runtime.access, ctx.state_dir, job, job.topic_id or ctx.topic_id):
             return ""
         return "\n\n" + butler_asks.RULE
+
+    def _system_notes(self, ctx: BridgeContext, job: ReplyJob) -> str:
+        """The rules of the notes above that are the same every turn (话题要点, 到点回来看, 话题转交管家), for the rules at the
+        system level (WAVE12 C9: they were in every turn's message); '' for none."""
+        rules = [TOPIC_GIST_RULE if self._gist_note(ctx, job) else "", self._revisit_note(ctx, job).strip(),
+                 self._ask_note(ctx, job).strip()]
+        return "\n\n".join(rule for rule in rules if rule)
 
     def _collab_note(self, ctx: BridgeContext, job: ReplyJob) -> str:
         """协作 (app/collab_flow.py, COVEY_COLLAB=1): the rule for asking other topics in the owner's own turn of a topic

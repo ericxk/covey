@@ -8,7 +8,8 @@ HarnessCapabilities ``system_instructions``), and each keeps it its own way (``s
 a local fake model service):
 
 - ``"turn"`` (dsh: its patch's ``personaSuffix``; agy: the private home's ``~/.gemini/GEMINI.md``): read again at every
-  turn, so the session always has the rules as they are now, after a compaction too.
+  turn. A change there would cost the whole conversation's cache (the system prompt is its prefix), so the session keeps
+  its own text (``pinned_text``, under ``<topic>/rules-text/``) until a compaction, and is told a newer one as below.
 - ``"compaction"`` (Claude Code: ``--append-system-prompt`` on every invocation): a session keeps the system prompt of its
   first invocation, until a compaction renders it again from the invocation's own.
 - ``""`` (Codex: a new thread's ``developerInstructions``): kept in the thread's history from its start, through a
@@ -83,6 +84,10 @@ class Plan:
     refresh: str = ""
     intact: bool = True
     entry: dict = dataclasses.field(default_factory=dict)
+    # On a Harness that reads them again at every turn: the session's own text, kept for it (``pinned_text``), to put
+    # at the system level in place of the turn's, so its prompt's prefix, and its cache, stay as they were; '' none.
+    pinned: str = dataclasses.field(default="", repr=False)
+    text: str = dataclasses.field(default="", repr=False)  # The turn's rules, kept for the session when it takes them.
 
 
 def path(state_dir, topic_id) -> Path:
@@ -155,16 +160,44 @@ def intact(ctx, previous: dict | None, before: dict | None, found: dict | None =
     return True, ""
 
 
+CACHE_GONE = ("compacted", "context_dropped")  # An ``intact`` reason after which the cache has nothing to keep.
+
+
+def pinned_path(state_dir, topic_id, version_: str) -> Path:
+    """Where a session's own rules of ``version_`` are kept (a Harness that reads them again at every turn)."""
+    return Path(state_dir) / "topics" / str(topic_id) / "rules-text" / f"{version_}.md"
+
+
+def pinned_text(ctx, job, found: dict) -> str:
+    """The rules ``found`` (a session's record) says the session has, as kept (``pinned_path``); '' when not kept."""
+    sha = str((found or {}).get("system") or "")
+    if not sha or not _topic(ctx, job):
+        return ""
+    try:
+        text = pinned_path(ctx.state_dir, _topic(ctx, job), sha).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    return text if version(text) == sha else ""
+
+
 def decide(ctx, job, session_id, *, current: str, refresh: str, previous: dict | None,
            before: dict | None) -> tuple[str, str, bool]:
     """(mode, reason, intact) of the turn whose rules are of version ``current`` on a Harness of ``refresh``;
-    ``previous`` the topic's last turn's job record before this one and ``before`` the one before that (None: none)."""
+    ``previous`` the topic's last turn's job record before this one and ``before`` the one before that (None: none).
+    A Harness that reads them again at every turn keeps a session's own (``pinned_text``) at the system level: its
+    prompt's prefix stays the same, and its cache with it; it takes the turn's in a new session, when it has none kept,
+    and after a compaction (``CACHE_GONE``), else is told them as any other (OVERRIDE)."""
     found = entry(ctx, job, session_id)
     held, why = intact(ctx, previous, before, found)
-    if refresh == REREAD:
-        return SYSTEM, "reread", held
     if not session_id and not (getattr(ctx, "options", None) or {}).get("fork_session"):
         return SYSTEM, "new_session", True
+    if refresh == REREAD:
+        if found.get("system") == current:
+            return SYSTEM, "", held
+        if not pinned_text(ctx, job, found):
+            return SYSTEM, "reread", held  # Nothing kept: the turn's go there, and are kept from now on.
+        if why in CACHE_GONE:
+            return SYSTEM, "refresh", held  # The cache has nothing left to keep: the turn's go there.
     if found.get("system") == current:
         return SYSTEM, "", held
     if found.get("override") == current and held:
@@ -177,10 +210,20 @@ def plan(ctx, job, session_id, *, current: str, refresh: str, previous: dict | N
     return decide(ctx, job, session_id, current=current, refresh=refresh, previous=previous, before=before)[0]
 
 
-def make(ctx, job, session_id, *, current: str, refresh: str, previous: dict | None, before: dict | None) -> Plan:
-    """``decide`` as a Plan, with the session's record."""
+def make(ctx, job, session_id, *, current: str, refresh: str, previous: dict | None, before: dict | None,
+         text: str = "") -> Plan:
+    """``decide`` as a Plan, with the session's record, and on a Harness that reads them again the session's own rules
+    to keep at the system level (``pinned``: '' when the turn's, ``text``, go there)."""
     mode, reason, held = decide(ctx, job, session_id, current=current, refresh=refresh, previous=previous, before=before)
-    return Plan(mode, reason, current, refresh, held, entry(ctx, job, session_id))
+    found = entry(ctx, job, session_id)
+    keep = refresh == REREAD and reason not in ("new_session", "reread", "refresh") and found.get("system") != current
+    return Plan(mode, reason, current, refresh, held, found, pinned=pinned_text(ctx, job, found) if keep else "",
+                text=text)
+
+
+def system_text(found, rules: str) -> str:
+    """What goes at the system level this turn: the session's own rules when the plan keeps them, else ``rules``."""
+    return found.pinned if isinstance(found, Plan) and found.pinned else rules
 
 
 def mode_of(job) -> str:
@@ -211,12 +254,21 @@ def record(ctx, job, session_id, found: Plan, *, compacted: bool = False) -> Non
     the turn's version told; else one turn more since the override. A Harness that reads them again keeps none. A fork's
     first turn starts from its source's record. Unreadable leaves the file as it was."""
     topic, harness = _topic(ctx, job), _harness(ctx, job)
-    if not session_id or not topic or not harness or found.mode not in MODES or found.refresh == REREAD:
+    if not session_id or not topic or not harness or found.mode not in MODES:
         return
     target = path(ctx.state_dir, topic)
     base = entry(ctx, job, session_id)
     now = binding(ctx)
-    renewed = found.reason == "new_session" or (compacted and found.refresh == ON_COMPACTION)
+    renewed = (found.reason in ("new_session", "reread", "refresh") if found.refresh == REREAD else
+               found.reason == "new_session" or (compacted and found.refresh == ON_COMPACTION))
+    if found.refresh == REREAD and renewed:
+        if not found.text:
+            return  # Nothing to keep: the next turn takes its own again.
+        kept = pinned_path(ctx.state_dir, topic, found.current)
+        if not kept.is_file():
+            from covey.core.state import write_private_text
+
+            write_private_text(kept, found.text)
 
     def change(saved):
         sessions = saved.get("sessions") if isinstance(saved.get("sessions"), dict) else {}
