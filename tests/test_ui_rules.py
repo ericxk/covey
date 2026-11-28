@@ -463,12 +463,34 @@ class WebSettingsLayoutTest(unittest.TestCase):
         self.assertNotIn('<h3 className="st-h">更多</h3>\n        <Grid', self.tsx)
         self.assertNotIn("去飞书改", self.tsx.replace("「去飞书改」已下线", ""))
         self.assertNotIn("FeishuBtn", self.tsx)
+class IconsTest(unittest.TestCase):
+    """U17: the brand's quail at the sidebar's top, 大厅 a line icon like 看板 and 记忆 (the sidebar and the phone's tab bar
+    the same one), the butler a picture of its own that is not the brand's."""
+
+    WEB_CV = REPO / "web" / "client" / "src" / "cv"
+
+    def test_brand_hall_and_butler(self):
+        import hashlib
+        shell = (self.WEB_CV / "Shell.tsx").read_text(encoding="utf-8")
+        self.assertIn("import brandMark from './brand/covey.png';", shell)
+        self.assertRegex(shell, r'<img className="logo" src=\{brandMark\}')
+        self.assertIn("const HallIcon = MessagesSquare;", shell)
+        hall = re.findall(r'<Link to="/butler"[^>]*>\s*<(\w+)', shell)
+        self.assertEqual(hall, ["HallIcon", "HallIcon"], "侧栏和手机标签栏的大厅都用 HallIcon")
+        butler = REPO / "covey" / "assets" / "avatars" / "butler.png"
+        brand = self.WEB_CV / "brand" / "covey.png"
+        self.assertNotEqual(hashlib.sha256(butler.read_bytes()).digest(), hashlib.sha256(brand.read_bytes()).digest())
+        for page in ("index.html", "selfhost/index.html"):
+            with self.subTest(page=page):
+                html = (REPO / "web" / "client" / page).read_text(encoding="utf-8")
+                self.assertIn('href="/favicon.png"', html)
+        self.assertTrue((REPO / "web" / "client" / "public" / "favicon.png").is_file())
 
 
 # The rules of this module, by their number in docs/ui.md 13.
 RULES = {"U1": "BandTest", "U2": "HeaderTest", "U3": "SpeakerRowTest", "U4": "QuestionButtonsTest", "U5": "ModelChoiceTest",
          "U6": "ButtonWordsTest", "U11": "BoardBandTest", "U13": "TidyFailedTest", "U14": "AssistSectionTest",
-         "U15": "MoreFoldTest", "U16": "WebSettingsLayoutTest"}
+         "U15": "MoreFoldTest", "U16": "WebSettingsLayoutTest", "U17": "IconsTest"}
 
 
 def decisions() -> list:
