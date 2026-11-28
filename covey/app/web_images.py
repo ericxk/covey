@@ -19,6 +19,7 @@ import base64
 import hashlib
 import io
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -39,6 +40,7 @@ ID_CHARS = 32
 KEEP_DAYS = 90
 UPLOADS_PER_STEP = 8  # Images sent in one push step, and at most UPLOAD_SECONDS of it: a step must keep moving (web_sync STUCK_SECONDS).
 UPLOAD_SECONDS = 20.0
+TOUCH_UPLOAD_SECONDS = 8.0  # The touch's upload of what the page just sent (web_sync.WebSync.touch_once): its step is stuck after 15 s.
 FILES_KEPT = 20000
 BAD_KEPT = 2000
 MEDIA = "incoming_media"
@@ -175,8 +177,10 @@ def file_id(path) -> str:
 class WebImages:
     """The images of the turns the push builds: ``refs`` says what a turn carries and remembers what is still to be sent;
     ``upload`` sends some of it and says which topics to build again. The quick looks' thread and the pass's both build turns
-    (app/web_sync.py): what they change here is one dict entry at a time (a file's id, a pending image), which needs no lock; the
-    pass's thread alone uploads and saves, and changes ``ids`` and ``bad``."""
+    (app/web_sync.py): what they change here is one dict entry at a time (a file's id, a pending image), which needs no lock. The
+    pass's thread uploads, and so does the touch's, the images of the topics the page just acted on (an image the owner sent there is
+    on the page within seconds, not after a pass step slowed by the network disk): one at a time (``lock``), which alone changes
+    ``ids`` and ``bad`` and saves."""
 
     def __init__(self, state, log=None) -> None:
         self.state = Path(state)
@@ -190,6 +194,7 @@ class WebImages:
         self.named = {}  # an owner line's words -> media_paths of them (a hot topic is built every second: no path resolved again)
         self.backfilled = 0.0  # When every topic's turns were built once with their images (the first pass after this came).
         self.changed = False
+        self.lock = threading.RLock()  # An upload, and a save, one at a time (the pass's thread and the touch's).
         self.load()
 
     # -- the ledger -----------------------------------------------------------------------------------------------------
@@ -209,20 +214,21 @@ class WebImages:
         self.backfilled = data.get("backfilled") if isinstance(data.get("backfilled"), (int, float)) else 0.0
 
     def save(self, now=None) -> None:
-        if not self.changed:
-            return
-        now = time.time() if now is None else now
-        self.ids = {key: value for key, value in self.ids.items() if (value[2] or now) >= now - 30 * 86400}
-        if len(self.files) > FILES_KEPT:
-            self.files = dict(list(self.files.items())[-FILES_KEPT:])
-        if len(self.bad) > BAD_KEPT:
-            self.bad = dict(list(self.bad.items())[-BAD_KEPT:])
-        try:
-            self.path().parent.mkdir(parents=True, exist_ok=True)
-            write_json(self.path(), {"ids": self.ids, "files": self.files, "bad": self.bad, "backfilled": self.backfilled})
-            self.changed = False
-        except OSError:
-            pass
+        with self.lock:
+            if not self.changed:
+                return
+            now = time.time() if now is None else now
+            self.ids = {key: value for key, value in self.ids.items() if (value[2] or now) >= now - 30 * 86400}
+            if len(self.files) > FILES_KEPT:
+                self.files = dict(list(self.files.items())[-FILES_KEPT:])
+            if len(self.bad) > BAD_KEPT:
+                self.bad = dict(list(self.bad.items())[-BAD_KEPT:])
+            try:
+                self.path().parent.mkdir(parents=True, exist_ok=True)
+                write_json(self.path(), {"ids": self.ids, "files": self.files, "bad": self.bad, "backfilled": self.backfilled})
+                self.changed = False
+            except OSError:
+                pass
 
     def mark_backfilled(self, now) -> None:
         self.backfilled, self.changed = now, True
@@ -331,14 +337,27 @@ class WebImages:
         self.ids[ident] = [width, height, int(expires)]
         self.changed = True
 
-    def upload(self, client, now=None, moved=None) -> set:
+    def upload(self, client, now=None, moved=None, only=None) -> set:
         """Send up to UPLOADS_PER_STEP pending images (UPLOAD_SECONDS at most); the topics whose turns now have more of their
-        images. Raises the client's error when the page refuses; what was sent before stays sent."""
-        if not self.pending:
+        images. ``only`` (the touch's): just the images of those topics, up to PER_TURN of them in TOUCH_UPLOAD_SECONDS. None while
+        the other thread uploads (``lock``): it says which topics to build again itself. Raises the client's error when the page
+        refuses; what was sent before stays sent."""
+        if not self.pending or not self.lock.acquire(blocking=False):
             return set()
-        now = time.time() if now is None else now
+        try:
+            return self.upload_some(client, time.time() if now is None else now, moved, only)
+        finally:
+            self.lock.release()
+
+    def upload_some(self, client, now, moved, only) -> set:
         began = time.monotonic()
-        batch = list(self.pending.items())[:UPLOADS_PER_STEP]
+        if only is None:
+            batch, seconds = list(self.pending.items())[:UPLOADS_PER_STEP], UPLOAD_SECONDS
+        else:
+            batch = [(raw, wants) for raw, wants in list(self.pending.items()) if wants[0] in only][:PER_TURN]
+            seconds = TOUCH_UPLOAD_SECONDS
+        if not batch:
+            return set()
         idents = {}
         for raw, _ in batch:
             row = self.files.get(raw)
@@ -351,7 +370,7 @@ class WebImages:
             have = {str(each) for each in answer.get("have") or []}
         topics = set()
         for raw, (topic, expires) in batch:
-            if time.monotonic() - began > UPLOAD_SECONDS:
+            if time.monotonic() - began > seconds:
                 break
             ident = idents.get(raw)
             if ident is not None and ident not in self.ids and ident in have:

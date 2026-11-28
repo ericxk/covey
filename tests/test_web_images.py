@@ -8,6 +8,7 @@ import base64
 import io
 import json
 import struct
+import threading
 import unittest
 import zlib
 from unittest import mock
@@ -270,6 +271,62 @@ class BackfillTest(ImagesCase):
         fresh.client.opener = self.sync.client.opener
         fresh.push_once(later + 200)
         self.assertEqual(len(self.web.items("topic")), pushed)
+
+
+class TouchImageTest(ImagesCase):
+    """2026-11-28 T932: the owner opened a topic on the page with a screenshot; 20 s on, his line there still said 附件：图片 1 张 and
+    showed none. Only the pass's thread sent images, a step of it after reading 25 topics on the network disk (images.json had it
+    40 s after his words). The touch, which pushes what the page just acted on, sends that topic's images itself and pushes it again."""
+
+    def touched(self, now):
+        self.sync.load_sent()
+        self.sync.touch_soon({TOPIC})
+        return self.sync.touch_once(now)
+
+    def test_an_image_sent_on_the_page_goes_up_with_the_touch_and_its_turn_is_pushed_again_with_it(self):
+        path = png(self.media / "web-0123456789abcdef-shot.png")
+        self.said_with(path)
+        self.assertGreater(self.touched(T0), 0)
+        self.assertEqual(self.owner_turn()["body"], "看这张图\n附件：图片 1 张")  # His words at once, before the image is up.
+        ident = web_images.file_id(path)
+        self.assertEqual(sorted(self.web.images), [(ident, "full"), (ident, "thumb")])  # No pass step ran.
+        self.assertTrue(self.sync.touch_event.is_set())  # Built and pushed again by the next touch.
+        self.assertGreater(self.sync.touch_once(T0 + 1), 0)
+        self.assertEqual([image["id"] for image in self.owner_turn()["images"]], [ident])
+        self.assertEqual(self.sync.images.pending, {})
+        self.assertFalse(self.sync.touch_event.is_set())  # Nothing more to send: no touch after it.
+
+    def test_the_touch_sends_only_the_images_of_the_topics_the_page_acted_on(self):
+        other = png(self.state / "topics" / "other-topic" / "incoming_media" / "om_9-1-img.png", color=(200, 30, 30))
+        self.sync.images.sent(f"`{other}`", "other-topic", T0, T0)
+        path = png(self.media / "web-0123456789abcdef-shot.png")
+        self.said_with(path)
+        self.touched(T0)
+        self.assertEqual({ident for ident, _ in self.web.images}, {web_images.file_id(path)})
+        self.assertIn(str(other), self.sync.images.pending)  # Left to the pass's step.
+
+    def test_while_the_pass_sends_images_the_touch_leaves_them_to_it(self):
+        path = png(self.media / "web-0123456789abcdef-shot.png")
+        self.said_with(path)
+        held, done = threading.Event(), threading.Event()
+
+        def pass_uploading():
+            with self.sync.images.lock:
+                held.set()
+                done.wait(5)
+        thread = threading.Thread(target=pass_uploading, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        self.addCleanup(done.set)
+        self.assertTrue(held.wait(5))
+        self.assertGreater(self.touched(T0), 0)
+        self.assertEqual(self.web.images, {})
+        self.assertIn(str(path), self.sync.images.pending)  # The pass sends it, then the quick look builds the topic again.
+        done.set()
+        thread.join(5)
+        self.sync.push_images(self.sync.passer, T0 + 1)
+        self.assertEqual(len(self.web.images), 2)
+        self.assertIn(TOPIC, self.sync.collector.dirty)
 
 
 class LateStateTest(ImagesCase):

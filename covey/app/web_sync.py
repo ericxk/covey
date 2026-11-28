@@ -523,8 +523,13 @@ class WebSync:
             self.touch_soon(set(topics) - hung)  # Read again and sent once the page takes batches again (the loop waits it out).
             raise
         toucher.touching = set()
-        toucher.mark("")
         self.pace.note("touch", time.monotonic() - woke)
+        # The images the owner just sent with his words (or a task showed him) go up now, and these topics are built and pushed
+        # again with them: left to the pass's step, which reads 25 topics on the network disk, they came 20-40 s after his words
+        # (2026-11-28 T932: the page said 附件：图片 1 张 and showed none).
+        toucher.mark("images")
+        self.push_images(toucher, time.time() if now is None else now, only=set(topics) - hung)
+        toucher.mark("")
         return count
 
     def touch_hung_now(self) -> set:
@@ -769,14 +774,15 @@ class WebSync:
         self.collector.images = self.passer.images = self.toucher.images = self.rereader.images = self.images
         self.passer.backfill = not self.images.backfilled
 
-    def push_images(self, collector, now) -> None:
+    def push_images(self, collector, now, only=None) -> None:
         """Some of the images the turns asked for (web_images.WebImages.upload), from the pass's thread; their topics are built again
-        on the next quick look, now with them. A page that does not take them (an older page without /sync/image, a refusal) only holds
-        the images back IMAGES_WAIT seconds: the items go on as before."""
-        if self.images is None or now < self.images_wait:
+        on the next quick look, now with them. ``only`` (from the touch's thread): just the images of the topics the page acted on,
+        and the touch builds and pushes them again. A page that does not take them (an older page without /sync/image, a refusal) only
+        holds the images back IMAGES_WAIT seconds: the items go on as before."""
+        if self.images is None or now < self.images_wait or only == set():
             return
         try:
-            topics = self.images.upload(self.client, now, lambda: setattr(collector, "moved", time.monotonic()))
+            topics = self.images.upload(self.client, now, lambda: setattr(collector, "moved", time.monotonic()), only=only)
         except WebError as exc:
             self.images_down += 1
             if self.images_down == 1 or self.images_down % 10 == 0:
@@ -784,6 +790,10 @@ class WebSync:
             self.images_wait = now + IMAGES_WAIT
             return
         self.images_down = 0
+        if only is not None:
+            if topics:
+                self.touch_soon(topics)
+            return
         for topic in topics:
             self.collector.touch(topic)
         if topics:
