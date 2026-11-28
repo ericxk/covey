@@ -595,7 +595,9 @@ class LedgerTest(unittest.TestCase):
                      {"start": "t2", "head": "aaa", "result": "pass"},
                      {"start": "t3", "head": "aaa", "result": "fail", "failed": ["test_b.B.test_y", "test_a.A.test_x"]},
                      {"start": "t4", "head": "bbb", "result": "skipped", "covered_by": "t2"},
-                     {"start": "t5", "head": "bbb", "result": "fail", "failed": ["test_a.A.test_x"]}]
+                     {"start": "t5", "head": "bbb", "result": "fail", "failed": ["test_a.A.test_x"]},
+                     # Passed on its retry: the tests that failed the first time count too.
+                     {"start": "t6", "head": "ccc", "result": "pass", "flaky": ["test_c.C.test_z"]}]
             ledger.write_text("".join(json.dumps(line) + "\n" for line in lines) + "not json\n")
             argv = ["test_map.py", "flaky", "--ledger", str(ledger)]
             with mock.patch.object(test_map, "FORBIDDEN", ()):  # Test temp files may be on /dev/shm, a ledger never.
@@ -604,8 +606,9 @@ class LedgerTest(unittest.TestCase):
                 with redirect_stderr(io.StringIO()) as err:
                     self.assertEqual(test_map.flaky(SimpleNamespace(ledger=str(Path(root) / "none.jsonl"))), 2)
         self.assertEqual(out.getvalue().splitlines(), [
-            f"{ledger}: 3 failed runs (1 logged before the ledger named tests), 2 tests named",
+            f"{ledger}: 4 failed runs (1 logged before the ledger named tests), 3 tests named",
             "   2  last t5  test_a.A.test_x  (at aaa bbb)",
+            "   1  last t6  test_c.C.test_z  (at ccc)",
             "   1  last t3  test_b.B.test_y  (at aaa)"])
         self.assertIn("no ledger at", err.getvalue())
 
@@ -665,6 +668,19 @@ class ChildHookTest(unittest.TestCase):
 
 
 JOBS_MODULES = {
+    "jobs_flaky": '''\
+        import os
+        import unittest
+        from pathlib import Path
+
+
+        class F(unittest.TestCase):
+            def test_once(self):
+                marker = Path(os.environ["JOBS_PID"]).with_name("flaky-ran")
+                first = not marker.exists()
+                marker.write_text("ran")
+                self.assertFalse(first, "fails the first time only")
+        ''',
     "jobs_pass": '''\
         import unittest
 
@@ -773,6 +789,35 @@ class ParallelRunTest(unittest.TestCase):
         self.assertNotIn("noise", err)  # A child's output stays in its log.
         self.assertIsNotNone(reports["jobs_pass"]["seconds"])
         self.assertIsNone(reports["jobs_crash"]["seconds"])
+
+    def retrying(self, names, root):
+        env = {"PYTHONPATH": str(root), "JOBS_PID": str(root / "pid")}
+        entry = {"ledger": None}
+        with mock.patch.dict(os.environ, env), redirect_stderr(io.StringIO()) as err:
+            result, _ = test_map.run_retrying(names, 4, entry, None)
+        return result, entry, err.getvalue()
+
+    def test_failed_modules_run_once_more_and_one_that_passes_then_is_named_flaky(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            self.write_modules(root)
+            result, entry, err = self.retrying(["jobs_flaky", "jobs_pass"], root)
+        self.assertIn("retrying the failed modules once: jobs_flaky jobs_pass\n", err)
+        self.assertEqual(entry["flaky"], ["jobs_flaky.F.test_once"])
+        # jobs_pass fails the same way twice: its second report is the one kept, once.
+        self.assertEqual(test_map.failed_ids(result), ["jobs_pass.P.test_sub", "setUpClass (jobs_pass.Q)"])
+        self.assertEqual(result.testsRun, 4)  # jobs_flaky's one test and jobs_pass's three, each counted once.
+
+    def test_no_retry_when_more_modules_failed_than_retry_allows(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            self.write_modules(root)
+            with mock.patch.object(test_map, "RETRY", 1):
+                result, entry, err = self.retrying(["jobs_flaky", "jobs_pass"], root)
+        self.assertNotIn("retrying", err)
+        self.assertNotIn("flaky", entry)
+        self.assertEqual(test_map.failed_ids(result), ["jobs_flaky.F.test_once", "jobs_pass.P.test_sub",
+                                                       "setUpClass (jobs_pass.Q)"])
 
     def test_a_module_past_its_timeout_is_an_error_and_its_process_group_goes(self):
         with tempfile.TemporaryDirectory() as root:

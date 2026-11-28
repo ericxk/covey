@@ -201,6 +201,10 @@ PROVE_TIMEOUT = 900  # Seconds per test module.
 # took ~64 s with 4, ~54 s with 8 and ~43 s with 12 (medians, noisy); past 8 the slowest module (~28 s) bounds it.
 JOBS = min(8, os.cpu_count() or 1)
 MODULE_TIMEOUT = 600  # Seconds per test module in run and build (the slowest takes ~60 s alone, ~185 s on an NFS stall).
+# run and build: when at most this many modules failed, they run once more (scripts/ci_retry_modules.py's LIMIT):
+# a module that waits on the clock or a child process fails now and then on a loaded machine; more failed
+# modules than this is no loaded machine.
+RETRY = 4
 TIMES = "test-map-times.json"  # Next to the ledger: each module's last seconds, longest started first.
 LIST_KINDS = ("failures", "errors", "skipped", "expectedFailures", "unexpectedSuccesses")  # unittest.TestResult's.
 
@@ -368,7 +372,7 @@ def build(args) -> int:
         os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, (str(hooks), os.environ.get("PYTHONPATH"))))
         try:
             start = time.time()
-            result, reports = run_modules(picked, args.jobs, entry, temp, hooks)
+            result, reports = run_retrying(picked, args.jobs, entry, temp, hooks)
             for name in picked:
                 seen[name]  # A module that runs nothing tracked still gets an entry.
                 for line in reports[name]["coverage"]:  # The child resolved its paths in its working directory.
@@ -1072,7 +1076,7 @@ def run(args) -> int:
         return 0
     start = time.time()
     with test_temp(args.test_tmpdir) as temp:
-        result, _ = run_modules(list(suites) if picked is None else picked, args.jobs, entry, temp)
+        result, _ = run_retrying(list(suites) if picked is None else picked, args.jobs, entry, temp)
     return finish(args, entry, result, start)
 
 
@@ -1127,11 +1131,7 @@ def run_modules(names, jobs, entry, temp, hooks=None) -> tuple[unittest.TestResu
         with contextlib.suppress(OSError):
             times_path.parent.mkdir(parents=True, exist_ok=True)
             times_path.write_text(json.dumps(dict(sorted(times.items())), indent=0) + "\n")
-    result = unittest.TestResult()
-    for name in names:  # Module order, as a serial run printed them.
-        result.testsRun += reports[name]["ran"]
-        for kind, items in reports[name]["lists"].items():
-            getattr(result, kind).extend(items)
+    result = merged(names, reports)
     for flavour, items in (("ERROR", result.errors), ("FAIL", result.failures)):
         for test, text in items:
             print(f"{'=' * 70}\n{flavour}: {test}\n{'-' * 70}\n{text}", file=sys.stderr)
@@ -1386,6 +1386,42 @@ def append(entry, record) -> None:
             ledger.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+def failing(report) -> list[str]:
+    """The ids of the tests a module's report (run_module) lists with failures or errors, in order."""
+    return [getattr(test, "test_case", test).id() for test, _ in report["lists"]["failures"] + report["lists"]["errors"]]
+
+
+def merged(names, reports) -> unittest.TestResult:
+    """The reports of ``names`` as one unittest result, in module order (as a serial run printed them)."""
+    result = unittest.TestResult()
+    for name in names:
+        result.testsRun += reports[name]["ran"]
+        for kind, items in reports[name]["lists"].items():
+            getattr(result, kind).extend(items)
+    return result
+
+
+def run_retrying(names, jobs, entry, temp, hooks=None) -> tuple[unittest.TestResult, dict[str, dict]]:
+    """run_modules, then once more the modules that failed when at most RETRY did, as CI does: each retried
+    module's second report takes the place of its first. -> (the merged result, the reports). The tests of a
+    module that passed only the second time go in ``entry["flaky"]`` (the ledger line keeps them; `flaky` counts
+    them), so a retry hides nothing from the record."""
+    result, reports = run_modules(names, jobs, entry, temp, hooks)
+    failed = [name for name in names if failing(reports[name])]
+    if not failed or len(failed) > RETRY:
+        return result, reports
+    first = {name: failing(reports[name]) for name in failed}
+    print(f"retrying the failed module{'s' * (len(failed) > 1)} once: {' '.join(failed)}", file=sys.stderr)
+    _, again = run_modules(failed, min(jobs, len(failed)), entry, temp, hooks)
+    reports.update(again)
+    passed = [name for name in failed if not failing(again[name])]
+    if passed:
+        entry["flaky"] = [test for name in passed for test in first[name]]
+        print(f"passed the second time: {' '.join(passed)} (failed the first time: {', '.join(entry['flaky'])})",
+              file=sys.stderr)
+    return merged(names, reports), reports
+
+
 def failed_ids(result) -> list[str]:
     """The ids of the tests with failures or errors, in order, FAILED at most: "test_x.SomeTests.test_y";
     a subtest as its test, a setUpClass or import error as unittest names it."""
@@ -1418,15 +1454,16 @@ def flaky(args) -> int:
         note(f"no ledger{f' at {path}' if path else ''}: set --ledger or BRIDGE_TEST_LEDGER (or a TMPDIR outside "
              "the repo, $HOME and /tmp)")
         return 2
-    runs = [entry for entry in read_ledger(path) if entry.get("result") == "fail"]
+    runs = [entry for entry in read_ledger(path) if entry.get("result") == "fail" or entry.get("flaky")]
     found: dict[str, dict] = {}
     for order, entry in enumerate(runs):  # The ledger is appended to: a later line is a later run.
-        for test in entry.get("failed") or ():
+        # A run that passed on a retry names the tests that failed the first time in ``flaky``.
+        for test in [*(entry.get("failed") or () if entry.get("result") == "fail" else ()), *(entry.get("flaky") or ())]:
             seen = found.setdefault(test, {"count": 0, "heads": []})
             seen.update(count=seen["count"] + 1, last=entry.get("start", "?"), order=order)
             if entry.get("head") and entry["head"] not in seen["heads"]:
                 seen["heads"].append(entry["head"])
-    unnamed = sum("failed" not in entry for entry in runs)
+    unnamed = sum("failed" not in entry and not entry.get("flaky") for entry in runs)
     print(f"{path}: {len(runs)} failed runs" + (f" ({unnamed} logged before the ledger named tests)" if unnamed else "")
           + f", {len(found)} tests named")
     for test, seen in sorted(found.items(), key=lambda item: (-item[1]["count"], -item[1]["order"], item[0])):

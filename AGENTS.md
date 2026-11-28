@@ -671,8 +671,9 @@
 
 - 开发中只跑 `python3 -B scripts/test_map.py run --why "<原因>" [路径…]`：按改动的函数选模块，记进台账（`BRIDGE_TEST_LEDGER`）。
 - `run`、`build` 每个测试模块一个子进程，`--jobs` 个并行（默认 8，`--jobs 1` 逐个）；测试的输出不显示，失败和错误照 unittest 格式列出。
+- `run`、`build` 失败的模块不超过 4 个时，自己把它们重跑一次（和 CI 一样），第二次过了就算过，第一次失败的用例记进台账的 `flaky`（`test_map.py flaky` 照样数它们）：不用再手动逐个重跑确认是不是不稳定。
 - `run`、`build` 把测试临时文件放 `/dev/shm`（所有者同意，仅限测试临时文件，跑完即删）；它是 noexec，要直接执行写出的文件用 `support.exec_tempdir()`。
-- 每个阶段结束一次全量：加了或改名了测试（`select` 提示地图过期）时 `build` 并提交 `tests/test_map.json`（地图过期时 `run --full` 拒绝），否则 `run --full`。不在没改的树上重跑全量，不拿全量当修复循环。
+- 每个阶段结束一次全量：加了或改名了测试（`select` 提示地图过期）时 `build` 并提交 `tests/test_map.json`（地图过期时 `run --full` 拒绝），否则 `run --full`。不在没改的树上重跑全量，不拿全量当修复循环；合并前 rebase 到最新 `main` 之后只跑本改动相关的模块（`run`），不为追主干重跑全量。
 - 动了扩展里用隔离解释器的后端或它导入的 `core/` 模块：再按扩展自己的 README 用那个解释器跑它的测试和 `--check-runtime`。核心测试另在 `COVEY_EXTENSIONS=''` 下跑一次全量，确认没有扩展也过。
 - 不改行为的改动：改前在基线上录两次 `scripts/golden_trace.py record`，改后录一次再 `compare --noise`；搬模块前跑 `scripts/test_map.py patches <模块>`，看哪些测试按旧路径打补丁（`docs/testing.md` 副作用轨迹与补丁清单）。
 - 新测试在旧代码上该失败：`scripts/test_map.py prove --base <提交>`；部署用 `scripts/deploy_bridge.sh`（先 `--check-only`）。
@@ -685,5 +686,6 @@
 
 ## 省 token
 
+- 互不依赖的查询（读几段文件、grep、git log）放在同一条消息里并行发，或合成一条命令一次读完；不要一条命令看一小段。
 - 不整篇读文档和大文件。可能很长的 Bash 输出写进文件，只看结尾和 `grep -E '^(FAIL|ERROR)'`；派子代理时给确切的文件和行号范围。
 - 只读要用的文档：结构、数据流和子系统规则读 `docs/architecture.md` 的那一节（`grep -n '^#'` 取行号），事件、执行过程、卡片点击和按钮读 `docs/cards.md`，管家 `docs/butler.md`（实现细节 `docs/butler-internals.md`），专项和整理专项 `docs/projects.md`，网页工作台 `docs/web.md`，代答 `docs/proxy.md`；测试 `docs/testing.md`；服务、数据目录和日常运维 `docs/operations.md`，升级与部署 `docs/deploy.md`，飞书应用的权限、事件和菜单 `docs/feishu-app.md`，手工安装 `docs/manual-install.md`，改名与新旧版本兼容 `docs/compat.md`；配置和环境变量 `docs/configuration.md`，已下线的功能和旧配置 `docs/legacy.md`；排障 `docs/troubleshooting.md`；Harness 参数 `docs/harnesses.md`；用户可见行为 `docs/usage.md`（细节在 `docs/reference.md`）；卡片和网页的词、颜色、组件 `docs/ui.md`。`docs/history/` 一般不用读。

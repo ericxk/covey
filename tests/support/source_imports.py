@@ -3,8 +3,10 @@ and of the company extension (its tests/test_maso_structure.py)."""
 from __future__ import annotations
 
 import ast
+import functools
 
 from support import REPO
+from support.source_cache import parse, read, walk
 
 PACKAGE = REPO / "covey"
 
@@ -17,11 +19,16 @@ def module_name(path):
 def imports(path, *, type_checking=False):
     """(module, imported name or None, line) of each absolute import in ``path``, inside functions too;
     without what ``if TYPE_CHECKING:`` imports unless ``type_checking``."""
-    tree = ast.parse(path.read_text())
-    skipped = set() if type_checking else {id(node) for block in ast.walk(tree) if isinstance(block, ast.If)
-                                            and "TYPE_CHECKING" in ast.unparse(block.test) for node in ast.walk(block)}
+    return list(_imports(path, type_checking))
+
+
+@functools.lru_cache(maxsize=None)
+def _imports(path, type_checking):  # Several structure tests read every module's imports: found once a file.
+    tree = parse(read(path))
+    skipped = set() if type_checking else {id(node) for block in walk(tree) if isinstance(block, ast.If)
+                                            and "TYPE_CHECKING" in ast.unparse(block.test) for node in walk(block)}
     found = []
-    for node in ast.walk(tree):
+    for node in walk(tree):
         if id(node) in skipped:
             continue
         if isinstance(node, ast.Import):
@@ -35,7 +42,7 @@ def imported_modules(source, package):
     """(module, line) of every import in ``source``, a module of ``package``: relative ones resolved, inside
     functions and under ``if TYPE_CHECKING:`` too; ``from a.b import c`` is a.b.c below the top two levels."""
     found = []
-    for node in ast.walk(ast.parse(source)):
+    for node in walk(parse(source)):
         if isinstance(node, ast.Import):
             found += [(alias.name, node.lineno) for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
@@ -73,5 +80,5 @@ def load_time_imports(path):
             elif isinstance(node, ast.With):
                 walk(node.body, guarded)
 
-    walk(ast.parse(path.read_text(encoding="utf-8")).body, False)
+    walk(parse(read(path)).body, False)
     return found

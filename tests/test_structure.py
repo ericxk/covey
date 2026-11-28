@@ -24,10 +24,12 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from operator import attrgetter
 from pathlib import Path
 
 from support import REPO
+from support.source_cache import parse, read, walk
 from support.source_imports import imported_modules, imports, load_time_imports, module_name
 from support.world import UnifiedCase
 
@@ -77,7 +79,7 @@ OTHER_ROUTES = {"bridge_directory", "bridge_restarted"}
 class CardActionTableTest(unittest.TestCase):
     def test_every_emitted_kind_is_accepted(self):
         literal = re.compile(r"""["']kind["']\s*:\s*["'](bridge_[a-z_]+)["']""")
-        emitted = {kind for path in PACKAGE.rglob("*.py") for kind in literal.findall(path.read_text())}
+        emitted = {kind for path in PACKAGE.rglob("*.py") for kind in literal.findall(read(path))}
         constants = {JOB_STOP_ACTION_KIND, NOTE_KIND, CHECK_KIND, REQUEUE_KIND, WITHDRAW_KIND,
                      *PROXY_PANEL_KINDS, *BUTLER_PANEL_KINDS}
         self.assertEqual((emitted | constants) - OTHER_ROUTES - set(ACTIONS), set())
@@ -103,9 +105,9 @@ class CardActionTableTest(unittest.TestCase):
         before_routing |= {OWNER_SEND, OWNER_SEND_DROP, OWNER_SEND_PICK,
                            OWNER_SEND_ASK}  # The 代发草稿 card (app/owner_send.py).
         before_routing |= BATCH_SWITCH_KINDS  # The 批量换配置 card (app/batch_switch.py).
-        init = next(node for node in ast.walk(ast.parse((PACKAGE / "app" / "app.py").read_text()))
+        init = next(node for node in walk(parse(read(PACKAGE / "app" / "app.py")))
                     if isinstance(node, ast.FunctionDef) and node.name == "__init__")
-        components = {node.targets[0].attr: getattr(bridge_app, node.value.func.id) for node in ast.walk(init)
+        components = {node.targets[0].attr: getattr(bridge_app, node.value.func.id) for node in walk(init)
                       if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Attribute)
                       and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name)}
         for kind, action in ACTIONS.items():
@@ -159,7 +161,7 @@ class ClickControllerTest(UnifiedCase):
         # carry a kind in their value, which test_every_emitted_kind_is_accepted reads.
         emitted = set()
         for path in PACKAGE.rglob("*.py"):
-            for node in ast.walk(ast.parse(path.read_text())):
+            for node in walk(parse(read(path))):
                 head = node.values[0] if isinstance(node, ast.JoinedStr) and node.values else node
                 if isinstance(head, ast.Constant) and isinstance(head.value, str):
                     emitted.add(head.value)
@@ -183,7 +185,7 @@ class CardSequenceScanTest(unittest.TestCase):
         computed = re.compile(r"sequence\s*\+=|sequence['\"]?\]?\s*=\s*max\(|max\(int\(time\.time\(\)\)")
         found = [f'{path.relative_to(PACKAGE)}:{n}' for path in PACKAGE.rglob('*.py')
                  if 'backends' not in path.parts and path.name != 'card_sequence.py'
-                 for n, line in enumerate(path.read_text().splitlines(), 1) if computed.search(line)]
+                 for n, line in enumerate(read(path).splitlines(), 1) if computed.search(line)]
         self.assertEqual(found, [])
 
 
@@ -272,7 +274,7 @@ class EntrypointTests(unittest.TestCase):
     def test_every_entry_runs_its_module_as_main(self):
         shims = {}
         for path in BIN.glob("*.py"):
-            calls = [n for n in ast.walk(ast.parse(path.read_text())) if isinstance(n, ast.Call)
+            calls = [n for n in walk(parse(read(path))) if isinstance(n, ast.Call)
                      and getattr(n.func, "attr", "") == "run_module"]
             if calls:
                 self.assertEqual([kw.arg for kw in calls[0].keywords], ["run_name", "alter_sys"], path.name)
@@ -285,8 +287,8 @@ class EntrypointTests(unittest.TestCase):
         # The old entry names stay as forwarders to the new ones (manifests, boot hooks and crontabs name them).
         forwards = {}
         for name in present(OLD_ENTRIES):
-            tree = ast.parse((BIN / name).read_text())
-            calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and hasattr(n.func, "attr")]
+            tree = parse(read(BIN / name))
+            calls = [n for n in walk(tree) if isinstance(n, ast.Call) and hasattr(n.func, "attr")]
             self.assertEqual([n.func.attr for n in calls if n.func.attr == "run_path"], ["run_path"], name)
             forwards[name] = [n.args[0].value for n in calls if n.func.attr == "with_name"][0]
         self.assertEqual(forwards, present(OLD_ENTRIES))
@@ -305,30 +307,31 @@ class EntrypointTests(unittest.TestCase):
         self.assertEqual((result.returncode, result.stdout), (0, "ok\n"), result.stderr[-2000:])
 
     def test_entries_start_from_their_historical_paths(self):
-        for name in sorted(ENTRIES):
-            if name in EXTENSION_ENTRIES and not (BIN / name).exists():
-                continue  # The extension's entry: not in the public export (a release gets it from the extension).
+        # Each entry is a process of its own; started a few at a time, they take a fraction of the time one by one did.
+        entries = [(name, ("--help",)) for name in sorted(ENTRIES)
+                   # The extension's entry: not in the public export (a release gets it from the extension).
+                   if not (name in EXTENSION_ENTRIES and not (BIN / name).exists())]
+        olds = [(old, ("--harness", "unified", "--help") if old == "lark_harness_bridge.py" else ("--help",))
+                for old in sorted(OLD_ENTRIES) if not (old in EXTENSION_ENTRIES and not (BIN / old).exists())]
+        runs = [*entries, ("covey_bridge.py", ("--harness", "unified", "--help")), *olds]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda run: run_entry(run[0], *run[1]), runs))
+        done = dict(zip(range(len(runs)), results))
+        for i, (name, _) in enumerate(entries):
             with self.subTest(name):
-                result = run_entry(name, "--help")
-                self.assertEqual(result.returncode, 0, result.stderr[-2000:])
-                self.assertTrue(result.stdout.startswith("usage: " + name), result.stdout[:200])
-        result = run_entry("covey_bridge.py", "--harness", "unified", "--help")
+                self.assertEqual(done[i].returncode, 0, done[i].stderr[-2000:])
+                self.assertTrue(done[i].stdout.startswith("usage: " + name), done[i].stdout[:200])
+        result = done[len(entries)]
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
         self.assertIn("--harness-config", result.stdout)
-        for old, new in sorted(OLD_ENTRIES.items()):  # The old names reach the same entries.
-            args = ("--harness", "unified", "--help") if old == "lark_harness_bridge.py" else ("--help",)
-            if old == "lark_task_runner.py":
-                args = ("--help",)
-            if old in EXTENSION_ENTRIES and not (BIN / old).exists():
-                continue
+        for i, (old, _) in enumerate(olds, len(entries) + 1):  # The old names reach the same entries.
             with self.subTest(old):
-                result = run_entry(old, *args)
-                self.assertEqual(result.returncode, 0, result.stderr[-2000:])
-                self.assertIn("usage:", result.stdout)
+                self.assertEqual(done[i].returncode, 0, done[i].stderr[-2000:])
+                self.assertIn("usage:", done[i].stdout)
 
     def test_the_maso_entry_forwards_to_the_extension_and_without_it_says_so(self):
         source = BIN / "covey_maso_runtime.py"
-        if not source.exists() or "init_globals" not in source.read_text():
+        if not source.exists() or "init_globals" not in read(source):
             self.skipTest("no forwarding shell here (no extension, or a release with the extension's own entry)")
         with tempfile.TemporaryDirectory() as empty:
             result = run_entry("covey_maso_runtime.py", "--help",
@@ -362,14 +365,14 @@ class EntrypointTests(unittest.TestCase):
     def test_package_inits_stay_empty(self):
         # The MASO interpreter imports a handful of modules; an __init__ must not pull in the rest.
         for init in (REPO / "covey").rglob("__init__.py"):
-            self.assertEqual(init.read_text(), "", init)
+            self.assertEqual(read(init), "", init)
 
     def test_layers_import_only_downwards(self):
         # Not even inside a function: the Manager and the maintenance command load core alone, the
         # backends run in task runners (rule 7), cards/ only renders. Nor under TYPE_CHECKING (round 2 D):
         # those do not run, but a type a layer names from above it is a dependency all the same.
         found = [f"{path.relative_to(PACKAGE)}:{line} {module}" for path in sorted(PACKAGE.rglob("*.py"))
-                 for module, line in above_its_layer(path.read_text(), module_name(path.parent))]
+                 for module, line in above_its_layer(read(path), module_name(path.parent))]
         self.assertEqual(found, [])
 
     def test_above_its_layer_sees_every_import_form(self):
@@ -390,7 +393,7 @@ class EntrypointTests(unittest.TestCase):
         # imports inside functions and under TYPE_CHECKING count too.
         found = [f"{path.relative_to(PACKAGE)}:{line} {module}" for path in sorted((PACKAGE / "backends").rglob("*.py"))
                  if path.parent != PACKAGE / "backends"
-                 for module, line in foreign_backends(path.read_text(), module_name(path.parent))]
+                 for module, line in foreign_backends(read(path), module_name(path.parent))]
         self.assertEqual(found, [])
 
     def test_foreign_backends_sees_every_import_form(self):
@@ -447,14 +450,14 @@ class EntrypointTests(unittest.TestCase):
         # Repo review R8: card JSON is drawn in cards/, so a diff outside it does not change a card
         # (rule 9). Reading one (e.get("tag")) is fine.
         found = [f"{path.relative_to(PACKAGE)}:{n}" for path in sorted((PACKAGE / "app").glob("*.py"))
-                 for n, line in enumerate(path.read_text().splitlines(), 1) if re.search(r"""["']tag["']\s*:""", line)]
+                 for n, line in enumerate(read(path).splitlines(), 1) if re.search(r"""["']tag["']\s*:""", line)]
         self.assertEqual(found, [])
 
     def test_no_object_calls_a_private_method_of_the_questions_facade(self):
         # Repo review R5: its parts call each other (questions.native, .checkpoints, .display) and its
         # public methods; the private forwarding methods are gone.
         found = [f"{path.relative_to(PACKAGE)}:{n}" for path in sorted(PACKAGE.rglob("*.py"))
-                 for n, line in enumerate(path.read_text().splitlines(), 1) if re.search(r"\bquestions\._[a-z]", line)]
+                 for n, line in enumerate(read(path).splitlines(), 1) if re.search(r"\bquestions\._[a-z]", line)]
         self.assertEqual(found, [])
 
     def test_the_proxy_parts_import_only_downwards_and_the_web_side_takes_no_record_lock(self):
@@ -473,7 +476,7 @@ class EntrypointTests(unittest.TestCase):
         sender_files = [d / name for d in extensions.package_dirs() for name in ("proxy_sender.py", "proxy_login.py")
                         if (d / name).exists()]
         for path in (app / "proxy_send.py", *sender_files):  # No extension, no sender files (the public export).
-            self.assertNotRegex(path.read_text(), r"\bself\.proxy\.lock\b", path.name)
+            self.assertNotRegex(read(path), r"\bself\.proxy\.lock\b", path.name)
 
 
 class RosterTest(unittest.TestCase):
@@ -496,7 +499,7 @@ class RosterTest(unittest.TestCase):
         self.assertEqual(uuids, {"claude", "codex", "agy"})
         self.assertIs(completion.UUID_RE, UUID_RE)
         self.assertEqual([str(path.relative_to(PACKAGE)) for path in sorted(PACKAGE.rglob("*.py"))
-                          if UUID_RE.pattern in path.read_text()], ["core/harness.py"])
+                          if UUID_RE.pattern in read(path)], ["core/harness.py"])
 
     def test_question_modes_do_not_overlap(self):
         self.assertEqual(LIVE_QUESTIONS & PAUSED_QUESTIONS, set())
@@ -517,7 +520,7 @@ class RosterTest(unittest.TestCase):
         self.assertFalse(list(BIN.glob("lark_doubao_*")) + list(BIN.glob("lark_trae_*")))
 
     def test_setup_probes_every_cli_backend(self):
-        script = (REPO / "scripts/setup_harness_bridge.sh").read_text()
+        script = read(REPO / "scripts/setup_harness_bridge.sh")
         probed = re.search(r"for cli in ([a-z\- ]+); do", script).group(1).split()
         # The others are an enabled extension's, which prepares its own runtime.
         self.assertEqual(set(probed) | {name for e in extensions.manifests() for name in e.harnesses}, set(NAMES))
@@ -575,7 +578,7 @@ def read_inventory():
     copy named ``env`` or ``environ``; the name a literal, a constant of the module or a unique one of another,
     ``HarnessSpec.env(SUFFIX)`` or Voice's f"{env_prefix}_SUFFIX" (each Harness's prefix). Options: every
     ``--name`` given to add_argument."""
-    trees = {path: ast.parse(path.read_text()) for path in sorted([*PACKAGE.rglob("*.py"), *BIN.glob("*.py")])
+    trees = {path: parse(read(path)) for path in sorted([*PACKAGE.rglob("*.py"), *BIN.glob("*.py")])
              if path != PACKAGE / "core" / "env.py" and path.name not in EXTENSION_ENTRIES}  # An extension's entry (a release's bin/) is its README's.  # core/env.py is the reader itself: it names no variable.
     everywhere = {}
     for tree in trees.values():
@@ -609,7 +612,7 @@ def read_inventory():
                 return [prefix + arg.values[1].value for prefix in prefixes]
             return None
 
-        for node in ast.walk(tree):
+        for node in walk(tree):
             arg, strict = None, True
             if isinstance(node, ast.Call) and node.args:
                 func = node.func
@@ -644,7 +647,7 @@ def read_inventory():
 
 def inventory_rows():
     """{name in a first cell's backticks: the text of its rows} of the table under INVENTORY_HEADING."""
-    lines = (REPO / INVENTORY_DOC).read_text().splitlines()
+    lines = read(REPO / INVENTORY_DOC).splitlines()
     rows = {}
     for line in lines[lines.index(INVENTORY_HEADING) + 1:]:
         if line.startswith("#"):
@@ -716,7 +719,7 @@ class InventoryTest(unittest.TestCase):
             name = str(path.relative_to(REPO))
             if name == "covey/core/env.py":
                 continue
-            for number, line in enumerate(path.read_text().splitlines(), 1):
+            for number, line in enumerate(read(path).splitlines(), 1):
                 if direct.search(line) and not any(name == where and word in line for where, word in allowed):
                     found.append(f"{name}:{number}: {line.strip()}")
         self.assertEqual(found, [], "read it with core/env.py get (cenv.get(NAME, default, environ))")
@@ -747,7 +750,7 @@ IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:
 def doc_lines(name):
     """(line number, text) of a doc's lines outside fenced code blocks."""
     fenced = False
-    for number, line in enumerate((REPO / name).read_text().splitlines(), 1):
+    for number, line in enumerate(read(REPO / name).splitlines(), 1):
         if FENCE.match(line):
             fenced = not fenced
         elif not fenced:
@@ -865,7 +868,7 @@ class CodeMapTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("code_map", REPO / "scripts/code_map.py")
         code_map = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(code_map)
-        text = (REPO / "AGENTS.md").read_text()
+        text = read(REPO / "AGENTS.md")
         self.assertIn(code_map.BEGIN, text)
         self.assertEqual(code_map.current(text), code_map.generate(),
                          "AGENTS.md's code map is stale: python3 -B scripts/code_map.py --write")
@@ -931,7 +934,7 @@ class StandardLibraryTest(unittest.TestCase):
     def test_a_package_from_elsewhere_is_imported_where_its_absence_is_handled(self):
         found = []
         for path in sorted(p for root in (PACKAGE, BIN, REPO / "scripts", REPO / "tests") for p in root.rglob("*.py")):
-            gated = path.parent == REPO / "tests" and re.search(r"^require_extension\(", path.read_text(), re.M)
+            gated = path.parent == REPO / "tests" and re.search(r"^require_extension\(", read(path), re.M)
             for module, line in load_time_imports(path):
                 top = module.split(".")[0]
                 if top in self.OWN or top in sys.stdlib_module_names or top.startswith("test_") or gated:
@@ -974,7 +977,7 @@ class OldestPythonTest(unittest.TestCase):
         found = []
         for path in sorted(p for root in (PACKAGE, BIN, REPO / "scripts", REPO / "tests") for p in root.rglob("*.py")):
             enclosing = []
-            for token in tokenize.generate_tokens(io.StringIO(path.read_text(encoding="utf-8")).readline):
+            for token in tokenize.generate_tokens(io.StringIO(read(path)).readline):
                 if token.type == tokenize.FSTRING_END:
                     enclosing.pop()
                     continue
@@ -1020,8 +1023,8 @@ class TidyPartsTest(unittest.TestCase):
     def test_no_part_inherits_from_another_and_none_is_a_mixin(self):
         import ast
         for name in self.ORDER:
-            tree = ast.parse((PACKAGE / "app" / f"{name}.py").read_text())
-            for node in ast.walk(tree):
+            tree = parse(read(PACKAGE / "app" / f"{name}.py"))
+            for node in walk(tree):
                 if isinstance(node, ast.ClassDef):
                     self.assertEqual([ast.unparse(base) for base in node.bases if ast.unparse(base) != "Exception"], [],
                                      f"{name}.{node.name}")
@@ -1042,12 +1045,12 @@ class AssistExitTest(unittest.TestCase):
             rel = path.relative_to(PACKAGE).as_posix()
             if rel in self.EXIT:
                 continue
-            yield rel, ast.parse(path.read_text(), filename=str(path))
+            yield rel, parse(read(path), filename=str(path))
 
     def test_no_module_but_the_exit_calls_the_judge_or_the_standby(self):
         found = []
         for rel, tree in self.sources():
-            for node in ast.walk(tree):
+            for node in walk(tree):
                 if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
                     if node.value.id == "track_judge" and node.attr in self.JUDGE:
                         found.append(f"{rel}:{node.lineno} track_judge.{node.attr}")
@@ -1068,7 +1071,7 @@ class AssistExitTest(unittest.TestCase):
         for rel, tree in self.sources():
             if rel.startswith("backends/"):
                 continue  # A backend's ask_once method hands the question to its own judge module.
-            for node in ast.walk(tree):
+            for node in walk(tree):
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "ask_once":
                     found.append(f"{rel}:{node.lineno}")
         self.assertEqual(found, [])
@@ -1085,10 +1088,10 @@ class AssistExitTest(unittest.TestCase):
         self.assertEqual(assist.SHOWN, ("track", "tidy", "learn"))
         for rel in ("app/stuck_check.py", "app/memory_tidy.py"):
             with self.subTest(rel=rel):
-                self.assertNotIn("assist.ask(", (PACKAGE / rel).read_text())
+                self.assertNotIn("assist.ask(", read(PACKAGE / rel))
 
     def test_the_exit_checks_the_harness_again_before_it_starts_one(self):
-        source = (PACKAGE / "app" / "assist.py").read_text()
+        source = read(PACKAGE / "app" / "assist.py")
         self.assertIn("assist refused harness=", source)
         self.assertIn("def allowed(", source)
 
@@ -1099,7 +1102,7 @@ class AssistExitTest(unittest.TestCase):
         self.assertEqual(set(users), set(assist.FEATURES))
         for feature, rel in users.items():
             with self.subTest(feature=feature):
-                self.assertIn("assist", (PACKAGE / rel).read_text())
+                self.assertIn("assist", read(PACKAGE / rel))
 
     # Every background question goes out through ``assist.ask`` (read as the AST of the package and of the extensions a
     # release carries, ``gated_sources``, through any alias of the module or of the function). The old ``redacted`` keyword
@@ -1125,7 +1128,7 @@ def gated_sources():
     roots = [PACKAGE] + ([REPO / "extensions"] if (REPO / "extensions").is_dir() else [])
     for root in roots:
         for path in sorted(root.rglob("*.py")):
-            yield path.relative_to(REPO).as_posix(), path.read_text(encoding="utf-8")
+            yield path.relative_to(REPO).as_posix(), read(path)
 
 
 class _Calls(ast.NodeVisitor):
@@ -1190,7 +1193,7 @@ class _Calls(ast.NodeVisitor):
 
 def module_calls(source, modules, classes=None):
     visitor = _Calls(modules, classes)
-    visitor.visit(ast.parse(source))
+    visitor.visit(parse(source))
     return visitor.found
 
 
@@ -1287,7 +1290,7 @@ class AnswerSourceTest(unittest.TestCase):
         for rel, source in sources:
             stack = []
 
-            def walk(node):
+            def visit(node):
                 scoped = isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
                 if scoped:
                     stack.append(node.name)
@@ -1295,11 +1298,11 @@ class AnswerSourceTest(unittest.TestCase):
                         and not any(keyword.arg == "by" for keyword in node.keywords)):
                     keys.append(f"{rel}::{'.'.join(stack) or '<module>'}::{node.func.attr}")
                 for child in ast.iter_child_nodes(node):
-                    walk(child)
+                    visit(child)
                 if scoped:
                     stack.pop()
 
-            walk(ast.parse(source))
+            visit(parse(source))
         return counted(keys)
 
     @classmethod
@@ -1390,11 +1393,11 @@ TOLD = r"\s*(?:写|填|为|是|=|：|:)\s*([a-z][a-z_]*)"  # "kind 写 ask", "sc
 
 def string_constants(source):
     """(line, text) of each string constant of ``source`` but its docstrings (an f-string's literal parts count)."""
-    tree = ast.parse(source)
-    docs = {id(node.body[0].value) for node in ast.walk(tree)
+    tree = parse(source)
+    docs = {id(node.body[0].value) for node in walk(tree)
             if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.body
             and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)}
-    return [(node.lineno, node.value) for node in ast.walk(tree)
+    return [(node.lineno, node.value) for node in walk(tree)
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs]
 
 
@@ -1596,7 +1599,7 @@ def _record_read(call):
 
 
 def _names_in(node):
-    return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+    return {n.id for n in walk(node) if isinstance(n, ast.Name)}
 
 
 def state_writes(source, rel):
@@ -1605,25 +1608,25 @@ def state_writes(source, rel):
     (``_record_read``) of the path it writes, a call of a reader of this module (a top-level function with a record read
     and no write) on the names that path is made of, or ``{**read_object(...)}``. A writer of this module (a top-level
     function that writes the path one of its arguments gives, ``save(target, record)``) counts as a write of that path."""
-    tree = ast.parse(source)
+    tree = parse(source)
     writers = {}
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             params = [a.arg for a in node.args.args]
-            for c in ast.walk(node):
+            for c in walk(node):
                 if isinstance(c, ast.Call) and _called(c.func) in STATE_WRITES and c.args \
                         and isinstance(c.args[0], ast.Name) and c.args[0].id in params:
                     writers[node.name] = params.index(c.args[0].id)
     readers = set()
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            calls = [n for n in ast.walk(node) if isinstance(n, ast.Call)]
+            calls = [n for n in walk(node) if isinstance(n, ast.Call)]
             if any(_record_read(c) for c in calls) and not any(_called(c.func) in STATE_WRITES for c in calls):
                 readers.add(node.name)
     found = []
 
     def check(func, name):
-        calls = [n for n in ast.walk(func) if isinstance(n, ast.Call)]
+        calls = [n for n in walk(func) if isinstance(n, ast.Call)]
         direct = [c for c in calls if _called(c.func) in STATE_WRITES and c.args]
         wrapped = [c for c in calls if isinstance(c.func, ast.Name) and c.func.id in writers and c.func.id != func.name
                    and len(c.args) > writers[c.func.id]]
@@ -1634,7 +1637,7 @@ def state_writes(source, rel):
         last = max(c.end_lineno for c in written)  # A read after every write (a fallback, a reply) writes nothing back.
         calls = [c for c in calls if c.lineno <= last]
         local = {}
-        for n in ast.walk(func):
+        for n in walk(func):
             if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name):
                 local.setdefault(n.targets[0].id, n.value)
         paths = {ast.dump(target) for target in writes}
@@ -1651,7 +1654,7 @@ def state_writes(source, rel):
                 if given and any(given <= names for names in made_of):
                     found.append((f"{rel}:{name}", c.lineno))
                     return
-        for d in ast.walk(func):
+        for d in walk(func):
             if isinstance(d, ast.Dict) and any(k is None and isinstance(v, ast.Call) and _called(v.func) in STATE_READS
                                                for k, v in zip(d.keys, d.values)):
                 found.append((f"{rel}:{name}", d.lineno))
@@ -1683,7 +1686,7 @@ class CardWriteTest(unittest.TestCase):
         for rel, source in sources:
             stack = []
 
-            def walk(node, parent=None):
+            def visit(node, parent=None):
                 scoped = isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
                 if scoped:
                     stack.append(node.name)
@@ -1692,11 +1695,11 @@ class CardWriteTest(unittest.TestCase):
                             isinstance(target, ast.Name) and target.id == "_" for target in parent.targets)))):
                     keys.append(f"{rel}::{'.'.join(stack) or '<module>'}::{node.func.attr}:{node.lineno}")
                 for child in ast.iter_child_nodes(node):
-                    walk(child, node)
+                    visit(child, node)
                 if scoped:
                     stack.pop()
 
-            walk(ast.parse(source))
+            visit(parse(source))
         return counted(key.rsplit(":", 1)[0] for key in keys), keys
 
     def test_no_card_write_throws_its_outcome_away(self):
@@ -1731,12 +1734,12 @@ class StateWriteTest(unittest.TestCase):
 
     def allowed(self):
         import json
-        return set(json.loads(STATE_WRITES_FILE.read_text())["allowed"])
+        return set(json.loads(read(STATE_WRITES_FILE))["allowed"])
 
     def found(self):
         rows = []
         for path in sorted(PACKAGE.rglob("*.py")):
-            rows += state_writes(path.read_text(), path.relative_to(PACKAGE).as_posix())
+            rows += state_writes(read(path), path.relative_to(PACKAGE).as_posix())
         return rows
 
     def test_a_record_written_back_is_read_with_read_for_write(self):
@@ -1841,7 +1844,7 @@ def mid_states_written(tree) -> set:
         return func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ""
 
     found = set()
-    for node in ast.walk(tree):
+    for node in walk(tree):
         pairs = []
         if isinstance(node, ast.Dict):
             pairs = [(key.value, value) for key, value in zip(node.keys, node.values) if isinstance(key, ast.Constant)]
@@ -1883,7 +1886,7 @@ def mid_state_problems(found, listed, cells) -> list:
 
 def restart_cells() -> dict:
     """tests/test_matrix.py RESTART_CELLS as {module: [its surfaces]}, read from its source (test_matrix builds a whole Bridge)."""
-    tree = ast.parse((REPO / "tests" / "test_matrix.py").read_text())
+    tree = parse(read(REPO / "tests" / "test_matrix.py"))
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "RESTART_CELLS" for t in node.targets):
             return {ast.literal_eval(key): [ast.literal_eval(surface) for surface in value.keys]
@@ -1898,14 +1901,14 @@ class MidStateTest(unittest.TestCase):
     def found(self) -> dict:
         found = {}
         for path in sorted(PACKAGE.rglob("*.py")):
-            states = mid_states_written(ast.parse(path.read_text(encoding="utf-8")))
+            states = mid_states_written(parse(read(path)))
             if states:
                 found[path.relative_to(REPO).as_posix()] = states
         return found
 
     def test_every_module_writing_a_mid_state_is_listed_with_its_restart_cells(self):
         import json
-        listed = json.loads(MIDSTATES.read_text(encoding="utf-8"))["modules"]
+        listed = json.loads(read(MIDSTATES))["modules"]
         self.assertEqual(mid_state_problems(self.found(), listed, restart_cells()), [])
 
     def test_the_check_finds_writes_and_leaves_reads_and_says_what_is_stale(self):
@@ -1919,7 +1922,7 @@ class MidStateTest(unittest.TestCase):
             if record.get("state") == "running":
                 pass
         ''')
-        self.assertEqual(mid_states_written(ast.parse(source)), {"sending", "uncertain", "creating", "submitting"})
+        self.assertEqual(mid_states_written(parse(source)), {"sending", "uncertain", "creating", "submitting"})
         cells = {"covey/a.py": ["飞书", "网页"], "covey/gone.py": ["飞书", "网页"], "covey/half.py": ["飞书"]}
         listed = {"covey/a.py": {"states": ["sending"], "restart": "x"}, "covey/gone.py": {"states": ["running"], "restart": "y"},
                   "covey/half.py": {"states": ["running"], "restart": ""}}

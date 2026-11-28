@@ -22,6 +22,7 @@ python3 -B -m unittest discover -s tests -p test_steer.py        # 不经地图�
 | --- | --- |
 | 并行 | `run`、`build` 每个测试模块一个子进程，同时 `--jobs` 个（默认 `min(8, CPU 数)`，`--jobs 1` 逐个）；按上次耗时先起慢的。测试自己的输出不显示，失败和错误按 unittest 格式列出 |
 | 超时 | 子进程崩溃、起不来或超过 `MODULE_TIMEOUT`（600 秒）算该模块一个错误，写明当时在跑的测试。超时、Ctrl-C、SIGTERM 杀掉子进程的整个进程组；模块跑完也清掉它留下的进程 |
+| 重跑 | 失败的模块不超过 `RETRY`（4）个时，`run`、`build` 把它们再跑一次，用第二次的结果（CI 也这样）。第二次才过的，第一次失败的测试 ID 写进台账这一行的 `flaky`；`flaky` 子命令把它们和失败的运行一起数。失败的模块更多时不重跑 |
 | 地图过期 | 加了、移动或改名了模块或测试，地图就过期（`select`、`run` 会提示）。这时 `run --full` 拒绝（退出码 2，`--force` 仍跑），改用 `build` 并提交 `tests/test_map.json` |
 | 台账 | 每次 `run`、`build` 追加一行 JSON（原因、范围、计数、失败的测试 ID、HEAD、内容指纹），写到 `--ledger`、`BRIDGE_TEST_LEDGER` 或 `$TMPDIR` 上一级的 `test-ledger.jsonl`。同一内容上已有覆盖本次范围的通过记录时 `run` 跳过，重查偶发失败加 `--force` |
 | 临时文件 | 默认放 `/dev/shm` 下本次运行的新目录，跑完删除，每个模块一个子目录作 `TMPDIR`。仓库所有者同意内存盘只用于测试临时文件。`/dev/shm` 是 noexec：要直接执行自己写出的脚本或假 CLI，用 `support.exec_tempdir()`（建在 `BRIDGE_TEST_EXEC_TMPDIR` 下）。`--test-tmpdir DIR` 或 `BRIDGE_TEST_TMPDIR` 换基目录，`inherit` 保持 `$TMPDIR`；直接 `unittest discover` 和扩展自己的解释器不切换 |

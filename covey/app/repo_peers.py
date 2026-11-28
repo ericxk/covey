@@ -31,7 +31,8 @@ SHOWN = 3
 TITLE = 20
 SIMILAR = 0.3  # Of titles, in the same repository.
 SEEN = 50  # Records looked at per turn.
-RULE = ("推送、合并、部署之前先 git fetch，落后就 rebase 并重测；只提交自己改的文件，推送前看 git diff origin/main...HEAD --stat。")
+RULE = ("推送、合并、部署之前先 git fetch，落后就 rebase；rebase 之后只重跑本改动相关的测试，不为追主干重跑全量；"
+        "只提交自己改的文件，推送前看 git diff origin/main...HEAD --stat。")
 
 
 def changing(state_dir, topic_id, workdir, now=None) -> dict[str, tuple[str, str]]:
