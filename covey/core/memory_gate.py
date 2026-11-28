@@ -11,7 +11,8 @@ owner's words were, ``Proven`` that app/memory_proof.py checked them, ``Written`
 the memory through ``write`` alone (T908 M3a): 记忆自己长 (app/memory_learn.py), a turn's checkpoint (app/memory_collect.py,
 app/knowledge_collect.py) and the butler's memory_save (app/butler_knowledge.py). ``write`` checks the words (``check``;
 ``accept`` takes the rewrite offered, ``strict`` hands the refusal back), counts the entry the owner's only with his words
-proven, keeps a learned rule that would let a turn skip asking him (``grants``) out of force until he accepts it, and puts
+proven, keeps a learned rule or 资料 that would let a turn skip asking him (``grants``: a 资料 the butler or a lead may pick
+for a topic, app/memory_picks.py, whose turns then read it as his) out of force until he accepts it, and puts
 the question whether a rule is for every topic (``wider``) in 待审核 while it holds where it was said. What it writes is
 byte for byte what the same core/memstore.py call writes.
 """
@@ -119,7 +120,7 @@ class Written:
     grant: str = ""  # What the words name of the five kinds or the gate words (``grants``).
 
 
-GRANT = "grant"  # Written.reason of a learned rule that waits in 待审核: its words name what only the owner says yes to.
+GRANT = "grant"  # Written.reason of a learned rule or 资料 that waits in 待审核: its words name what only the owner says yes to.
 PENDING = "pending"  # Written.reason of a write ``pending`` asked for: it waits in 待审核, written once he accepts it.
 GLOBAL = "global"
 # The owner's words that say a rule is for every topic: the butler writes one 全局 only with one of them in his words (T908 M3a).
@@ -188,8 +189,8 @@ def write(state_dir, *, kind, scope, owner_key="", text, title="", why="", repos
 
     The words go through the gate first (a decision's never refused): refused, nothing is written and ``reason`` says why,
     with the rewrite it offers in ``rewrite`` when ``strict`` (the butler's: it writes again), else the rewrite is written
-    (``accept``) when there is one. ``learned``: a rule a model took from the owner's words (记忆自己长, a checkpoint's): one
-    whose words name what only he says yes to (``grants``) is not written; it waits in 待审核 (type learn, its scope and
+    (``accept``) when there is one. ``learned``: a rule or a 资料 a model took from the owner's words (记忆自己长, a
+    checkpoint's): one whose words name what only he says yes to (``grants``) is not written; it waits in 待审核 (type learn, its scope and
     ``grant`` suggested; reason ``GRANT``) and holds once he accepts it, never before, so a learned rule never lets a turn
     skip asking him. ``wider`` "global": a rule the model says is for every topic, written where it was said, and 待审核
     asks whether it is to hold 全局 (``review``; the item's ``items`` the line written, which an accept moves there); never
@@ -209,7 +210,9 @@ def write(state_dir, *, kind, scope, owner_key="", text, title="", why="", repos
             if not kept:
                 return Written(entry=None, scope=scope, reason=verdict.reason or "gate", rewrite=verdict.text, flags=flags)
             text = kept
-        grant = grants(text, title) if learned and kind == "rule" else ""
+        # A 资料 of 全局 or a project's too: the butler or a lead may pick it for a topic (app/memory_picks.py), whose turns
+        # read it as the owner's; a topic's own never goes anywhere else.
+        grant = grants(text, title) if learned and (kind == "rule" or (kind == "note" and scope in (GLOBAL, "project"))) else ""
         if grant or pending:
             target = GLOBAL if wider == GLOBAL and not redacted else scope
             more = {"grant": grant} if grant else {}

@@ -1355,3 +1355,42 @@ class TopicStopTest(ButlerTopicsCase):
     def test_a_topic_that_is_not_there_is_refused(self):
         answer = self.stop("T999")
         self.assertFalse(answer["ok"])
+
+
+class MemoryPickTest(ButlerTopicsCase):
+    """派活时挑带 (app/memory_picks.py, T923 DESIGN §3): topic_start and topic_send with ``memory`` keep the codes they may in
+    the topic's ``memory_carried`` before its turn starts; the ones refused are said in the answer, each with why, and the
+    topic opens or takes the words all the same."""
+
+    def note(self, text, **kw):
+        from covey.core import memstore
+        return memstore.add(self.ctx.state_dir, kind="note", scope="global", text=text, said="owner", by="owner", **kw)
+
+    def carried(self, topic):
+        return load_topic(self.ctx.state_dir, topic).get("memory_carried")
+
+    def test_topic_start_keeps_what_it_may_and_says_what_it_refused(self):
+        from covey.core import memstore
+        deploy = self.note("Covey 的专项话题改完、检查过就直接部署到主人本机现网")
+        rule = memstore.add(self.ctx.state_dir, kind="rule", scope="global", text="回复主人用中文", said="owner", by="owner")
+        answer = self.start("m1", harness="codex", memory=[deploy.code, rule.code, "R9ZZZZ"])
+        self.assertTrue(answer["ok"], answer)
+        self.assertIn(f"带上了记忆 {deploy.code}", answer["text"])
+        self.assertIn(f"{rule.code}：是规矩，话题每一轮本来就带", answer["text"])
+        self.assertIn("R9ZZZZ：找不到这条记忆", answer["text"])
+        topic = answer["data"]["topic_id"]
+        self.assertEqual(self.carried(topic), [{"code": deploy.code, "ref": deploy.ref, "by": "butler"}])
+        self.assertEqual(self.start("m1", harness="codex", memory=[deploy.code])["text"], answer["text"])  # The same request.
+
+    def test_without_memory_nothing_is_said_or_kept(self):
+        answer = self.start("m2", harness="codex")
+        self.assertRegex(answer["text"], r"^已开 T\d+「查日志」：直接开工$")
+        self.assertIsNone(self.carried(answer["data"]["topic_id"]))
+
+    def test_topic_send_adds_to_what_the_topic_carries_once(self):
+        first, second = self.note("同事的机器只读，不改任何东西"), self.note("以主人身份发消息走代答，先给主人看草稿")
+        data = self.start("open", harness="codex", memory=[first.code])["data"]
+        answer = self.call("topic_send", topic=data["label"], text="顺便看下前天的", memory=[second.code, first.code])
+        self.assertTrue(answer["ok"], answer)
+        self.assertIn(f"带上了记忆 {second.code}", answer["text"])
+        self.assertEqual([row["code"] for row in self.carried(data["topic_id"])], [first.code, second.code])

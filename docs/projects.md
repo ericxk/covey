@@ -262,6 +262,8 @@
 | DeepSeek Harness（dsh） | Bridge 工具经 dsh 自带的 `@deepseek-ai/dsh-mcp-client` 接进来（补丁里 `insert` 一行，`backends/dsh/bridge.py` 的 `mcp_rows`）；这一轮用 dsh 的 `read-only` 权限预设，`--approval-policy never`（没有人可问，提权一律拒）。写文件、改文件、提权都被拒；dsh 的只读沙箱要 bwrap 或 Landlock，这台机器上用不了，所以 bash 整个被拒（连只读命令也不行），读文件、搜索和 Bridge 工具照常（dsh 0.2.2-rc.5 加本地假模型实测） |
 | 没接 Bridge 工具的（扩展里没声明 `bridge_tools` 的） | 当不了负责人：这一轮不启动，任务卡上说为什么（`app/tool_limits.py` 的 `refusal`） |
 
+负责人派话题（`project_topic_start`、`project_topic_send`）和管家一样可以带 `memory`：要话题照做的记忆短码（最多 5 条），从负责人规矩块里全局“相关时才带”那段挑，也可以挑本专项的资料；Bridge 核对后按原文放进话题每轮消息的末尾，标“负责人带给本话题的（主人说的照做）”，别的专项的、作废的、超过 5 条的拒收并在回话里写原因（[管家 · 派活时挑带](butler.md#派活时挑带)）。负责人每一轮都看得到全局资料全文；话题看不到，只认挑给它的这几条：比如你说过的“改完就部署到本机”放在全局资料里时，负责人派改代码的话题要把它挑上，话题才会自己部署，没挑上就照下面的攒批。
+
 负责人开话题（`project_topic_start`）和管家一样可以带 `local: false`：只解读外部资料、写报告、用不上本机仓库和文件的话题，规则里不给仓库地图，各 Harness 不加载主目录的说明文件，你自己的 `~/.codex/AGENTS.md`、`~/.gemini/config/GEMINI.md` 照样加载（[管家 · 外部话题](butler.md#外部话题)）。
 
 这一轮已经有更严的限制时（群成员只读、代答、协作咨询）照那个；只看不改（`look`）的一轮让位给负责人的。负责人话题的专项记录没了时这一轮照样只读，只是没有 Bridge 工具。实测记录见 Codex 的 C8 检查（`tests/test_collab_c8.py`）和 `tests/test_butler_harness.py`。

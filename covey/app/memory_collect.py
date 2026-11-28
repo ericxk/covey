@@ -17,8 +17,9 @@ runner has exited and the record is settled (app/detached.py finish_detached, ap
   ``scope`` is the model's suggestion: ``topic`` the topic (only this matter), ``project`` the topic's project (in a project's
   topic, or its lead's, in force at once), ``global`` every topic: a note goes 全局 at once; a rule is written where it was said
   (the project, else the topic) and 待审核 asks whether it is to hold 全局. A lead's own topic has no line of its own: what the
-  owner says there is the project's. A rule whose words name what only he says yes to (core/memory_gate.py grants) is not
-  written: it waits in 待审核 and holds once he accepts it. A topic with redaction on (or whose setting cannot be read) marks
+  owner says there is the project's. A rule or a note whose words name what only he says yes to (core/memory_gate.py grants)
+  is not written: it waits in 待审核 and holds once he accepts it (a note of 全局 the butler or a lead may pick for a topic,
+  app/memory_picks.py, whose turns read it as his). A topic with redaction on (or whose setting cannot be read) marks
   it, and a marked line never goes 全局. The same words as a line of the lead's confirm that line (core/memstore.py put).
 - A ``memory_void`` id is a short code, a ref or an older M number of a turn (core/memstore.py find_in_turn) of an entry the turn
   carried that was not said by the owner; it becomes a tombstone (memstore.void: the text stays, nothing is lost). What the owner said

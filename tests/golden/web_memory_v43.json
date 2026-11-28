@@ -60,27 +60,32 @@
         [
           "RK7M2Q",
           "提交前先跑测试",
-          "global:g1a2b3"
+          "global:g1a2b3",
+          "rule"
         ],
         [
           "NQ3X9A",
           "部署机用的端口",
-          "global:g4d5e6"
+          "global:g4d5e6",
+          "note"
         ],
         [
           "DB2H5W",
           "记忆中心先上线只读页",
-          "decision:demo01:d7f8a9"
+          "decision:demo01:d7f8a9",
+          "decision"
         ],
         [
           "RT4P8D",
           "这个话题只读 demo-repo",
-          "topic:t001:r1b2c3"
+          "topic:t001:r1b2c3",
+          "rule"
         ],
         [
           "NT6B3Y",
           "排查结论",
-          "topic:t001:n4e5f6"
+          "topic:t001:n4e5f6",
+          "note"
         ]
       ]
     },

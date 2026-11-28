@@ -169,13 +169,23 @@ test('组里：你定的规矩直接列，其余收进折叠小节；组标题�
     P1('PN', 'aaaaaa', { kind: 'note' }), P1('PS', 'aaaaaa', { status: 'archived' }), P1('PD', 'aaaaaa', { kind: 'decision' }),
   ];
   const [g, pj] = C.buildGroups(synth(entries), ['aaaaaa']);
-  assert.equal(g.title, '全局 · 3 条 · 你的每一轮都带');
+  assert.equal(g.title, '全局 · 4 条', '全局组数规矩和资料');
+  assert.equal(g.head, '每一轮都带 · 3 条', '全局的规矩一段：每一轮都带');
   assert.deepEqual(g.rules.map((e) => e.code), ['R2', 'R1'], '你定的直接列，新的在前');
-  assert.deepEqual(g.sections.map((s) => s.title), ['自动学的 1 条', '资料 1 条（相关时才带）', '已收起 2 条']);
+  assert.deepEqual(g.sections.map((s) => s.title), ['自动学的 1 条', '相关时才带 · 1 条（管家和负责人看得到，派活时挑给话题）', '已收起 2 条']);
+  assert.deepEqual(g.sections.map((s) => !!s.open), [false, true, false], '全局的“相关时才带”默认展开，别的折叠');
   assert.equal(g.sections[2].shelf, true);
   assert.deepEqual(g.sections[2].rows.map((e) => e.code).sort(), ['N2', 'R9'], '已收起 = 归档和作废的规矩、资料');
   assert.equal(pj.title, '专项「演示服务」 · 你定的 1 条 · 负责人记的 2 条');
   assert.deepEqual(pj.sections.map((s) => s.title), ['负责人记的 2 条 · 只在这个专项照做', '资料 1 条（相关时才带）', '已收起 1 条']);
+  assert.equal(pj.head, '', '专项组没有“每一轮都带”这一行');
+  assert.equal(pj.sections.some((s) => s.open), false, '专项的资料照旧折叠');
+  // 规矩切成资料后短码不变（R6M64）：按 kind 归进“相关时才带”，不按首字母
+  const [g2] = C.buildGroups(synth([E('R6M64', { kind: 'note' }), E('RXWZZ')]));
+  assert.deepEqual([g2.head, g2.rules.map((e) => e.code), g2.sections.map((s) => s.rows.map((e) => e.code))],
+    ['每一轮都带 · 1 条', ['RXWZZ'], [['R6M64']]]);
+  const only = C.buildGroups(synth([E('N1', { kind: 'note' })]))[0];
+  assert.deepEqual([only.title, only.head], ['全局 · 1 条', ''], '没有规矩时不写“每一轮都带”那一行');
   assert.deepEqual([pj.owner, pj.others, pj.total], [1, 2, 3]);
   assert.equal(C.groupTitle({ kind: 'topics', name: '话题', total: 2, owner: 2, others: 0 }), '话题 · 2 条');
   assert.equal(C.groupTitle({ kind: 'project', name: 'X', total: 2, owner: 0, others: 2 }), '专项「X」 · 负责人记的 2 条', '0 条的不写');
@@ -221,6 +231,14 @@ test('搜索：规矩、资料写它属于哪一组；决定写成“上次你�
   assert.deepEqual(C.searchMemory(pool, null, '不存在的词'), []);
   assert.equal(C.kindOfCode('DB2H5W'), 'decision');
   assert.equal(C.kindOfCode('nt6b3y'), 'note');
+  // 类别以条目（标题表第 4 项）为准，旧标题表没有才按首字母
+  assert.equal(C.kindOf({ code: 'R6M64', kind: 'note' }), 'note');
+  assert.equal(C.kindOf({ code: 'R6M64' }), 'rule');
+  assert.equal(C.kindOf({ code: 'R6M64', kind: 'bogus' }), 'rule');
+  const turned = C.searchMemory(synth([]), [['R6M64', 'Covey 改完直接部署', 'global:r6', 'note']], '部署');
+  assert.deepEqual([turned[0].kind, turned[0].line], ['note', '资料']);
+  assert.equal(C.searchTitles([['R6M64', 'Covey 改完直接部署', 'global:r6', 'note']], 'r6m64')[0].kind, 'note');
+  assert.equal(C.searchTitles([['R6M64', 'x', 'global:r6']], 'r6m64')[0].kind, undefined, '旧标题表三项照读');
   assert.equal(C.decisionHit(pool, 'd1').entry.code, 'D1');
   assert.equal(C.decisionHit(pool, 'R1'), null);
 });
@@ -338,7 +356,7 @@ test('⌘K：标题表秒搜，短码完全一样的最前，不分大小写，�
   assert.equal(C.searchTitles(many, '规矩', 8).length, 8);
   assert.deepEqual(C.searchTitles([['RAB', 'x', 'k1'], ['RA', 'y', 'k2']], 'ra').map((h) => h.code), ['RA', 'RAB'], '完全一样的在前');
   const src = readFileSync(join(SRC, 'cv', 'Search.tsx'), 'utf8');
-  assert.match(src, /KIND_WORD\[kindOfCode\(m\.code\)\]/u);
+  assert.match(src, /KIND_WORD\[kindOf\(m\)\]/u);
 });
 
 test('记录：谁、做了什么、因为哪句话；Bridge 写进变更记录的动作都有中文词', () => {

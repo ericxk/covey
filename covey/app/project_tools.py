@@ -340,7 +340,8 @@ def project_topic_send(env, request):
         if refused:
             return reply(False, refused)
     args = {"topic": topic, "text": unforged(request.args.get("text")), "note": unforged(request.args.get("note")),
-            "attachments": request.args.get("attachments"), **({APPROVAL: head} if head else {})}
+            "attachments": request.args.get("attachments"), "memory": request.args.get("memory"),
+            **({APPROVAL: head} if head else {})}
     answer = butler_topics.topic_send(env, dataclasses.replace(request, args=args))
     if answer.get("ok"):
         answer = {**answer, "text": answer["text"] + hang(env, pid, topic, request, place)

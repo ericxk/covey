@@ -37,7 +37,7 @@ import re
 import time
 from pathlib import Path
 
-from covey.app import config_basis, dispatch_cards, butler_handoff, repo_peers
+from covey.app import config_basis, dispatch_cards, butler_handoff, memory_picks, repo_peers
 from covey.app.forks import FINISHED, fork_token
 from covey.app.harnesses import chat_records
 from covey.app.butler_env import arg_text, reply
@@ -55,7 +55,7 @@ from covey.core.statuses import RUNNING
 from covey.core.locks import LOCK, topic_lock
 from covey.core.butler_opened import done, once_a_turn, record_path, request_token, save
 from covey.core.butler import is_butler_topic, is_lead
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
+from covey.core.redaction import TOPIC_KEY as REDACTION_KEY, topic_redaction
 from covey.core.state import read_object, write_json
 from covey.core.history_storage import append_history
 from covey.core.steer import SteerRefused, SteerUncertain
@@ -487,6 +487,33 @@ def said_in(env, request) -> dict:
     return {"message_id": owner} if owner else {}
 
 
+def picker(lead) -> str:
+    """Who picks what a call's ``memory`` names (app/memory_picks.py): a project's lead (``lead``, lead_of's) or the butler."""
+    return "lead" if lead is not None else "butler"
+
+
+def carry(env, ctx, raw, lead, *, steered=False) -> str:
+    """The call's ``memory`` ``raw`` (app/memory_picks.py check) added to the topic ``ctx``'s ``memory_carried``, under LOCK
+    with no Feishu call; the words the answer adds ('' when it names none; ``steered``: the words go into a turn running
+    now, which has its message already). Read for the topic's own redaction and with what it carries already; a project's
+    lead may name its project's too."""
+    if not memory_picks.codes_of(raw):
+        return ""
+    project = lead[0] if lead is not None else ""
+    try:
+        hidden = bool(topic_redaction(env.state_dir, ctx.topic_id))
+    except ValueError:
+        hidden = False  # Not known: what only a topic with redaction on may read is refused.
+    have = memory_picks.entries_of(env.state_dir, read_topic(ctx), project=project, redacted=hidden)
+    taken, refused = memory_picks.check(env.state_dir, raw, project=project, redacted=hidden, carried=have)
+    if taken:
+        with LOCK:
+            data = read_topic(ctx)
+            memory_picks.remember(data, taken, picker(lead))
+            write_json(ctx.history_path.parent / "topic.json", data, ensure_ascii=False, indent=2)
+    return memory_picks.said(taken, refused, steered=steered)
+
+
 def _open(env, request, path, record, chat, prompt, args):
     """topic_start's steps, each kept in the request's record so a second try does the same: where the topic goes
     (``_place``), its root message (``send_root``), its topic.json (``bind_topic``), its first turn (``_enqueue``)."""
@@ -516,6 +543,8 @@ def _open(env, request, path, record, chat, prompt, args):
             + ("（设备上的工作区只能用原目录运行，设置里的独立 worktree 用不了，启动卡预选了原目录）"
                if plan.get("worktree_wanted") else ""))
     text += f"。可能重复：{'、'.join(twins)} 也在同一个仓库做相近的事（照开，没拦）" if twins else ""
+    said = str(record.get("memory_said") or "")
+    text += ("。" + said.strip()) if said else ""
     return done(path, record, reply(True, text, topic_id=record["topic_id"], label=label, root_message_id=root,
                                      started=bool(plan["start"])))
 
@@ -563,9 +592,14 @@ def bind_topic(env, app, request, path, record, args, event, config, kind="main"
               "title": title, "at": record["at"], **said_in(env, request)}
     lead = lead_of(env, request)
     if not record.get("topic_id"):
+        # 派活时挑带 (app/memory_picks.py): checked before the lock, the topic's own redaction what the plan says.
+        taken, refused = memory_picks.check(env.state_dir, args.get("memory"), project=lead[0] if lead is not None else "",
+                                            redacted=bool(plan.get("redaction")))
+        record["memory_said"] = memory_picks.said(taken, refused)
         with topic_lock(target), LOCK:
             data = read_topic(target)
             data.update(harness_id=plan["harness"], binding_revision=1, origin=origin)
+            memory_picks.remember(data, taken, picker(lead))
             items = criteria.clean(args.get("criteria"))
             if items:  # 完成标准 (core/criteria.py): each turn is told them, its answer card shows those not met.
                 data[criteria.KEY] = items
@@ -742,6 +776,14 @@ def topic_send(env, request):
     if job is not None and app.steering.steer_stage(job) == "paused":
         # Its turn waits on a live question (app/runtime.py job_stage): words handed on are never its answer (C2).
         return done(path, record, reply(False, waiting_line(label, job, lead), **data, job_id=job.job_id, waiting=True))
+    if job is None and not workspace_locked(ctx):
+        return done(path, record, reply(False, f"{label} 还在等主人点启动卡上的开始，没有转；等它开工后再转。", **data))
+    # 派活时挑带 (app/memory_picks.py): what the call's ``memory`` names, carried from the turn it starts, or the next one.
+    picked = carry(env, ctx, request.args.get("memory"), lead, steered=job is not None)
+
+    def end(answer):
+        return done(path, record, {**answer, "text": answer["text"] + picked} if picked else answer)
+
     if job is not None:
         steer = butler_handoff.handoff_prompt(butler_handoff.STEER, label=label, title=title, task=text, owner=owner,
                                             items=items, extra=note)
@@ -754,17 +796,15 @@ def topic_send(env, request):
             saved = app.steering.deliver_steer(ctx, job, steer, mid, shown=butler_handoff.shown(owner, text, items),
                                                requeue=again)
         except SteerUncertain as exc:
-            return done(path, record, reply(False, f"补充可能已送到 {label} 的任务 #{job.job_id}，送达没有确认（{exc}）；"
+            return end(reply(False, f"补充可能已送到 {label} 的任务 #{job.job_id}，送达没有确认（{exc}）；"
                                              "不会重发，别再转一次。", **data, job_id=job.job_id, uncertain=True))
         except SteerRefused as exc:  # Nothing was sent (rule 6).
-            return done(path, record, reply(False, f"没有送进 {label} 正在跑的任务 #{job.job_id}：{exc}。没有发出；"
+            return end(reply(False, f"没有送进 {label} 正在跑的任务 #{job.job_id}：{exc}。没有发出；"
                                              "等这一轮结束后再转，或者告诉主人。", **data, job_id=job.job_id))
         hand_line(env, ctx, chat, request, record, butler_handoff.STEER, owner, text, items, token)
         dispatch_card(env, request, ctx.topic_id, mid=job.message_id, **project_hint(request))
-        return done(path, record, reply(True, f"已转给 {label}：{steered_words(job, saved)}。",
+        return end(reply(True, f"已转给 {label}：{steered_words(job, saved)}。",
                                          **data, job_id=job.job_id, steered=True))
-    if not workspace_locked(ctx):
-        return done(path, record, reply(False, f"{label} 还在等主人点启动卡上的开始，没有转；等它开工后再转。", **data))
     hand_line(env, ctx, chat, request, record, butler_handoff.NEXT, owner, text, items, token)
     # A topic waiting on its question keeps these words for the owner's answer (a held note, never the answer: W0-1, the
     # words are the butler's or a lead's, their source says so: WAVE12 C2), and a topic whose result or question card has
@@ -776,14 +816,14 @@ def topic_send(env, request):
     if app.workspace_command(ctx, words, chat, mid, "\n".join(attachment_block(items)), note_only=True,
                              **({"source": source} if source else {})):
         if waiting:
-            return done(path, record, reply(True, f"已转给 {label}，但没有开下一轮，也没有当成回答：它在等主人回答问题，"
+            return end(reply(True, f"已转给 {label}，但没有开下一轮，也没有当成回答：它在等主人回答问题，"
                                              f"这条作为补充暂存，主人回答时一起带给它（话题里有暂存卡）。{held_next(lead)}",
                                              **data, steered=False, held=True))
         if triaged:
-            return done(path, record, reply(True, f"已转给 {label}，但没有开下一轮，也没有当成回答：它的问题正在分流"
+            return end(reply(True, f"已转给 {label}，但没有开下一轮，也没有当成回答：它的问题正在分流"
                                              f"（交给负责人，主人还没看到），这条作为补充暂存，这道题答了时一起带给它。{held_next(lead)}",
                                              **data, steered=False, held=True))
-        return done(path, record, reply(False, f"{label} 没有开下一轮：它的结果或问题卡还没送达，话题里有说明。", **data))
+        return end(reply(False, f"{label} 没有开下一轮：它的结果或问题卡还没送达，话题里有说明。", **data))
     if not (find_job_record(Path(env.state_dir), mid) or app.runtime.jobs.settling(mid)):
         content = butler_handoff.shown(owner, text, items)
         append_history(ctx.history_path, "user", content, {"message_id": mid})
@@ -792,9 +832,9 @@ def topic_send(env, request):
         # Its card is headed by the topic's title, not the owner's words about where it goes.
         if app.submission.enqueue_chat_job(ctx, content, chat, mid, prompt_content=sent, title=title,
                                            **({"source": source} if source else {})) is None:
-            return done(path, record, reply(False, f"{label} 的下一轮没有提交：模型配置无法确认。", **data))
+            return end(reply(False, f"{label} 的下一轮没有提交：模型配置无法确认。", **data))
     dispatch_card(env, request, ctx.topic_id, **project_hint(request))
-    return done(path, record, reply(True, f"已转给 {label}：它已经停了，开了下一轮。", **data, steered=False))
+    return end(reply(True, f"已转给 {label}：它已经停了，开了下一轮。", **data, steered=False))
 
 
 def next_turn(*, text, prompt, title, source, address="") -> dict:
@@ -886,6 +926,11 @@ def _fork(env, request, chat, app, ctx, label, path, token, record, title, promp
                                    "at": record["at"], "fork_of": ctx.topic_id, **said_in(env, request)}
             write_json(Path(env.state_dir) / "topics" / fork["topic_id"] / "topic.json", new_topic,
                        ensure_ascii=False, indent=2)
+    if "memory_said" not in record:  # 派活时挑带 (app/memory_picks.py), once: before the fork's first turn.
+        fork_ctx = env.topics.apps[new_topic["harness_id"]].submission.event_context(
+            env.topics.apps[new_topic["harness_id"]].harness.context, {"chat_id": chat, "message_id": fork["root_id"]})
+        record["memory_said"] = carry(env, fork_ctx, request.args.get("memory"), lead_of(env, request))
+        save(path, record)
     new_label = topic_label(Path(env.state_dir), fork["topic_id"])
     target_app = env.topics.apps[new_topic["harness_id"]]
     mid = "main-" + token
@@ -903,7 +948,7 @@ def _fork(env, request, chat, app, ctx, label, path, token, record, title, promp
     data = {"topic_id": fork["topic_id"], "label": new_label, "root_message_id": fork["root_id"],
             "source_topic_id": ctx.topic_id, "source_job_id": source["job_id"]}
     return done(path, record, reply(True, f"已从 {label} 的任务 #{source['job_id']} 分叉出 {new_label}「{title}」，"
-                                     "第一轮已提交。", **data))
+                                     "第一轮已提交。" + str(record.get("memory_said") or ""), **data))
 
 
 TOOLS = {"topic_start": topic_start, "topic_send": topic_send, "topic_fork": topic_fork}

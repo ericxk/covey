@@ -266,10 +266,19 @@ class GoldenShapeTest(Case):
         with mock.patch.object(web_memory, "TITLES", 3):
             titles = self.build()["memory:index"]["titles"]
         self.assertEqual(len(titles), 3)
-        for code, title, key in titles:
+        for code, title, key, kind in titles:
             self.assertTrue(memstore.is_code(code))
             self.assertLessEqual(len(title), 40)
             self.assertIsNotNone(memstore.find(self.state, key))
+            self.assertEqual(kind, memstore.find(self.state, key).kind)  # P2: the kind, not the code's first letter.
+
+    def test_a_rule_turned_note_keeps_its_code_and_the_title_table_says_note(self):
+        """P2: R6M64 made a 资料 (core/memstore.py set_kind) keeps its R code; the page reads the kind the table gives."""
+        made = memstore.add(self.state, kind="rule", scope="global", text="Covey 的专项话题改完直接部署到本机", said="owner",
+                            by="owner")
+        memstore.set_kind(self.state, made.ref, "note", who="owner")
+        row = next(row for row in self.build()["memory:index"]["titles"] if row[0] == made.code)
+        self.assertEqual((row[0][0], row[3]), ("R", "note"))
 
     def test_rules_past_the_room_are_flagged_not_dropped(self):
         self.seed()

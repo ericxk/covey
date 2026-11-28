@@ -6,6 +6,7 @@ a rule the lead wrote is in the rules however long no turn used it, 整理记忆
 job record names what was carried; the web page's preview."""
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import time
@@ -17,9 +18,9 @@ from unittest import mock
 from support import UNSET_OFF
 from support.records import write_job, write_topic
 
-from covey.app import memory_tidy, memory_turn
-from covey.app.prompts import RULES_HEAD, TAIL_HEAD, turn_tail
-from covey.core import memory, memory_review, memory_search, memory_usage, memstore, projects
+from covey.app import memory_picks, memory_tidy, memory_turn
+from covey.app.prompts import PICKED_HEAD, POOL_HEAD, POOL_TITLES, RULES_HEAD, TAIL_HEAD, turn_tail
+from covey.core import butler, memory, memory_review, memory_search, memory_usage, memstore, projects
 from covey.core.jobs import find_job_record, job_key
 
 PID, CHAT = "a1b2c3d4e5f6", "oc_owner_dm"
@@ -398,3 +399,189 @@ class ReadingM5Test(Case):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PoolTest(Case):
+    """P2 (T923 DESIGN §1, §2, §10.4–10.5): the butler's and a lead's rules carry the 全局 资料 whole after the 全局 rules, with
+    a room of their own (10 and 1,000 characters, past it titles); an ordinary topic and a project's topic carry none of it in
+    their rules; a group member's turn neither half; the pool never takes the 全局 rules' room."""
+
+    def setUp(self):
+        super().setUp()
+        write_topic(self.state, topic_id=LEAD, topic_number=3, chat_id=CHAT, title="负责人",
+                    project=projects.project_field(PID, projects.LEAD))
+        self.butler = butler.butler_topic_id(CHAT)
+        self.plain = "c3" * 32
+        write_topic(self.state, topic_id=self.plain, topic_number=9, chat_id=CHAT, title="普通话题")
+
+    def note(self, text, **kw):
+        return memstore.add(self.state, kind="note", scope="global", text=text, said=kw.pop("said", "owner"), by="owner", **kw)
+
+    def fresh(self, topic, owner=True, text="帮我看看"):
+        memory_turn._plans.clear()
+        return self.block(topic, text, owner=owner)
+
+    def test_the_butler_and_the_lead_carry_the_pool_whole_and_no_topic_does(self):
+        self.rule("回复主人用中文")
+        deploy = self.note("Covey 的专项话题改完、检查过就直接部署到主人本机现网")
+        for topic in (self.butler, LEAD):
+            with self.subTest(topic=topic[:6]):
+                text = self.fresh(topic)
+                self.assertIn(POOL_HEAD, text)
+                self.assertIn(f"- {deploy.code} Covey 的专项话题改完", text)
+                self.assertLess(text.index("回复主人用中文"), text.index(POOL_HEAD))
+                self.assertLess(text.index(POOL_HEAD), text.index("怎么用："))
+                ids, _ = memory_turn.ids_of(memory_turn.plan(self.ctx(topic), self.job(topic), lambda: True))
+                self.assertIn(deploy.code, [row["n"] for row in ids])
+                # Carried in the rules, never again at the tail.
+                self.assertNotIn("Covey 的专项话题改完", self.tail(topic, "改完部署到主人本机现网"))
+        for topic in (T1, self.plain):
+            with self.subTest(topic=topic[:6]):
+                text = self.fresh(topic)
+                self.assertIn("回复主人用中文", text)
+                self.assertNotIn(POOL_HEAD, text)
+                self.assertNotIn("Covey 的专项话题改完", text)
+        # A group member's turn (not the owner's): neither the 全局 rules nor the pool, the butler's as anyone's.
+        theirs = self.fresh(self.butler, owner=False)
+        self.assertNotIn("回复主人用中文", theirs)
+        self.assertNotIn(POOL_HEAD, theirs)
+
+    def test_the_pool_is_the_same_turn_after_turn_and_only_a_note_changes_it(self):
+        self.note("同事的机器只读，不改任何东西")
+        first = self.fresh(self.butler, text="部署一下")
+        self.assertEqual(first, self.fresh(self.butler, text="去同事机器看日志"))
+        self.note("以主人身份发消息走代答，先给主人看草稿")
+        self.assertNotEqual(first, self.fresh(self.butler))
+
+    def test_past_its_room_the_pool_lists_titles_and_takes_nothing_of_the_rules_room(self):
+        for i in range(15):
+            self.rule(f"全局规矩 {i:02d}：" + "规" * 70)  # 15 × 78 = 1,170 characters: the 全局 room is full, not past it.
+        made = [self.note(f"池子资料 {i:02d}：" + "资" * 90, title=f"池子 {i:02d}") for i in range(12)]
+        text = self.fresh(self.butler)
+        self.assertEqual(sum(f"全局规矩 {i:02d}：" in text for i in range(15)), 15)
+        self.assertNotIn("条规矩放不下", text)
+        whole = [entry for entry in made if entry.text in text]
+        self.assertEqual(len(whole), 10)  # 10 × 99 = 990 ≤ 1,000.
+        self.assertIn(POOL_TITLES.format(count=2), text)
+        left = [entry for entry in made if entry not in whole]
+        self.assertTrue(all(f"{entry.code} {entry.title}" in text for entry in left))
+        _, listed = memory_turn.ids_of(memory_turn.plan(self.ctx(self.butler), self.job(self.butler), lambda: True))
+        self.assertTrue({entry.code for entry in left} <= {row["n"] for row in listed})
+
+    def test_a_light_users_13_rules_of_1176_characters_and_4_pool_notes_are_all_there(self):
+        """信宇's memory today (T923 DESIGN §10.5): 13 全局 rules, 1,176 characters, and 4 notes in the pool. An ordinary topic
+        carries the 13 whole with no line of titles; the butler the 13 and the 4 whole: the pool takes none of the room."""
+        sizes = [90] * 12 + [96]
+        rules = [self.rule(f"第{i:02d}条" + "规" * (size - 4)) for i, size in enumerate(sizes)]
+        self.assertEqual(sum(len(entry.text) for entry in rules), 1176)
+        notes = [self.note(f"池子第{i}条：" + "资" * 60) for i in range(4)]
+        for topic, pool in ((self.plain, False), (T1, False), (self.butler, True)):
+            with self.subTest(topic=topic[:6]):
+                text = self.fresh(topic)
+                self.assertTrue(all(entry.text in text for entry in rules))
+                self.assertNotIn("放不下", text)
+                self.assertEqual(all(entry.text in text for entry in notes), pool)
+                self.assertEqual(any(entry.text in text for entry in notes), pool)
+
+
+class PickedTest(Case):
+    """P2 (T923 DESIGN §3, §10.3–10.4): what the butler or the lead picked for a topic (its topic.json ``memory_carried``) is
+    carried whole at the tail of each of its turns, under the Bridge's own head, before the decisions; recorded ``by``
+    picked; a pick made mid-way changes the tail, never the rules (``rules_sent.version`` stays)."""
+
+    def note(self, text, scope="global", owner_key="", said="owner"):
+        return memstore.add(self.state, kind="note", scope=scope, owner_key=owner_key, text=text, said=said,
+                            by="owner" if said == "owner" else "lead")
+
+    def pick(self, topic, entries, by="lead"):
+        path = self.state / "topics" / topic / "topic.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        memory_picks.remember(data, entries, by)
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        memory_turn._plans.clear()
+
+    def test_the_picked_are_carried_whole_before_the_decisions_and_recorded_as_picked(self):
+        self.rule("回复主人用中文")
+        deploy = self.note("Covey 的专项话题改完、检查过就直接部署到主人本机现网")
+        summary = self.note("网关的预检脚本在 scripts/check.sh", scope="project", owner_key=PID, said="summary")
+        self.decide("这批要不要现在合入？", "现在合入", T1, time.time() - 600)
+        before = self.block(T1, job_id=5)
+        self.pick(T1, [deploy, summary])
+        tail = self.tail(T1, "看下额度条颜色")
+        head = PICKED_HEAD.format(who="负责人")
+        self.assertIn(head, tail)
+        self.assertIn(f"- {deploy.code} Covey 的专项话题改完、检查过就直接部署到主人本机现网\n", tail + "\n")
+        self.assertIn(f"- {summary.code} 网关的预检脚本在 scripts/check.sh（负责人记的）", tail)
+        self.assertLess(tail.index(head), tail.index("决定（本话题的、本专项在办的）"))
+        # The rules are what they were: a pick mid-way changes the tail alone (the cached prefix, rules_sent.version).
+        self.assertEqual(before, self.block(T1, job_id=6))
+        ids, _ = memory_turn.ids_of(memory_turn.plan(self.ctx(T1), self.job(T1, job_id=7), lambda: True))
+        picked = {row["n"]: row["by"] for row in ids if row["by"] == "picked"}
+        self.assertEqual(picked, {deploy.code: "picked", summary.code: "picked"})
+        # Carried once: the search that finds the same note does not list it again.
+        self.assertEqual(self.tail(T1, "部署到主人本机现网").count(deploy.text), 1)
+
+    def test_the_butlers_pick_says_so_and_one_put_away_since_is_no_longer_carried(self):
+        a = self.note("同事的机器只读，不改任何东西")
+        b = self.note("以主人身份发消息走代答，先给主人看草稿")
+        self.pick(T2, [a], by="butler")
+        self.pick(T2, [b], by="lead")
+        tail = self.tail(T2)
+        self.assertIn(PICKED_HEAD.format(who="管家和负责人"), tail)
+        memstore.void(self.state, a.ref, who="owner")
+        memory_turn._plans.clear()
+        tail = self.tail(T2)
+        self.assertNotIn(a.text, tail)
+        self.assertIn(PICKED_HEAD.format(who="负责人"), tail)
+
+    def test_a_redacted_pick_is_carried_only_while_the_topic_has_redaction_on(self):
+        hidden = memstore.add(self.state, kind="note", scope="global", text="内部域名在配置里", said="owner", by="owner",
+                              redacted=True)
+        self.pick(T1, [hidden])
+        self.assertNotIn("内部域名在配置里", self.tail(T1))
+
+    def test_the_preview_of_the_page_counts_the_picked(self):
+        deploy = self.note("Covey 的专项话题改完、检查过就直接部署到主人本机现网")
+        bare = memory_turn.preview(self.state, T1)
+        self.pick(T1, [deploy])
+        self.assertGreater(memory_turn.preview(self.state, T1)["chars"], bare["chars"])
+
+
+class ProbeTest(Case):
+    """T923 DESIGN §4's seven probes, on fixture memory (not the live one): with the pool's notes made 全局 资料, the tail's
+    search (``queries_of``, ``notes_of``) carries the deploy note to a turn that says it will deploy, the colleagues' note to a
+    turn on a colleague's machine, the 代答 note to one sending as the owner, and none of them to a paper, a gateway's alert or
+    a merge that does not deploy (the one the lead has to pick for)."""
+
+    RULES = ("分析需求时先代入主人的视角，想清楚他为什么问、卡在哪里", "写文档和下结论只写实际有的数据，推算出来的数字不写",
+             "回复主人用中文，会话再长也不换成英文", "开工前先查看当前状态，确认现况后再动手", "要主人拍板的决定用问题卡发出")
+    NOTES = {
+        "deploy": "Covey 的专项话题改完、检查过（测试和部署前预检通过）就直接部署到主人本机现网，网页有改一起发布",
+        "peer": "同事（小林、小周）的机器全程只读、不改任何东西；同事原话与运行数据只在本地用、不外传",
+        "send": "话题要以主人身份给同事发飞书消息时走 Covey 的代答发送（covey-internal），先给主人看草稿确认再发",
+        "open": "管家开话题（排查、调研、改代码写实现）一律直接开工，不发启动卡等主人点开始",
+    }
+    CASES = (
+        ("解读论文 2611.02440", ["群里发的这个 https://arxiv.org/pdf/2611.02440 帮忙解读一下",
+                               "获取并通读论文，系统解读这篇论文的核心问题、方法、关键实验结果与启示"], set(), {"deploy", "peer", "send"}),
+        ("解读 Code RL 涨点实验与算法", ["结合飞书文档、实验配置及训练代码库全面解读 3 次 Code RL 涨点实验的算法原理、超参与实现细节"],
+         set(), {"deploy", "peer", "send"}),
+        ("负责人与待审核语义收窄", ["按定稿方案实施记忆改造，合入主干并部署主人本机现网", "covey covey-internal"], {"deploy"}, set()),
+        ("记忆一种读法与隔离", ["改 memory_turn.py 和 prompts.py，跑全量测试后合进 main", "covey"], set(), {"deploy"}),
+        ("排查小林的 Covey 为什么卡住", ["去小林的机器上看看 Covey 日志，找出卡住的原因"], {"peer"}, {"deploy"}),
+        ("通知小周升级", ["以主人身份给小周发条消息，告诉他今晚升级 covey-internal"], {"send"}, set()),
+        ("开个话题把网关的报警阈值调一下", ["模型网关报警阈值调高"], set(), {"deploy", "peer", "send"}),
+    )
+
+    def test_the_seven_probes(self):
+        for text in self.RULES:
+            self.rule(text)
+        codes = {name: memstore.add(self.state, kind="note", scope="global", text=text, said="owner", by="owner").code
+                 for name, text in self.NOTES.items()}
+        names = {code: name for name, code in codes.items()}
+        for title, words, wanted, unwanted in self.CASES:
+            with self.subTest(title):
+                notes, _ = memory_turn.notes_of(self.state, [title, *words], owner=True)
+                found = {names.get(entry.code) for entry, _ in notes}
+                self.assertLessEqual(wanted, found)
+                self.assertFalse(found & unwanted, found)

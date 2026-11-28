@@ -1746,8 +1746,8 @@ export interface MemoryIndex {
   scopes: MemoryScopeSummary[];
   revs: Record<string, string>;   // 每个 memory:* 键 → rev；网页据此决定拉哪些键
   limits: { title: number; text: number; decision_text: number };
-  /** ⌘K 搜记忆的精简标题表：[code, title, key]，≤2000 条，标题已截到 40 字 */
-  titles: [string, string, string][];
+  /** ⌘K 搜记忆的精简标题表：[code, title, key, kind]，≤2000 条，标题已截到 40 字；kind 是后加的，旧 Covey 只有前三项 */
+  titles: ([string, string, string] | [string, string, string, MemoryKind])[];
 }
 /** memory:global */
 export interface MemoryGlobalData { key: 'global'; entries: MemoryEntry[]; review: MemoryReviewItem[]; log: MemoryLogItem[] }

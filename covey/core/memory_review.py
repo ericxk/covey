@@ -5,7 +5,7 @@ Two kinds wait for the owner's word (T908 M3b), both of the memory's own learnin
 - 推断全局: a rule the owner's words seem to mean for every topic, held where it was said meanwhile (its line in ``items``).
   采纳 moves that line to 全局 (``memstore.promote``, never a second one); 不要 leaves it where it is. The butler's 全局 the
   owner's words did not ask for has no line yet: 采纳 writes it 全局, 不要 writes nothing.
-- 放行类: a learned rule whose words name what only the owner says yes to (``suggest.grant``), in force only once accepted:
+- 放行类: a learned rule or 资料 whose words name what only the owner says yes to (``suggest.grant``), in force only once accepted:
   采纳 writes it, the owner's (it may then let a turn skip asking him what it names); 不要 writes nothing.
 
 不要 always means the same: the proposal is not followed, everything stays as it is. Two one-time sources wait here too: a

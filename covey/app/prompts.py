@@ -369,6 +369,7 @@ MEMORY_FIX_RULE = (
     "kind：rule 是以后照做的规矩，note 是让你记下的事实、做法或坑（资料，相关时才带）。"
     "scope 是它管多宽：topic 只对这件事，project 这个专项里都适用（不在专项里就写 topic），"
     "global 换了专项、换了工作区也适用（规矩先在这里生效，管不管全局由主人在待审核里定）；拿不准写 topic。"
+    "写 global 时：做什么事、每一轮都照做的写 rule；只在某类事、对某个对象才照做的写 note。"
     "上面标“负责人记的”的某条被主人这一轮的话否定了，再加 memory_void："
     '[{"id":"短码，如 R7K2M","quote":"主人原话里的一段"}]。quote 必须是主人这一轮原话里连续的一段，不是你的转述。'
     "只记主人说的，不记“要先问主人”；主人没明说就不要写，也不要自己总结着记。主人的话只管一类事时（如“监视进程这类用 Codex”），"
@@ -418,7 +419,15 @@ RULES_GUIDE = (f"怎么用：标“负责人记的”照做，但不能单独作
                "消息末尾的决定只管它问的那一题、那个范围，换了批次或范围照常问；资料是参考。"
                "照着哪几条做了（或因此没再问主人），在检查点 memory_used 写短码，如 [\"R7K2M\"]；不写检查点时略过。")
 RULES_SEARCH = "查记忆（只读）：{command}；看全文把 search \"<一句话>\" 换成 show <短码>。要问主人之前，先查一下他答过没有。"
+# The butler's and a lead's rules carry the 全局 资料 too (app/memory_turn.py pool_of): they pick from it for the topics they
+# hand work to (``memory`` of topic_start and the like, app/memory_picks.py), which see none of it but what is picked.
+POOL_HEAD = ("全局 · 相关时才带（和手上的事相关时照做；话题看不到这一段，派活时把和那件事相关、要话题照做的短码填进 memory，"
+             "Bridge 按原文带给它）")
+POOL_TITLES = "还有 {count} 条放不下，只列标题（要用时看全文）："
 TAIL_HEAD = "记忆 · 这一轮（决定只管它问的那一题、那个范围；资料是参考，和主人这一轮的话冲突时听这一轮的）："
+# What the butler or the lead picked for the topic (app/memory_picks.py): the entries' own words, the Bridge's head over them.
+PICKED_HEAD = "{who}带给本话题的（主人说的照做）"
+PICKED_WHO = {"butler": "管家", "lead": "负责人"}
 TAIL_LISTED = "相关但没带的：{items}（要用时按规矩块里的命令 show <短码> 看全文）"
 
 
@@ -428,11 +437,14 @@ def memory_entry_line(entry, note="") -> str:
     return f"- {entry.code} {entry.text}" + (f"（{' · '.join(tags)}）" if tags else "")
 
 
-def memory_rules_block(rules, left=(), *, project_name: str = "", search: str = "", cut: int = 0) -> str:
+def memory_rules_block(rules, left=(), *, project_name: str = "", search: str = "", cut: int = 0, pool=(),
+                       pool_left=()) -> str:
     """The 规矩 a turn's rules carry (app/memory_turn.py rules_of), by scope, then the titles of those past their scope's room
     (app/memory_turn.py titles_of: every one of the owner's, ``cut`` of the lead's only counted) and how to use them;
-    ``search`` the command that looks the memory up ('' none: a device's topic). '' without a rule."""
-    if not rules and not left and not cut:
+    ``search`` the command that looks the memory up ('' none: a device's topic). The butler's and a lead's: after the 全局
+    ones the 全局 资料 (``pool``, app/memory_turn.py pool_of; ``pool_left`` those past its room, by title). '' without
+    either."""
+    if not rules and not left and not cut and not pool and not pool_left:
         return ""
     lines = [RULES_HEAD]
     for scope, word in RULES_SCOPES.items():
@@ -446,6 +458,11 @@ def memory_rules_block(rules, left=(), *, project_name: str = "", search: str = 
                      + (f"；另有 {cut} 条负责人记的（用查记忆找）" if cut else ""))
     elif cut:
         lines.append(f"还有 {cut} 条负责人记的规矩放不下（用查记忆找）。")
+    if pool or pool_left:
+        lines.append(POOL_HEAD)
+        lines += [memory_entry_line(entry) for entry in pool]
+        if pool_left:
+            lines.append(POOL_TITLES.format(count=len(pool_left)) + "；".join(f"{entry.code} {entry.title}" for entry in pool_left))
     lines.append(RULES_GUIDE)
     if search:
         lines.append(RULES_SEARCH.format(command=search))
@@ -456,14 +473,20 @@ def _day(at) -> str:
     return _dt.datetime.fromtimestamp(at).strftime("%m-%d") if at else ""
 
 
-def memory_tail_block(decisions=(), notes=(), listed=(), *, numbers=None, project: str = "", names=None) -> str:
-    """The memory's part of a turn's tail (app/memory_turn.py tail): the decisions in progress, each with the topic it was
-    asked in and its day (``numbers``: topic id -> T number); the notes (Entry, sim) with where they come from (``names``:
-    project id -> name, of another project's); the related entries not carried, a code and a title each. '' with none."""
+def memory_tail_block(decisions=(), notes=(), listed=(), *, numbers=None, project: str = "", names=None, picked=()) -> str:
+    """The memory's part of a turn's tail (app/memory_turn.py tail): what the butler or the lead picked for the topic
+    (``picked``: (Entry, by), app/memory_picks.py), each in its own words; the decisions in progress, each with the topic it
+    was asked in and its day (``numbers``: topic id -> T number); the notes (Entry, sim) with where they come from
+    (``names``: project id -> name, of another project's); the related entries not carried, a code and a title each. ''
+    with none."""
     numbers, names = numbers or {}, names or {}
-    if not decisions and not notes and not listed:
+    if not decisions and not notes and not listed and not picked:
         return ""
     lines = [TAIL_HEAD]
+    if picked:
+        who = [PICKED_WHO[by] for by in PICKED_WHO if any(found == by for _, found in picked)]
+        lines.append(PICKED_HEAD.format(who="和".join(who)))
+        lines += [memory_entry_line(entry) for entry, _ in picked]
     if decisions:
         lines.append("决定（本话题的、本专项在办的）")
         for entry in decisions:
@@ -650,7 +673,8 @@ SHARED_RULES = (
     "和已有话题是同一件事（主人提了 T 号、在说刚才那件、同一个仓库里的同一件事，几天前的也算），"
     "用 topic_send 追加，在跑的作为补充，停了的开下一轮。下面说的工具都是 Bridge 工具（MCP 服务 bridge 的工具，名字是 mcp__bridge__<工具名> 或 mcp_bridge_<工具名>）。",
     "- 用 topic_start、topic_send、topic_fork 交给话题时，写干净的任务说明：主人原话和附件 Bridge 会自动附上，"
-    "你不用抄，也不要写路由的话、不要抄附件的本机路径。",
+    "你不用抄，也不要写路由的话、不要抄附件的本机路径。"
+    "规矩块里全局“相关时才带”的那几条话题看不到：和这件事相关、要话题照做的，把短码填进 memory，Bridge 按原文带给它。",
     "- 一句话里有几件独立的事，就开几个话题。话题都从主目录开工，不用选工作区；要改代码的，把用到的仓库写进 repos（repos_list 里的名字，要改的写 write），拿不准就问主人。",
     "- 两个以上话题都可能是这件事时不要猜：" + ASK_PICK.format(tool=ASK_TOOL) + "，选项是候选话题（T 号和标题）和“另开”。"
     "需要已有话题的上下文、又不是同一件事的，用 topic_fork 分叉。"
@@ -667,12 +691,14 @@ SHARED_RULES = (
     "- 要看或改管家的设置，用 settings_panel 把设置卡发出来；设置只有主人能在卡上改。",
     "- 主人说出长期适用的原则或偏好（“以后……”“原则是……”“记住……”“都要……”）时，用 memory_save 记成一条规矩"
     "（kind rule，quote 照抄主人这一轮原话里说这件事的一段，一字不改；Bridge 核对不到原话会拒收，照原话重记）。"
-    "按内容选范围：只关某个专项的 scope 写 project，只关某个话题的写 topic，只对某个仓库成立的在 repos 里写仓库名；"
+    "按内容选范围：只关某个专项的 scope 写 project，只关某个话题的写 topic；"
     "主人原话明说“所有”“以后都”“处处”的才写 global，没明说的写 global 会进待审核，主人采纳后才管全局。"
+    "写全局时：跨一切场景每一轮都照做的记规矩；只在某类事、某个对象上照做的（某类事怎么做、对谁怎样）记资料（kind note），"
+    "它相关时才带，你和负责人每轮都看得到，派活时挑给话题。"
     "回复里说一句“已记下：……”和它的短码；只对这件事、这一轮的要求不记。"
     "主人说“忘掉/删掉那条”时，用 memory_search 找到它的短码，再用 memory_revise（action retire）收起；"
     "改、替代或收起主人定的规矩都要带 quote（他这一轮说这件事的原话），他没说要改就先问他。"
-    "记下的规矩每一轮都附在 Bridge 的规则里，你和各个话题都会看到。",
+    "记下的规矩每一轮都附在 Bridge 的规则里，你和各个话题都会看到；全局的资料只有你和负责人每轮看到。",
 )
 # 管家 (COVEY_BUTLER_RULES, on unless 0; docs/butler.md 管家规则): the butler only answers quickly and hands the rest on, so
 # it is free for the owner's next question. It takes the place of SHARED_RULES' first two rules (everything under a
@@ -733,7 +759,7 @@ def knowledge_rules() -> tuple[str, ...]:
         rules += [
             "- 主人说“记一下……”“记下来”，用 memory_save 记一条：一件具体的事实、做法或坑记资料（kind note，相关时才带），"
             "以后每次都要照做的记规矩（kind rule）；quote 照抄主人这一轮原话里的一段；只关某个专项、话题的记到那里，"
-            "其余的资料 scope 写 global，只关某个仓库的在 repos 里写仓库名。"
+            "其余的资料 scope 写 global。"
             "主人答过的题 Bridge 已记成决定，不用再记。"
             "主人说“把 T483 的结论记一下”，先用 topic_read 读那一轮再起草。记完在回复里列出短码和正文。",
             "- 主人说“改成……”用 memory_revise（action update 或 supersede，给原因），说“删了”“作废”用 memory_revise（action retire）；"

@@ -6,13 +6,16 @@ the topic's own; the owner's first, then as they were written; past a scope's ro
 专项 10 and 1,000, 话题 5 and 400, given to the owner's first and then the newest: ``pick_rules``) only their titles, never one
 dropped: the line of titles is cut only of the lead's (``titles_of``), the owner's are always there. A project's lead topic
 reads only the 全局 ones (``lead_project``): what its project holds is in its state pack (app/project_lead.py), never twice.
-It is the same every turn of a topic while its rules
+The butler's and a lead's turn of the owner's carry the 全局 资料 too, whole (``pool_of``: 相关时才带, POOL_CAPS 10 and 1,000
+characters of its own, past it only titles; never of the 全局 rules' room): they pick for the topics they hand work to
+(app/memory_picks.py), which read none of it in their rules. It is the same every turn of a topic while its rules
 are, so the rules stay one cacheable prefix. ``tail`` is what changes turn by turn: the decisions in progress (the topic's own
 until it ends or the same question has a newer answer; one the project's lead asked while the lead's topic is going and has
 not delivered a commit since, and at most IN_PROGRESS_HOURS old otherwise: ``in_progress``; one another topic of the project
 asked is never carried whole, only its title when the search finds it: ``sibling``), the notes that the turn's words, the
 topic's title and its 话题要点 find (core/memory_search.py, at most NOTES with sim ≥ DEFAULT_TAU and NOTE_CHARS characters),
-then the titles of the related entries not carried (a sibling's decision among them). Both only of the turn's own reach
+then the titles of the related entries not carried (a sibling's decision among them); first of all what the butler or the
+lead picked for the topic (``carried``: its topic.json ``memory_carried``, app/memory_picks.py). Both only of the turn's own reach
 (``in_reach``: the topic's own, its project's, 全局 on the owner's turn; T908 M5): another project's or another topic's entry
 is neither carried nor listed (the owner's own turn looks the whole memory up with the search command). A lead's tail has
 nothing of its project either (the pack has it). ``preview`` is the same reckoning for the web page (data contract v43
@@ -32,7 +35,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from covey.app import assist, knowledge_turn, project_context
+from covey.app import assist, knowledge_turn, memory_picks, project_context
 from covey.app.prompts import memory_rules_block, memory_tail_block
 from covey.core import (knowledge, memory, memory_review, memory_search, memory_usage, memstore, principles, projects,
                         topic_gist, topic_memory)
@@ -49,10 +52,11 @@ from covey.core.topics import load_topic, proxy_topic, topic_number
 WORDS = memory.CORRECTION_WORDS  # The owner's words that start a correction.
 SAVED_WORDS = ("记一下", "记住", "记下来")  # COVEY_KNOWLEDGE's own (app/knowledge_collect.py): it takes those.
 RULE_CAPS = memory_review.RULE_CAPS  # (entries, characters) of a scope's rules: past them only titles (体检 says over_cap).
+POOL_CAPS = (10, 1000)  # Of the 全局 资料 in the butler's and a lead's rules (``pool_of``): past them only titles.
 DECISION_CHARS = 600
 DECISION_LINE = 240
 NOTES = 5
-NOTE_CHARS = 800
+NOTE_CHARS = memory_picks.CHARS
 LISTED = 10
 LISTED_CHARS = 300
 TITLE_CHARS = 300  # Of the lead's rules listed by title only: past it they are counted (the owner's are never cut).
@@ -68,6 +72,9 @@ class Plan:
     rules: list = field(default_factory=list)  # memstore Entry, carried whole in the rules
     left: list = field(default_factory=list)  # rules past their scope's room: titles only (``titles_of``)
     cut: int = 0  # the lead's rules past the room whose titles did not fit either: counted
+    pool: list = field(default_factory=list)  # 全局 资料 carried whole in the butler's and a lead's rules (``pool_of``)
+    pool_left: list = field(default_factory=list)  # of them past POOL_CAPS: titles only
+    picked: list = field(default_factory=list)  # (Entry, by) the butler or the lead picked for the topic (``carried``)
     decisions: list = field(default_factory=list)  # carried whole at the tail
     notes: list = field(default_factory=list)  # (Entry, sim) carried whole at the tail
     listed: list = field(default_factory=list)  # related hits not carried: dicts of core/memory_search.py
@@ -169,6 +176,25 @@ def rules_of(state_dir, *, topic="", project="", owner=False, redacted_on=False,
         carried += picked
         left += over
     return carried, left
+
+
+def pool_of(state_dir, redacted_on=False) -> tuple[list, list]:
+    """(carried whole, titles only) of the 全局 资料 the butler's and a lead's rules read (相关时才带, the pool they pick
+    from for the topics they hand work to): its room POOL_CAPS goes to the owner's first, then the newest (``pick_rules``)."""
+    found = [entry for entry in memstore.entries(state_dir, scope="global", kinds=("note",)) if _readable(entry, redacted_on)]
+    return pick_rules(found, "global", POOL_CAPS)
+
+
+def carried(state_dir, topic, *, project="", redacted_on=False) -> list:
+    """[(Entry, by)] the butler or the lead picked for ``topic`` (app/memory_picks.py entries_of of its topic.json), as its
+    turn in ``project`` reads them now; [] for none, or when the record cannot be read."""
+    if not topic:
+        return []
+    try:
+        data = load_topic(state_dir, topic)
+    except (OSError, ValueError):
+        return []
+    return memory_picks.entries_of(state_dir, data, project=project, redacted=redacted_on)
 
 
 def over_room(state_dir, entry) -> bool:
@@ -370,13 +396,16 @@ _PLANS_KEPT = 64
 
 
 def make_plan(state_dir, *, topic="", project="", owner=False, redacted_on=False, words="", title="", repos=(),
-              now=None, cache=None, lead=False) -> Plan:
+              now=None, cache=None, lead=False, pool=False) -> Plan:
     """What a turn of ``topic`` in ``project`` carries (``owner``: the owner's own turn; ``words``: the owner's words of
-    it; ``lead``: ``topic`` is ``project``'s lead's, which carries nothing of its project here: ``rules_of``, ``in_reach``).
+    it; ``lead``: ``topic`` is ``project``'s lead's, which carries nothing of its project here: ``rules_of``, ``in_reach``;
+    ``pool``: the butler's or a lead's turn, whose rules carry the 全局 资料 too, ``pool_of``, on the owner's turn alone).
     The same arguments and memory give the same plan."""
     now = time.time() if now is None else now
     state_dir = Path(state_dir)
     rules, left = rules_of(state_dir, topic=topic, project=project, owner=owner, redacted_on=redacted_on, lead=lead)
+    pooled, pool_left = pool_of(state_dir, redacted_on) if pool and owner else ([], [])
+    picked = [] if pool else carried(state_dir, topic, project="" if lead else project, redacted_on=redacted_on)
     decisions = decisions_of(state_dir, topic=topic, project="" if lead else project, redacted_on=redacted_on, now=now,
                              cache=cache)
     kept, shown = [], 0
@@ -387,10 +416,11 @@ def make_plan(state_dir, *, topic="", project="", owner=False, redacted_on=False
             shown += size
     spare = [entry for entry in decisions if entry not in kept]
     queries = queries_of(state_dir, topic, words, title=title, repos=repos)
-    carried = [entry.ref for entry in (*rules, *left, *kept)]
+    taken = [entry.ref for entry in (*rules, *left, *kept, *pooled, *pool_left, *(entry for entry, _ in picked))]
     notes, listed = notes_of(state_dir, queries, topic=topic, project=project, owner=owner, redacted_on=redacted_on,
-                             carried=carried, lead=lead)
+                             carried=taken, lead=lead)
     left, cut = titles_of(left)
+    pool_left, _ = titles_of(pool_left)
     listed = [{"ref": e.ref, "code": e.code, "kind": e.kind, "title": e.title} for e in spare] + listed
     trimmed, size = [], 0
     for item in listed:
@@ -416,7 +446,7 @@ def make_plan(state_dir, *, topic="", project="", owner=False, redacted_on=False
         if owner_project and owner_project != project and owner_project not in names:
             names[owner_project] = str((projects.read_record(state_dir, owner_project) or {}).get("name") or "")
     return Plan(rules=rules, left=left, cut=cut, decisions=kept, notes=notes, listed=trimmed, project=project,
-                project_name=name, numbers=numbers, names=names)
+                project_name=name, numbers=numbers, names=names, pool=pooled, pool_left=pool_left, picked=picked)
 
 
 def _turn_project(ctx, job) -> str:
@@ -444,8 +474,9 @@ def plan(ctx, job, owner_turn) -> Plan:
     words = owner_words({"user_text": getattr(job, "user_text", ""), "message_id": getattr(job, "message_id", "")},
                         ctx.state_dir) if turn_source.behavior(job).owner_words else ""
     lead = lead_project(ctx.state_dir, topic)
+    butler = is_butler_topic(topic, getattr(job, "chat_id", ""))
     made = make_plan(ctx.state_dir, topic=topic, project=lead or _turn_project(ctx, job), owner=bool(owner_turn()),
-                     redacted_on=redacted(ctx, topic), words=words, lead=bool(lead))
+                     redacted_on=redacted(ctx, topic), words=words, lead=bool(lead), pool=bool(lead) or butler)
     if len(_plans) >= _PLANS_KEPT:
         _plans.pop(next(iter(_plans)))
     _plans[key] = (stamp, made)
@@ -483,7 +514,8 @@ def block(ctx, job, *, owner_turn) -> str:
             return ""
         made = plan(ctx, job, owner_turn)
         return memory_rules_block(made.rules, made.left, project_name=made.project_name,
-                                  search=search_command(ctx, job, owner_turn()), cut=made.cut)
+                                  search=search_command(ctx, job, owner_turn()), cut=made.cut, pool=made.pool,
+                                  pool_left=made.pool_left)
     except Exception:  # noqa: BLE001 - the turn goes on without it
         return ""
 
@@ -497,16 +529,19 @@ def tail(ctx, job, owner_turn) -> str:
             return ""
         made = plan(ctx, job, owner_turn)
         return memory_tail_block(made.decisions, made.notes, made.listed, numbers=made.numbers, project=made.project,
-                                 names=made.names)
+                                 names=made.names, picked=made.picked)
     except Exception:  # noqa: BLE001 - the turn goes on without it
         return ""
 
 
 def ids_of(made: Plan) -> tuple[list, list]:
-    """(memory_ids, memory_listed) of a plan: what went in whole, what only by its title."""
-    whole = [*made.rules, *made.decisions, *(entry for entry, _ in made.notes)]
+    """(memory_ids, memory_listed) of a plan: what went in whole (what the butler or the lead picked for the topic ``by``
+    picked), what only by its title."""
+    whole = [*made.rules, *made.pool, *made.decisions, *(entry for entry, _ in made.notes)]
     ids = [{"n": entry.code, "ref": entry.ref, "scope": entry.scope, "kind": entry.kind, "by": entry.by} for entry in whole]
-    listed = [{"n": entry.code, "ref": entry.ref} for entry in made.left]
+    ids += [{"n": entry.code, "ref": entry.ref, "scope": entry.scope, "kind": entry.kind, "by": "picked"}
+            for entry, _ in made.picked]
+    listed = [{"n": entry.code, "ref": entry.ref} for entry in (*made.left, *made.pool_left)]
     listed += [{"n": item.get("code") or "", "ref": item["ref"]} for item in made.listed]
     return ids, listed
 
@@ -544,7 +579,7 @@ def preview(state_dir, topic_key: str = "", *, project_key: str = "", title: str
                      repos=tuple(repos or ()), cache=cache)
     text = memory_rules_block(made.rules, made.left, project_name=made.project_name, search="", cut=made.cut)
     text += memory_tail_block(made.decisions, made.notes, made.listed, numbers=made.numbers, project=made.project,
-                              names=made.names)
+                              names=made.names, picked=made.picked)
     ids, listed = ids_of(made)
     return {"topic_key": topic, "title": shown, "chars": len(text), "rules": [entry.code for entry in made.rules],
             "decisions": [entry.code for entry in made.decisions],

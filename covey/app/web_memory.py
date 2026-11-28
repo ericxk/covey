@@ -11,7 +11,8 @@ v45 (``Center``, ``edit_v43``; docs/web.md 数据约定 v45, tests/golden/web_me
 a key of core/web_sync.py ``MEMORY_KEY_RE`` read from the one store (core/memstore.py):
 
 - ``memory:index``, the small key the page polls: the counts (``counts.pending`` is the badge: the open items of 待审核), each
-  scope's counts, every other key's ``rev`` and the ⌘K title table (``titles``: [code, title, key], at most TITLES).
+  scope's counts, every other key's ``rev`` and the ⌘K title table (``titles``: [code, title, key, kind], at most TITLES; the
+  kind since P2, a code keeps its letter when its entry changes kind, R6M64 a 资料).
 - ``memory:global``: the 全局 entries, the open items of 待审核 (``review``) and the latest LOG_SHOWN changes (``log``, without
   the Bridge's own notes of the owner's answers); past KEY_BYTES the log alone is cut, never the review.
 - ``memory:topics``: the entries of the topics with memory written in the last TOPIC_DAYS days (core/memstore.py ``topics``:
@@ -592,7 +593,7 @@ def keys(state_dir, store, *, now=None) -> dict:
     index = {"on": True, "version": V45, "counts": _counts(store.all(), len(store.review), sum(migrating.values())), "scopes": scopes,
              "revs": dict(revs),
              "limits": {"title": memstore.TITLE_CHARS, "text": memstore.TEXT_CHARS, "decision_text": memstore.DECISION_CHARS},
-             "titles": [[e.code, e.title[:memstore.TITLE_CHARS], e.ref] for e in titled[:TITLES]]}
+             "titles": [[e.code, e.title[:memstore.TITLE_CHARS], e.ref, e.kind] for e in titled[:TITLES]]}
     index["revs"][INDEX_KEY] = web_sync.rev(index)
     out[INDEX_KEY] = index
     return out

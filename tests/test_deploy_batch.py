@@ -84,7 +84,7 @@ class RulesTest(unittest.TestCase):
         # The owner's own word to deploy what merges comes first, in both (a summary by someone else does not count).
         self.assertIn("部署先看记忆：主人自己说过改完就部署的", rules)
         self.assertIn("你不攒批问、也不派话题去部署", rules)
-        self.assertIn("主人亲口说过改完就部署的（记忆里他自己的规矩", note)
+        self.assertIn("主人亲口说过改完就部署的（这一轮带上的记忆里他自己说的", note)
         self.assertNotIn("stable", note)  # A deployment's own ways are the extension's deploy_notes (core/extensions.py).
 
 

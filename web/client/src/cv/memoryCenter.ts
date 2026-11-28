@@ -147,6 +147,8 @@ export interface MemSection {
   shelf?: boolean;
   /** 行尾要不要写谁定的（小节标题已经说了谁就不写） */
   said: boolean;
+  /** 默认展开（全局的“相关时才带”：条数少，又是你自己说的） */
+  open?: boolean;
 }
 export interface MemGroup {
   /** 'global' | 'topics' | 'p:<专项 id>' */
@@ -162,14 +164,21 @@ export interface MemGroup {
   others: number;
   /** 超额：只带标题的在用规矩数 */
   over: number;
+  /** 在用资料数 */
+  notes: number;
+  /** 你定的规矩上面的一行小标题（全局组写“每一轮都带 · N 条”，别的组不写） */
+  head: string;
   /** 你定的规矩，直接列 */
   rules: MemoryEntry[];
   sections: MemSection[];
 }
 /** 组标题后面的灰字：“N 条只带标题”，0 不写 */
 export const overLine = (n: number): string => (n > 0 ? `${n} 条只带标题` : '');
-export function groupTitle(g: Pick<MemGroup, 'kind' | 'name' | 'total' | 'owner' | 'others'>): string {
-  if (g.kind === 'global') return `全局 · ${g.total} 条 · 你的每一轮都带`;
+/** 全局组的两段：规矩每一轮都带；资料（管家层池子）相关时才带，管家和负责人每轮看得到，派活时挑给话题 */
+export const everyTurn = (n: number): string => `每一轮都带 · ${n} 条`;
+export const whenRelated = (n: number): string => `相关时才带 · ${n} 条（管家和负责人看得到，派活时挑给话题）`;
+export function groupTitle(g: Pick<MemGroup, 'kind' | 'name' | 'total' | 'owner' | 'others'> & { notes?: number }): string {
+  if (g.kind === 'global') return `全局 · ${g.total + (g.notes ?? 0)} 条`;
   if (g.kind === 'topics') return `话题 · ${g.total} 条`;
   return `专项「${g.name}」 · ${[g.owner ? `你定的 ${g.owner} 条` : '', g.others ? `负责人记的 ${g.others} 条` : ''].filter(Boolean).join(' · ')}`;
 }
@@ -193,9 +202,14 @@ function build(key: string, kind: MemGroup['kind'], name: string, mine: MemoryEn
       sections.push({ key: `others:${w}`, title: `${w} ${rows.length} 条`, rows, said: false });
     }
   }
-  if (notes.length) sections.push({ key: 'notes', title: `资料 ${notes.length} 条（相关时才带）`, rows: notes, said: true });
+  if (notes.length) {
+    sections.push(kind === 'global'
+      ? { key: 'notes', title: whenRelated(notes.length), rows: notes, said: true, open: true }
+      : { key: 'notes', title: `资料 ${notes.length} 条（相关时才带）`, rows: notes, said: true });
+  }
   if (shelf.length) sections.push({ key: 'shelved', title: `已收起 ${shelf.length} 条`, rows: shelf, shelf: true, said: true });
-  const g: MemGroup = { key, kind, name, title: '', total: rules.length, owner: owner.length, others: others.length, over: rules.filter((e) => !!e.over_cap).length, rules: owner, sections };
+  const head: string = kind === 'global' && rules.length ? everyTurn(rules.length) : '';
+  const g: MemGroup = { key, kind, name, title: '', total: rules.length, owner: owner.length, others: others.length, over: rules.filter((e) => !!e.over_cap).length, notes: notes.length, head, rules: owner, sections };
   g.title = groupTitle(g);
   return g;
 }
@@ -292,8 +306,14 @@ export interface SearchHit {
   /** 灰字：规矩、资料写属于哪一组；决定写“上次你答过：…（T12 · 11-26）” */
   line: string;
 }
-/** 短码的第一个字母：R 规矩、D 决定、N 资料 */
+/** 短码的第一个字母：R 规矩、D 决定、N 资料。只是记下那一刻的类别（规矩切成资料后短码不变，R6M64 照样是 R 开头），
+ *  只给不带类别的旧标题表兜底；类别以条目的 kind 为准（kindOf） */
 export const kindOfCode = (code: string): MemoryKind => ({ R: 'rule', D: 'decision', N: 'note' } as Record<string, MemoryKind>)[code.charAt(0).toUpperCase()] ?? 'rule';
+const KINDS: readonly MemoryKind[] = ['rule', 'decision', 'note'];
+/** 一条的类别：条目或标题表带的 kind（新 Covey 的标题表第 4 项），都没有才按短码首字母猜 */
+export function kindOf(h: { code: string; kind?: string | null }): MemoryKind {
+  return KINDS.includes(h.kind as MemoryKind) ? (h.kind as MemoryKind) : kindOfCode(h.code);
+}
 const clip = (s: string, n: number): string => (Array.from(s).length > n ? `${Array.from(s).slice(0, n).join('')}…` : s);
 /** 决定的搜索结果：上次你答过：<正文或标题>（T12 · 11-26）；T 号取 origin.topic_number 或 topic_number，日期取 origin.at */
 export function decisionLine(e: Pick<MemoryEntry, 'text' | 'title' | 'origin' | 'topic_number'>): string {
@@ -326,7 +346,7 @@ export function searchMemory(pool: Pool, titles: MemoryIndex['titles'] | null | 
   }
   for (const h of searchTitles(titles, query, n)) {
     if (seen.has(h.code)) continue;
-    const kind: MemoryKind = kindOfCode(h.code);
+    const kind: MemoryKind = kindOf(h);
     out.push({ key: h.key, code: h.code, title: h.title, kind, line: KIND_WORD[kind] });
   }
   return out.slice(0, n);
@@ -456,6 +476,8 @@ export interface TitleHit {
   code: string;
   title: string;
   key: string;
+  /** 标题表第 4 项：这条的类别（旧 Covey 没有） */
+  kind?: MemoryKind;
 }
 /** 短码完全一样的最前，其次短码开头，再其次标题里有这几个字；最多 n 条 */
 export function searchTitles(titles: MemoryIndex['titles'] | null | undefined, query: string, n = 8): TitleHit[] {
@@ -464,11 +486,12 @@ export function searchTitles(titles: MemoryIndex['titles'] | null | undefined, q
   const scored: [number, TitleHit][] = [];
   for (const row of titles) {
     if (!Array.isArray(row) || row.length < 3) continue;
-    const [code, title, key] = row;
+    const [code, title, key, kind] = row as [unknown, unknown, unknown, unknown?];
     const c: string = String(code).toLowerCase();
     const t: string = String(title).toLowerCase();
     const s: number = c === q ? 0 : c.startsWith(q) ? 1 : t.startsWith(q) ? 2 : t.includes(q) ? 3 : -1;
-    if (s >= 0) scored.push([s, { code: String(code), title: String(title), key: String(key) }]);
+    const k = KINDS.includes(kind as MemoryKind) ? { kind: kind as MemoryKind } : {};
+    if (s >= 0) scored.push([s, { code: String(code), title: String(title), key: String(key), ...k }]);
   }
   return scored.sort((a, b) => a[0] - b[0]).slice(0, n).map((x) => x[1]);
 }

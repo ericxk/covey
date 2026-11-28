@@ -1620,3 +1620,39 @@ class StorePackTest(Case):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MemoryPickToolsTest(ToolsCase):
+    """派活时挑带 for a lead (T923 DESIGN §3): project_topic_start and project_topic_send take ``memory`` of 全局 and of the
+    lead's own project, never another project's; the topic's turns then carry them under 负责人带给本话题的."""
+
+    def note(self, text, scope="global", owner_key=""):
+        return memstore.add(self.state, kind="note", scope=scope, owner_key=owner_key, text=text, said="owner", by="owner")
+
+    def test_the_lead_picks_global_and_its_project_and_the_topics_turn_carries_them(self):
+        from covey.app import memory_turn
+        from covey.app.prompts import PICKED_HEAD
+        other = "f6e5d4c3b2a1"
+        projects.create(self.state, projects.new_record(chat_id=CHAT, name="别的", project_id=other, now=NOW))
+        deploy = self.note("Covey 的专项话题改完、检查过就直接部署到主人本机现网")
+        mine = self.note("迁移账单的预检脚本在 scripts/check.sh", scope="project", owner_key=PID)
+        theirs = self.note("别的专项的库只读", scope="project", owner_key=other)
+        answer = self.tool("project_topic_start", request_id="m1", title="导出", prompt="导出账单", workspace="project",
+                           readonly=False, why="x", memory=[deploy.code, theirs.code])
+        self.assertTrue(answer["ok"], answer)
+        self.assertIn(f"带上了记忆 {deploy.code}", answer["text"])
+        self.assertIn(f"{theirs.code}：只能带全局的或本专项的", answer["text"])
+        topic = answer["data"]["topic_id"]
+        sent = self.tool("project_topic_send", request_id="m2", thread=answer["data"]["label"], text="再核对一遍",
+                         memory=[mine.code])
+        self.assertTrue(sent["ok"], sent)
+        data = json.loads((self.state / "topics" / topic / "topic.json").read_text())
+        self.assertEqual([(row["code"], row["by"]) for row in data["memory_carried"]], [(deploy.code, "lead"), (mine.code, "lead")])
+        memory_turn._plans.clear()
+        ctx = SimpleNamespace(state_dir=self.state, topic_id=topic, workspace_name="", device="", options={})
+        job = SimpleNamespace(topic_id=topic, chat_id=CHAT, message_id="om_m3", job_id=3, user_text="接着做", sender_id="")
+        with mock.patch.dict(os.environ, {"COVEY_MEMORY": "1", projects.MEMORY_ENV: "1"}):
+            tail = memory_turn.tail(ctx, job, lambda: True)
+        self.assertIn(PICKED_HEAD.format(who="负责人"), tail)
+        self.assertIn(deploy.text, tail)
+        self.assertIn(mine.text, tail)

@@ -308,6 +308,25 @@ class OneWayInTest(unittest.TestCase):
         return memory_gate.write(self.state, **{"kind": "rule", "scope": "project", "owner_key": PID, "proof": self.owner(),
                                                 "by": "owner", "source": "learn", "place": "topic", **given})
 
+    def test_a_learned_note_of_global_or_a_project_that_grants_waits_in_review_too(self):
+        """P2: the butler or a lead may pick a 资料 of 全局 or of its project for a topic, whose turns read it as the owner's
+        (app/memory_picks.py): a learned one whose words name a deploy waits for him, as a learned rule does."""
+        from covey.core import memory_gate, memory_review, memstore
+
+        for scope, owner in (("global", ""), ("project", PID)):
+            with self.subTest(scope):
+                written = self.write(kind="note", scope=scope, owner_key=owner, text="Covey 改完直接部署到本机现网",
+                                     learned=True)
+                self.assertEqual((written.entry, written.reason, written.grant), (None, memory_gate.GRANT, "deploy"))
+                item = next(item for item in memory_review.items(self.state) if item.key == written.review)
+                self.assertEqual((item.suggest["kind"], item.suggest["scope"], item.suggest["grant"]), ("note", scope, "deploy"))
+        self.assertEqual(memstore.entries(self.state), [])
+        key = next(item.key for item in memory_review.items(self.state) if item.suggest.get("scope") == "global")
+        found = memstore.find(self.state, memory_review.decide(self.state, key, "accept")["refs"][0])
+        self.assertEqual((found.kind, found.scope, found.said), ("note", "global", "owner"))
+        # The butler's own memory_save (not learned) writes it as it is.
+        self.assertIsNotNone(self.write(kind="note", scope="global", owner_key="", text="同事的机器只读").entry)
+
     def test_a_learned_rule_that_grants_waits_in_review_and_is_written_nowhere(self):
         from covey.core import memory_gate, memory_review, memstore
 
@@ -320,9 +339,10 @@ class OneWayInTest(unittest.TestCase):
                                  ("learn", {"kind": "rule", "scope": "project", "project_key": PID, "grant": grant}, "以后都这样",
                                   {"topic_key": "t1"}))
         self.assertEqual(memstore.entries(self.state), [])
-        # Not learned (the butler's, the owner's click), or a note: written as it is.
+        # Not learned (the butler's, the owner's click), or a topic's own note: written as it is.
         self.assertIsNotNone(self.write(text="改完直接部署到本机").entry)
-        self.assertIsNotNone(self.write(kind="note", text="部署脚本在 scripts 下", learned=True).entry)
+        self.assertIsNotNone(self.write(kind="note", text="部署脚本在 scripts 下", learned=True, scope="topic",
+                                        owner_key="t1").entry)
         # Accepted, it holds, his: the one way a learned rule that grants comes into force.
         key = next(item.key for item in memory_review.items(self.state) if item.suggest.get("grant") == "delete")
         done = memory_review.decide(self.state, key, "accept")

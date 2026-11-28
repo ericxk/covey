@@ -167,6 +167,7 @@
 | `app/memory_learn.py` | 记忆自己长, one turn at a time |
 | `app/memory_observe.py` | What the Bridge sees of a turn's use of the memory: the strong signals the ranking counts, nothing else |
 | `app/memory_panel.py` | The 设置 card's 记忆 tab, shown when COVEY_MEMORY=1 |
+| `app/memory_picks.py` | What the butler or a project's lead hands a topic of the owner's memory |
 | `app/memory_proof.py` | Checks that a memory write's proof is the owner's words (WAVE12 C8) |
 | `app/memory_tidy.py` | 整理记忆, once a day while COVEY_MEMORY is on |
 | `app/memory_turn.py` | What a turn reads of the owner's memory, for app/runs.py |

@@ -260,6 +260,7 @@ const GroupBox: React.FC<{
       </button>
       {open ? (
         <div className="mc-gb">
+          {g.head ? <div className="mc-head">{g.head}</div> : null}
           {g.rules.length ? <ul className="mc-list">{g.rules.map((e: MemoryEntry) => <EntryRow key={e.key} e={e} ctx={ctx} tags={rowTags(e, { said: true, pool: ctx.pool })} />)}</ul> : null}
           {g.sections.map((s: MemSection) => <SectionBox key={s.key} s={s} ctx={ctx} open={secOpen(s.key)} onToggle={() => onSec(s.key)} />)}
         </div>
@@ -405,7 +406,8 @@ export const MemoryCenter: React.FC<{ index: MemoryIndex }> = ({ index }) => {
   const defaults = useMemo(() => defaultOpen(groups), [groups]);
   const hit: Located | null = useMemo(() => (link.code ? locate(pool, groups, link.code) : null), [pool, groups, link.code]);
   const isOpenG = (g: MemGroup): boolean => openG[g.key] ?? (link.scope === g.key || hit?.group === g.key || defaults.has(g.key));
-  const isOpenS = (g: MemGroup, s: string): boolean => openS[`${g.key}/${s}`] ?? (hit?.group === g.key && hit.section === s);
+  const isOpenS = (g: MemGroup, s: string): boolean => openS[`${g.key}/${s}`]
+    ?? ((hit?.group === g.key && hit.section === s) || !!g.sections.find((x: MemSection) => x.key === s)?.open);
 
   // 链接进来：?scope= 滚到那一组，/memory/review 滚到待审核块（数据到了才滚；每个链接只滚一次）
   const scrolled = useRef<string>('');

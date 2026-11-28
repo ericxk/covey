@@ -121,8 +121,8 @@ class FiveKindsOneSourceTest(unittest.TestCase):
     def test_the_rule_says_which_memory_lets_a_turn_go_on_without_asking(self):
         self.assertIn(ASK_GRANT, ASK_RULE)
         self.assertIn(ASK_RULE, checkpoint.checkpoint_rules())
-        for words in ("主人亲口立的", "只放行它写明的那一类事", "删除和其他撤不回的操作永远照常问", "标“负责人记的”的规矩",
-                      "自动学到的", f"不能放行{ASK_SHORT}", "报一句"):
+        for words in ("这一轮带上的记忆里主人亲口说的", "管家、负责人带给本话题的那几条", "只放行它写明的那一类事",
+                      "删除和其他撤不回的操作永远照常问", "标“负责人记的”的", "自动学到的", f"不能放行{ASK_SHORT}", "报一句"):
             self.assertIn(words, ASK_GRANT)
         # Before the rest of the rule: what may be done without asking comes after what must be asked.
         self.assertLess(ASK_RULE.index(ASK_KINDS), ASK_RULE.index(ASK_GRANT))

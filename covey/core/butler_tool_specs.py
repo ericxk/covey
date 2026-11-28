@@ -50,7 +50,7 @@ DONE = "结论由 Bridge 发给主人，你不用等、也不用转述。"
 DISPATCH_OWN = "可能超过一两分钟的、要改代码或文件的、主人说开话题的"
 DISPATCH_BUTLER = "要查一圈的、要跑命令的、要改代码或文件的、要联网或多步操作的、预计超过半分钟的、主人说开话题的"
 START_OWN = f"（{DISPATCH_OWN}），而不是在自己这一轮里做；只读、一两分钟能做完的查询和命令你自己做。"
-START_BUTLER = (f"（{DISPATCH_BUTLER}），不要先自己试一试，派出去；只有几秒内就能答完的快答（不用工具，或一两次只读查询）才自己答，"
+START_BUTLER = (f"（{DISPATCH_BUTLER}），不要先自己试一试；只有几秒能答完的快答才自己答（怎么算快答见管家规则），"
                 "拿不准就派出去，主人明确说“你直接做”时例外。")
 # 完成标准 (core/criteria.py): each turn of the topic marks them, its answer card shows those not met.
 CRITERIA = {"type": "array", "maxItems": 4, "items": {"type": "string"},
@@ -70,6 +70,10 @@ WORKSPACE_ARG = {"type": "string", "description": "旧参数，同 repos 里只�
 # Short: agy's room (backends/agy/home.py EAGER_BYTES).
 LOCAL_ARG = {"type": "boolean", "description": "只解读、调研论文、网页、飞书文档或写报告，用不上本机仓库和文件时填 false"}
 WHY_ARG = {"type": "string", "description": "一行中文：为什么这样配置"}
+# 派活时挑带 (docs/butler.md, app/memory_picks.py): the owner's 资料 the topic is to act on, by short code, from the 全局
+# 「相关时才带」 the butler's and a lead's rules carry (app/prompts.py POOL_HEAD says what to pick) and a lead's project; the
+# Bridge checks each and carries those it takes whole at the tail of the topic's turns. Short: agy's room (EAGER_BYTES).
+MEMORY_ARG = {"type": "array", "maxItems": 5, "items": {"type": "string"}, "description": "可选，“相关时才带”里要话题照做的短码"}
 
 # 记忆 (docs/butler.md 记忆): one set of tools for the owner's 规矩 and 资料 (app/butler_knowledge.py memory_save,
 # memory_revise, memory_search), always listed; a save quotes the owner's words of the turn (T908 M3a). The principle_*
@@ -81,7 +85,8 @@ MEMORY_TOOLS = (
      "description": "记一条记忆：主人说“以后……”“记住……”“记一下……”时用。kind：rule 规矩（以后都照做）、note 资料（事实、做法、坑，"
                     "相关时才带）；主人答过的题 Bridge 已记成决定，不用记。quote 照抄主人这一轮原话里说这件事的一段（一字不改），"
                     "核对不到就不记。scope 按内容选：只关某个专项的 project、只关某个话题的 topic；规矩要主人原话明说“所有”“以后都”“处处”"
-                    "才 global，没明说的进待审核等主人采纳。text 用主人的说法写一句，主人只管某类事时照写那一类，不写机密，"
+                    "才 global，没明说的进待审核等主人采纳。写全局时：跨一切场景每一轮都照做的记规矩，只在某类事、某个对象上照做的记资料"
+                    "（相关时才带，管家和负责人派活时挑给话题）。text 用主人的说法写一句，主人只管某类事时照写那一类，不写机密，"
                     "不写“今天”“现在”这类会过时的说法。一次性的要求（只对这件事、这一轮）不记，意思相同的不重复记。记完回复“已记下：……”。",
      "input_schema": {"type": "object", "required": ["text", "kind", "scope", "quote"], "properties": {
          "text": {"type": "string", "description": "一句话，200 字内"},
@@ -91,8 +96,7 @@ MEMORY_TOOLS = (
          "project": {"type": "string", "description": "scope 为 project 时写：专项 id 或名字"},
          "topic": {"type": "string", "description": "scope 为 topic 时写：话题 T 号或 id"},
          "title": {"type": "string", "description": "可选，标题，40 字内"},
-         "why": {"type": "string", "description": "可选，为什么，200 字内"},
-         "repos": {"type": "array", "maxItems": 10, "items": {"type": "string"}, "description": "可选，只对这些仓库成立"}}}},
+         "why": {"type": "string", "description": "可选，为什么，200 字内"}}}},
     {"name": "memory_revise",
      "description": "改一条记忆（key 是短码或旧 id，如 R7K2M、p1a2b3c）：update 改正文或标题；supersede 用新的替代，旧的收进历史；"
                     "retire 不再成立或已办完，收进历史。先用 memory_search 找到 key，对不上是哪条时问主人。"
@@ -150,8 +154,8 @@ TOOLS = (
      "description": "为一件新的事开一个话题去做" + START_OWN +
                     "话题挂在主人这条提问下面；和已有话题是同一件事时不要新开，用 topic_send。"
                     "prompt 是交给话题的任务说明：用主人的说法写清楚要做什么、范围和主人提的约束（路径、别做什么、怎么交付），"
-                    "可以补指代的是哪个话题、之前定过什么（最多 200 字，只写对话里的事实）。不写路由的话、"
-                    "对你说的话和附件的本机路径，不加你自己的计划和验收标准；主人原话和附件 Bridge 会附上。"
+                    "可以补指代的是哪个话题、之前定过什么（最多 200 字，只写对话里的事实）。不写对你说的话，"
+                    "不加你自己的计划和验收标准；主人原话和附件 Bridge 会附上。"
                     "话题从主目录直接开工，马上返回，不要等它做完：进展在之后消息的快照里。"
                     + DONE,
      "input_schema": {"type": "object", "required": ["title", "prompt", "readonly", "user_requested", "why"],
@@ -163,6 +167,7 @@ TOOLS = (
          "workspace": WORKSPACE_ARG,
          "readonly": {"type": "boolean", "description": "只看只答时为 true：不改仓库和现网，可写检查点和产物目录"},
          "local": LOCAL_ARG,
+         "memory": MEMORY_ARG,
          "user_requested": {"type": "boolean", "description": "主人在最新这条消息里亲口要求做这件事（直接下令、“去做”“开个话题”）为 true；你自己推断的为 false"},
          "why": WHY_ARG,
          "criteria": CRITERIA,
@@ -173,9 +178,8 @@ TOOLS = (
          "redaction": REDACTION_ARG}}},
     {"name": "topic_send",
      "description": "把主人的话追加给一个已有话题（同一件事，几天前的也算）：它正在跑就作为补充，已经停了就开它的下一轮。"
-                    "text 写这次交给它的内容：主人要它补做或改的事，用主人的说法，去掉“接着放到 T 号里”“转给那个话题”这类路由的话"
-                    "和本机路径；主人原话和附件 Bridge 会附上。交给哪个由你判断，但要有把握（主人提了 T 号、在说刚才那件事、"
-                    "只有一个话题对得上）；两个以上都像时先问主人（问法见管家规则）。在回复里写明交给了哪个话题。" + DONE,
+                    "text 写这次交给它的内容，用主人的说法；主人原话和附件 Bridge 会附上。是哪个话题照管家规则判断，"
+                    "两个以上都像时先问主人。在回复里写明交给了哪个话题。" + DONE,
      "input_schema": {"type": "object", "required": ["topic", "text"], "properties": {
          "topic": TOPIC,
          "text": {"type": "string", "description": "交给话题的内容：主人这次要它做或补充的事，不含路由用语和本机路径"},
@@ -183,13 +187,15 @@ TOOLS = (
                                                    "不写路径，不写给主人看的话"},
          "title": {"type": "string", "description": "可选，开下一轮时任务卡上的标题，中文，20 字以内；不填用话题原来的标题"},
          "criteria": CRITERIA_CHANGE,
-         "attachments": ATTACHMENTS}}},
+         "attachments": ATTACHMENTS,
+         "memory": MEMORY_ARG}}},
     {"name": "topic_fork",
      "description": "从一个已有话题分叉出新话题：新话题带着原话题的背景，原话题不受影响。相关但不是同一件事、又需要原话题的上下文时用。",
      "input_schema": {"type": "object", "required": ["topic", "title", "prompt"], "properties": {
          "topic": TOPIC, "title": {"type": "string", "description": "新话题的标题，说是哪件事：中文、中文标点，20 字以内"},
          "prompt": {"type": "string", "description": TASK},
-         "attachments": ATTACHMENTS}}},
+         "attachments": ATTACHMENTS,
+         "memory": MEMORY_ARG}}},
     {"name": "question_answer",
      "description": "主人说了怎么答某个话题的选择题时（如“T412 选 A”），替他答掉。只认选择题：每题都要答，选项必须是列表里的原文，"
                     "多选给列表；自由文字的回答不行，改用 topic_send 作为补充。答完告诉主人答了什么。",
@@ -298,8 +304,7 @@ PROJECT_ASK = {
 PROJECT_TOOLS = (
     {"name": "project_topic_start",
      "description": "为这个专项开一个话题去做一件事，马上返回，不要等它做完：话题结束后会有下一轮叫醒你。"
-                    "prompt 是交给话题的任务说明：做什么、范围、主人提的约束、交付什么，用清楚的话写，不抄本机路径，不加你自己的计划之外的内容。"
-                    "同时在做的话题不设上限；一件独立的事一个话题。话题从主目录直接开工。",
+                    "prompt 是交给话题的任务说明，写法见负责人规则。话题从主目录直接开工。",
      "input_schema": {"type": "object", "required": ["title", "prompt", "readonly", "why"], "properties": {
          "title": {"type": "string", "description": "话题的标题，说是哪件事：中文、中文标点，20 字以内"},
          "prompt": {"type": "string", "description": "交给话题的任务说明。" + ASK_NOTE},
@@ -307,6 +312,7 @@ PROJECT_TOOLS = (
          "workspace": WORKSPACE_ARG,
          "readonly": {"type": "boolean", "description": "只看只答时为 true：不改仓库和现网，可写检查点和产物目录"},
          "local": LOCAL_ARG,
+         "memory": MEMORY_ARG,
          "attachments": LEAD_ATTACHMENTS,
          "user_requested": {"type": "boolean", "description": "主人在这个专项里亲口要求做这件事为 true；你自己推断的为 false"},
          "why": WHY_ARG,
@@ -319,13 +325,14 @@ PROJECT_TOOLS = (
          "approval": APPROVAL_ARG}}},
     {"name": "project_topic_send",
      "description": "给一个已有话题加话：它正在跑就作为补充，已经停了就开它的下一轮。text 写要它补做或改的事。"
-                    "可以是这个专项的话题，也可以是主人私聊里还不在任何专项的普通话题：那样它先被收进这个专项（在跑的任务照跑，"
-                    "等主人回答的问题仍归主人），再加话。别的专项的话题、负责人话题、主人移出过专项的话题用不了。",
+                    "可以是这个专项的话题，也可以是主人私聊里还不在任何专项的普通话题：那样它先被收进这个专项（在跑的任务照跑），"
+                    "再加话。别的专项的话题、负责人话题、主人移出过专项的话题用不了。",
      "input_schema": {"type": "object", "required": ["thread", "text"], "properties": {
          "thread": {"type": "string", "description": "话题的 T 号（如 T412）或 topic_id：这个专项的，或还不在任何专项的普通话题"},
          "text": {"type": "string", "description": "交给话题的内容：要它做或补充的事"},
          "note": {"type": "string", "description": "可选，一句背景（最多 100 字）"},
          "attachments": LEAD_ATTACHMENTS,
+         "memory": MEMORY_ARG,
          "approval": APPROVAL_ARG}}},
     {"name": "project_topic_stop",
      "description": "主人要停这个专项里的某个话题时用：停掉它排队和在跑的任务，也收掉它还在等主人回答的问题（话题不再等回答），"
@@ -387,10 +394,9 @@ PROJECT_TOOLS = (
 TRIAGE_ENV = "COVEY_PROJECT_TRIAGE"
 TRIAGE_TOOLS = (
     {"name": "project_answer",
-     "description": "替主人答专项里一个话题交给你的选择题（题目在“专项状态”的“交给你的话题问题”里）。只答能依据专项记忆和主人定过的事回答的"
-                    "（专项记忆里标“负责人记的”是你整理的，不能单独作为依据）；"
-                    "每题都要答，答案必须是选项原文，多选的给数组。拿不准就用 project_escalate，不要猜。回答会注明是负责人替主人答的，话题照常往下做，"
-                    "也会记进专项卡的分流记录，主人看得到、可以点“不对”。",
+     "description": "替主人答专项里一个话题交给你的选择题（题目在“专项状态”的“交给你的话题问题”里）。只答能依据专项记忆和主人定过的事回答的；"
+                    "每题都要答，答案必须是选项原文，多选的给数组。拿不准就用 project_escalate，不要猜。回答会注明是负责人替主人答的，"
+                    "话题照常往下做，也记进专项卡的分流记录。",
      "input_schema": {"type": "object", "required": ["thread", "answers"], "properties": {
          "thread": THREAD,
          "answers": {"type": "object", "description": "题目 id（或题目原文）→ 选项原文；多选的给数组",
@@ -504,9 +510,8 @@ START_PROJECT = {"type": "boolean", "description": "这件事要分成几个话�
                                                    "或主人直接说“开个专项”“转成专项”时填 true：不开普通话题，开一个专项，由它的负责人去开专项的话题。"
                                                    "这时 title 是专项名，prompt 写目标和完成标准（主人的说法），"
                                                    "repos 是专项常用的仓库；"
-                                                   "harness、model、effort 这时是负责人用的，主人点名负责人用哪个（如“负责人用 Codex”）才填，"
-                                                   "负责人只能用能接 Bridge 工具的 Harness（不行时这次调用会说明）；主人要专项的话题用哪个模型，写进 prompt，负责人开话题时照办；"
-                                                   "主人要把已有的话题收进这个专项时，把它们的 T 号放进 topics；拿不准就不要填"}
+                                                   "harness、model、effort 这时是负责人用的，主人点名负责人用哪个（如“负责人用 Codex”）才填；"
+                                                   "主人要专项的话题用哪个模型，写进 prompt，负责人开话题时照办；拿不准就不要填"}
 START_TOPICS = {"type": "array", "items": {"type": "string"},
                 "description": "只在 project 为 true 时用：主人要收进这个专项的已有话题，T 号（如 T531）或话题 id，一个一项。"
                                "它们会直接挂进专项、交给负责人跟进，正在跑的不打断，等主人回答的问题仍归主人；"

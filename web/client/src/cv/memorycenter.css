@@ -75,6 +75,7 @@
 .cv .mc-gt{flex:1 1 0;min-width:0;font-size:14px;line-height:20px;font-weight:600;overflow-wrap:anywhere}
 .cv .mc-over{flex:none;font-size:12px;color:var(--t2)}
 .cv .mc-gb{padding:0 0 8px 20px}
+.cv .mc-head{padding:6px 2px 2px;color:var(--t2);font-size:12.5px;line-height:18px}
 .cv .mc-sec{padding-top:2px}
 .cv .mc-sec-h{min-height:32px;white-space:normal;text-align:left}
 .cv .mc-sec>.mc-list{padding-left:6px}
