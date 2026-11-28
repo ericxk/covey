@@ -172,6 +172,9 @@ class WebSync:
         # builds every running topic, about 3 s a look on the dev machine and now and then a minute on a stuck read (2026-11-25 T765).
         self.toucher = Collector(env, None, runtime.log, shared=self.shared)
         self.touch_due, self.touch_lock, self.touch_event = set(), threading.Lock(), threading.Event()
+        # The question records this process wrote since the last touch (``heard``: a question answered on its Feishu card, asked,
+        # closed): the touch reads whose topic each is and builds it, whatever the quick look is doing (``asked_topics``).
+        self.asked_due = set()
         # topic -> the thread of a touch's read stuck on it (start_over_touch): touches leave that topic to the quick look while the thread
         # lives (one stuck in a quick look or the pass a touch reads again: Collector.collect_touched); and touches given up in a row
         # because a store was busy, logged as the quick look's are.
@@ -256,9 +259,16 @@ class WebSync:
             store.unlisten(self.heard)
 
     def heard(self, folder, name) -> None:
-        """core/store.py listen: this process wrote record ``name`` in ``folder`` (a card's answer, a job's start or end)."""
+        """core/store.py listen: this process wrote record ``name`` in ``folder`` (a card's answer, a job's start or end). A question
+        record's topic is also the touch's to build at once: answered on its Feishu card it reached the page only with a quick look,
+        and the quick looks stood still from 00:39:31 to 00:42:10 while three left-behind ones were stuck on the network disk
+        (MAX_LEFT); the owner answered T958's question on the card at 00:39:59 and the page still asked it (2026-11-29 T959)."""
         if folder in ("jobs", "questions"):
             self.wake.set()
+        if folder == "questions" and name.endswith(".json"):
+            with self.touch_lock:
+                self.asked_due.add(name[:-len(".json")])
+            self.touch_event.set()
 
     def loop(self, label, step, seconds, reset=None, moved=None, again=False, stuck=None, wake=None, where=None) -> None:
         """``step`` every ``seconds()``, in a Worker; a failure is logged (the first, then every tenth) and waited out 2, 4 ... MAX_BACKOFF
@@ -494,11 +504,17 @@ class WebSync:
         woke = time.monotonic()
         with self.touch_lock:
             topics, self.touch_due = self.touch_due, set()
+            asked, self.asked_due = self.asked_due, set()
         chat = self.runtime.access.owner_chat()
-        if not topics or not chat or not self.env.state_dir:
+        if not (topics or asked) or not chat or not self.env.state_dir:
             return 0
         if not self.sent_loaded:
             return 0  # The quick look loads what the page has first; it builds these too (Collector.touch).
+        if asked:
+            self.toucher.mark("questions")
+            topics = set(topics) | self.asked_topics(asked, chat)
+            if not topics:
+                return 0
         hung = self.touch_hung_now()
         for topic in sorted(set(topics) & hung):
             self.runtime.log(f"web sync touch leaves topic {topic[:12]} to the quick look: a touch's read of it is stuck")
@@ -537,6 +553,17 @@ class WebSync:
         self.push_images(toucher, time.time() if now is None else now, only=set(topics) - hung)
         toucher.mark("")
         return count
+
+    def asked_topics(self, tokens, chat) -> set:
+        """The topics of the owner's chat the question records ``tokens`` belong to (``heard``); one unreadable or of another chat is none."""
+        state, out = Path(self.env.state_dir), set()
+        for token in sorted(tokens):
+            if not TOKEN.fullmatch(token):
+                continue
+            record = read_object(state / "questions" / (token + ".json"))
+            if record.get("chat_id") == chat and record.get("topic_id"):
+                out.add(str(record["topic_id"]))
+        return out
 
     def touch_hung_now(self) -> set:
         """The topics a touch's read is stuck on (start_over_touch), while the thread of that read lives."""

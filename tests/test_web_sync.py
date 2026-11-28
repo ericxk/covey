@@ -3364,6 +3364,40 @@ class AnswerBeforeAckTest(WebCase):
         self.assertEqual((data["state"], data["topic_key"], data["project_key"], data["topic_number"]), ("answered", LEAD, PID, 0))
 
 
+class CardAnswerTouchTest(WebCase):
+    """2026-11-29 T959: the owner answered T958's question on its Feishu card at 00:39:59; the quick looks stood still from 00:39:31 to
+    00:42:10 (three left behind on the network disk, MAX_LEFT) and the page still asked the question, with #8414's progress note
+    for its reply. A question record this process writes has its topic built by the touch at once, as an answer from the page has."""
+
+    def setUp(self):
+        super().setUp()
+        from covey.core import store
+        store.listen(self.sync.heard)
+        self.addCleanup(store.unlisten, self.sync.heard)
+
+    def test_a_question_answered_on_its_card_reaches_the_page_without_a_quick_look(self):
+        self.topic(status="waiting_user")
+        self.question()
+        self.sync.push_once(T0)
+        self.assertEqual(self.web.items("question")[-1]["data"]["state"], "open")
+        path = self.state / "questions" / f"{TOKEN}.json"
+        # The card's click, as app/questions.py writes it: the answer saved, then the next turn and the question answered.
+        write_json(path, {**read_object(path), "status": "submitting", "answers": {"q1": {"answers": ["A"]}}})
+        write_job(self.state, "k-next", topic_id=TOPIC, chat_id=CHAT, job_id=8, status="running", model="opus", message_id="answer-" + TOKEN)
+        write_json(path, {**read_object(path), "status": "answered", "answered_at": T0 + 2, "continuation_job_id": 8})
+        self.assertGreater(self.sync.touch_once(T0 + 3), 0)  # No quick look ran: the touch built the topic on its own.
+        self.assertEqual(self.web.items("question")[-1]["data"]["state"], "answered")
+        self.assertEqual(self.web.items("topic")[-1]["data"]["state"], "在做")
+
+    def test_a_question_of_another_chat_touches_nothing(self):
+        self.topic(status="waiting_user")
+        self.sync.push_once(T0)
+        before = len(self.web.items())
+        self.question(token="other123456", chat_id="oc_other")
+        self.assertEqual(self.sync.touch_once(T0 + 1), 0)
+        self.assertEqual(len(self.web.items()), before)
+
+
 class RereadTest(WebCase):
     """2026-11-26 T837, the half without a click: a topic the quick look leaves out while a read of it hangs on the network disk stood still
     on the page for as long as that read lasted (T732: 18:17:05 to 18:20:43, its new turn running all the while). web-reread reads such a
