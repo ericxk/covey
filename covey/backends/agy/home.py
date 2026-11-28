@@ -54,6 +54,9 @@ from covey.core.state import ensure_private_dir
 TOOL_SECONDS = 150  # Above core/butler_requests.py's 120 seconds.
 LIST_SECONDS = 10  # How long the server may take to list its tools before the turn.
 GEMINI, CONFIG, MCP_FILE, RULES_FILE = ".gemini", "config", "mcp_config.json", "GEMINI.md"
+# agy's own state (its conversations) under ~/.gemini: made in the real home when it is not there yet, so a first turn's
+# conversation goes through the link to where the next turn finds it, not into the private home that goes with the turn.
+STATE_DIR = "antigravity-cli"
 RULES_BYTES = 23000  # Of one rules file: agy 1.5.18 cuts one at 24000 bytes, by lines.
 PROTOCOL = "2025-06-18"
 # What a server's eager tools may take (``tool_size``). The butler's that work with topics take 14.7 KB with the
@@ -215,6 +218,10 @@ class PrivateHome:
         self.path = self.claim(tmp) or Path(tempfile.mkdtemp(prefix="agy-home-", dir=str(tmp)))  # mkdtemp is 0700.
         try:
             real = self.home / GEMINI
+            try:
+                (real / STATE_DIR).mkdir(parents=True, mode=0o700, exist_ok=True)
+            except OSError:
+                pass  # A home that cannot take it: agy makes it where it can, as before.
             first, rest = rules_parts(self.rules)
             linked(self.home, self.path, GEMINI)
             (self.path / GEMINI / CONFIG).mkdir(parents=True, mode=0o700)

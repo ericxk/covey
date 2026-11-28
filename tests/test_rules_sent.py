@@ -341,6 +341,7 @@ class ChannelTest(unittest.TestCase):
             self.assertTrue((gemini / "config" / "mcp_config.json").is_symlink())  # No Bridge tools: the owner's own.
             self.assertTrue((gemini / "antigravity").is_symlink())
         self.assertEqual((real / ".gemini" / "GEMINI.md").read_text(encoding="utf-8"), "OWNER RULES\n")
+        self.assertTrue((real / ".gemini" / agy_home.STATE_DIR).is_dir())  # A first turn's conversation stays.
         long = "".join(f"第 {n} 行规则，写得长一点好超过上限。\n" for n in range(1200))
         first, rest = agy_home.rules_parts(long)
         self.assertLessEqual(len(first.encode()), agy_home.RULES_BYTES)
