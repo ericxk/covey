@@ -314,7 +314,6 @@ MEMORY_WRONG_KIND = "bridge_memory_wrong"
 # 采纳 on a line that waits in 待审核 (app/memory_collect.py accept_click): the kind the 设置 card's 采纳 has (cards/memory_panel.py
 # ACCEPT, app/memory_panel.py takes both), so no kind is new; this one carries the job (``job_id``), the 设置 card's never does.
 MEMORY_ACCEPT_KIND = "bridge_memory_pin"
-MEMORY_PROMOTE_KIND = "bridge_memory_promote"  # 升为全局 of the older card: no longer drawn, the click says it is offline (app/task_controls.py).
 MEMORY_LINES = {"remembered": "记下了", "voided": "作废了", "undone": "已撤销", "superseded": "收起了", "pending": "待审核"}
 LEAD_LINE = "负责人记下了"  # A line of the lead's project_remember (a note ``by`` lead, app/project_tools.py).
 UNDOABLE = ("remembered", "superseded", "pending")  # The lines with a 不对 (app/memory_collect.py take_back).

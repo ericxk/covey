@@ -33,8 +33,8 @@ NOTES_HINT = '一句话说明这个工作区做什么'  # A 用途 input's place
 REPOS_TITLE = '仓库'
 STATUS_WORDS = {'active': ('可写', 'green'), 'readonly': ('只读', 'neutral'), 'frozen': ('已冻结', 'red')}  # core/repomap.py STATUSES.
 REPOS_LIMIT = 30  # The most repositories the tab names.
-REPOS_NOTE = '这一页只读。仓库的用途、状态和清理 worktree 在网页设置的「仓库」页里管。'
-REPOS_NO_WEB = '这个部署没开网页，状态和用途这里只能看；要改，打开网页（COVEY_WEB=1）后在设置的「仓库」页里改。'
+REPOS_NOTE = '这一页只读。仓库的用途、状态和清理 worktree 在网页设置的「常用路径」页里管。'
+REPOS_NO_WEB = '这个部署没开网页，状态和用途这里只能看；要改，打开网页（COVEY_WEB=1）后在设置的「常用路径」页里改。'
 REPOS_EMPTY = '还没有登记仓库：新话题都从主目录开始。'
 TITLE = '工作区'
 PAGE_SIZE = 8  # A row is 10 card nodes (its lines, two buttons): a page is ~140 with the rest.
@@ -271,7 +271,7 @@ def repos_card(token, view, *, home, items, link='', top=()):
     elements.append(md(f"**主目录**　{literal(home)}" if home else '**主目录**　（没有）'))
     elements.append(md(f"**仓库**　{len(items)} 个"))
     if link:
-        elements += [md(f"[在网页的「仓库」页看和改]({link})"), note(REPOS_NOTE)]
+        elements += [md(f"[在网页的「常用路径」页看和改]({link})"), note(REPOS_NOTE)]
     else:
         for each in items[:REPOS_LIMIT]:
             word, colour = STATUS_WORDS.get(each.get('status'), ('可写', 'green'))

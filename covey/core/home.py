@@ -1,6 +1,6 @@
 """The deployment's home (主目录): where every topic starts, and where its outputs go (``<state>/home.json``).
 
-The home is the service's ``--workdir``: one way to start, no second path (docs/configuration.md 主目录与仓库地图). A
+The home is the service's ``--workdir``: one way to start, no second path (docs/configuration.md 主目录与常用路径). A
 taken-over directory gets no file written into it; a home Covey made (``seed_home``: a new install's ``<数据根>/home``)
 has a short AGENTS.md (and the same CLAUDE.md), the rendered repo map, ``.ignore``, ``.skills`` and ``tasks/``, and a
 mark (``SEED_MARK``) that says so. ``home.json`` holds the templates of a topic's run and session directories and
@@ -35,13 +35,13 @@ CACHE_VARS = ("TMPDIR", "XDG_CACHE_HOME", "PIP_CACHE_DIR", "UV_CACHE_DIR", "npm_
 # The home's AGENTS.md (and CLAUDE.md, the same text) in a home Covey made: ≤60 lines, the home's few rules.
 AGENTS_TEXT = """# 主目录
 
-这是 Covey 的主目录：每个话题都从这里启动。代码仓库在仓库地图里（`repos.md`，由 Covey 生成，不要手改）。
+这是 Covey 的主目录：每个话题都从这里启动。代码仓库和常用目录在常用路径里（`repos.md`，由 Covey 生成，不要手改）。
 
 ## 约定
 
 1. 进一个仓库干活之前，先读它的 `AGENTS.md` 或 `CLAUDE.md`，照它的规矩做。
 2. 要改仓库：`covey repo use <名字> --write`，按话题建（或复用）worktree，在打印的目录里改；只读看：`covey repo use <名字>`。
-3. 不要在主目录根递归搜索（`rg`、`grep -r`、`find`、`ls -R`、`du`）：先查仓库地图，只搜具体的仓库或子目录。
+3. 不要在主目录根递归搜索（`rg`、`grep -r`、`find`、`ls -R`、`du`）：先查常用路径，只搜具体的仓库或子目录。
 4. 任务的输出、日志、临时文件放 `tasks/runs/` 下本话题的目录，不要散落在主目录根。
 5. 自己的 Skill 放 `.skills/`。
 """

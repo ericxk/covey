@@ -674,14 +674,15 @@ class BoardTests(UnifiedCase):
         self.assertTrue(any("outcome=board_retired" in line for line in self.logs))
 
     def test_an_older_evening_cards_remember_button_says_where_and_records_nothing(self):
-        """你反复说的 left the evening digest: 记下 / 不用 on a card sent before is answered in words, records nothing."""
-        from covey.app.card_actions import RETIRED_TEXT
+        """你反复说的 left the evening digest: 记下 / 不用 on a card sent before is answered in words (app/card_actions.py
+        MOVED_CARDS, before any panel), records nothing."""
+        from covey.app.card_actions import MEMORY_RETIRED
         with mock.patch.object(self.app.messenger, "reply", return_value=True) as reply:
             self.app.handle_card_action_event({"event_id": "r1", "operator_id": "owner", "chat_id": CHAT,
                                                "message_id": "om_evening", "action_value": {
                                                    "kind": "bridge_digest_remember", "op": "save", "group": "g1"}}, self.ctx)
-        self.assertEqual(reply.call_args.args[2], RETIRED_TEXT["bridge_digest_remember"])
-        self.assertTrue(any("outcome=digest_remember_retired" in line for line in self.logs))
+        self.assertEqual(reply.call_args.args[2], MEMORY_RETIRED["bridge_digest_remember"])
+        self.assertTrue(any("outcome=extension_missing" in line for line in self.logs))
         self.assertFalse((self.state / "memory-candidates.json").exists())
 
     def test_a_stopped_topic_opens_its_task_card_and_says_what_comes_next(self):

@@ -6,7 +6,7 @@ the home (core/topics.py ``home_start``): the home, the repo map's path, the top
 one cacheable prefix; what changes turn by turn is app/repos_turn.py's. A topic from before the home gets '' and keeps
 its workspace block. ``env`` is what every Harness process gets (core/home.py ``env``: ``COVEY_HOME``, ``COVEY_TOPIC``,
 ``COVEY_STATE``, ``<数据根>/bin`` first on ``PATH``), and the cache variables in the run's directory when ``home.json``
-says ``cache_env`` (docs/configuration.md 主目录与仓库地图).
+says ``cache_env`` (docs/configuration.md 主目录与常用路径).
 
 A topic the butler or a lead opened with ``local`` false (topic.json ``origin.local``, app/butler_topics.py bind_topic)
 keeps off this machine's repositories and files: its home block is ``EXTERNAL`` (its outputs directory, the line that it
@@ -30,17 +30,17 @@ from covey.core.state import read_json
 from covey.core.topics import home_start
 
 RULES = ("主目录的规矩：\n"
-         "- 不要在主目录根递归搜索（rg、grep -r、find、ls -R、du），先查仓库地图，只搜具体的仓库或子目录。\n"
+         "- 不要在主目录根递归搜索（rg、grep -r、find、ls -R、du），先查常用路径，只搜具体的仓库或子目录。\n"
          "- 进一个仓库干活之前先读它的 AGENTS.md 或 CLAUDE.md，照它的规矩做。\n"
          "- 要改仓库：covey repo use <仓库> --write，在它打印的目录里改（按话题建 worktree，不动仓库的主检出；"
-         "地图里写着原地改的除外）。只读：covey repo use <仓库>；本话题用到的：covey repo status。")
+         "常用路径里写着原地改的除外）。只读：covey repo use <仓库>；本话题用到的：covey repo status。")
 # The home block of a topic that keeps off this machine's files (``local``), after its outputs directory's line.
 EXTERNAL = ("本话题不用本机的仓库和工作区：只用任务给的材料和外部来源；主人没要求时，不翻本地仓库，也不把结论往本地项目上引。\n"
             "主人点名要看本地代码时，先 covey repo use <仓库>（不知道名字用 covey repo list），按它打印的目录和规范读。\n"
             "不要递归搜索主目录或家目录这类大目录。")
 OUTPUTS_LINE = "本话题产物目录：{}（输出、日志、临时文件都放这里，每次运行在它下面另建子目录）"
 # The home block's line on devices (core/device_access.py), with COVEY_DEVICES on; never in an EXTERNAL topic's block.
-DEVICE_RULE = ("- 要用别的设备：设备和设备上的常用路径在仓库地图末尾，用 covey device（covey device --help 看用法）；"
+DEVICE_RULE = ("- 要用别的设备：设备和设备上的目录在常用路径末尾，用 covey device（covey device --help 看用法）；"
                "只读设备只能看，不能改。")
 
 
@@ -82,7 +82,7 @@ def static_block(ctx) -> str:
     where = home.of(ctx)
     rendered = repomap.render(ctx.state_dir, where) or repomap.rendered_path(ctx.state_dir, where)
     lines = [f"主目录：{where}（本话题从这里启动，先遵守这里的 AGENTS.md）",
-             f"仓库地图：{rendered}（要动的代码先在地图里找仓库）"]
+             f"常用路径：{rendered}（要动的代码先在这里找仓库）"]
     outputs = outputs_dir(ctx, data)
     if outputs:
         lines.append(OUTPUTS_LINE.format(outputs))

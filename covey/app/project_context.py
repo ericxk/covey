@@ -68,19 +68,6 @@ def member_record(ctx, job):
     return found.id, record
 
 
-def memory_rows(ctx, job) -> tuple[str, list]:
-    """(project id, its live memory lines without the style line) for COVEY_MEMORY=1's one block (app/memory_turn.py); ('', [])
-    when ``member_record`` has none. Never raises."""
-    try:
-        found = member_record(ctx, job)
-        if not found:
-            return "", []
-        rows = project_memory.live(ctx.state_dir, found[1], style=False)
-        return found[0], rows + [row for row in decision_rows(ctx.state_dir, found[0], rows) if not row["deleted"]]
-    except Exception:  # noqa: BLE001 - the turn goes on without it
-        return "", []
-
-
 DECISION_VALID = {"done": "done", "archived": "done", "pending": "done"}  # A decision's status as a line's ``valid``.
 
 

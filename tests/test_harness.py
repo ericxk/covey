@@ -466,7 +466,7 @@ class TwoStagePromptTest(unittest.TestCase):
         write_topic(ctx.state_dir, {"home_start": True}, topic_id=topic)
         fresh = app.runs.bridge_rules(ctx, job)
         resumed = app.runs._with_rules(ctx, job, "MSG", "", system=False, fresh=False, rules_session=False)
-        for part in (f"主目录：{self.root}", "仓库地图：", "主目录的规矩：", "covey repo use <仓库> --write"):
+        for part in (f"主目录：{self.root}", "常用路径：", "主目录的规矩：", "covey repo use <仓库> --write"):
             self.assertIn(part, fresh)
             self.assertIn(part, resumed)
         self.assertNotIn("当前工作区：", resumed)  # The workspace block is the rules' only for a topic not from the home.
@@ -480,7 +480,7 @@ class TwoStagePromptTest(unittest.TestCase):
         write_topic(ctx.state_dir, {}, topic_id=topic)
         resumed = app.runs._with_rules(ctx, job, "MSG", "", system=False, fresh=False, rules_session=False)
         self.assertIn(f"当前工作区：ws\n当前工作目录：{self.root.resolve()}", resumed)
-        self.assertNotIn("仓库地图：", resumed)
+        self.assertNotIn("常用路径：", resumed)
 
     def test_claude_and_codex_carry_the_rules_at_the_system_level(self) -> None:
         # The owner's call of 11-28 (app/rules_sent.py): beside the model's own system prompt (Claude Code's
@@ -726,7 +726,6 @@ class RetiredHarnessTests(unittest.TestCase):
         private |= {OVERVIEW_DISMISS, OVERVIEW_UNDO}  # 手上的事's 这些都不用回答了 and its 撤销 (tests/test_pins.py).
         private |= BOARD_KINDS  # The 看板's 刷新 and 记为看过 (tests/test_digest.py).
         private |= {MEMORY_KIND}  # 整理记忆's 撤销 on the evening digest (tests/test_memory_tidy.py).
-        private |= {"bridge_digest_remember"}  # An older evening card's 记下 / 不用 (tests/test_digest.py).
         private |= {APP_SETUP_START, APP_SETUP_SKIP}  # 飞书应用待补 (tests/test_app_setup.py).
         private |= WEB_LOGIN_KINDS  # 网页登录确认 (tests/test_web_login.py).
         private |= {WELCOME_KIND}  # 发这句 on the welcome card (tests/test_welcome.py).

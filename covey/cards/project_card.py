@@ -24,7 +24,8 @@ lead's speaker row, as the lead's answers have (cards/ui.py speaker_row, docs/ui
 - ``pj_triage``, ``pj_lib``: the 分流记录 and 资料库 folds (closed), drawn only with rows; each row of the second has a 删
   button, and a row of the first that the lead answered for the owner a 不对 button (``triage_rows``);
 - ``pj_mem``: 专项记忆 as one grey line of counts (规矩 · 决定 · 资料, 待审核 when some wait) and, with the web page on, the link to
-  the 网页记忆中心; no rows and no 删 button here (managing the memory is the page's; the older card's 删 says it is offline);
+  the web page's 记忆; no rows and no 删 button here (managing the memory is the page's; the older card's 删 gets app/card_actions.py
+  MOVED_CARDS's line);
 - ``pj_io``: the grey 输入/输出 box (cards/answer_card.py ``box``);
 - ``pj_btns``: 补充 (``pj_steer``), 换配置 (``pj_switch``: the lead's Harness, model and budget, app/harness_switch.py's card
   with the project named, ``SWITCH_LEAD``), 停止专项 (``pj_stop``, while the project is at work), 不要专项 (``pj_down``).
@@ -58,11 +59,11 @@ FIT_STEPS = ((MAX_ROWS, MAX_FOLDS), (6, MAX_FOLDS), (4, 6), (3, 5), (2, 4), (1, 
 ROW_CHARS = 90
 CORRECTED = "（已纠正）"  # The end of a 分流记录 line the owner corrected (app/project_facts.py triage_lines), kept when it is clipped.
 STEER_KIND, STOP_KIND, DOWN_KIND = "bridge_project_steer", "bridge_project_stop", "bridge_project_downgrade"
-MEM_DEL_KIND, LIB_DEL_KIND = "bridge_project_mem_del", "bridge_project_lib_del"  # MEM_DEL_KIND: no longer drawn, kept to take a card drawn before.
+LIB_DEL_KIND = "bridge_project_lib_del"
 SWITCH_LEAD = "project_id"  # In 换配置's value (app/harness_switch.py LEAD): the project whose lead it changes.
 # The pause card's buttons (choice -> kind): app/project_loop.py CHOICES.
 ASK_KINDS = {"continue": "bridge_project_ask_continue", "finish": "bridge_project_ask_finish", "stop": "bridge_project_ask_stop"}
-KINDS = frozenset({STEER_KIND, STOP_KIND, DOWN_KIND, MEM_DEL_KIND, LIB_DEL_KIND, *ASK_KINDS.values()})
+KINDS = frozenset({STEER_KIND, STOP_KIND, DOWN_KIND, LIB_DEL_KIND, *ASK_KINDS.values()})
 # A project's state and a member's, as core/look.py STATES keys: the words and colours are the table's (docs/ui.md 2.2,
 # 3). A project a guard paused is STOPPED (停住了 and why, ``Project.reason``), one the owner stopped CANCELLED (已停止);
 # a member STUCK may be stuck (core/progress.py maybe_stuck).

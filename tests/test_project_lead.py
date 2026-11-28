@@ -1625,7 +1625,7 @@ class StorePackTest(Case):
         with mock.patch.dict(os.environ, {"COVEY_MEMORY": "0"}):
             pack = self.pack()
         self.assertIn(project_lead.LEAD_MEMORY_HEAD, pack)
-        self.assertIn("长期约定", pack)
+        self.assertIn("规矩（主人明说以后都照做的）", pack)
 
     def test_the_leads_rules_say_to_hand_on_the_decisions_just_made(self):
         self.assertIn("主人刚拍板的关键决定写进交给话题的话里", project_lead.lead_rules())

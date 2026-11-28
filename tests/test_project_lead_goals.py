@@ -1182,7 +1182,7 @@ class GroundsTest(ToolsCase):
         lead, _ = project_memory.add(self.state, PID, "这个专项一律用旧版", "decision", "lead")
         answer = self.answer([lead["id"]])
         self.assertFalse(answer["ok"])
-        for words in ("没有替主人答", "待核对参考", "project_escalate"):
+        for words in ("没有替主人答", "负责人记的", "project_escalate"):
             self.assertIn(words, answer["text"])
         self.still_held()
 
@@ -1199,7 +1199,7 @@ class GroundsTest(ToolsCase):
         self.meta(done, valid="done")
         self.meta(superseded, valid="superseded", superseded_by=good)
         project_memory.fix(self.state, PID, once, "once", origin={"message_id": "om_fix1"})
-        for evidence, words in (([voided], "已作废"), ([done], "进了历史记录"), ([superseded], "进了历史记录"),
+        for evidence, words in (([voided], "已作废"), ([done], "收起了"), ([superseded], "收起了"),
                                 ([once], "只限当次"), (["0123456789abcdef-9"], "不在这个专项的记忆里"),
                                 ([good, "0123456789abcdef-9"], "不在这个专项的记忆里"), ([good, voided], "已作废")):
             with self.subTest(evidence=evidence):

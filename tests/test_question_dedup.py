@@ -547,7 +547,7 @@ class OlderCallersTest(Case):
         with self.assertRaisesRegex(ValueError, "不是这个专项的记忆"):
             flow.grounds(self.env(), record, [theirs.code])
         memstore.settle(self.state, decision.ref)
-        with self.assertRaisesRegex(ValueError, "历史"):
+        with self.assertRaisesRegex(ValueError, "收起了"):
             flow.grounds(self.env(), record, [decision.code])
 
     def lead_request(self, **args):

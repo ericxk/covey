@@ -39,7 +39,7 @@ RESTART_ABANDONED = '服务重启时 worktree 尚未创建完成'
 
 
 def home_selection(ctx) -> str:
-    """Where a new topic starts (docs/configuration.md 主目录与仓库地图: one way to start, no workspace to pick): the
+    """Where a new topic starts (docs/configuration.md 主目录与常用路径: one way to start, no workspace to pick): the
     home, the service's ``--workdir`` (``ctx.default_workdir``), resolved. Never a device (主人 D2Y4T,
     core/devices.py START_RETIRED): a topic uses one from the home (``covey device``)."""
     return str(Path(ctx.default_workdir).expanduser().resolve())

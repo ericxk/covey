@@ -14,7 +14,7 @@ topic from before the home shows its repositories only once
 one was declared or asked for (``covey repo use``); its inlined rules and reminders it gets all the same. ``settle`` folds a task's
 ``runs/<任务键>/repos.json`` and the repositories its tool calls touched (core/topic_repos.py ``touched``) into
 ``topic.json`` when its turn ends, and the repositories it used into the repo map. ``repos_list`` is the Bridge tool's
-answer (docs/configuration.md 主目录与仓库地图).
+answer (docs/configuration.md 主目录与常用路径).
 
 The devices' part sits beside it (COVEY_DEVICES=1, core/device_access.py): ``start_devices`` writes what ``covey
 device`` needs of the turn into its run directory before the turn runs (its limit and its chat's device space, asked of

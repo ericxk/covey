@@ -20,6 +20,7 @@ from covey.app.butler_model_choice import resolve
 from covey.app.butler_env import ButlerEnv
 from covey.app import butler_panel as panel
 from covey.app.butler_panel import GONE, OWNER_ONLY, TOOLS, settings_panel
+from covey.app.card_actions import WORKSPACE_KINDS, WORKSPACE_RETIRED
 from covey.cards import butler_panel as panel_card
 from covey.core.roster import CORE_HARNESSES
 from covey.cards.settings_hub import REPOS, TAB, TITLES as HUB_TITLES, successor
@@ -161,8 +162,7 @@ class ButlerPanelTests(UnifiedCase):
         for part in ('**新话题默认**', '**直接开工**', '改成纯话题', '**私聊模式**', '私聊顶层的消息', '**独立复核**', '记住的工作区',
                      panel_card.TOPIC_NOTE, '工作区', '运行方式'):  # v43: no 工作区 or 运行方式 row, on the page or the closed line.
             self.assertNotIn(part, text)
-        self.assertEqual([self.values(kind) for kind in (panel_card.SPACE, panel_card.TOPIC_WORKSPACE, panel_card.TOPIC_RUN_MODE)],
-                         [[], [], []])
+        self.assertEqual([self.values(kind) for kind in WORKSPACE_KINDS], [[]] * len(WORKSPACE_KINDS))
         self.assertLess(text.index('**新话题**'), text.index('**管家**'))
         self.assertLess(text.index('**管家**'), text.index('压缩阈值'))
         self.assertLess(text.index('压缩阈值'), text.index('**更多**'))
@@ -199,7 +199,7 @@ class ButlerPanelTests(UnifiedCase):
         self.assertEqual(self.cards[-1]['header']['title']['content'], '仓库')
         for part in ('**记住的工作区**', '"note_0"', '保存用途', '设为默认', '**工作区用途**', panel_card.WORKSPACE_NOTE):
             self.assertNotIn(part, text)
-        self.assertEqual(self.values(panel_card.NOTES), [])
+        self.assertEqual(self.values('bridge_main_notes'), [])
 
     def test_an_empty_topic_default_says_what_it_resolves_to(self):
         from covey.app.launch import chat_defaults_path
@@ -422,25 +422,26 @@ class ButlerPanelTests(UnifiedCase):
             self.assertIn('压缩阈值', self.text())  # 管家 open.
         self.assertNotIn('mode', json.loads((self.ctx.state_dir / settings.FILE).read_text()))
         self.part('topic')
-        # 直接开工 and 记住的工作区 are retired: an older card's buttons say so and change nothing.
+        # 直接开工 is retired: an older card's buttons say so and change nothing.
         for n, value in enumerate(({'kind': panel_card.START_ROW, 'option': 'safe'},
-                                   {'kind': panel_card.START, 'tier': 'trusted', 'on': False},
-                                   {'kind': panel_card.UNTRUST, 'key': 'project|edit'})):
+                                   {'kind': panel_card.START, 'tier': 'trusted', 'on': False})):
             self.click({**value, 'token': token}, event_id=f'c3{n}')
             self.assertEqual(self.settings(), before)
             self.assertIn(panel_card.RETIRED_NOTICE, self.text())
             self.assertEqual(self.cards[-1]['header']['title']['content'], HUB_TITLES[panel_card.CONFIG])
-        # The 工作区 and 运行方式 rows and 保存用途 are off the page (v43): an older card's buttons say so, change nothing, and the
-        # butler's own workspace setting stays as it was (it keeps an older deployment's butler where it works).
-        for n, value in enumerate(({'kind': panel_card.TOPIC_WORKSPACE, 'option': 'docs'},
-                                   {'kind': panel_card.TOPIC_RUN_MODE, 'option': 'worktree'},
-                                   {'kind': panel_card.SPACE, 'option': 'docs'},
-                                   {'kind': panel_card.NOTES, 'workspaces': ['docs', 'project']})):
-            self.click({**value, 'token': token}, event_id=f'c4{n}', form_value={'note_0': 'x', 'note_1': 'y'})
-            self.assertEqual(self.settings(), before)
-            self.assertIn(panel_card.OFFLINE_NOTICE, self.text())
-            self.assertEqual(self.cards[-1]['header']['title']['content'], HUB_TITLES[panel_card.CONFIG])
-        self.assertEqual(self.outcomes(), ['main_panel'] * 11)  # 新话题's 展开 among them.
+        # The 工作区 and 运行方式 rows, 保存用途 and 记住的工作区 are off the page (v43) and no kinds of it any more: an older card's
+        # buttons get one line under the card (app/card_actions.py MOVED_CARDS), change nothing and redraw nothing, and the butler's
+        # own workspace setting stays as it was (it keeps an older deployment's butler where it works).
+        more = {'bridge_main_topic_workspace': {'option': 'docs'}, 'bridge_main_topic_run_mode': {'option': 'worktree'},
+                'bridge_main_workspace': {'option': 'docs'}, 'bridge_main_notes': {'workspaces': ['docs', 'project']},
+                'bridge_main_untrust': {'key': 'project|edit'}}
+        with mock.patch.object(self.app.messenger, 'reply') as reply:
+            for n, kind in enumerate(WORKSPACE_KINDS):
+                self.assertEqual(self.click({'kind': kind, **more[kind], 'token': token}, event_id=f'c4{n}',
+                                            form_value={'note_0': 'x', 'note_1': 'y'}), 0)
+                self.assertEqual(self.settings(), before)
+                self.assertEqual(reply.call_args.args[2], WORKSPACE_RETIRED)
+        self.assertEqual(self.outcomes(), ['main_panel'] * 6 + ['extension_missing'] * len(WORKSPACE_KINDS))  # 新话题's 展开 among them.
 
     def test_only_the_owner_changes_and_an_option_gone_changes_nothing(self):
         self.ask()
@@ -682,7 +683,7 @@ class ButlerPanelTests(UnifiedCase):
         self.click({**self.option(panel_card.HARNESS, 'claude'), 'option': 'dsh'}, event_id='h5')  # Cannot run the butler.
         self.assertIn(GONE, self.text())
         self.assertEqual(self.settings().butler_harness, 'claude')
-        self.assertEqual(self.values(panel_card.SPACE), [])  # Its workspace is no row of 管家 any more (v43).
+        self.assertEqual(self.values('bridge_main_workspace'), [])  # Its workspace is no row of 管家 any more (v43).
 
     def test_a_click_in_更多_keeps_it_open_and_a_click_elsewhere_closes_it(self):
         """U4 (T898, docs/ui.md U15): the rows nobody changes are in their section's 更多, closed; a click on one of them
@@ -733,11 +734,7 @@ class ButlerPanelTests(UnifiedCase):
         self.click({'kind': panel_card.START, 'token': token, 'revision': 1, 'tier': 'readonly', 'on': False},
                    event_id='c2')
         self.assertEqual(self.settings().topic_defaults.harness, 'codex')  # Retired: changes nothing more.
-        self.click({'kind': panel_card.UNTRUST, 'token': token, 'revision': 1, 'key': 'x|read'}, event_id='c2b')
         self.assertEqual(self.cards[-1]['header']['title']['content'], '配置')
-        self.click({'kind': panel_card.NOTES, 'token': token, 'revision': 1, 'workspaces': []}, event_id='c2c')
-        self.assertEqual(self.cards[-1]['header']['title']['content'], '配置')  # 保存用途 is offline: 配置, with its notice.
-        self.assertIn(panel_card.OFFLINE_NOTICE, self.text())
         write_json(path, {**json.loads(path.read_text()), 'tab': 'main'})  # Shown on 管家, before 配置.
         self.click({'kind': panel_card.COMPACT, 'token': token, 'revision': 1, 'option': '0'}, event_id='c3')
         self.assertEqual(self.cards[-1]['header']['title']['content'], '配置')
@@ -753,7 +750,7 @@ class ButlerPanelTests(UnifiedCase):
         self.click({'kind': panel_card.SECTION, 'token': token, 'revision': 1, 'open': 'gone'}, event_id='c5')
         self.assertIn(GONE, self.text())
         self.assertTrue(self.values(panel_card.TOPIC_HARNESS))
-        self.assertEqual(self.outcomes(), ['main_panel'] * 7)
+        self.assertEqual(self.outcomes(), ['main_panel'] * 5)
 
     def test_a_new_topics_whole_model_list_comes_before_the_workspaces_lines(self):
         """MASO's 13 models (2026-11-08) all listed, as on the launch card: workspaces' lines give way first."""

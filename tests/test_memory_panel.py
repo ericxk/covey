@@ -206,8 +206,7 @@ class MemoryTabTests(MemoryCase):
         self.memory_tab()
         before = [(e.ref, e.status) for e in memstore.entries(self.state, statuses=None)]
         token = self.hub.token('dm', 'ev-menu')
-        for n, value in enumerate(({'kind': cards.WORKSPACE, 'option': 'docs'}, {'kind': cards.PROMOTE, 'key': f'topic:{TOPIC}:abc'},
-                                   {'kind': cards.PIN, 'key': f'principle:{principle["id"]}', 'on': True},
+        for n, value in enumerate(({'kind': cards.PIN, 'key': f'principle:{principle["id"]}', 'on': True},
                                    {'kind': cards.DELETE, 'key': f'principle:{principle["id"]}', 'op': 'confirm'})):
             self.assertEqual(self.press({**value, 'token': token, 'revision': 1}, f'ev-old{n}'), 'memory_tab')
             text = text_of(self.card())
@@ -318,17 +317,6 @@ class WorstCaseTests(HubCase):
 
 
 class PinTests(HubCase):
-    def test_pin_holds_a_group_to_its_limit_and_reads_back(self):
-        ids = [principles.save(self.state, principles.OWNER, f'第 {i} 条')[0]['id'] for i in range(principles.PINNED_LIMIT + 1)]
-        for pid in ids[:-1]:
-            self.assertTrue(principles.pin(self.state, pid, True)['pinned'])
-        with self.assertRaisesRegex(ValueError, '常驻已有'):
-            principles.pin(self.state, ids[-1], True)
-        self.assertIsNone(principles.pin(self.state, 'p000000', True))
-        self.assertEqual(sum(1 for row in principles.entries(self.state) if row.get('pinned')), principles.PINNED_LIMIT)
-        principles.pin(self.state, ids[0], False)
-        self.assertNotIn('pinned', principles.entries(self.state)[0])
-
     def test_principles_block_keeps_the_pinned_ones_past_its_limit(self):
         old = {'text': '最早的', 'at': '2026-01-01T00:00:00Z'}
         rows = [old, *({'text': f'第 {i} 条' + '庚' * 40, 'at': f'2026-02-{i + 1:02d}T00:00:00Z'} for i in range(5))]

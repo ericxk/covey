@@ -92,7 +92,6 @@ class CardActionTableTest(unittest.TestCase):
         before_routing |= {OVERVIEW_DISMISS, OVERVIEW_UNDO}  # 手上的事's 这些都不用回答了 and its 撤销 (app/overview.py).
         before_routing |= BOARD_KINDS  # The 看板's 刷新 and 记为看过 (app/digest.py).
         before_routing |= {MEMORY_KIND}  # 整理记忆's 撤销 on the evening digest (app/digest.py).
-        before_routing |= {"bridge_digest_remember"}  # An older evening card's 记下 / 不用, answered in words (app/digest.py).
         before_routing |= {APP_SETUP_START, APP_SETUP_SKIP}  # 飞书应用待补 (app/app_setup.py).
         before_routing |= WEB_LOGIN_KINDS  # 网页登录确认 (app/web_login.py).
         before_routing |= {WELCOME_KIND}  # 发这句 on the welcome card (app/welcome.py).
@@ -1227,7 +1226,6 @@ class MemoryWriteTest(unittest.TestCase):
         "covey/app/butler_knowledge.py::memory_revise::memstore.add_decision": 1,
         "covey/app/butler_knowledge.py::memory_revise::memstore.supersede": 1,
         "covey/app/butler_tools.py::principle_save::principles.save": 1,
-        "covey/app/memory_collect.py::promote::principles.save": 1,
         "covey/app/memory_panel.py::MemoryPanel.put_away::memstore.archive": 1,
         "covey/app/project_context.py::remember_answer::memstore.add_decision": 1,
         "covey/app/project_tools.py::revise_decision::memstore.settle": 1,

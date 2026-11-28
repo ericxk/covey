@@ -29,7 +29,7 @@ from covey.core.workspaces import config_path, directory_status
 
 MANAGING = statuses.MANAGING  # A launch card that became the manager: cards sent before still name it.
 LOCK = 'workspace-manager'
-RETIRED_TEXT = '这个选项已下线：新话题一律从主目录开始，仓库在网页设置的「仓库」页管。'
+RETIRED_TEXT = '这个选项已下线：新话题一律从主目录开始，仓库在网页设置的「常用路径」页管。'
 OWNER_ONLY = '⚠️ 只有机器人主人能改设置。'
 HOME_SIZE = 80  # Characters of the home's path the tab shows (its tail).
 

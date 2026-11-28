@@ -187,7 +187,7 @@ class CardTest(unittest.TestCase):
         words = texts(cards.welcome_card({**VIEW, "bare_workspace": True}))
         self.assertIn(cards.BARE_WORKSPACE, words)
         self.assertLess(words.index("/absolute/work"), words.index(cards.BARE_WORKSPACE))
-        self.assertIn("「仓库」", cards.BARE_WORKSPACE)
+        self.assertIn("「常用路径」", cards.BARE_WORKSPACE)
         self.assertNotIn("工作区", cards.BARE_WORKSPACE)
         self.assertNotIn(cards.BARE_WORKSPACE, texts(cards.welcome_card(VIEW)))
 

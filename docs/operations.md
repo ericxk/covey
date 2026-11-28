@@ -165,13 +165,13 @@ Bridge 自己停了、或者和飞书断了，它自己说不了话。所以由�
 │  ├─ menu-panels.json、settings-cards/、group-managers/、main-thread-panels/、weekly-usage-cards/、digest-boards/、dashboard-links/   菜单发出的各张卡
 │  └─ welcome.json                 欢迎卡：发了没有、发在哪、点过哪几句示例（新部署第一次启动时写 pending；那时已有任务、话题或私聊记录的部署写 skipped，永不发）
 ├─ 主人的设置
-│  ├─ workspace-config.json        工作区列表和默认工作区
+│  ├─ workspace-config.json        工作区列表和默认工作区（旧话题和旧启动卡还读它，新话题不用）
 │  ├─ groups/                      每个主人 @ 过机器人的群：是否外部群、是否对成员开放、免@
 │  ├─ principles.json              主人的原则（旧版写；新版迁进 `memory/global.json` 后只读）
 │  ├─ knowledge/                   知识条目（`COVEY_KNOWLEDGE` 没关才有）：`owner.jsonl`/`.md`、`workspaces/<工作区>.jsonl`/`.md`、`owner-brief.md`（旧版写；新版迁进 `memory/global.json` 后只读）
 │  ├─ memory/                      记忆（`core/memstore.py`）：全局条目 `global.json`、待审核 `review.json`、旧版 Harness 记忆导入留下的 `imports.json`（不再读写）、变更记录 `log.jsonl`（留 90 天，撤销用）、短码表 `codes.json`、有记忆的话题 `topics.json`、用到的次数 `usage.json`、同类问题静默到哪天 `dedup.json`（问前查重，Bridge 写）、自定义同义词 `synonyms.json`、给网页看有没有变的哨兵 `.rev`
-│  ├─ repos.json、home.json        仓库地图（`core/repomap.py`）、主目录的设置（`core/home.py`）
-│  ├─ repos.md                     从仓库地图画出来给每轮看的那份（接管已有主目录时放这里，不写进主目录）
+│  ├─ repos.json、home.json        常用路径（原仓库地图，`core/repomap.py`）、主目录的设置（`core/home.py`）
+│  ├─ repos.md                     从常用路径画出来给每轮看的那份（接管已有主目录时放这里，不写进主目录）
 │  ├─ main-thread.json             管家和新话题的设置，子 Agent 的模型 `subagents`（`COVEY_BUTLER=0` 时设置卡没有它，默认 `light`，要跟主模型手写 `"same"`）
 │  └─ redaction/                   已下线的敏感词脱敏留下的词表等，不再读写、不进备份，原样留着（[已下线的功能](legacy.md)）
 ├─ 可选功能
@@ -183,7 +183,7 @@ Bridge 自己停了、或者和飞书断了，它自己说不了话。所以由�
 │  ├─ revisits/                    到点回来看（`COVEY_REVISIT`）：每个话题一个，几点回来看、看什么、排出的那一轮
 │  ├─ limit-notices/               几个话题同一原因停下的合并提示（`COVEY_LIMIT_NOTICE`）：每组一个，发没发过
 │  ├─ digest.json                  早晚汇总
-│  ├─ memory-candidates.json       旧版晚间汇总里“你反复说的”候选和主人点的「记下」「不用」（`COVEY_MEMORY` 没关；新候选进待审核，不再写这里）
+│  ├─ memory-candidates.json       旧版晚间汇总里“你反复说的”候选和主人点的「记下」「不用」（旧版留下，只读兼容：晚间候选已下线，新版不再读写，备份照带）
 │  ├─ memory-usage.json、memory-tidy.json、memory-harvest.json   旧版每条记忆最后一次被用到的时间（只读）、每天整理记忆收起了什么（撤销用，`COVEY_MEMORY` 没关）、旧版读过的 Codex 和 Claude Code 自己的记忆
 │  ├─ projects/                    专项（`COVEY_PROJECTS`）：`<专项>.json`；`<专项>/` 里是记忆 `memory.json`（旧版也读写）、它的新字段 `memory-v2.json`、决定记录 `decisions.jsonl`、资料库索引 `library.json` 和复制的文件 `library/`、收件箱 `inbox/`；整理专项的记录 `tidy/`
 │  ├─ owner-send/                  代发的草稿和发送记录
@@ -272,7 +272,7 @@ python3 -B scripts/memory_migrate.py --state "$STATE_DIR" --export-legacy
 - `stop`、`restart` 和部署都不结束任务进程。机器人停着期间任务照常执行、刷新卡片，但点卡片和发消息没有响应。
 - Bridge 没有热重载，`SIGHUP` 不触发重新执行；换代码用 `restart` 或部署。
 
-工作区列表平时在飞书的设置卡里管理（见[选择和管理工作区](usage.md#选择和管理工作区)），服务器上也可以：
+话题都从主目录启动，常用路径在网页设置的「常用路径」页管理，命令是 `covey repo`（见[使用指南 · 主目录与常用路径](usage.md#主目录与常用路径)）。旧话题绑着的工作区列表（`workspace-config.json`）飞书上已不再管理，服务器上还能用下面的命令看和改：
 
 ```bash
 python3 -B bin/covey_workspaces.py --state-dir "$STATE_DIR" list
@@ -282,7 +282,7 @@ python3 -B bin/covey_workspaces.py --state-dir "$STATE_DIR" remove 旧项目 另
 python3 -B bin/covey_workspaces.py --state-dir "$STATE_DIR" prune
 ```
 
-`add` 的路径必须是已存在的目录，名称 1 至 40 个字符。设备上的工作区（`COVEY_DEVICES=1`）在飞书里添加，命令行不认 `别名:路径`。`remove` 只从列表移除，不删目录；默认工作区要先把别的设为默认才能移除。`prune` 移除确认已不存在的目录。改动只影响之后开始的话题，实时生效。状态目录里还没有 `workspace-config.json` 时，命令会用当前目录建一个默认列表，所以先确认 `--state-dir` 写对了。
+`add` 的路径必须是已存在的目录，名称 1 至 40 个字符。设备上的路径（`COVEY_DEVICES=1`）在网页设置的「常用路径」页添加，命令行不认 `别名:路径`。`remove` 只从列表移除，不删目录；默认工作区要先把别的设为默认才能移除。`prune` 移除确认已不存在的目录。改动只影响之后开始的话题，实时生效。状态目录里还没有 `workspace-config.json` 时，命令会用当前目录建一个默认列表，所以先确认 `--state-dir` 写对了。
 
 ### 载入服务清单的环境
 
@@ -498,7 +498,7 @@ python3 -B bin/covey_maintenance.py --restore /absolute/bridge-NNN.tar.gz --dest
 3. **设备上的标记**：`~/.covey/marks/<hub-id>/<标记>/<pid>.json` 是正在跑的 `run` 的进程组，命令结束就删，标记下最后一条命令结束时目录一起删；残留的说明命令还在跑或那一轮没收割成。每小时一次的 `gc` 清掉已空的标记目录和进程组已不在、一小时没变的记录（Bridge 日志 `devices: <别名> gc removed … N marks`），进程组还在的留着等收割。要手动停：在设备上 `kill -TERM -- -<pgid>`（文件里的 `pgid`），再删掉那个文件；带标记的进程环境里有 `COVEY_DEVICE_MARK=<hub-id>/<标记>`，Linux 上可以 `grep -lza '^COVEY_DEVICE_MARK=' /proc/[0-9]*/environ` 找。`job` 不在这里，在 `~/.covey/tasks/<hub-id>/job-…/`，用 `covey device job stop` 停。
 4. **危险命令被拦**（G4）：`devices.jsonl` 里那行有 `refused`、`danger`（命中的是哪一类）和给过的 `approved`；放行的那行 `approved` 是一个对象，写着主人答的是哪个问题记录（`question`、`index`、`id`）、什么时候、从哪儿答的（`channel`）和答了什么（`said`）。拦错了（误伤普通命令）就改 `core/device_access.py` 的 `danger`；要查某个答案号为什么没过，看 `<状态目录>/questions/<token>.json` 的 `topic_id`、`status`、`answer_by`、`response_kind` 和那道题的 `answers`。
 5. **Codex 原生快路**：挂了设备的一轮在开始时给每台设备写一行 `op: native`（`path` 是设备环境的 cwd），任务卡执行过程显示“<别名>：Codex 原生快路挂着（…）”。这一轮里 Codex 经 exec-server 跑的命令不在 `devices.jsonl` 里：app-server 的命令事件不带 `environmentId`（codex-cli 0.172.0），看 Codex 自己的会话记录。挂设备的轮在 `<状态目录>/codex-devices/<设备组合>/`（如 `gpu1`、`gpu1+mac1`）这份 CODEX_HOME 里跑：除 `environments.toml` 和 `rules/` 外都是指向真实 CODEX_HOME 的软链接，`rules/` 是主人规则文件的副本加 `covey-devices.rules`；每轮开始时刷新，不要手改，也不要删（在里面开过的线程靠它续接）。设备上 exec-server 的 CODEX_HOME 是 `~/.covey/codex-exec`，空的、不登录。连接一断，设备上这一轮起的命令就被 exec-server 停掉，残留的孤儿进程照下一条处理。
-6. **怎么关**：服务清单里去掉 `COVEY_DEVICES=1`（或设成 `0`）后重新注册，执行设备和设备通道一起关；只想让某台设备不能写，在网页设置「设备」页把它切成只读（`access: read`，Codex 原生快路下一轮就不挂它）；从 `devices.json` 去掉一台设备，`covey device` 就不认它了（改文件不用重启，下一次调用就读到）。
+6. **怎么关**：服务清单里去掉 `COVEY_DEVICES=1`（或设成 `0`）后重新注册，设备和设备通道一起关；只想让某台设备不能写，在网页设置「设备」页把它切成只读（`access: read`，Codex 原生快路下一轮就不挂它）；从 `devices.json` 去掉一台设备，`covey device` 就不认它了（改文件不用重启，下一次调用就读到）。
 7. **回滚**：设备通道只加文件和字段（`device-turn.json`、`devices.jsonl`、`topic.json` 的 `devices`、`pending-reap.json` 的 `mark-` 条目、设备上的 `~/.covey/marks/`），旧 release 不读也不删它们，回滚就是部署上一版。回滚后旧 release 的 devices 线程把 `mark-` 条目当任务键去问，设备端答没有这个任务，条目就被删掉（只是不再收割那几条命令）。设备上还在跑的命令跑到自己的 `--timeout` 为止。原生快路另加的 `topic.json` 的 `device_envs`、`profile.json` 的 `exec_server` 和 `<状态目录>/codex-devices/` 也一样：旧 release 不传 `environments`，话题回到只用 `covey device`，在设备 home 里开过的线程照常在真实 CODEX_HOME 续接（会话文件本来就在那里）。回滚后旧 release 的 devices 线程把 `mark-` 条目当任务键去问，设备端答没有这个任务，条目就被删掉（只是不再收割那几条命令）。设备上还在跑的命令跑到自己的 `--timeout` 为止。
 
 ## 内存看门狗

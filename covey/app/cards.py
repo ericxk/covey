@@ -87,7 +87,7 @@ PLACE_REPOS = 3  # Repositories a 输入 line names; more read "等 N 个".
 
 def place_label(state_dir, topic_id, workspace) -> str:
     """Where a topic's turn runs, as its card's 输入 says it: a topic that started in the home (``home_start``,
-    docs/configuration.md 主目录与仓库地图) by the repositories it uses (主目录 when none), any other by its workspace."""
+    docs/configuration.md 主目录与常用路径) by the repositories it uses (主目录 when none), any other by its workspace."""
     data = read_object(topic_file(state_dir, topic_id)) if topic_id else {}
     if data.get("home_start") is not True:
         return str(workspace or "")

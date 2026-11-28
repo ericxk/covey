@@ -186,10 +186,9 @@
 | 重新发送卡 | `bridge_proxy_resend` | `ProxyResend.click`，见[重新发送卡](proxy.md#重新发送卡) |
 | 群管理卡 | `bridge_group_*` | `GroupManager.click`；启用、停用经 `Access.switch`，在卡锁之外，然后整卡重画；已启用的群的“设为只读”“取消只读”（`bridge_group_members`，带 `chat`、`mode`）经 `Access.set_member_mode` |
 | 启用确认卡（主人第一次在群里 @ 时发到私聊，`GroupManager.ask`） | `bridge_group_confirm`（带 `chat`、`on`、`name`） | `GroupManager.confirm`：群还在等主人的话时经 `Access.switch` 启用或停用（`group_confirm_on`、`group_confirm_off`），已经定过的什么都不改（`group_confirm_decided`），没有群记录 `group_unknown`；卡没有记录，应答后（`after_ack`）用 `patch_card` 整卡换成结果，换不了就在私聊里说一句 |
-| 已下线功能的旧按钮（敏感词脱敏的 `bridge_redaction_*`、`bridge_dashboard_rotate`、`bridge_main_redaction`、`bridge_main_topic_redaction`，独立复核等） | `MOVED_CARDS` 里的 kind | `card_actions` 只回一句已下线（敏感词脱敏是“敏感词脱敏已下线，这次点击没有改任何设置。”），不改设置；见[已下线的功能](legacy.md#已下线的功能) |
+| 已下线功能的旧按钮（敏感词脱敏的 `bridge_redaction_*`、`bridge_dashboard_rotate`、`bridge_main_redaction`、`bridge_main_topic_redaction`，独立复核；记忆的“升为全局”`bridge_memory_promote`、`bridge_memory_to_global`，旧记忆页的工作区行 `bridge_memory_workspace`，专项卡上删记忆 `bridge_project_mem_del`，早晚汇总的“你反复说的”`bridge_digest_remember`（`MEMORY_RETIRED`）；设置卡的工作区行、运行方式行、保存用途和记住的工作区 `bridge_main_workspace`、`bridge_main_topic_workspace`、`bridge_main_topic_run_mode`、`bridge_main_notes`、`bridge_main_untrust`（`WORKSPACE_KINDS`）等） | `MOVED_CARDS` 里的 kind，不在 `ACTIONS` | `card_actions` 在任何面板认领之前只回一句已下线（敏感词脱敏是“敏感词脱敏已下线，这次点击没有改任何设置。”），不改设置、不改记忆、不重画卡片（`extension_missing`）；网页旧页面改工作区那几行同样只回这一句；见[已下线的功能](legacy.md#已下线的功能) |
 | 设置卡 | `bridge_settings_tab`（带 `tab`、`from`、`token`） | `SettingsHub.click`：`settings_tab`、`settings_fold`、`settings_unfold` |
-| 设置卡「记忆」标签（`COVEY_MEMORY` 没关） | `bridge_memory_open`（带 `scope`：`review` 或 `rules`、`page`：翻页）、`bridge_memory_pin`（现在是待审核的“采纳”：`key` 是 `review:…`、`op` 是 `accept`；沿用原 kind，不新增）、`bridge_memory_delete`（待审核的“不要”：`op` 是 `reject`；没网页时规矩的“收起”：`key` 是条目、`op` 是 `ask`、`confirm`、`cancel`）；`bridge_memory_workspace`、`bridge_memory_to_global` 和带 `on` 的 `bridge_memory_pin` 只接旧卡片的点击，回“这个选项已下线”、不改任何东西；都带 `token`、`revision` | `MemoryPanel.click`：`memory_tab`；同一事件再投递 `duplicate`。采纳、不要走 `web_memory.review_decide`，收起走 `memstore.archive`，都在卡锁之外，整卡重画在应答之后（`after_ack`） |
-| 早晚汇总的“你反复说的”（已下线） | `bridge_digest_remember`（带 `id`、`op`） | `ACTIONS` 里是 `handler=RETIRED`：点旧卡只回一句“已下线，候选都在设置卡「记忆」页签或网页记忆中心的待审核里”，不记任何东西 |
+| 设置卡「记忆」标签（`COVEY_MEMORY` 没关） | `bridge_memory_open`（带 `scope`：`review` 或 `rules`、`page`：翻页）、`bridge_memory_pin`（现在是待审核的“采纳”：`key` 是 `review:…`、`op` 是 `accept`；沿用原 kind，不新增）、`bridge_memory_delete`（待审核的“不要”：`op` 是 `reject`；没网页时规矩的“收起”：`key` 是条目、`op` 是 `ask`、`confirm`、`cancel`）；带 `on` 的 `bridge_memory_pin`（旧记忆页的“常驻”）只接旧卡片的点击，回“这个选项已下线”、不改任何东西；都带 `token`、`revision` | `MemoryPanel.click`：`memory_tab`；同一事件再投递 `duplicate`。采纳、不要走 `web_memory.review_decide`，收起走 `memstore.archive`，都在卡锁之外，整卡重画在应答之后（`after_ack`） |
 | 晚间汇总的“整理记忆”（`COVEY_MEMORY` 没关） | `bridge_digest_memory`（带 `run`、`op`：只有 `undo`；旧卡上的 `confirm`、`wrong` 另带 `project`、`entry`） | `Digest.claim`：`digest_memory`，值不对 `digest_memory_ignored`，旧的 `confirm`、`wrong` 回一句已下线、不改记忆（`digest_memory_retired`）；只认主人。`undo` 应答后撤销这次收起（`memory_tidy.MemoryTidy.decide`），再照汇总卡保存的样子 `patch_card` 重画 |
 | 手上的事 | `bridge_overview_dismiss`（带 `topics`） | `Overview.claim`：只改看板记录，应答后由 `tick` 整卡重画 |
 | 不管了留下的那行灰字（手上的事、看板、早晚汇总）的「撤销」 | `bridge_overview_undismiss`（带 `taken`：{话题: 撤下时的 `at`}，早晚汇总和看板上还带 `from`） | `Overview.claim` → `Overview.undo`：只认主人；`undismiss` 把记录里 `at` 还对得上的话题放回（撤下之后又撤了一次的、问题已答或已收的，什么都不动）；应答后 `tick` 整卡重画，来源卡（`unhanded`：看板整卡按新读数重画，早晚汇总按保存的样子重画）也跟着画 |
@@ -234,7 +233,7 @@
 
 看板上的四个小按钮不走这条（看板的卡不属于任何话题，它们在 `ACTIONS` 里没有 `handler`，和看板的别的 kind 一样）：`bridge_board_seen`（记为看过）、`bridge_board_revisit_cancel`（取消到点回来看）、`bridge_board_project_go`（继续专项）、`bridge_board_recover`（检查并继续）仍由 `Digest.claim` 认领（`cards/board.py` 的 `RETIRED_KINDS`），只认主人，应答后（`after_ack`）回 `RETIRED_TEXT` 里的一句并按新样子重画看板，什么都不做（`board_retired`）：看过点进话题即可，取消到点回来看和检查并继续到话题或任务卡上做，专项的「继续」在专项卡上。
 
-设置卡的 `bridge_main_start`、`bridge_main_start_row`、`bridge_main_untrust`（直接开工、记住的工作区）不走这条：它们仍由设置卡认领（`app/butler_panel.py`，`RETIRED_KINDS`），回一句“直接开工已下线”并重画，不改设置。
+设置卡的 `bridge_main_start`、`bridge_main_start_row`（直接开工）不走这条：它们仍由设置卡认领（`app/butler_panel.py`，`RETIRED_KINDS`），回一句“直接开工已下线”并重画，不改设置。记住的工作区（`bridge_main_untrust`）和工作区那几行在 `MOVED_CARDS`，见上表。
 
 ### 设置卡配置页的格子版式
 

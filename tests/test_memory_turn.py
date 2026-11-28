@@ -291,21 +291,6 @@ class RecordTest(Case):
         self.assertIn(early.ref, [row["ref"] for row in record["memory_listed"]])  # Past the room: the oldest by title.
 
 
-class PreviewTest(Case):
-    def test_the_preview_has_the_contracts_shape(self):
-        made = self.rule("部署前先跑预检", scope="project", owner_key=PID)
-        self.decide("网关镜像要不要先发预发？", "先发预发", T1, time.time() - 60)
-        found = memory_turn.preview(self.state, T1, query="部署怎么验收")
-        self.assertEqual(set(found), {"topic_key", "title", "chars", "rules", "decisions", "notes", "listed"})
-        self.assertEqual(found["topic_key"], T1)
-        self.assertEqual(found["title"], "话题7")
-        self.assertIn(made.code, found["rules"])
-        self.assertEqual(len(found["decisions"]), 1)
-        self.assertGreater(found["chars"], 0)
-        self.assertTrue(all(set(note) == {"code", "sim"} for note in found["notes"]))
-
-
-
 class ReadingM5Test(Case):
     """T908 M5: the lead's topic reads 全局 alone (its project's in its pack), the line of titles is cut of the lead's only,
     the block says the narrower scope wins and keeps "先查一下他答过没有", and the owner's bottom lines are never lost."""
@@ -533,12 +518,6 @@ class PickedTest(Case):
         tail = self.tail(T2)
         self.assertNotIn(a.text, tail)
         self.assertIn(PICKED_HEAD.format(who="负责人"), tail)
-
-    def test_the_preview_of_the_page_counts_the_picked(self):
-        deploy = self.note("Covey 的专项话题改完、检查过就直接部署到主人本机现网")
-        bare = memory_turn.preview(self.state, T1)
-        self.pick(T1, [deploy])
-        self.assertGreater(memory_turn.preview(self.state, T1)["chars"], bare["chars"])
 
 
 class ProbeTest(Case):

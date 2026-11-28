@@ -754,7 +754,7 @@ class ExternalRowTest(HarnessCellsCase):
     external one."""
 
     TOPIC = "e" * 32
-    NOT_SAID = ("仓库地图", "repos.md", "covey repo use <仓库> --write", "先遵守这里的 AGENTS.md", "alpha", "回一句就行", "按 X 做了")
+    NOT_SAID = ("常用路径", "repos.md", "covey repo use <仓库> --write", "先遵守这里的 AGENTS.md", "alpha", "回一句就行", "按 X 做了")
 
     def setUp(self):
         super().setUp()
@@ -865,7 +865,7 @@ class ExternalRowTest(HarnessCellsCase):
                         _, rules, ctx, _ = self.turn(name, self.topic_ctx(home, name, local=local))
                         self.assertNotIn(EXTERNAL, ctx.options)
                         self.assertIn(f"主目录：{home}（本话题从这里启动，先遵守这里的 AGENTS.md）", rules)
-                        self.assertIn("仓库地图：", rules)
+                        self.assertIn("常用路径：", rules)
                         self.assertIn("covey repo use <仓库> --write", rules)
                         self.assertNotIn(home_turn.EXTERNAL, rules)
                         _, free = EXTERNAL_SEEN[name]

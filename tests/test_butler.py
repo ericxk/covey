@@ -254,7 +254,7 @@ class RoutingTest(ButlerUnifiedCase):
         return other
 
     def test_another_workspace_in_the_settings_never_moves_a_butler_that_runs(self):
-        """主目录启动 (docs/configuration.md 主目录与仓库地图): no card sets the butler's workspace any more, and a butler that
+        """主目录启动 (docs/configuration.md 主目录与常用路径): no card sets the butler's workspace any more, and a butler that
         has run keeps its directory and its session whatever an older release saved; a new one starts there."""
         self.send('om_1')
         first = (self.topic()['workspace_name'], self.topic()['workdir'])
@@ -1296,7 +1296,7 @@ class TurnTest(ButlerUnifiedCase):
         ctx, _ = self.turn(job)
         config = ctx.options['mcp_config']['mcpServers'][butler.MCP_SERVER]
         # The switches are handed on as they stand (the tests run them at 0, unset would mean on).
-        switches = {name: cenv.get(name, '') for name in ('COVEY_KNOWLEDGE', 'COVEY_BUTLER_RULES', 'COVEY_PROJECTS', 'COVEY_PROJECT_TRIAGE', 'COVEY_PROJECT_TIDY')}
+        switches = {name: cenv.get(name, '') for name in ('COVEY_BUTLER_RULES', 'COVEY_PROJECTS', 'COVEY_PROJECT_TRIAGE', 'COVEY_PROJECT_TIDY')}
         self.assertEqual(config['env'], cenv.mirrored({butler.STATE_ENV: str(self.state), butler.JOB_ENV: 'om_1', **switches}))
         self.assertEqual(Path(config['args'][-1]), session.RELEASE / butler.MCP_ENTRY)
         self.butler_on(False)

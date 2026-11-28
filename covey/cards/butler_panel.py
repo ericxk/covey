@@ -7,7 +7,8 @@ new topic is preselected with, the launch card's and the topics the butler opens
 lead runs on) and under 更多 子 Agent, which every Claude Code turn the Bridge starts
 follows, the butler's too (backends/claude/subagents.py). The Harness, 供应商, 模型 and 思考预算 rows offer what the launch card's do
 (core/menu_choice.py tiers, budget_options). There is no 工作区 row, 运行方式 row or 用途 input any more (a new topic starts in the home;
-the repositories are the 设置 card's 仓库 tab and the web page's): the old buttons are OFFLINE_KINDS, a click on one says so. A card of its own
+the repositories are the 设置 card's 仓库 tab and the web page's): a click on an old button gets app/card_actions.py
+MOVED_CARDS's line. A card of its own
 (from before the 设置 card, gen 286) shows the pages one under the other.
 
 No select: a choice is a settings-list row (cards/launch_config.py setting_row) whose options open under it in
@@ -34,20 +35,15 @@ EFFORT = 'bridge_main_effort'
 PROVIDER = 'bridge_main_provider'
 COMPACT = 'bridge_main_compact'
 HARNESS = 'bridge_main_harness'  # The butler's own Harness (core/butler_settings.py Settings.harness).
-SPACE = 'bridge_main_workspace'  # Offline (OFFLINE_KINDS): the butler's own workspace (Settings.workspace, kept, no row).
 TOPIC_HARNESS = 'bridge_main_topic_harness'
 TOPIC_PROVIDER = 'bridge_main_topic_provider'
 TOPIC_MODEL = 'bridge_main_topic_model'
 TOPIC_EFFORT = 'bridge_main_topic_effort'
-TOPIC_RUN_MODE = 'bridge_main_topic_run_mode'  # Offline (OFFLINE_KINDS).
-TOPIC_WORKSPACE = 'bridge_main_topic_workspace'  # Offline (OFFLINE_KINDS).
 SUBAGENTS = 'bridge_main_subagents'
 # Retired (docs/legacy.md 直接开工): a click on an older card's button says so (RETIRED_NOTICE) and changes nothing.
 START = 'bridge_main_start'
-UNTRUST = 'bridge_main_untrust'
 START_ROW = 'bridge_main_start_row'
-RETIRED_KINDS = frozenset({START, START_ROW, UNTRUST})
-NOTES = 'bridge_main_notes'  # Offline (OFFLINE_KINDS): 保存用途 of the retired 工作区 tab.
+RETIRED_KINDS = frozenset({START, START_ROW})
 # Retired (docs/legacy.md 私聊顶层的消息): the private chat mode's row and its 确定改 (an older card's 开启/关闭 too). A click on an
 # older card's says MODE_RETIRED and changes nothing: whether the butler serves the chat is COVEY_BUTLER's alone.
 MODE = 'bridge_main_mode'
@@ -68,19 +64,17 @@ ASSIST_AUTO, ASSIST_NONE = 'auto', 'none'  # app/assist.py AUTO, NONE: the row's
 ASSIST_WORDS = {ASSIST_AUTO: '自动（跟随管家）', ASSIST_NONE: '不用模型（只按规则）'}
 ROWS = frozenset({ASSIST, HARNESS, MODEL, EFFORT, PROVIDER, COMPACT, TOPIC_HARNESS, TOPIC_PROVIDER, TOPIC_MODEL, TOPIC_EFFORT,
                   SUBAGENTS, LEAD_HARNESS, LEAD_PROVIDER, LEAD_MODEL, LEAD_EFFORT, ASSIST_PROVIDER, ASSIST_MODEL, ASSIST_EFFORT})  # Settings-list rows: the value's ``option`` is the choice.
-# The rows and the 用途 button the 工作区 rows' removal took off the cards: a click on an older card's says OFFLINE_NOTICE and changes nothing
-# (the kinds stay: an older card is still answered, app/card_actions.py RETIRED_TEXT says the same for a click no panel took).
-OFFLINE_KINDS = frozenset({SPACE, TOPIC_WORKSPACE, TOPIC_RUN_MODE, NOTES})
-KINDS = ROWS | RETIRED_KINDS | OFFLINE_KINDS | MODE_KINDS | {SECTION}
+# The 工作区 rows, the 运行方式 row, 保存用途 and 记住的工作区 are not kinds of this card any more (app/card_actions.py
+# WORKSPACE_KINDS): a click on an older card's gets MOVED_CARDS's line before any panel.
+KINDS = ROWS | RETIRED_KINDS | MODE_KINDS | {SECTION}
 # 配置's sections that open one at a time (the card has room for one's options, CardKit's element budget): the view's
 # ``open`` names it, OPEN_FIRST when it names none. A closed one is its heading, 展开 and one grey line of what it holds.
 TOPIC_PART, BUTLER_PART, LEAD_PART, ASSIST_PART = 'topic', 'butler', 'lead', 'assist'
 SECTIONS = {TOPIC_PART: '新话题', BUTLER_PART: '管家', LEAD_PART: '专项负责人', ASSIST_PART: '辅助模型'}
 OPEN_FIRST = TOPIC_PART
 # The section a row is in: a click on it opens that section (a card drawn before the sections names any row).
-PART_OF = {**dict.fromkeys((TOPIC_HARNESS, TOPIC_PROVIDER, TOPIC_MODEL, TOPIC_EFFORT, TOPIC_RUN_MODE,
-                            TOPIC_WORKSPACE, *RETIRED_KINDS), TOPIC_PART),
-           **dict.fromkeys((HARNESS, PROVIDER, MODEL, EFFORT, SPACE, COMPACT, MODE, ENABLE), BUTLER_PART),
+PART_OF = {**dict.fromkeys((TOPIC_HARNESS, TOPIC_PROVIDER, TOPIC_MODEL, TOPIC_EFFORT, *RETIRED_KINDS), TOPIC_PART),
+           **dict.fromkeys((HARNESS, PROVIDER, MODEL, EFFORT, COMPACT, MODE, ENABLE), BUTLER_PART),
            **dict.fromkeys((LEAD_HARNESS, LEAD_PROVIDER, LEAD_MODEL, LEAD_EFFORT), LEAD_PART),
            **dict.fromkeys((ASSIST, ASSIST_PROVIDER, ASSIST_MODEL, ASSIST_EFFORT), ASSIST_PART)}
 # The page each button is on: a click on a card drawn before the pages, on one of the retired pages 管家, 新话题 and 模型
@@ -116,7 +110,6 @@ LEAD_NOTE = ('新建的专项，负责人用这里选的；没选就跟管家一
 ASSIST_NOTE = ('分流、整理专项、记忆自己长这些后台活都用这一个；自动就和管家一样（Harness、模型、思考预算），'
                '选了哪个就只用哪个，用不了就不调模型并说明原因。')
 RETIRED_NOTICE = '直接开工已下线：管家开的话题一律直接开工，这一项不用再设。'
-OFFLINE_NOTICE = '这个选项已下线：新话题一律从主目录开始，仓库在网页设置的「仓库」页管。'
 MODE_RETIRED = '「私聊顶层的消息」这一项已下线：私聊顶层的消息一律交给管家，这次点击没有改设置。'
 # The pages' last line where the butler cannot change them (ACCEPT-325 问题 3), once a page.
 LOCKED = '这些只有你能改，管家自己改不了。'

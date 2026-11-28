@@ -118,13 +118,13 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
   - 按键和飞书聊天一样：Enter 发送，Shift+Enter（或 Ctrl / ⌘ + Enter）换行；点「放大」编辑时几种 Enter 都换行，点发送钮才发；手机上回车换行、点发送钮发。换行都另起一段，所以下一行行首打 `- `、`1. `、`# ` 照样变成列表、标题。
   - 能放大、续写列表、边写边渲染 Markdown（右下角 `</>` 看源码）。
   - 加号或粘贴、拖进来可以带图片和文件（每个不超过 20 MB，一句最多 9 个），和在飞书里发附件一样交给模型。
-- **换配置**：话题页输入框下面那行“工作区 · Harness · 模型”点开就是飞书的 🔁 换配置（Harness、模型、思考预算、工作模式、工作区）。新 Covey 的面板上面是模型这几项，仓库折成一行摘要（“仓库 covey（改）、web（读）”，右边“不变 / 已改”；话题本来就在设备上时前面多一项只读的“执行设备 <设备>”），点「调整仓库」才展开改仓库；换配置换不了机器。开新话题的面板没有「执行设备」（主人 D2Y4T）：话题都从主目录开，要用设备在话题里用 `covey device`。从停住那一轮的「换个模型」打开时标题是“换个模型”。话题在做时不能换，先停止；要新建独立 worktree 的去飞书换配置卡上做。换完飞书话题里也有一条“已换配置”。
+- **换配置**：话题页输入框下面那行“工作区 · Harness · 模型”点开就是飞书的 🔁 换配置（Harness、模型、思考预算、工作模式、工作区）。新 Covey 的面板上面是模型这几项，仓库折成一行摘要（“仓库 covey（改）、web（读）”，右边“不变 / 已改”；话题本来就在设备上时前面多一项只读的“执行设备 <设备>”），点「调整仓库」才展开改仓库；换配置换不了机器。开新话题的面板没有「执行设备」（已下线）：话题都从主目录开，要用设备在话题里用 `covey device`。从停住那一轮的「换个模型」打开时标题是“换个模型”。话题在做时不能换，先停止；要新建独立 worktree 的去飞书换配置卡上做。换完飞书话题里也有一条“已换配置”。
 - **答题**：和飞书问题卡一样：点选项，或选项都不合适时自己写；某道题可以选“不回答此题”。底下只有“提交回答”和“不处理”：写了补充说明时没答的题算不回答，只写补充说明就是都不答（说问题不合适、给新要求、想先问一句都写在这里）；“不处理”先放下，话题下一轮前可撤销。管家自己的问题只能在飞书里答。
 - **停、重开、记为看过、不管了**：和飞书卡片上的同名按钮做同一件事。
 - **停住了的一轮**：原因和下一步和任务卡同一句话，按钮也和任务卡一样：检查并继续（结果没发出去时是“重新投递结果”，只重发保存的结果，不重跑模型；限流是“现在重试”）、看原因、拆小再试做的和飞书里点同名按钮一样；自动重试已经排好时写几点重试，只给“现在重试”和“停止自动重试”，不会和排好的那次一起跑；换个模型用网页自己的换配置（负责人的也是，v36；管家的配置只在飞书的设置卡上换）。
-- **开新话题**：选项和启动卡一样（模型、思考预算、工作模式、工作区、运行方式），直接开工；要独立 worktree 的话题会在飞书里出一张填好的启动卡，点开始。
+- **开新话题**：选项和启动卡一样（模型、思考预算、工作模式），直接开工，话题从主目录启动；旧版网页带来的工作区、运行方式照旧认，要独立 worktree 的话题会在飞书里出一张填好的启动卡，点开始。
 - **设置**：设置卡的各页都能看，各页签一样宽，页签滚动时贴在顶上。第一页和卡上一样是“配置”，分新话题、管家与负责人（管家一块、专项负责人一块，开了专项才有负责人）、辅助模型、其他（子 Agent，一项一行）几段；卡片一次只展开一段，网页各段都展开（[UI 拍板记录 U16](ui.md#13-拍板记录)）。能改的有新话题的每一行，管家的每一行（Harness、供应商、模型、思考预算、工作区、压缩阈值），专项负责人的模型，[辅助模型](configuration.md#辅助模型)（Harness，点名了再有供应商、模型、思考预算，和专项负责人一样；管家关着也能改；下面一行写现在实际用的 Harness、模型和思考预算，再下面直接展开“后台活最近一次”小表：功能、用了谁、结果、原因、耗时、时间，只有原因码，不写原话），子 Agent，常用路径（仓库、目录和设备上的路径）的用途、状态、写法和增删，群的停用与免@（只能改成关闭或只有你），设备名单的增删改、可写或只读、体检和装监控节点，代答的开关、模型（和配置页同一套格子联动）和白名单。其余只读（行上悬停写着在飞书设置卡上改）；页面顶上不再有“去飞书改”，只有代答的网页登录要扫码时那一行给“去飞书处理”。
-- **记忆**（v37，默认开，[记忆](butler.md#记忆)没关时）：设置页的「记忆」一页是主人的主记忆：全局和每个工作区的原则、知识条目（`COVEY_KNOWLEDGE` 开着时）和待确认的候选（开了 `COVEY_MEMORY_LEARN` 时）。每组写着用了多少字、上限多少、下一轮带不带每一条（放不下的标出来），常驻的排在前面；能搜、能按全局或工作区筛，能看某个工作区下一轮实际带上的那一段。新建、改正文（数着字，⌘/Ctrl+S 保存）、标或取消常驻、删除或作废、候选的「记下」「不用」都在页上（办完在列表上方留一条回执，几秒后或点掉才消失；常驻只在那一行上写），和飞书设置卡「记忆」改的是同一份。专项和话题的记忆还在专项页、话题页的右栏。
+- **记忆**（默认开，[记忆](butler.md#记忆)没关时）：网页「记忆」（`/memory`）只有一页（数据约定 v45）：第一屏是标题、搜索框、「＋ 记一条」和分组列表；有待审核时页顶一块；下面全局一组、有规矩的专项各一组、有话题范围规矩的话题一组；组里规矩（每一轮都带）、资料（相关时才带）、已收起的分开，点一条就地展开，能改、换管哪儿、删（5 秒内能撤销），已收起的能放回，待审核的「采纳」「不要」也在页上；页底「记录」。和飞书设置卡「记忆」（只看数、处理待审核、去网页）是同一份记忆。专项和话题的记忆还在专项页、话题页的右栏。设置页以前的 v37「记忆」条目（原则、知识条目、候选和下一轮预览）是旧版本，只给旧网页读，见下面的数据契约。
 - **账号与额度**（v42，有额度来源时，`COVEY_QUOTA` 没关）：设置页的「账号与额度」一页，一张表：账号｜5 小时剩余｜周剩余，格里只有百分比、细条和重置时刻，写上海时间的几月几号几点几分（`11月27日 03:30`；表窄时时刻换到条下面一行）。剩余不到 20% 红色；用完写“用完”和恢复时刻（`11月27日 03:30 恢复`）；读不到写“—”、不画条；旧读数数字变灰。agy 的号展开，一行一个号，写这个号登录的 Google 邮箱（读不到才写 `agy-accounts.json` 里的名字），在用的号前一个蓝点，只画这个号近 7 天真跑过的模型池（Gemini、Claude/GPT 都跑过的，同一格上下两行）；网关和外接命令的来源折成一行平均值和“k/n 个能用”，有冷却或低额度的号时组名后一个红点，点开看每个号（外接命令的来源有号要重新登录或用完时直接展开），来源给了 `link` 才有“运维台↗”。有号要重新登录时表上方一行红条。右上角只有「刷新」：Covey 立刻重读所有来源、agy 查一遍每个号的 `/usage`（5 分钟冷却）。页面上没有暂停、只用这个号、查全部账号。某个来源整体见底（能用的号都用完或剩不到 20%）或有号要重新登录时，侧栏顶上多一行（收起成窄条时是一个带红点的小图标），点了到这一页。
 - **整理专项**：开了[整理专项](projects.md#整理专项)时，看板首屏“要你处理”下面有整理专项的建议；手动整理的「整理」在侧栏「专项」标题行和专项一览的页头。
   - 有要你定的：一条一块（原因、目标、话题），直接点照办或「不用」；标题栏「收起」收成一行“要你定 N 条”，来了新建议再展开。
@@ -309,7 +309,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
   - `spans` 是最近 7、30、90 天（都含今天）各自的合计：`days`、`since`（第一天）、同上的几项和按卡片顺序排的 `harnesses`。一段里的话题要去重，不能把每天的相加，所以由 Covey 算好。
   - `first` 是最早一条任务记录的日期，落在这 90 天里才有，否则为 null。那之前还没有记录，网页不画成 0。
   - 读的是记录目录的缓存，一条记录都不复制，每次全量对时都算一遍（5700 条记录约 0.1 秒）。
-- **key `memory`**（v37，`app/web_memory.py` 的 `view`）：网页的「记忆」页读它。`COVEY_MEMORY` 开着才有内容，关着推 `{on: false}`（页面收起这一页）。
+- **key `memory`**（v37，旧版本：现行的「记忆」页读 `memory:*` 键，见[数据约定 v45](#数据约定-v45记忆一页式)；这个 key 只给旧网页，`app/web_memory.py` 的 `view`）：旧版网页的「记忆」页读它。`COVEY_MEMORY` 开着才有内容，关着推 `{on: false}`（页面收起这一页）。
   - `knowledge`、`learn`：知识条目、候选开没开；`limits`：一条的字数（`text`）、一组最多几条（`group`）、常驻最多几条（`pinned`）、全局和工作区的字数上限（`global`、`workspace`）；`kinds`：知识条目的种类（`value`、`text`）；`default`、`workspaces`：默认工作区和全部工作区的名字（新建时选）。
   - `groups`：全局一组在前，再是有条目的工作区，按名字。每组 `scope`（global、workspace）、`workspace`、`title`、`used`、`limit`、`left`（下一轮放不下几条），`entries` 常驻的在前、再新的在前。每条 `key`（`principle:<id>`、`knowledge:<id>`、`candidate:<id>`）、`kind`、`text`、`by`（owner 你说的、lead 它总结的）、`pinned`、`pinnable`、`editable`、`carried`（下一轮带不带）、`chars`（占这一组额度的字数，含编号和标注）、`size`（正文自己的字数，和编辑框数的一样）、`at`、`origin`（网页上记的、管家记的、自动学习记的、话题 T83 里记的、晚间候选里记下的……，按 `source` 里真有的字段分）、`quote`（自动学习时主人的原话）、`topic`（写入的话题号）、`edited`（原则在网页上改过的时刻）；知识条目另带 `knowledge_kind`、`why`。`text` 是存下来的纯正文（知识条目不再拼“种类：…（原因：…）”），也是编辑时 `base` 的依据。用量和带不带同 `core/memory.py` 的 `fill`、`select`，和一轮真正读的一样。
   - `candidates`：开着的候选（`key`、`text`、`workspace`、`carried`、`at`、`error`、`from`），新的在前。`previews`：按工作区（默认的和有条目的，最多 24 个），新话题在那里的一轮会读到的记忆那一段（`text`），带几条（`count`）、多少字（`chars`）、放不下几条（`left`）。
@@ -455,7 +455,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 
 ### 数据约定 v43：记忆中心与仓库
 
-记忆那一半 v45 做了减法（体检、下一轮预览、导入、名额条、五个页签都去掉了），见[数据约定 v45](#数据约定-v45记忆一页式)；下面是 v43 当时的样子。契约冻结稿在改造计划的 `web-contract-v43.md`。v42 已被「账号与额度」占用，所以记忆中心与仓库记作 v43。A0 只加类型和服务端校验，不改现有行为：旧 Covey 不推新键，网页和服务端与 v42 完全相同。类型和常量在 `web/shared/api.interface.ts`，校验在 `web/server/modules/workbench/workbench.memory-edit.ts`，样例在 `tests/golden/web_memory_v43.json`（合成数据，Bridge 侧推送要能逐键对上它的形状），单测 `npm run test:memv43`。
+这一节是旧版本（v43）的契约，记忆那一半现行是 [数据约定 v45](#数据约定-v45记忆一页式)（体检、下一轮预览、导入、名额条、五个页签都去掉了），下面是 v43 当时的样子，网页里那一页当时叫记忆中心。契约冻结稿在改造计划的 `web-contract-v43.md`。v42 已被「账号与额度」占用，所以记忆中心与仓库记作 v43。A0 只加类型和服务端校验，不改现有行为：旧 Covey 不推新键，网页和服务端与 v42 完全相同。类型和常量在 `web/shared/api.interface.ts`，校验在 `web/server/modules/workbench/workbench.memory-edit.ts`，样例在 `tests/golden/web_memory_v43.json`（合成数据，Bridge 侧推送要能逐键对上它的形状），单测 `npm run test:memv43`。
 
 - **设置键**：`SETTINGS_KEYS` 仍是原来 7 个（含 `quota`），不动。新增 `MEMORY_KEY_RE`，`isSettingsKey` 在 7 个键之外也认它。键共 6 种：`memory:index`（小键，侧栏角标只轮询它：总数、待审核数、各范围摘要与每键 rev、体检非 0 项、导入摘要、⌘K 用的标题表）、`memory:global`（全局条目、待审核列表、最近 100 条变更记录）、`memory:topics`（近 30 天有记忆的话题的话题范围条目）、`memory:p:<专项 id>`（专项 id 是 `[0-9a-z]{6,32}`）、`memory:import:<页>`（导入候选，每页 ≤200 条，页号 0~999）、`memory:previews`（下一轮预览：最近 20 个话题加“新的普通话题”）。旧键 `memory`（v37 形状）继续推给旧网页。
 - **大小和推送**：最长键 41 字符，`sync_state.name` 是 `varchar(64)`，放得下；每键的值 ≤256 KB，带 `rev`（内容哈希），Bridge 侧 rev 没变不推；用量数字不进条目，只进 `memory:index` 的汇总。专项归档、导入页缩减时，Bridge 对不再存在的键发 `SyncDeleted{type:'settings', key}`，服务端只用 `isSettingsKey` 放行。Bridge 任何记忆写入 touch 一个哨兵 `<状态目录>/memory/.rev`，`web_memory.stamps()` 只 stat 它。
@@ -509,7 +509,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 
 ### 数据约定 v46：常用路径与设备
 
-设置页「仓库」改叫「常用路径」（页签的键还是 `repos`，地址照旧 `/settings/repos`，旧的 `/settings/workspace` 照旧跳过来），收普通目录和设备上的路径；「设备」页把 `devices.json`（[配置 · 多设备](configuration.md#多设备开发中默认关)）和监控节点并成一行一台，在网页上增删改、体检。新字段都可选，旧网页不认就照旧画；新网页遇到旧 Covey（没有 `kind`、`device`、`rows`）照旧画仓库表和节点列表。代码在 `app/web_settings.py`（`repos`、`add_repo`）、`app/web_panels.py`（`nodes_tab`、`device_rows`、`device_add` 等），前端 `web/client/src/cv/Settings.tsx`（纯函数 `reposPage.ts`、`devicesPage.ts`，单测 `npm run test:repos`、`test:devices`），服务端校验 `workbench.memory-edit.ts` 的 `reposSettingsError`、`devicesSettingsError`。
+设置页「仓库」改叫「常用路径」（页的键还是 `repos`，地址照旧 `/settings/repos`，旧的 `/settings/workspace` 照旧跳过来），收普通目录和设备上的路径；「设备」页把 `devices.json`（[配置 · 多设备](configuration.md#多设备开发中默认关)）和监控节点并成一行一台，在网页上增删改、体检。新字段都可选，旧网页不认就照旧画；新网页遇到旧 Covey（没有 `kind`、`device`、`rows`）照旧画仓库表和节点列表。代码在 `app/web_settings.py`（`repos`、`add_repo`）、`app/web_panels.py`（`nodes_tab`、`device_rows`、`device_add` 等），前端 `web/client/src/cv/Settings.tsx`（纯函数 `reposPage.ts`、`devicesPage.ts`，单测 `npm run test:repos`、`test:devices`），服务端校验 `workbench.memory-edit.ts` 的 `reposSettingsError`、`devicesSettingsError`。
 
 - **常用路径页**（`settings.repos`）：每条多 `kind`（`git` 仓库、`dir` 目录）和 `device`（设备别名，本机是空串；`tail` 是设备上的路径）；页上多 `devices`（能在上面加路径的设备：`devices.json` 里有 ssh 的，`{alias, title, access}`，多设备没开是空）。页签的字是 `常用路径`。网页按「在哪」（全部、本机、各台设备）和「类型」（全部、仓库、目录，两种都有才画）筛；目录和设备上的路径写法固定是原地改，下拉不能改。
 - **`repos_add`** 多一个可选 `device`（别名）：带了就是那台设备上的绝对路径，由设备查（至多 5 秒），也可以不带 `device`、直接把 `path` 写成 `别名:/绝对路径`。本机的路径不再要求有 `.git`：有就是仓库，没有就是目录。`repos_set` 把目录或设备上的路径改成 `worktree` 写法时回 failed。
@@ -550,9 +550,9 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
   - 汇总方续接轮（消息 id `collab-<协作 id>-reply-<n>`，`core/collab.py` 的 `reply_message`）的主人行和回答行带 `role: "integrator"`。主人行是 Bridge 拼的长提示，`body` 和 `display` 都只推“（协作的答复到齐，接着汇总）”。正在跑、停了的续接轮也带。
   - 协助方话题多一行 `role: "event"`、`collab: {key, role: "helper"}` 的回执，“已协助 T3（看这次协作）”；咨询还排着队或在跑时是“正在协助 T3（…）”、`status` 为 `running`，没有一次答复时是“没能协助 T3（…）”；协助方没接手的（未接手）没有这一行。它的 `key` 是 `<话题>:collab-<协作 id>`，`seq` 是那时（这次协作发起或最后一次咨询结束时）协助方最近一轮的 `seq`，不超过这次推的 `last_seq`，所以不会被“删掉 `seq > last_seq` 的轮次”收走，也不和真实轮次的 key 冲突。它不改协助方的 `unseen`、`tone`、`board`、`round`、`last_seq` 和最近交付。管家的话题没有这一行。
 - **回复这次协作**：引用协作里的一句、或点回执上的“回复这次协作”时带 `quote.collab`，话进那次协作，由它的汇总方接；在协助方的话题里不带引用另说一句，仍是对那个话题自己工作的话。
-- **三层记忆**（专项条目的 `memory` 每条，`memory_version` 是一轮读到的记忆的版本，没有记忆时是空串）：
-  - `layer`：`rule`（长期约定）、`decision`（当前决定）、`history`（历史记录；风格行是 `rule`、`kind` 为 `style`）。面板按这三层分组。
-  - `part`：一轮带它的那一段，`rule`、`decision`、`reference`（待核对参考）；历史记录和风格行是 `null`。
+- **三层记忆**（旧版本的契约：现行的记忆分规矩、资料、决定三类，见[数据约定 v45](#数据约定-v45记忆一页式)；专项条目的 `memory` 每条，`memory_version` 是一轮读到的记忆的版本，没有记忆时是空串）：
+  - `layer`：`rule`（长期约定，现叫规矩）、`decision`（当前决定，现叫决定）、`history`（历史记录，现在的做法是收起；风格行是 `rule`、`kind` 为 `style`）。面板按这三层分组。
+  - `part`：一轮带它的那一段，`rule`、`decision`、`reference`（待核对参考，现在叫“负责人记的”）；历史记录和风格行是 `null`。
   - `asserted_by`、`recorded_by`、`level`，含义同[来源](architecture.md#参与者交付与来源)；`said_by`（你说的、它总结的）和 `by`（`owner` 或 `lead`）只作来源标签。
   - `applies`：适用范围和条件（一句话，没写是空串）；`valid`：`active`、`done`、`superseded`（另带 `superseded_by`）、`void`。
   - `ref`：`project:<专项 id>:<条目 id>`，和一轮的 `memory_ids` 对得上；`carried`：成员话题的下一轮会不会带它。
@@ -596,7 +596,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 | v34 | `project_finish`、`project_stop`、`memory_undo` 操作；话题的 `revisit`、`owner_send`（`COVEY_REVISIT=0`、代发关着时没有）；回答那一轮的 `criteria`、`delivery`；`settings` 的 `ops` 和 `asks` 条目；`look.json` 的 `retired` |
 | v35 | `revisit_cancel` 操作（网页上取消 Covey 定时回看）；话题 `revisit` 加 `set_at`、`running`（正在回看的也推了）；网页上的说法改成“Covey 将于 … 自动回看” |
 | v36 | 专项负责人的 `config`，`switch` 接受负责人（只换模型、预算、脱敏）；`launch.models` 的 `bridge_tools`；负责人那一轮“换个模型”的 `how` 是 `switch`；`settings.config` 的 `lead`（专项负责人一段） |
-| v37 | `settings` 的 `memory` 条目（主记忆：全局和各工作区的原则、知识条目、候选，用量，下一轮预览）；`memory_edit` 操作 |
+| v37 | （旧版本）`settings` 的 `memory` 条目（主记忆：全局和各工作区的原则、知识条目、候选，用量，下一轮预览）；`memory_edit` 操作 |
 | v38 | 取数的可选参数（见[更快的取数](#更快的取数可选参数)）：`/sync/inbox` 的 `wait` 和响应的 `waited`；`/api/snapshot` 的 `since` 和响应的 `cursor`、`partial`、`keys`；`/api/outbox/:opId` 的 `wait`。推送的条目没有变化 |
 | v39 | `settings` 的 `upgrade` 条目和 `upgrade` 操作（[版本与更新](#版本与更新)：查新版本，点一下升级 Bridge 和网页）；只在数据根有 `upgrade.json` 时有，`ops` 里也才有 `upgrade` |
 | v40 | 专项条目的 `checklist`、`milestones`、`decisions`（专项页的「进度」标签），都可选 |

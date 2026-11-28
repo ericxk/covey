@@ -26,7 +26,7 @@ ICON = "start_outlined"
 TITLE = "欢迎使用 Covey"
 TRY, TRIED_LABEL = "发这句", "已发出"
 # Under the home while it holds no project (``bare_workspace``): how to put one in its place.
-BARE_WORKSPACE = "里面还没有项目：把你的项目放进主目录，或在网页设置的「仓库」页加上；新话题都从主目录开始"
+BARE_WORKSPACE = "里面还没有项目：把你的项目放进主目录，或在网页设置的「常用路径」页加上；新话题都从主目录开始"
 STARTING, SENT, FAILED, UNCERTAIN = "starting", "sent", "failed", "uncertain"  # What became of a click on an example.
 TRIED = frozenset({STARTING, SENT, UNCERTAIN})  # The button is off: never sent twice (a failed one is offered again).
 NO_CLAUDE, OFF, DOWN = "no_claude", "off", "down"  # Why the private chat has no butler.

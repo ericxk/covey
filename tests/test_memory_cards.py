@@ -16,9 +16,9 @@ import test_digest
 from support.records import state_dir, write_job
 from support.world import UnifiedCase
 
-from covey.app import memory_collect, project_clicks, project_facts
+from covey.app import memory_collect, project_facts
+from covey.app.card_actions import ACTIONS, MEMORY_RETIRED
 from covey.app.digest import ZONE, Digest, review_view
-from covey.app.task_controls import TaskControls
 from covey.cards import answer_card as cards
 from covey.cards.digest import digest_card, digest_text
 from covey.cards.project_card import memory_line
@@ -57,7 +57,7 @@ class AnswerCardTests(unittest.TestCase):
         text = text_of(plain)
         self.assertIn("记下了：选型类的事不用先问侧重点，直接开工 · 管这个专项", text)
         self.assertNotIn("升为全局", text)
-        self.assertNotIn(cards.MEMORY_PROMOTE_KIND, text)
+        self.assertNotIn("bridge_memory_promote", text)
         self.assertEqual(text.count('"不对"'), 1)
         self.assertEqual(open_urls(plain), [])  # No page, no 改.
         with mock.patch("covey.core.web_sync.page_url", return_value=URL):
@@ -199,22 +199,23 @@ class AcceptLineTests(unittest.TestCase):
 
 
 class OfflineClickTests(UnifiedCase):
-    def test_promote_on_an_older_answer_card_says_it_is_offline_and_starts_nothing(self):
-        principles.save(self.ctx.state_dir, principles.OWNER, "回答先给结论")
-        reply = mock.Mock()
-        host = SimpleNamespace(messenger=SimpleNamespace(reply=reply), voice=Voice("lark-bridge", "LARK_BRIDGE"))
-        event = {"event_id": "ev1", "chat_id": "oc_dm", "message_id": "om_1",
-                 "action_value": {"kind": "bridge_memory_promote", "topic_id": "t1", "job_id": "3", "entry_id": "a1b2c3"}}
-        self.assertTrue(TaskControls.memory_promote(host, self.ctx, event))
-        self.assertEqual(reply.call_args.args[2], "升为全局已下线：到网页记忆中心把它提到更大的范围")
-        self.assertEqual([row["text"] for row in principles.entries(self.ctx.state_dir)], ["回答先给结论"])
+    """The memory's buttons that only said they were offline are no kinds any more (app/card_actions.py MEMORY_RETIRED): a click
+    on an older card (升为全局 under a 记下了 line or on the older 记忆 tab, its 工作区 row, a 专项卡's 删, the evening digest's 记下 /
+    不用) gets one line under the card, starts nothing and changes no memory."""
 
-    def test_the_project_card_delete_says_it_is_offline_in_the_words_asked(self):
-        reply = mock.Mock()
-        host = SimpleNamespace(messenger=SimpleNamespace(reply=reply), voice=Voice("lark-bridge", "LARK_BRIDGE"))
-        event = {"event_id": "ev1", "chat_id": "oc_dm", "message_id": "om_1", "action_value": {"entry": "m1"}}
-        self.assertTrue(project_clicks.delete_memory(host, self.ctx, event))
-        self.assertEqual(reply.call_args.args[2], "删除已下线：到网页记忆中心收起或作废")
+    def test_each_older_button_gets_its_line_and_changes_nothing(self):
+        principles.save(self.ctx.state_dir, principles.OWNER, "回答先给结论")
+        before = [(entry.ref, entry.status) for entry in memstore.entries(self.ctx.state_dir, statuses=None)]
+        self.app.messenger.reply = mock.Mock(return_value=True)
+        for n, (kind, text) in enumerate(MEMORY_RETIRED.items()):
+            self.assertNotIn(kind, ACTIONS)
+            click = {"operator_id": "owner", "chat_id": "oc_dm", "message_id": "om_1", "event_id": f"ev{n}",
+                     "action_value": {"kind": kind, "topic_id": "t1", "job_id": "3", "entry_id": "a1b2c3", "entry": "m1"}}
+            self.assertEqual(self.app._handle_card_action_event(click, self.ctx), "extension_missing", kind)
+            self.assertEqual(self.app.messenger.reply.call_args.args[2], text)
+            self.assertNotIn("记忆中心", text)
+        self.assertEqual([row["text"] for row in principles.entries(self.ctx.state_dir)], ["回答先给结论"])
+        self.assertEqual([(entry.ref, entry.status) for entry in memstore.entries(self.ctx.state_dir, statuses=None)], before)
 
 
 class ProjectMemoryTests(unittest.TestCase):

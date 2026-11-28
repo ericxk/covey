@@ -180,7 +180,7 @@ def refusal(call, notes) -> str:
 PROXY_MODE, HOME_SEARCH = "proxy", "home-search"
 SEARCH_HOOKED = ("Bash", "Grep", "Glob")  # Never Read, Edit or Write: they name one file.
 SEARCH_WORDS = ("{what}会递归扫整个主目录 {home}（目标是主目录根或它的上级，又没限深度），主目录下混着各个仓库和大数据目录，"
-                "整树扫一遍可能耗尽内存，这次没有执行。先按主目录的 AGENTS.md 或仓库地图找到具体仓库或子目录，"
+                "整树扫一遍可能耗尽内存，这次没有执行。先按主目录的 AGENTS.md 或常用路径找到具体仓库或子目录，"
                 "再在那里搜（{fix}）。")
 SHELL_FIX = "如 `rg <词> <仓库>`、`cd <仓库> && rg <词>`、`find <子目录> -name …` 或 `find . -maxdepth 2 -name …`"
 GREP_FIX = "Grep 的 path 填具体仓库或子目录"

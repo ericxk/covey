@@ -294,7 +294,7 @@ def launch_form_card(token, *, model, choices, effort, workspace=None, names=(),
     form. Its token routes every callback to the record build_launch_card saved. ``devices``: the title of the device
     each of the ``names`` that is a device's workspace is on; the summary and the 工作区 row name it.
 
-    A topic starts in the home (docs/configuration.md 主目录与仓库地图): the card has no 工作区 or 运行方式 row and no 其他目录…, and
+    A topic starts in the home (docs/configuration.md 主目录与常用路径): the card has no 工作区 or 运行方式 row and no 其他目录…, and
     ``device_options`` ((alias, title) of each device the chat may use; COVEY_DEVICES=1 with devices only) draws one 执行设备
     row, ``device`` its choice. A card with a ``workspace`` is one rebuilt from an older card's choices (a butler's
     worktree launch, a card sent before): it draws the 工作区 and 运行方式 rows and 其他目录… as before."""

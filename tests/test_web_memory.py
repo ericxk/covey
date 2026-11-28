@@ -4,6 +4,7 @@ push (app/web_sync.py push_memory): alone in its request, again only when a file
 M3b: v37's ``memory_edit`` without ``v`` is refused (the page writes through v43's, tests/test_web_memory_v43.py)."""
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -35,7 +36,9 @@ class ViewTests(StateCase):
     def test_groups_by_scope_with_room_carried_and_the_next_turns_block(self):
         a, _ = principles.save(self.state, principles.OWNER, "回复先给结论再给细节")
         b, _ = principles.save(self.state, principles.OWNER, "数字都要有出处")
-        principles.pin(self.state, b["id"], True)
+        stored = json.loads(principles.path(self.state).read_text(encoding="utf-8"))  # 常驻 as an older release marked it.
+        stored["owner"] = [{**row, "pinned": True} if row["id"] == b["id"] else row for row in stored["owner"]]
+        principles.path(self.state).write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
         principles.save(self.state, principles.WORKSPACE, "这个仓库的提交说明写英文", workspace="docs")
         k, _ = knowledge.save(self.state, knowledge.OWNER, "decision", "周报每周一早上发", why="主人定的")
         data = web_memory.view(self.state)

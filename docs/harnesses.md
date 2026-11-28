@@ -214,7 +214,7 @@ Codex 话题还多一条路：把可写设备挂成 Codex 自己的执行环境�
 
 ## 在设备上运行
 
-开了多设备（`COVEY_DEVICES=1`，[配置](configuration.md#多设备开发中默认关)）后，工作区写成 `别名:路径` 的话题跑在那台设备上。新话题已经不能这样开（主人 D2Y4T，入口下线、底层保留），这一节只对以前开在设备上的话题成立；新话题从主目录用[设备通道](#设备通道)。能上设备的 Harness 由 `core/roster.py` 的 `devices` 列定：核心里是 Claude Code、Codex 和 Antigravity（设备的 `harnesses` 只认这几个，不写时是 `claude`、`codex`）。结构和不变量见[架构 · 设备](architecture.md#设备多设备默认关)。
+开了多设备（`COVEY_DEVICES=1`，[配置](configuration.md#多设备开发中默认关)）后，工作区写成 `别名:路径` 的话题跑在那台设备上。新话题已经不能这样开（入口下线、底层保留），这一节只对以前开在设备上的话题成立；新话题从主目录用[设备通道](#设备通道)。能上设备的 Harness 由 `core/roster.py` 的 `devices` 列定：核心里是 Claude Code、Codex 和 Antigravity（设备的 `harnesses` 只认这几个，不写时是 `claude`、`codex`）。结构和不变量见[架构 · 设备](architecture.md#设备多设备默认关)。
 
 | Harness | 在设备上 | 原因或差别 |
 | --- | --- | --- |

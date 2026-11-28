@@ -533,9 +533,9 @@ GROUND_TEXT = 40  # Characters of a ground's words in the answer's note.
 NO_GROUNDS = ("要写 evidence：你依据的专项记忆条目 id（状态包专项记忆每行开头〔〕里的）或主人原话 msg:<消息 id>；"
               "没有依据就用 project_escalate 转给主人。")
 ESCALATE = "依据不够就用 project_escalate 转给主人（写清你推荐哪个），不要换个说法再答。"
-NOT_OWNER = ("这些依据都不是主人说的：待核对参考是你整理的口径，（无出处）的旧记录条件可能不全，都不能单独作为替主人答题的依据。"
+NOT_OWNER = ("这些依据都不是主人说的：负责人记的是你整理的口径，（无出处）的旧记录条件可能不全，都不能单独作为替主人答题的依据。"
              "用 project_escalate 转给主人，写清你推荐哪个、为什么。")
-OTHER_QUESTION = ("这条“当前决定”答的是另一道题（和这次问的不是同一件事），不能单独作为替主人答这道题的依据。"
+OTHER_QUESTION = ("这条决定答的是另一道题（和这次问的不是同一件事），不能单独作为替主人答这道题的依据。"
                   "用 project_escalate 转给主人，写清你推荐哪个、为什么。")
 WHO_SAID = {turn_source.LEVEL_OWNER: "你定的", turn_source.LEVEL_AGENT: "负责人记的"}  # The 补充说明's words (T908 M5).
 
@@ -655,7 +655,7 @@ def grounds(env, project, evidence, asked="") -> list:
         elif row.get("deleted") or facts["valid"] == "void":
             problems.append(f"{ref} 已作废，不再适用")
         elif facts["layer"] == core_memory.HISTORY:
-            problems.append(f"{ref} 已经做完或被替代，进了历史记录，不再适用")
+            problems.append(f"{ref} 已经做完或被替代，收起了，不再适用")
         elif facts["applies"] == project_memory.ONCE:
             problems.append(f"{ref} 只限当次，不能拿来答别的题")
         else:

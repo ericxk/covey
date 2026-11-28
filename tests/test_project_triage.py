@@ -682,7 +682,7 @@ class ToolTest(ToolsCase):
         for refused in (answer, own):
             self.assertFalse(refused["ok"])
             self.assertEqual(refused["data"]["refused"], "evidence")
-        self.assertIn("待核对参考", own["text"])  # The lead's own line is no ground alone.
+        self.assertIn("负责人记的", own["text"])  # The lead's own line is no ground alone.
         submit.assert_not_called()
         self.assertEqual(triage.state(read_object(self.path)), triage.HELD)
         self.assertIn("project_answer 必须写 evidence", project_lead.lead_rules())
@@ -1512,7 +1512,7 @@ class SourceTableTest(ToolsCase):
     }
     AFTER = {**BEFORE, "网页写的": ("ok", "owner")}
     ALLOWED = {"网页写的": "网页写的变成主人级"}
-    REASONS = (("style", "汇报风格"), ("void", "已作废"), ("history", "进了历史记录"),
+    REASONS = (("style", "汇报风格"), ("void", "已作废"), ("history", "收起了"),
                ("once", "只限当次"), ("other", "另一道题"), ("not_owner", "不是主人说的"), ("missing", "不在这个专项的记忆里"))
 
     def setUp(self):

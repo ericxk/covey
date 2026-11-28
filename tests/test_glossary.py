@@ -37,7 +37,9 @@ PACKED = GOLDEN.with_name("cards.json.xz")
 # What is not said any more (docs/glossary.md 名词 · 不再用). ``线程`` covers every sense: the butler, a project's topic and
 # the Bridge's own threads, which the docs call 后台线程 and the interface never mentions. ``一路`` and ``多路`` are not words
 # of a path (同一路径, 多路径).
-RETIRED = re.compile("主线程|线程|话题区|长活|快事|路在做|一路(?!径)|多路(?!径)|Personal Agent|由快事升级|派发活卡片|专项整理|话题摘要|约好回来看|该回来看了")
+# 长期约定, 当前决定, 待核对参考 (the memory's older parts), 记忆中心 and 仓库地图 went with the memory's and the repo map's new words.
+RETIRED = re.compile("主线程|线程|话题区|长活|快事|路在做|一路(?!径)|多路(?!径)|Personal Agent|由快事升级|派发活卡片|专项整理|话题摘要|约好回来看|该回来看了"
+                     "|长期约定|当前决定|待核对参考|记忆中心|仓库地图")
 
 # The status words docs/glossary.md 状态词 retired (要换掉的说法, core/look.py RETIRED), each as a word of its own: not inside a
 # longer one (完成标准, 发送失败, 打断). They are checked where a state is said and the module is clean of them: the global
@@ -186,9 +188,10 @@ class RetiredWordsTest(unittest.TestCase):
 
     def test_the_words_themselves_are_matched(self):
         for word in ("主线程", "线程", "话题区", "长活", "快事", "还有 3 路在做", "并行的一路", "多路并行", "Personal Agent",
-                     "由快事升级（你说了长活）", "派发活卡片"):
+                     "由快事升级（你说了长活）", "派发活卡片", "长期约定", "当前决定", "待核对参考", "网页记忆中心", "仓库地图"):
             self.assertIsNotNone(RETIRED.search(word), word)
-        for word in ("管家", "话题", "专项的话题", "后台", "同一路径", "还有 3 件事在做", "由管家转成专项"):
+        for word in ("管家", "话题", "专项的话题", "后台", "同一路径", "还有 3 件事在做", "由管家转成专项", "规矩", "决定", "负责人记的",
+                     "网页的「记忆」页", "常用路径"):
             self.assertIsNone(RETIRED.search(word), word)
 
     # (a)

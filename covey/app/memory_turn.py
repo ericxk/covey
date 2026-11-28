@@ -37,8 +37,7 @@ from pathlib import Path
 
 from covey.app import assist, knowledge_turn, memory_picks, project_context
 from covey.app.prompts import memory_rules_block, memory_tail_block
-from covey.core import (knowledge, memory, memory_review, memory_search, memory_usage, memstore, principles, projects,
-                        topic_gist, topic_memory)
+from covey.core import memory, memory_review, memory_search, memstore, projects, topic_gist
 from covey.core import home, turn_source
 from covey.core.butler import is_butler_topic
 from covey.core.butler_opened import handed_on
@@ -539,50 +538,6 @@ def record(ctx, job, owner_turn, log=None) -> None:
     except Exception as exc:  # noqa: BLE001 - the record is a convenience for the correction after the turn
         if log is not None:
             log(f"memory ids not recorded: {type(exc).__name__}")
-
-
-def preview(state_dir, topic_key: str = "", *, project_key: str = "", title: str = "", query: str = "",
-            repos: tuple = (), cache: dict | None = None) -> dict:
-    """What a turn of ``topic_key`` would carry, as the web page shows it (data contract v43 MemoryPreview): {topic_key, title,
-    chars, rules, decisions, notes: [{code, sim}], listed}; the owner's own turn."""
-    state_dir = Path(state_dir)
-    topic = str(topic_key or "")
-    project = str(project_key or "")
-    if topic and not project:
-        found = projects.topic_project(state_dir, topic)
-        project = found.id if found is not None and found.role == projects.MEMBER else ""
-    shown = title
-    if topic and not shown:
-        try:
-            shown = str(load_topic(state_dir, topic).get("title") or "")
-        except (OSError, ValueError):
-            shown = ""
-    made = make_plan(state_dir, topic=topic, project=project, owner=True, words=query, title=title,
-                     repos=tuple(repos or ()), cache=cache)
-    text = memory_rules_block(made.rules, made.left, project_name=made.project_name, search="", cut=made.cut)
-    text += memory_tail_block(made.decisions, made.notes, made.listed, numbers=made.numbers, project=made.project,
-                              names=made.names, picked=made.picked)
-    ids, listed = ids_of(made)
-    return {"topic_key": topic, "title": shown, "chars": len(text), "rules": [entry.code for entry in made.rules],
-            "decisions": [entry.code for entry in made.decisions],
-            "notes": [{"code": entry.code, "sim": round(float(sim), 4)} for entry, sim in made.notes],
-            "listed": [row["n"] for row in listed if row["n"]]}
-
-
-def build(ctx, job, owner_turn) -> tuple[list, int]:
-    """The older block's items (core/memory.py select of the principles, the knowledge entries and the project's and the
-    topic's lines), for the 设置 card's 记忆 tab (app/memory_panel.py) until it reads the store; a turn no longer carries
-    them (``block``, ``tail``)."""
-    topic_id = getattr(job, "topic_id", "") or ctx.topic_id
-    owner = owner_turn()
-    state = ctx.state_dir
-    mine, space = principles.for_turn(state, ctx.workspace_name)
-    entries = knowledge.for_turn(state, ctx.workspace_name) if knowledge.enabled() else ((), ())
-    project_id, rows = project_context.memory_rows(ctx, job)
-    used = memory_usage.last_used(state) if memory.learning() else None
-    return memory.select(memory.items(principles=(mine if owner else [], space), entries=(entries[0] if owner else [], entries[1]),
-                                      project=rows, topic=topic_memory.live(state, topic_id), project_id=project_id,
-                                      drafts=((), ()), used=used))
 
 
 def triggered(text, *, knowledge_takes=False) -> bool:

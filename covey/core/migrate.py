@@ -31,7 +31,7 @@ it stopped. Nobody sees a change: the records keep what older releases read.
 
 The steps of ``HOME_STEPS`` need the home, the service's ``--workdir``: they run at the Bridge's start, which passes it
 (``migrate(..., workdir=)``), before anything else; maintenance ``--apply`` has none and leaves them to it, and its
-``--dry-run`` (``pending``) does not list them (docs/configuration.md 主目录与仓库地图).
+``--dry-run`` (``pending``) does not list them (docs/configuration.md 主目录与常用路径).
 Each is W1's ``migrate_v1``: it writes a file only when it is missing, so an older release (which reads neither file) and a
 run cut short are safe, and a step that raised is run again at the next start.
 

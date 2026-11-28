@@ -341,7 +341,7 @@ class LaunchCardLabelTest(DeviceEnv, LaunchCardCase):
         self.start_devices(self.root)
 
     def test_the_launch_card_offers_no_device_and_an_older_cards_workspace_names_its_device(self):
-        """主目录启动 (docs/configuration.md 主目录与仓库地图): a new card has no 工作区 row and no 执行设备 row (主人 D2Y4T: a topic
+        """主目录启动 (docs/configuration.md 主目录与常用路径): a new card has no 工作区 row and no 执行设备 row (主人 D2Y4T: a topic
         uses a device from the home); a card rebuilt from an older card's workspace on a device names that device as before,
         and 开始任务 refuses it (tests/test_launch.py DeviceHarnessLaunchTests)."""
         from covey.app.launch import build_launch_card

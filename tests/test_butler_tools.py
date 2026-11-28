@@ -453,7 +453,7 @@ class ReposAndMemoryToolsTest(unittest.TestCase):
         (self.state / "workspace-config.json").write_text(json.dumps({"default": "bridge", "workspaces": {"bridge": "/w/bridge"}}))
         answer = self.call("repos_list")
         self.assertTrue(answer["ok"], answer)
-        self.assertEqual(answer["text"].splitlines(), ["仓库地图还没有建，下面是登记的工作区（名字可以写进 repos）：", "bridge（默认） · /w/bridge"])
+        self.assertEqual(answer["text"].splitlines(), ["常用路径还没有建，下面是登记的工作区（名字可以写进 repos）：", "bridge（默认） · /w/bridge"])
         self.assertEqual((answer["data"]["repos"], answer["data"]["count"], answer["data"]["workspaces"]["default"]), ([], 0, "bridge"))
         (self.state / "repos.json").write_text(json.dumps({"version": 1, "repos": [
             {"name": "covey", "path": "/w/covey", "note": "核心", "status": "active"},
@@ -478,9 +478,9 @@ class ReposAndMemoryToolsTest(unittest.TestCase):
         answer = butler_tools.TOOLS["repos_list"](self.env, butler_requests.Request("r1", "repos_list", {}, "lead-1", NOW))
         self.assertTrue(answer["ok"], answer)
         self.assertEqual(answer["text"].splitlines(), [
-            f"主目录：{home} · 仓库地图：{self.state / 'repos.md'}",
+            f"主目录：{home} · 常用路径：{self.state / 'repos.md'}",
             "covey · 可写 · 原地改 · 用途：核心 · /w/covey · 本话题在改", "web · 只读 · /w/web",
-            "本话题还用到（地图里没有）：", "notes · /w/notes · 本话题在读"])
+            "本话题还用到（常用路径里没有）：", "notes · /w/notes · 本话题在读"])
         data = answer["data"]
         self.assertEqual((data["home"], data["count"], data["map"]), (str(home), 2, str(self.state / "repos.md")))
         self.assertEqual([(row["name"], row.get("used"), row.get("worktree")) for row in data["repos"]],

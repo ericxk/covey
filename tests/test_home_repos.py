@@ -1017,7 +1017,7 @@ class HomeBlockTest(Sandbox):
         self.topic(home_start=True, started_at=time.mktime((2026, 11, 27, 3, 0, 0, 0, 0, -1)), slug="fix-diff")
         block = home_turn.static_block(self.ctx())
         self.assertIn(f"主目录：{self.home}", block)
-        self.assertIn(f"仓库地图：{self.state / 'repos.md'}", block)
+        self.assertIn(f"常用路径：{self.state / 'repos.md'}", block)
         self.assertIn("covey repo use <仓库> --write", block)
         self.assertNotIn("产物目录", block)  # No home.json: the taken-over home's AGENTS.md says where outputs go.
         self.assertEqual(block, home_turn.static_block(self.ctx()))  # The same every turn: one cacheable prefix.
@@ -1039,7 +1039,7 @@ class HomeBlockTest(Sandbox):
         home.write(self.state, home.HomeConfig())
         block = home_turn.static_block(self.ctx())
         self.assertIn(f"本话题产物目录：{self.home}/tasks/runs/20261128-T7-paper", block)
-        for words in ("主目录：", "仓库地图", "AGENTS.md", "--write", "repos.md"):
+        for words in ("主目录：", "常用路径", "AGENTS.md", "--write", "repos.md"):
             self.assertNotIn(words, block)
         self.assertEqual(block, home_turn.static_block(self.ctx()))
         found = home_turn.external(self.ctx())

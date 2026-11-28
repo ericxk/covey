@@ -238,7 +238,7 @@ class StoreTest(StateCase):
         self.assertEqual(knowledge.history_cmd({knowledge.HISTORY_ENV: " /a/kb-history "}), "/a/kb-history")
         self.assertEqual(knowledge.history_cmd({knowledge.HISTORY_ENV: "kb-history"}), "")
         self.assertEqual(knowledge.history_cmd({}), "")
-        self.assertEqual((butler_tool_specs.KNOWLEDGE_ENV, butler_tool_specs.HISTORY_ENV), (knowledge.ENV, knowledge.HISTORY_ENV))
+        self.assertEqual(butler_tool_specs.HISTORY_ENV, knowledge.HISTORY_ENV)
 
 
 def entry(text, at, **fields):
@@ -493,10 +493,11 @@ class SpecsTest(StateCase):
         mine |= {name for key in mine for name in cenv.spellings(key)}
         handed = lambda: {k: v for k, v in butler.mcp_config(Path("/r"), Path("/s"), "job-1", "/usr/bin/python3")  # noqa: E731
                           ["mcpServers"]["bridge"]["env"].items() if k in mine}
+        # COVEY_KNOWLEDGE lists no tool in the MCP server any more (core/butler_tool_specs.py listed): it is not handed on.
         self.env(**{knowledge.ENV: "0", knowledge.HISTORY_ENV: ""})
-        self.assertEqual(handed(), cenv.mirrored({butler.STATE_ENV: "/s", butler.JOB_ENV: "job-1", knowledge.ENV: "0"}))
+        self.assertEqual(handed(), cenv.mirrored({butler.STATE_ENV: "/s", butler.JOB_ENV: "job-1"}))
         self.env(**ON, **{knowledge.HISTORY_ENV: " /absolute/kb-history "})
-        self.assertEqual(handed(), cenv.mirrored({butler.STATE_ENV: "/s", butler.JOB_ENV: "job-1", knowledge.ENV: "1",
+        self.assertEqual(handed(), cenv.mirrored({butler.STATE_ENV: "/s", butler.JOB_ENV: "job-1",
                                                   knowledge.HISTORY_ENV: "/absolute/kb-history"}))
 
     def test_the_butlers_rules_name_the_order_of_looking_things_up(self):

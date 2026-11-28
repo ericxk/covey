@@ -64,7 +64,7 @@ class ButlerTopicsCase(UnifiedCase):
 
 
 class HomeStartTest(ButlerTopicsCase):
-    """主目录启动 (docs/configuration.md 主目录与仓库地图): topic_start needs no workspace; the topic starts in the home and
+    """主目录启动 (docs/configuration.md 主目录与常用路径): topic_start needs no workspace; the topic starts in the home and
     keeps the repositories it says it uses; an older call's workspace is one more of them, read."""
 
     def repo_map(self, **statuses):
@@ -117,7 +117,7 @@ class HomeStartTest(ButlerTopicsCase):
         self.assertIn("仓库 covey（改）、web", card)
         for request, repos, words in (("h3", [{"name": "old", "mode": "write"}], "仓库「old」已冻结，不能改"),
                                       ("h4", [{"name": "web", "mode": "write"}], "仓库「web」只读，不能改"),
-                                      ("h5", [{"name": "nope", "mode": "read"}], "仓库地图里没有「nope」，可选：covey、web、old"),
+                                      ("h5", [{"name": "nope", "mode": "read"}], "常用路径里没有「nope」，可选：covey、web、old"),
                                       ("h6", [{"name": "covey"}] * 11, "repos 要是最多 10 项的列表")):
             refused = self.start(request, workspace=None, harness="codex", repos=repos)
             self.assertFalse(refused["ok"], refused)
@@ -130,7 +130,7 @@ class HomeStartTest(ButlerTopicsCase):
         self.assertEqual([(repo["name"], repo["mode"]) for repo in topic["repos"]], [("project", "read")])
         refused = self.start("h8", harness="codex", workspace="nowhere")
         self.assertFalse(refused["ok"])
-        self.assertIn("仓库地图里没有「nowhere」", refused["text"])
+        self.assertIn("常用路径里没有「nowhere」", refused["text"])
 
 
 class TopicStartTest(ButlerTopicsCase):

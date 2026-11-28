@@ -82,7 +82,7 @@ def drawn(settings, apps):
 def workspace_of(state_dir, default_workdir, settings) -> tuple:
     """(name, directory) of where a butler (or a lead) that has not run yet starts: the workspace an older release's
     settings saved, while it is listed still; else the home, the service's ``--workdir`` (``default_workdir``,
-    docs/configuration.md 主目录与仓库地图), under the name the workspace list gives that directory (its own name when the
+    docs/configuration.md 主目录与常用路径), under the name the workspace list gives that directory (its own name when the
     list has none). One that runs already keeps its directory (app/butler.py keep_topic)."""
     config = load_config(state_dir, default_workdir)
     if settings.workspace in config["workspaces"] and not devices.is_device_value(config["workspaces"][settings.workspace]):

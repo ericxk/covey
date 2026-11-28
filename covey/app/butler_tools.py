@@ -591,7 +591,7 @@ def principles_list(env, request):
     return reply(True, "\n".join(map(principle_row, rows)), count=len(rows))
 
 
-# 仓库地图 (docs/configuration.md 主目录与仓库地图): repos_list, workspaces_list's successor (an older session's call to that
+# 常用路径 (docs/configuration.md 主目录与常用路径): repos_list, workspaces_list's successor (an older session's call to that
 # name comes here too, core/butler_tool_specs.py RENAMED_TOOLS). app/repos_turn.py ``repos_list(ctx)`` finds what to say, for
 # the home and the topic of the job that called (the butler's or a lead's); it is said here as a list, the dict kept as its
 # data. A deployment with no map yet hears its saved workspaces.
@@ -637,17 +637,17 @@ def repos_list(env, request):
         lines = [repo_line(row) for row in extra]
         if not listed.get("ok"):
             if lines:
-                return reply(True, "仓库地图是空的；本话题用到的：\n" + "\n".join(lines), **found)
-            return reply(False, "仓库地图是空的，也没有登记的工作区。", **found)
+                return reply(True, "常用路径是空的；本话题用到的：\n" + "\n".join(lines), **found)
+            return reply(False, "常用路径是空的，也没有登记的工作区。", **found)
         from covey.core import repomap
         found["workspaces"] = listed.get("data", {})
-        head = "仓库地图里还没有仓库" if repomap.path(env.state_dir).exists() else "仓库地图还没有建"
+        head = "常用路径里还没有仓库" if repomap.path(env.state_dir).exists() else "常用路径还没有建"
         return reply(True, head + "，下面是登记的工作区（名字可以写进 repos）：\n" + listed["text"]
                      + ("\n本话题用到的：\n" + "\n".join(lines) if lines else ""), **found)
-    head = [f"主目录：{home} · 仓库地图：{found.get('map')}"] if home else []
+    head = [f"主目录：{home} · 常用路径：{found.get('map')}"] if home else []
     lines = [*head, *map(repo_line, rows)]
     if extra:
-        lines += ["本话题还用到（地图里没有）：", *map(repo_line, extra)]
+        lines += ["本话题还用到（常用路径里没有）：", *map(repo_line, extra)]
     return reply(True, "\n".join(lines), **found)
 
 

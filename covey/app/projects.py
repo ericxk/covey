@@ -339,7 +339,7 @@ class Projects:
         data.update(topic_id=lead, chat_id=chat, root_id="", thread_id="", binding_revision=1, project=field,
                     workspace_locked=True, harness_locked=True, model_settings_snapshot=True,
                     workspace_name=name, workdir=workdir)
-        # The project's repositories (docs/configuration.md 主目录与仓库地图): those of the topic it grew from and those the
+        # The project's repositories (docs/configuration.md 主目录与常用路径): those of the topic it grew from and those the
         # direct start named, read by the lead (it changes no file); a lead of the home says so as its topics do.
         repos = {}
         for repo in [*(source.get("repos") or ()), *(origin.get("repos") or ())]:

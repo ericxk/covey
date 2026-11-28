@@ -46,7 +46,7 @@ from covey.app.card_actions import action_value
 from covey.app.card_lanes import after_ack
 from covey.cards.answer_card import memory_element
 from covey.app import memory_observe
-from covey.core import memory, memory_gate, memory_usage, memstore, principles, project_memory, projects, topic_memory, turn_source
+from covey.core import memory, memory_gate, memstore, principles, project_memory, projects, topic_memory, turn_source
 from covey.core.butler import is_butler_topic
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import find_job_record, upsert_job_record
@@ -395,44 +395,6 @@ def _entry(state, topic_id, entry_id, ref=""):
     rows = [row for row in (project_memory.stored(state, found.id) if found is not None else []) if not row.get("deleted")]
     rows = [*rows, *topic_memory.live(state, topic_id)]
     return next((row for row in rows if isinstance(row, dict) and row.get("id") == entry_id), None)
-
-
-def promote(host, ctx, event) -> bool:
-    """升为全局 on a "记下了" line of 管这个专项 or 管这个话题 (``host``: the TaskControls, COVEY_MEMORY=1): the line becomes one of the
-    owner's principles (core/principles.py save, 通用: every topic reads it on his own turns), the entry it was a tombstone, the
-    note 管全局 with the principle as its entry, the lines redrawn. ValueError says why nothing changed (a full group); a second click does nothing."""
-    raw = action_value(event)
-    if not ctx.topic_id or raw.get("topic_id") != ctx.topic_id:
-        return True
-    record = find_job_record(ctx.state_dir, str(raw.get("job_id") or ""))
-    entry_id = str(raw.get("entry_id") or "")
-    if not record or record.get("topic_id") != ctx.topic_id or not entry_id:
-        raise ValueError("找不到这条记忆所在的任务")
-    notes = [dict(note) for note in record.get("memory_notes") or ()]
-    note = next((note for note in notes if note.get("kind") == "remembered" and note.get("entry_id") == entry_id
-                 and note.get("scope") in (PROJECT_WORDS, TOPIC_WORDS)), None)
-    if note is None:
-        return True  # Promoted or taken back already (a second click), or not this turn's.
-    entry = _entry(ctx.state_dir, ctx.topic_id, entry_id, note.get("ref") or "")
-    if entry is None:
-        raise ValueError("这条记忆已经不在了（在设置卡「记忆」里删掉过）")
-    if note.get("ref"):
-        moved = memstore.promote(ctx.state_dir, note["ref"], scope="global", who="owner")
-        note.update(scope=GLOBAL_WORDS, entry_id=memstore.parse_ref(moved.ref)[2], ref=moved.ref)
-        upsert_job_record(ctx.state_dir, str(record["key"]), memory_notes=notes)
-        host.runtime.log(f"memory line promoted to global job=#{record.get('job_id')}")
-        after_ack(lambda: show(ctx, host.messenger, record, notes, host.runtime.log))
-        return True
-    found, _ = principles.save(ctx.state_dir, principles.OWNER, note["text"], source={
-        "job_key": str(record.get("key") or ""), "job_id": record.get("job_id"), "from": note.get("scope")})
-    held = projects.topic_project(ctx.state_dir, ctx.topic_id) if projects.memory_enabled() else None
-    memory_usage.carry(ctx.state_dir, f"project:{held.id}:{entry_id}" if held is not None else f"topic:{entry_id}", f"principle:{found['id']}")
-    _forget(ctx.state_dir, ctx.topic_id, entry_id, note.get("scope"))
-    note.update(scope=GLOBAL_WORDS, entry_id=found["id"])
-    upsert_job_record(ctx.state_dir, str(record["key"]), memory_notes=notes)
-    host.runtime.log(f"memory line promoted to a principle job=#{record.get('job_id')}")
-    after_ack(lambda: show(ctx, host.messenger, record, notes, host.runtime.log))
-    return True
 
 
 def void_turn(runtime, messenger, ctx, record) -> int:

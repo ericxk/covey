@@ -12,8 +12,9 @@ and the way to the web page's 记忆 (managing it all is there: editing, moving 
 
 The buttons keep the kinds the tab had (the closed set of kinds is frozen, tests/golden/concepts.json): ``ACCEPT`` is
 ``bridge_memory_pin`` (it was 常驻), ``DELETE`` is 不要 on a 待审核 item (``key`` ``review:…``, ``op`` reject) and 收起 on a rule
-(``op`` ask, confirm or cancel), ``OPEN`` pages. ``WORKSPACE`` and ``PROMOTE`` (and 常驻 as the old ``PIN``) stay in KINDS only to
-take the click of a card drawn before: they change nothing and say so (app/memory_panel.py).
+(``op`` ask, confirm or cancel), ``OPEN`` pages. 常驻 as the old ``PIN`` (``ACCEPT`` with ``on``) still takes the click of a card
+drawn before: it changes nothing and says so (app/memory_panel.py). The older tab's 工作区 row and 升为全局 are not in KINDS any
+more: a click on them gets app/card_actions.py MOVED_CARDS's line.
 
 Each button's value carries its kind, the card's token and the revision drawn. ``view``: revision, notice, review_page,
 rules_page, confirm (the key of the rule asking 确认收起); ``data``: app/memory_panel.py ``facts``. A card that would be too much
@@ -29,13 +30,11 @@ from covey.core.text import cut, literal
 
 TITLE = "记忆"
 ICON = "member_outlined"
-WORKSPACE = "bridge_memory_workspace"  # Offline: the 工作区 row of the older tab. A click says so and changes nothing.
 OPEN = "bridge_memory_open"  # 上一页 / 下一页: ``scope`` (review or rules) and ``page``.
 DELETE = "bridge_memory_delete"  # 不要 (``key`` review:…, ``op`` reject) and 收起 (``key`` of a rule, ``op`` ask, confirm or cancel).
 ACCEPT = "bridge_memory_pin"  # 采纳 a 待审核 item (``key`` review:…, ``op`` accept): the kind that was 常驻, kept so no kind is new.
 PIN = ACCEPT  # What the older tab's 常驻 carried (``key`` of a principle, ``on``): offline, answered with a line.
-PROMOTE = "bridge_memory_to_global"  # Offline: 升为全局 of the older tab.
-KINDS = frozenset({WORKSPACE, OPEN, DELETE, ACCEPT, PROMOTE})
+KINDS = frozenset({OPEN, DELETE, ACCEPT})
 REVIEW = "review"  # OPEN's ``scope`` of the 待审核 list.
 RULES = "rules"  # OPEN's ``scope`` of the rules list (without the web page).
 REVIEW_PAGE = 5  # Items of 待审核 a page shows.

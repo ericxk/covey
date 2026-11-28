@@ -62,8 +62,6 @@ ACTIONS = {
     "bridge_dispatch_stop": CardAction("停止派出去的任务", handler="controls.dispatch_stop"),
     # 不对 on the memory lines of an answer card (cards/answer_card.py memory_element, COVEY_MEMORY=1): takes a line back, starts no task.
     "bridge_memory_wrong": CardAction("撤销刚记下的记忆", handler="controls.memory_wrong"),  # COVEY_MEMORY=1: starts no task.
-    # 升为全局 beside it (T647 E4): the line becomes one of the owner's principles; starts no task.
-    "bridge_memory_promote": CardAction("把记忆升为全局", handler="controls.memory_promote"),
     # 让 Covey 30 分钟后回看 under an ordinary topic's answer (taken off the cards, T898): a click on an older card says where.
     "bridge_revisit_hint": CardAction("让 Covey 30 分钟后回看", bot_only=True, handler=RETIRED),
     # The 专项卡's buttons (cards/project_card.py): the card's message routes to the project's lead topic, so a click is
@@ -72,7 +70,6 @@ ACTIONS = {
     "bridge_project_steer": CardAction("补充专项", handler="steering.project_steer"),
     "bridge_project_stop": CardAction("停止专项", handler="controls.project_stop"),
     "bridge_project_downgrade": CardAction("不要专项", handler="controls.project_downgrade"),
-    "bridge_project_mem_del": CardAction("删记忆", handler="controls.project_mem_del"),
     "bridge_project_lib_del": CardAction("删专项资料", handler="controls.project_lib_del"),
     # 不对 on a row of the 分流记录 and its form's 提交纠正 (taken off the cards, T898): a click on an older card says where.
     "bridge_project_triage_wrong": CardAction("纠正分流", bot_only=True, handler=RETIRED),
@@ -151,7 +148,6 @@ ACTIONS = {
     "bridge_main_mode": CardAction("选择私聊模式（已下线）"),
     "bridge_main_start_row": CardAction("直接开工（已下线）"),
     "bridge_main_harness": CardAction("选择管家 Harness"),
-    "bridge_main_workspace": CardAction("选择管家工作区（已下线）"),
     "bridge_main_model": CardAction("选择管家模型"),
     "bridge_main_effort": CardAction("选择管家思考预算"),
     "bridge_main_provider": CardAction("选择管家供应商"),
@@ -160,8 +156,6 @@ ACTIONS = {
     "bridge_main_topic_provider": CardAction("选择新话题供应商"),
     "bridge_main_topic_model": CardAction("选择新话题模型"),
     "bridge_main_topic_effort": CardAction("选择新话题思考预算"),
-    "bridge_main_topic_run_mode": CardAction("选择新话题运行方式（已下线）"),
-    "bridge_main_topic_workspace": CardAction("选择新话题工作区（已下线）"),
     "bridge_main_subagents": CardAction("选择子 Agent 模型"),
     "bridge_main_assist_harness": CardAction("选择辅助模型"),
     # 辅助模型's 供应商, 模型 and 思考预算 once a Harness is named there (core/butler_settings.py AssistChoice, T924).
@@ -175,18 +169,14 @@ ACTIONS = {
     "bridge_main_lead_effort": CardAction("选择专项负责人思考预算"),
     "bridge_main_section": CardAction("展开设置的一段"),
     "bridge_main_start": CardAction("直接开工（已下线）"),
-    "bridge_main_untrust": CardAction("记住的工作区（已下线）"),
-    "bridge_main_notes": CardAction("保存工作区用途（已下线）"),
     # The 设置 card's tab row (cards/settings_hub.py KINDS).
     "bridge_settings_tab": CardAction("切换设置标签"),
     # The 设置 card's 记忆 tab (cards/memory_panel.py KINDS, COVEY_MEMORY=1): handled before topic routing (app/memory_panel.py).
-    "bridge_memory_workspace": CardAction("换记忆页的工作区"),
     "bridge_memory_open": CardAction("展开记忆"),
     "bridge_memory_delete": CardAction("不要或收起记忆"),
     # Also 采纳 on an answer card's line that waits in 待审核 (cards/answer_card.py MEMORY_ACCEPT_KIND, the value carries
     # ``job_id``): the 记忆 tab takes it too (app/memory_panel.py accept_line), no kind is new.
     "bridge_memory_pin": CardAction("采纳待审核的记忆"),
-    "bridge_memory_to_global": CardAction("把记忆升为全局"),  # T647 E4.
     # 手上的事's line of old questions (cards/overview.py DISMISS): only the board's record changes.
     "bridge_overview_dismiss": CardAction("撤下看板"),
     # 撤销 on the line 不管了 leaves (cards/overview.py UNDO): the board's record changes back (app/overview.py Overview.undo).
@@ -202,8 +192,6 @@ ACTIONS = {
     "bridge_board_revisit_cancel": CardAction("取消到点回来看", bot_only=True),
     "bridge_board_project_go": CardAction("在看板上继续专项", bot_only=True),
     "bridge_board_recover": CardAction("在看板上检查并继续", bot_only=True),
-    # 你反复说的 on the evening digest (REMEMBER_KIND, retired: the candidates wait in 待审核): a click on an older card says where.
-    "bridge_digest_remember": CardAction("记下或不用汇总里的候选"),  # Answered in words by app/digest.py (claim).
     # 整理记忆 on the evening digest (cards/digest.py MEMORY_KIND, COVEY_MEMORY on): 撤销 puts the lines it put away back;
     # an older card's 确认长期 and 不对 are answered in words (app/digest.py memory_click, app/memory_tidy.py decide).
     "bridge_digest_memory": CardAction("撤销汇总里的整理记忆"),
@@ -244,7 +232,6 @@ RETIRED_TEXT = {
     "bridge_board_recover": "看板上的「检查并继续」已下线，没有重试：到那个话题的任务卡上点「检查并继续」或「现在重试」。",
     "bridge_project_triage_wrong": "分流记录里的「不对」已下线，没有改任何东西：要纠正负责人替你答的，到那个专项话题里直接说。",
     "bridge_project_triage_fix": "分流记录里的「不对」已下线，这次提交没有生效：要纠正负责人替你答的，到那个专项话题里直接说。",
-    "bridge_digest_remember": "汇总里的「记下」「不用」已下线，没有记任何东西：想记的话在设置卡「记忆」页签或网页记忆中心的待审核里处理。",
 }
 # compat: cards sent by a feature that was taken out: (kind, the prefix of its forms' button names) -> what a click gets
 # (a card kind not in ACTIONS is otherwise dropped without a word). Paseo (covey_paseo) was taken out.
@@ -269,6 +256,23 @@ REDACTION_KINDS = ("bridge_dashboard_rotate", "bridge_redaction_page", "bridge_r
                    "bridge_launch_redaction", "bridge_switch_redaction")
 REDACTION_RETIRED = "敏感词脱敏已下线，这次点击没有改任何设置。"
 MOVED_CARDS.update({(kind, kind): REDACTION_RETIRED for kind in REDACTION_KINDS})
+# The memory's buttons that only said they were offline (T980): 升为全局 under an answer card's 记下了 line and on the older
+# 记忆 tab, that tab's 工作区 row, a 专项卡's 删 on its 专项记忆 rows, and the evening digest's 你反复说的 记下 / 不用. Managing
+# the memory is the web page's 记忆; a click on an older card changes nothing.
+MEMORY_RETIRED = {
+    "bridge_memory_promote": "升为全局已下线，这次点击没有改任何东西：到网页的「记忆」页把它提到更大的范围。",
+    "bridge_memory_to_global": "升为全局已下线，这次点击没有改任何东西：到网页的「记忆」页把它提到更大的范围。",
+    "bridge_memory_workspace": "这个选项已下线：记忆按全局、专项、话题管，改动到网页的「记忆」页。",
+    "bridge_project_mem_del": "专项卡上的删除已下线，这次点击没有删任何东西：到网页的「记忆」页收起或作废。",
+    "bridge_digest_remember": "汇总里的「记下」「不用」已下线，没有记任何东西：待审核的记忆在设置卡「记忆」页签或网页的「记忆」页里处理。",
+}
+MOVED_CARDS.update({(kind, kind): text for kind, text in MEMORY_RETIRED.items()})
+# The 设置 card's 工作区 rows, 运行方式 row, 保存用途 and 记住的工作区 (T980): a new topic starts in the home, the repositories are
+# the web settings' 常用路径. A click on an older card changes nothing.
+WORKSPACE_KINDS = ("bridge_main_workspace", "bridge_main_topic_workspace", "bridge_main_topic_run_mode", "bridge_main_notes",
+                   "bridge_main_untrust")
+WORKSPACE_RETIRED = "这个选项已下线，这次点击没有改任何设置：新话题一律从主目录开始，常用路径在网页设置的「常用路径」页管。"
+MOVED_CARDS.update({(kind, kind): WORKSPACE_RETIRED for kind in WORKSPACE_KINDS})
 
 
 def moved_card_text(event) -> str:

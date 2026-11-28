@@ -63,7 +63,7 @@ CRITERIA = {"type": "array", "maxItems": 4, "items": {"type": "string"},
 CRITERIA_CHANGE = {"type": "array", "maxItems": 4, "items": {"type": "string"},
                    "description": "可选，主人要改这个话题的完成标准时给出新的 1 到 4 条（给空数组就去掉）；不改不填"}
 
-# 主目录启动 (docs/configuration.md 主目录与仓库地图): a topic starts in the home and names the repositories it uses (the repo
+# 主目录启动 (docs/configuration.md 主目录与常用路径): a topic starts in the home and names the repositories it uses (the repo
 # map's names, core/repomap.py); ``workspace`` is an older session's argument, taken as one repository read. Short: agy's room.
 REPOS_ARG = {"type": "array", "maxItems": 10, "description": "可选，要用的仓库（repos_list 的名字），write 是要改它",
              "items": {"type": "object", "required": ["name", "mode"], "properties": {
@@ -152,7 +152,7 @@ TOOLS = (
          "turns": {"type": "integer", "minimum": 1, "maximum": 5,
                    "description": "几轮，默认最近 2 轮；给了 job 时默认 1"}}}},
     {"name": "repos_list",
-     "description": "列出仓库地图：名字、状态（可写/只读/冻结）、用途、路径、最近用它的话题。开话题要写 repos 前用它。",
+     "description": "列出常用路径：名字、状态（可写/只读/冻结）、用途、路径、最近用它的话题。开话题要写 repos 前用它。",
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "topic_start",
      "description": "为一件新的事开一个话题去做" + START_OWN +
@@ -243,9 +243,9 @@ NAMES = tuple(tool["name"] for tool in TOOLS)
 
 # Tools only some deployments have. The MCP server lists them when its environment says so (``listed``;
 # core/butler.py mcp_config hands the variable on from the Bridge's own): without it a tool is not in the list, and a
-# call to it is refused. HISTORY_ENV is core/knowledge.py's HISTORY_ENV; KNOWLEDGE_ENV, its ENV, lists nothing any more
-# (the memory tools in TOOLS took the knowledge tools' place) and is named here for the readers that hand it on.
-KNOWLEDGE_ENV = "COVEY_KNOWLEDGE"
+# call to it is refused. HISTORY_ENV is core/knowledge.py's HISTORY_ENV. COVEY_KNOWLEDGE lists nothing here (the memory tools in
+# TOOLS took the knowledge tools' place; an older session's knowledge_* calls are the Bridge's, app/butler_memory.py), so the
+# MCP server is not handed it.
 HISTORY_ENV = "COVEY_HISTORY_CMD"
 HISTORY_TOOLS = (
     {"name": "history_search",

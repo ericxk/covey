@@ -261,7 +261,7 @@ class Butler:
         Code finds a session by its directory; another Harness has a session of its own; the topic's history goes with
         the new session's first message). Where it runs is set once: a new butler starts in the home
         (app/butler_harness.py workspace_of), and one that runs already keeps its directory and its session (no card
-        sets the butler's workspace any more, docs/configuration.md 主目录与仓库地图). The Harness it is bound to now."""
+        sets the butler's workspace any more, docs/configuration.md 主目录与常用路径). The Harness it is bound to now."""
         settings = butler_settings.load(ctx.state_dir)
         topic_id = butler_topic_id(chat)
         saved = read_object(topic_file(ctx.state_dir, topic_id))

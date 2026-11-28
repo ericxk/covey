@@ -1,5 +1,5 @@
 """The 设置 card's 记忆 tab (cards/memory_panel.py), shown when COVEY_MEMORY=1: Feishu keeps the numbers, the light handling of
-待审核 and the way to the web page; managing the memory is the 网页记忆中心's (app/web_memory.py).
+待审核 and the way to the web page; managing the memory is the web page's 记忆 (app/web_memory.py).
 
 What it reads (``facts``), at each draw: ``web_memory.overview`` (the rules in use of 全局, the projects and the topics, and of
 待审核, counted; the open items of 待审核 the oldest first; those rules) and the page's address (``web_memory.center_url``; ''
@@ -8,8 +8,9 @@ without the web page, then the card lists the rules to 收起, the topics' too).
 A click (the owner's) acts outside the record's lock, then the whole card is drawn again under it once the click is
 acknowledged (``notice`` says what happened). 采纳 and 不要 on an item of 待审核 go through ``web_memory.review_decide`` (as the page
 does); 收起 of a rule asks first, then ``memstore.archive``. 采纳 on an answer card's line that waits in 待审核 has the tab's
-kind with the job it names (``accept_line``, app/memory_collect.py accept_click), so no kind is new. The kinds of the older tab (the 工作区 row, 升为全局, 常驻) are still
-taken, so a card drawn before does not hang: they change nothing and say the option is offline. The same click delivered again
+kind with the job it names (``accept_line``, app/memory_collect.py accept_click), so no kind is new. The older tab's 常驻 (``ACCEPT``
+with ``on``) is still taken, so a card drawn before does not hang: it changes nothing and says the option is offline; its 工作区
+row and 升为全局 are app/card_actions.py MOVED_CARDS's. The same click delivered again
 acts once: the view keeps the last ``seen`` event ids.
 """
 from __future__ import annotations

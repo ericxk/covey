@@ -673,7 +673,6 @@ class ButtonTest(CardCase):
     def test_the_kinds_are_in_the_table_with_a_handler_and_start_no_task(self):
         for kind, handler in (("bridge_project_steer", "steering.project_steer"), ("bridge_project_stop", "controls.project_stop"),
                               ("bridge_project_downgrade", "controls.project_downgrade"),
-                              ("bridge_project_mem_del", "controls.project_mem_del"),
                               ("bridge_project_lib_del", "controls.project_lib_del")):
             self.assertEqual((ACTIONS[kind].handler, ACTIONS[kind].bot_only), (handler, False), kind)
         # The 分流记录's 不对 and its form's submit were taken off the cards (T898): kept in the table, answered in words.
@@ -754,15 +753,6 @@ class ButtonTest(CardCase):
         self.assertTrue(self.claude.controls.project_downgrade(self.lead_ctx, self.event("bridge_project_downgrade")))
         self.assertIn("降回普通话题", self.said())
         self.assertEqual((self.record()["state"], self.record()["state_reason"]), ("cancelled", "downgraded"))
-
-    def test_the_memory_delete_of_a_card_drawn_before_is_offline_and_deletes_nothing(self):
-        folder = projects.folder(self.state) / PID
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / "memory.json").write_text(json.dumps({"entries": [{"id": "m1", "text": "窗口在周六"}]}))
-        before = (folder / "memory.json").read_text()
-        self.assertTrue(self.claude.controls.project_mem_del(self.lead_ctx, self.event("bridge_project_mem_del", entry="m1")))
-        self.assertEqual(self.said(), "删除已下线：到网页记忆中心收起或作废")
-        self.assertEqual((folder / "memory.json").read_text(), before)
 
     def test_a_library_file_is_deleted_by_its_own_row_alone(self):
         folder = projects.folder(self.state) / PID

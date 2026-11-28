@@ -6,7 +6,7 @@ It is the bot menu's 设置 card's tab 配置 (app/settings_hub.py, cards/settin
 click says MODE_RETIRED and changes nothing), 专项负责人 (what a new
 project's lead runs on, with COVEY_PROJECTS=1: app/lead_harness.py) and 子 Agent; the
 pages 管家, 新话题 and 模型 it took the place of are retired into it. Its 工作区 and 运行方式 rows and the 工作区 tab's 保存用途 are gone
-(cards/butler_panel.py OFFLINE_KINDS): an older card's click on one says OFFLINE_NOTICE and changes nothing; the repositories are the 设置 card's
+(app/card_actions.py WORKSPACE_KINDS): an older card's click on one gets MOVED_CARDS's line and changes nothing; the repositories are the 设置 card's
 仓库 tab (app/workspace_manager.py; ``pages``: this panel redraws that tab through it for a record still on it) and the web page's.
 A card on a retired page (其他, 管家, 新话题, 模型, 工作区) still acts: its rows land on 配置 (PAGE_OF). The tool and, unless COVEY_BUTLER=0, the menu key MENU_KEY send that card on 配置; the chat keeps one 设置
 card, a new one recalling the one before (app/bot_menu.py Panels). A click redraws the page of its button (PAGE_OF; the
@@ -32,7 +32,7 @@ from covey.app.butler_model_choice import resolve
 from covey.app.menu_panel import MenuPanel, hub_top
 from covey.cards.butler_panel import (ASSIST, ASSIST_EFFORT, ASSIST_MODEL, ASSIST_PROVIDER, COMPACT, EFFORT, HARNESS, KINDS,
                                                     MODE_KINDS, MODE_RETIRED, MODEL, MODEL_FOLLOW,
-                                                    NOTE_LENGTH, OFFLINE_KINDS, OFFLINE_NOTICE, PAGE_OF, PROVIDER,
+                                                    NOTE_LENGTH, PAGE_OF, PROVIDER,
                                                     RETIRED_KINDS, RETIRED_NOTICE, SUBAGENTS,
                                                     TOPIC_EFFORT, TOPIC_HARNESS, TOPIC_MODEL, TOPIC_PROVIDER,
                                                     CLAUDE, follow_text,
@@ -344,8 +344,6 @@ class ButlerPanel:
                     notice = UNREADABLE_NOTICE
             elif value['kind'] in RETIRED_KINDS:
                 notice = RETIRED_NOTICE
-            elif value['kind'] in OFFLINE_KINDS:
-                notice = OFFLINE_NOTICE
             elif value['kind'] in MODE_KINDS:
                 notice = MODE_RETIRED
         with self.menu.lock(path):
@@ -377,8 +375,8 @@ class ButlerPanel:
         settings = butler_harness.drawn(saved, self.topics.apps)
         defaults = settings.topic_defaults
         kind, option = value['kind'], value.get('option')
-        if kind in RETIRED_KINDS or kind in OFFLINE_KINDS or kind in MODE_KINDS:
-            # 直接开工, 记住的工作区, the 工作区 rows and 私聊顶层的消息 are gone: an older card's click changes nothing.
+        if kind in RETIRED_KINDS or kind in MODE_KINDS:
+            # 直接开工 and 私聊顶层的消息 are gone: an older card's click changes nothing.
             return {}
         if not isinstance(option, str):
             return None

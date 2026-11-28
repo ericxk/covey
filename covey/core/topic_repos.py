@@ -7,7 +7,7 @@ writes only the task's own ``runs/<任务键>/repos.json`` (core/run_dir.py ``RE
 the Bridge folds it into the topic when the turn settles (app/repos_turn.py ``settle``), and core/diff.py makes the diff
 of a worktree made in the middle of a turn from that base. ``touched`` reads which repositories a turn's tool calls
 (core/trace.py) read or wrote and whether they read a repository's rules; ``writable_roots`` is what a Codex turn in
-``workspace-write`` may write beside its checkpoints (docs/configuration.md 主目录与仓库地图).
+``workspace-write`` may write beside its checkpoints (docs/configuration.md 主目录与常用路径).
 """
 from __future__ import annotations
 

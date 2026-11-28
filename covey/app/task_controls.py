@@ -441,11 +441,6 @@ class TaskControls(Redelivery):
         from covey.app import project_clicks
         return project_clicks.downgrade_project(self, ctx, event)
 
-    def project_mem_del(self, ctx, event):
-        """删 on a row of a 专项卡's 专项记忆 (drawn before): offline, deletes nothing (app/project_clicks.py delete_memory)."""
-        from covey.app import project_clicks
-        return project_clicks.delete_memory(self, ctx, event)
-
     def project_lib_del(self, ctx, event):
         """删 on a row of a 专项卡's 资料库."""
         from covey.app import project_clicks
@@ -455,12 +450,6 @@ class TaskControls(Redelivery):
         """不对 on a "记下了" line of an answer card (COVEY_MEMORY=1): the entry is taken back (app/memory_collect.py undo)."""
         from covey.app import memory_collect
         return memory_collect.undo(self, ctx, event)
-
-    def memory_promote(self, ctx, event):
-        """升为全局 on a "记下了" line of an answer card drawn before: offline, changes nothing and starts no task (moving an entry to
-        a larger scope is the 网页记忆中心's)."""
-        from covey.app import project_clicks
-        return project_clicks.say(self, ctx, event, "升为全局已下线：到网页记忆中心把它提到更大的范围", "memory-promote-offline")
 
     def cancel_reply_job_from_card(
         self,

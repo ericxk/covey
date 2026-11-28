@@ -18,7 +18,7 @@
 | [到点回来看](usage.md#到点回来看) | `COVEY_REVISIT`（看和取消在菜单「看板」） | 话题要等训练、CI 这类外部的事时，这一轮说好几点回来看就结束，到点自己再起一轮；菜单「看板」里有“到点回来看”一组 | `COVEY_REVISIT=0` |
 | [记忆](#记忆) | `COVEY_MEMORY` | 你在话题里说的长期要求一轮结束后记下，答案卡底部露一行和“不对”“改”（有网页时）按钮；设置卡多「记忆」标签 | `COVEY_MEMORY=0` |
 | [记忆自己长](#记忆) | `COVEY_MEMORY_LEARN`（要 `COVEY_MEMORY` 开着） | 你自己的一轮里说了“以后、别再、记住”这类话，一轮结束后 Bridge 用辅助模型读一遍你的话，长期要求记下（答案卡上一行“记下了”带“不对”；处处适用的先在当地生效、同时进待审核问管不管全局，涉及部署、删除这类事的采纳前不生效）；每轮的记忆块末尾多一行查记忆的命令 | `COVEY_MEMORY_LEARN=0`（`COVEY_MEMORY=0` 时也跟着关） |
-| [知识条目](#知识条目与历史搜索) | `COVEY_KNOWLEDGE` | 说“记一下”的事记成条目，那一轮结束时卡上说记下了；话题首轮带上，汇总多一节 | `COVEY_KNOWLEDGE=0` |
+| [知识条目](#知识条目与历史搜索) | `COVEY_KNOWLEDGE` | 管家“记一下”的规则和查以前做过的事的顺序；`COVEY_MEMORY=0` 时话题自己读写知识条目；汇总多“新记的知识”一节 | `COVEY_KNOWLEDGE=0` |
 | [专项的进阶](projects.md#使用者概览) | `COVEY_PROJECT_AUTOWAKE`、`COVEY_PROJECT_ASK`、`COVEY_PROJECT_MEMORY`、`COVEY_PROJECT_TRIAGE`（都要专项开着） | 依次是：话题一轮结束就叫醒负责人（负责人多跑几轮，多花些 token）；专项停住时发卡问你继续、收尾还是停；专项有自己的记忆和资料库；话题的选择题先给负责人分流 | 各设成 `0` |
 | [等你的事补卡](architecture.md#等主人的账) | `COVEY_LEDGER_RECONCILE`（默认每 300 秒） | 要你回答的问题卡没发出去时，几分钟内自动补发到它的话题（最多 3 次）；补发了几次、发出几次见设置卡「诊断」和 `bin/covey_ledger.py` | `COVEY_LEDGER_RECONCILE=0`（只记账不补发也不起线程） |
 | [早晚汇总](#早晚汇总) | `COVEY_DIGEST_TIMES`（不设是 `09:30,21:30`，按 Asia/Shanghai） | 到点在私聊发汇总卡；菜单「看板」随时点开看现在等你、停住、在做的事；整理专项的定时、晚间的记忆整理也按这两个时间 | `COVEY_DIGEST_TIMES=off`（也认 `0`、`no`、`none`、`false`；菜单「看板」照旧在） |
@@ -190,7 +190,7 @@
 | [代答](#代答) | `COVEY_PROXY_PROFILE` 和发送器 | `proxy`、`proxy-in` 后台线程；设置卡「代答」能用 |
 | [手上的事与话题看板](#手上的事与话题看板)（默认开） | `COVEY_PINNED_OVERVIEW=0`、`COVEY_PINNED_TOPICS=0` 关 | `overview` 后台线程；Pin 话题时多一个已读事件消费者 |
 | [早晚汇总](#早晚汇总)（默认开） | `COVEY_DIGEST_TIMES`；`off` 关 | `digest` 后台线程；菜单「看板」不管它开不开都有 |
-| [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE`（默认开，`0` 关）；`COVEY_HISTORY_CMD=/absolute/path/to/搜索命令` | 管家多 `knowledge_*` 和 `history_search` 工具；话题首轮带知识条目，规则多一行查历史的命令 |
+| [知识条目与历史搜索](#知识条目与历史搜索) | `COVEY_KNOWLEDGE`（默认开，`0` 关）；`COVEY_HISTORY_CMD=/absolute/path/to/搜索命令` | 设了 `COVEY_HISTORY_CMD` 时管家多 `history_search` 工具、规则多一行查历史的命令；旧会话调旧名 `knowledge_*` 工具照常执行 |
 | [记忆](#记忆)（默认开） | `COVEY_MEMORY=0` 关 | 每轮规则里多一块“记忆”；一轮结束后记下主人的长期要求，答案卡底部露一行和“不对”按钮；设置卡多「记忆」标签；`memory-tidy` 后台线程每天整理一次资料和决定 |
 | [记忆自己长](#记忆)（默认开） | `COVEY_MEMORY_LEARN=0` 关（要 `COVEY_MEMORY` 开着，`COVEY_MEMORY=0` 时也关） | 主人的一轮结束、原话里有触发词时起一个短线程（`memory-learn`，一次一轮）用小模型读他的话；每轮的记忆块多一行查记忆的命令 |
 | [新话题带上最近话题的要点](#新话题带上最近话题的要点)（默认开） | `COVEY_WORKSPACE_GISTS=0` 关 | 不多线程；新会话的规则多一块同工作区最近话题的要点 |
@@ -203,7 +203,7 @@
 | [网页工作台](web.md) | `COVEY_WEB=1` 加 `COVEY_WEB_CONFIG=/absolute/path/to/web.json` | `web-push`、`web-pass`、`web-inbox`、`web-touch`、`web-reread` 后台线程：把专项、话题、一轮、问题推给网页应用，取回网页上的操作 |
 | [派发卡](#派发卡)（默认开） | `COVEY_DISPATCH_CARD=0` 关 | `dispatch_cards` 后台线程；管家转给已有话题后提问下面挂一张活卡片 |
 | [群聊免@](#群聊免) | `COVEY_GROUP_ALL_MESSAGES=1` 加应用权限 | 设置卡「群聊」每个群多一个“免@” |
-| [多设备](#多设备开发中默认关)（开发中） | `COVEY_DEVICES=1` 加 `devices.json` | `devices` 后台线程（有设备时才起）；设备上能跑 Claude Code、Codex 和 Antigravity 的话题，管家也能开 |
+| [多设备](#多设备开发中默认关)（开发中） | `COVEY_DEVICES=1` 加 `devices.json` | `devices` 后台线程（有设备时才起）；话题用 `covey device` 去设备上看和干活；旧版开在设备上的话题还能续接 |
 | [节点与机器状况](#节点与机器状况默认关) | `COVEY_NODE_LISTEN=<监听地址>` | `nodes-gateway`、`nodes-alerts`、`nodes-local` 后台线程；机器状况告警卡，设置卡「设备」标签 |
 | [飞书 SDK 与直连](#飞书-sdk-与直连) | `COVEY_CARD_TRANSPORT=sdk`；直连默认开 | 卡片和消息走常驻 SDK 客户端 |
 | [事件长连接走 SDK](#飞书-sdk-与直连) | `COVEY_EVENT_TRANSPORT=sdk` | `event-websocket` 线程代替 lark-cli 事件消费者；`event-spool` 线程把收下没处理完的消息和点击记在 `event-spool/`，重启后补处理 |
@@ -270,15 +270,15 @@
 
 ### 记忆
 
-- `COVEY_MEMORY`：默认开，设 `0`、`off`、`false`、`no` 才关（[管家 · 记忆](butler.md#记忆)）。不依赖别的开关：原则一直有，`COVEY_KNOWLEDGE` 开着时知识条目也进来，专项和 `COVEY_PROJECT_MEMORY` 都开着时专项记忆也进来；话题自己的记忆放在 `<state>/topics/<话题>/memory.json`，有记忆才会有。
-- 关着（`COVEY_MEMORY=0`）：规则、续接提醒、答案卡和任务记录都和没有这个功能时一样，不读不写话题的 `memory.json`，设置卡没有「记忆」标签。
-- 开着时设置卡有一个「记忆」标签（`app/memory_panel.py`）：只看数、处理待审核、去网页。副标题是一行“规矩：全局 N · 专项 N · 话题 N · 待审核 N”；待审核每条写明是哪一种、点「采纳」「不要」各会怎样（走网页「记忆」同一套 `review_decide`）；有网页（`COVEY_WEB=1` 且配了 `page_url`）时给“打开网页”链接，没有时列出全局、专项和话题规矩的标题，每条能“收起”。常驻、工作区、下一轮带上什么都不在这里了，管理都去网页的「记忆」。
+- `COVEY_MEMORY`：默认开，设 `0`、`off`、`false`、`no` 才关（[管家 · 记忆](butler.md#记忆)）。不依赖别的开关：规矩、资料、决定三类都在这里（旧版的原则和知识条目迁进来后只读，见[运维 · 记忆的存储与迁移](operations.md#记忆的存储与迁移)），专项和 `COVEY_PROJECT_MEMORY` 都开着时专项记忆也进来；话题自己的记忆放在 `<state>/topics/<话题>/memory.json`，有记忆才会有。
+- 关着（`COVEY_MEMORY=0`）：规则、续接提醒、答案卡和任务记录都和没有这个功能时一样，不读不写话题的 `memory.json`，设置卡没有「记忆」标签。专项记忆仍按旧的三段带给负责人：规矩、决定、负责人记的。
+- 开着时设置卡有一个「记忆」标签（`app/memory_panel.py`）：只看数、处理待审核、去网页。副标题是一行“规矩：全局 N · 专项 N · 话题 N · 待审核 N”；待审核每条写明是哪一种、点「采纳」「不要」各会怎样（走网页「记忆」同一套 `review_decide`）；有网页（`COVEY_WEB=1` 且配了 `page_url`）时给“打开网页”链接，没有时列出全局、专项和话题规矩的标题，每条能“收起”。更多的管理都去网页的「记忆」。
 - 升为全局：飞书上已下线。答案卡上“记下了”那一行只有“不对”（有网页时多一个“改”，打开网页「记忆」里的那一条，`/memory?code=<短码>`）；要把一条提到更大的范围，到网页的「记忆」做。旧卡片上点“升为全局”只回一句已下线，不改东西、不开任务。
 - 晚间候选（晚间汇总时找“你反复说的”放进待审核）已下线：不再找、不再进待审核，`<state>/memory-candidates.json` 里旧版留下的行不再读；待审核里旧版放进去的候选按过期算、不再列出。
 - 待审核：开着的项 14 天没处理，每天的维护（`core/maintenance_rules.py` 的 `MemoryFiles`，`memstore.upkeep`）关成过期，留着不删；同一条提议还开着、被拒过或采纳过时不再进来，过期的可以再提。负责人用 `project_remember` 记的规矩当场在专项里生效、标“负责人记的”，不进待审核。
 - 用到才留：检查点 `memory_used` 里写了、`covey memory show` 看过、问前查重拿它答过，这三种才算用过，记进 `<state>/memory/usage.json` 的 `last`（整条带上、只列标题不算；旧的 `<state>/memory-usage.json` 只在整理记忆算闲置时一起读）。
 - 整理记忆（`app/memory_tidy.py`，自己的线程 `memory-tidy`，每天跑一次，只按规则、不调模型）：每个在做的专项（每天最多 4 个）里 30 天没用过的、问的事已经办完的、说的是别的专项的资料和决定（含 `decisions.jsonl`）收起，规矩一条不收。只收起不删除；开了早晚汇总时晚间汇总多一行“收起 N 条”带「撤销」。记录在 `<state>/memory-tidy.json`；日志 `memory tidy project=… put_away=N`、`memory tidy undo run=…`，不写原话。
-- 关掉：按[改开关三步](#改开关三步)设成 `0`；已经写下的记忆留着，标了常驻的原则在原则块里照样不被挤掉，整理记忆也不再跑。
+- 关掉：按[改开关三步](#改开关三步)设成 `0`；已经写下的记忆留着，整理记忆也不再跑。
 - 日志：`memory lines written=N of M job=#…`、`memory lines ignored reason=… job=#…`、`memory lines failed job=#…`、`memory line refused by the gate reason=… job=#…`。
 - `COVEY_MEMORY_LEARN`：记忆自己长，默认开，设 `0`、`off`、`false`、`no` 才关；要 `COVEY_MEMORY` 开着，`COVEY_MEMORY=0` 时它也跟着关（[管家 · 记忆自己长](butler.md#记忆自己长)）。新装的和升级上来、清单里没设过它的服务都开着；关着时以下都没有，记忆和上面写的一字不差。
   - 每轮之后（`app/memory_learn.py`）：主人自己的一轮正常结束，他原话里有纠正的字眼，就由 Bridge 用[辅助模型](#辅助模型)（最多 180 秒，回复发出后在后台读，不耽误你；一次只问一轮）读一遍，引用核对过的长期要求这样记：只对这件事的当场记到专项或话题，答案卡上一行“记下了”带“不对”；通用的、某个工作区的先放进待审核（`memory/review.json`，类型 `learn`，带他的原话），采纳后才成条目，答案卡上写“待审核”（同一条已在待审核里或处理过就不再写）。不读：代答话题、负责人的话题、管家转交的轮次、协作轮。这时规则里不再有“以后/别再”那句检查点约定；辅助模型选了“不用模型”时这一遍读不了，那句检查点约定照旧带上。
@@ -334,7 +334,7 @@
 
 两个变量互相独立：知识条目默认开，历史搜索要自己指一个命令。关着（`COVEY_KNOWLEDGE=0` 或没设 `COVEY_HISTORY_CMD`）时不建目录、不改规则和提示词、管家的工具清单里没有对应的工具、汇总里没有这一节。设计和实现见[管家 · 知识库](butler.md#知识库)，主人怎么用见[使用指南 · 知识条目](usage.md#知识条目)。
 
-- `COVEY_KNOWLEDGE`：默认开，设 `0`、`off`、`false`、`no` 才关。记录在 `<state>/knowledge/`；管家的知识条目工具已换成一直列着的记忆工具（`memory_save`、`memory_revise`、`memory_search`，[butler.md 工具清单](butler.md#工具清单)），这个开关不再增减工具；每个话题的新会话带上条目，续接的会话只补上一轮之后新增或改动的；记忆（`COVEY_MEMORY`）关着时，主人在话题里明确说“记一下 / 记住 / 记下来”，Bridge 在那一轮结束后把检查点的 `remember` 记下来（记忆开着时归记忆的那一条检查点规则，记成资料）；早晚汇总多“新记的知识”。
+- `COVEY_KNOWLEDGE`：默认开，设 `0`、`off`、`false`、`no` 才关。记录在 `<state>/knowledge/`；管家的知识条目工具已换成一直列着的记忆工具（`memory_save`、`memory_revise`、`memory_search`，[butler.md 工具清单](butler.md#工具清单)），这个开关不再增减工具。它现在还管：管家“记一下”的规则和查以前做过的事的顺序；旧会话调旧名 `knowledge_*` 工具时照常执行（转给记忆工具）；晚间汇总的“新记的知识”一节；记忆（`COVEY_MEMORY`）关着时，话题读写知识条目——新会话带上条目、续接的会话只补上一轮之后新增或改动的，主人明确说“记一下 / 记住 / 记下来”时 Bridge 在那一轮结束后把检查点的 `remember` 记下来（记忆开着时归记忆的那一条检查点规则，记成资料）；网页设置页 v37「记忆」条目里的知识条目。
 - `COVEY_HISTORY_CMD=/absolute/path/to/kb-history`：历史搜索命令的**绝对路径**（相对路径等于没设）。设了以后，主人自己的话题规则里多一行“要查以前做过的事用 `<命令> search <一句话>`”，管家多 `history_search`（跑 `<命令> search [--workspace W] [--since Nd] -- <一句话>`，自己的进程组里最多等 70 秒，超时整组杀，输出最多 20 KB）。命令本身不在这个仓库。
 - 关掉：按[改开关三步](#改开关三步)设成 `0`；已经写下的 `knowledge/` 留着。
 - 日志：`knowledge remember written=N job=#…`、`knowledge remember ignored reason=… job=#…`、`knowledge remember failed job=#…`；管家工具的 `main tool name=knowledge_save …`。
@@ -377,18 +377,18 @@
 
 `COVEY_GROUP_MEMBERS=read`：没在群聊卡上选过的群也按只读（启用确认卡照这个写）；不设或别的值是 `full`，和以前一样。卡上选过的以卡上为准。日志：`group chat=… member_mode=…`、每轮 `turn limit job=#N limit=read`。
 
-### 主目录与仓库地图
+### 主目录与常用路径
 
-主目录就是服务的 `--workdir`（参数名不变）。话题记录里写着 `home_start` 的话题从主目录启动；管家和负责人开的、启动卡和网页开的、专项负责人和分叉出来的话题都由 `core/topics.py` 的 `mark_home` 写它，同时只写一次 `started_at` 和 `slug`（话题产物目录按它们命名，之后不再变）。设备上开的话题不算。从主目录启动不经工作区列表：话题记录的 `workspace_name` 写主目录的目录名、`workdir` 写主目录（给旧版任务进程读），`workspace-config.json` 不读也不写（不记 `recent`）。之前开的话题照它的 `workdir` 跑，规则里照旧是工作区那一段。第一次启动时 `core/migrate.py` 的 `home_v1`、`repos_v1` 两步写 `home.json` 和仓库地图（只在文件不在时写；`--apply` 的维护没有主目录，留给 Bridge 启动时做）。
+主目录就是服务的 `--workdir`（参数名不变）。话题记录里写着 `home_start` 的话题从主目录启动；管家和负责人开的、启动卡和网页开的、专项负责人和分叉出来的话题都由 `core/topics.py` 的 `mark_home` 写它，同时只写一次 `started_at` 和 `slug`（话题产物目录按它们命名，之后不再变）。设备上开的话题不算。从主目录启动不经工作区列表：话题记录的 `workspace_name` 写主目录的目录名、`workdir` 写主目录（给旧版任务进程读），`workspace-config.json` 不读也不写（不记 `recent`）。之前开的话题照它的 `workdir` 跑，规则里照旧是工作区那一段。第一次启动时 `core/migrate.py` 的 `home_v1`、`repos_v1` 两步写 `home.json` 和常用路径（只在文件不在时写；`--apply` 的维护没有主目录，留给 Bridge 启动时做）。
 
 - **主目录**（`core/home.py`）：接管的已有目录（你装之前就有的）一个文件都不写；Covey 新建的主目录（新装默认 `<数据根>/home`，`seed_home`）有一份不超过 60 行的 `AGENTS.md`（同样内容的 `CLAUDE.md`）、`.ignore`、`.skills/`（`.claude/skills`、`.agents/skills` 指向它）和 `tasks/{sessions,runs,shared}/`，另有标记文件 `.covey-home`。
 - **`<状态目录>/home.json`**：话题产物目录和会话目录的模板（`runs_template`、`sessions_template`，变量 `{home} {date} {no} {slug} {topic8} {run}`）、`run_scope`（`topic_day` 同一话题同一天共用一个运行目录，`turn` 每轮一个）、`cache_env`（`true` 时 Harness 进程的 `TMPDIR`、`XDG_CACHE_HOME`、`PIP_CACHE_DIR`、`UV_CACHE_DIR`、`npm_config_cache` 指到运行目录的 `tmp/`、`cache/`，写不进就不设，不悄悄退回 `/tmp`）。有这个文件时话题规则里才写“本话题产物目录”；Covey 新建的主目录第一次启动时写默认值，接管的目录不写（产物放哪由它自己的 `AGENTS.md` 说）。
-- **常用路径**（原名仓库地图）`<状态目录>/repos.json`（`core/repomap.py`，唯一来源）：每一条的名字、路径、类型（`kind`：`git` 是仓库，没写的旧条目也是；`dir` 是没有 `.git` 的普通目录，比如放脚本的目录，只能原地改）、在哪台机器（本机的写绝对路径；[设备](#多设备开发中默认关)上的写 `别名:/绝对路径`，`device` 是别名，只能原地改，本机从不碰它）、用途、状态（`active`；`readonly`、`frozen` 不能改）、写入方式（`worktree` 按话题建 worktree，`inplace` 原地改；Covey 新建的主目录默认 `inplace`，接管的默认 `worktree`）、默认分支、规范文件（目录可以是 `README.md`：网页加目录时，它没有 `AGENTS.md`、`CLAUDE.md` 但有 `README.md` 就记它）。设备上的条目，不认它的旧版本（回滚一档）读不到也不误用：它的路径不以 `/` 开头，旧版本当它是“读不懂的条目”原样写回。第一次启动从旧的工作区列表（`workspace-config.json`，用途取 `main-thread.json` 的 `workspace_notes`，写着“冻结”的记成 `frozen`）和主目录下一层的 git 仓库（`.git` 是目录的；`.git` 是文件的是 worktree，不列）生成，旧文件保留。话题写过、地图里没有的主目录下的仓库，一轮结束时补进来；只读过的不补（数据根、主目录的运行和会话目录根——按 `home.json` 的两个模板算，Covey 新建的主目录是 `tasks/runs`、`tasks/sessions`——以及 `exclude` 里的目录除外，那里的仓库是话题的草稿和夹具，`core/topic_repos.py` 的 `skip_roots`）。`repos.md` 由它渲染、不要手改：Covey 新建的主目录放主目录里，接管的放 `<状态目录>/repos.md`；表里每条写设备（本机或别名）和类型（仓库或目录），多设备开着时末尾再列「常用设备」（别名、名字、用途、可写还是只读；没有 ssh 的写“只能看状况，不能执行”）。它是 Harness 按需读的文件，不在一轮开头的系统规则里，名单变了不影响 Prompt 缓存。地图只经 `core/repomap.py` 的 `update` 写（文件锁 `repos.json.lock`；新版本写的键和读不懂的条目原样保留，读不出来的文件不覆盖），设置页每次改完立刻重新渲染 `repos.md`。
+- **常用路径** `<状态目录>/repos.json`（`core/repomap.py`，唯一来源）：每一条的名字、路径、类型（`kind`：`git` 是仓库，没写的旧条目也是；`dir` 是没有 `.git` 的普通目录，比如放脚本的目录，只能原地改）、在哪台机器（本机的写绝对路径；[设备](#多设备开发中默认关)上的写 `别名:/绝对路径`，`device` 是别名，只能原地改，本机从不碰它）、用途、状态（`active`；`readonly`、`frozen` 不能改）、写入方式（`worktree` 按话题建 worktree，`inplace` 原地改；Covey 新建的主目录默认 `inplace`，接管的默认 `worktree`）、默认分支、规范文件（目录可以是 `README.md`：网页加目录时，它没有 `AGENTS.md`、`CLAUDE.md` 但有 `README.md` 就记它）。设备上的条目，不认它的旧版本（回滚一档）读不到也不误用：它的路径不以 `/` 开头，旧版本当它是“读不懂的条目”原样写回。第一次启动从旧的工作区列表（`workspace-config.json`，用途取 `main-thread.json` 的 `workspace_notes`，写着“冻结”的记成 `frozen`）和主目录下一层的 git 仓库（`.git` 是目录的；`.git` 是文件的是 worktree，不列）生成，旧文件保留。话题写过、常用路径里没有的主目录下的仓库，一轮结束时补进来；只读过的不补（数据根、主目录的运行和会话目录根——按 `home.json` 的两个模板算，Covey 新建的主目录是 `tasks/runs`、`tasks/sessions`——以及 `exclude` 里的目录除外，那里的仓库是话题的草稿和夹具，`core/topic_repos.py` 的 `skip_roots`）。`repos.md` 由它渲染、不要手改：Covey 新建的主目录放主目录里，接管的放 `<状态目录>/repos.md`；表里每条写设备（本机或别名）和类型（仓库或目录），多设备开着时末尾再列「常用设备」（别名、名字、用途、可写还是只读；没有 ssh 的写“只能看状况，不能执行”）。它是 Harness 按需读的文件，不在一轮开头的系统规则里，名单变了不影响 Prompt 缓存。常用路径只经 `core/repomap.py` 的 `update` 写（文件锁 `repos.json.lock`；新版本写的键和读不懂的条目原样保留，读不出来的文件不覆盖），设置页每次改完立刻重新渲染 `repos.md`。
 - **环境变量**：每个 Harness 进程（本机的，设备上的不给）都有 `COVEY_HOME`（主目录）、`COVEY_TOPIC`（话题 id）、`COVEY_STATE`（状态目录），`PATH` 最前面是 `<数据根>/bin`；任务目录沿用 `COVEY_TASK_DIR`。`<数据根>/bin/covey` 是转发壳（`covey repo …` 到 `bin/covey_repo.py`，`covey memory …` 到 `bin/covey_memory.py`，`covey device …` 到 `bin/covey_device.py`，见[设备通道](#设备通道随多设备开)），安装和每次部署（`scripts/deploy_bridge.sh`）时写成指向新 release。同一个目录里还有 `rg`、`find`、`fd`、`du`、`tree`、`grep`、`ls` 的搜索垫片（不限深度地递归搜整个主目录时拒绝，其余原样执行真程序），和 `covey` 一起写，规则见 [Harness · 执行权限](harnesses.md#执行权限)。
 - **`covey repo`**：`list`（常用路径，标出本话题用到的）、`use <名字|路径> [--write]`、`status`（本话题用到的仓库、目录、分支、没提交的改动）、`prune-plan [--legacy <目录>]`，都可加 `--json`。`use` 打印目录和它的规范文件开头（`AGENTS.md`/`CLAUDE.md`，或这一条记的规范文件，至多 4 KB），只写本任务的 `runs/<任务键>/repos.json`（`core/run_dir.py` 的 `REPOS`），一轮结束时 Bridge 把它并进话题记录。规范被截到 4 KB 时不算读过（`rules_cut`），话题里仍记“未读”。目录（`dir`）不建 worktree，`--write` 就是原地改（和 `inplace` 的仓库一样进 Codex 的可写根）。设备上的路径：打印它在哪台设备上、本机读不到；规范开头经设备端小程序的 `get` 取（至多 4 KB、8 秒，多设备没开或连不上时写明没取到）；`--write` 只登记（话题记录里那一条带 `device`，本机的改动对比、可写根都不算它），设备是只读（`access: read`）时拒绝。
 - **worktree**：`use --write` 在 `<数据根>/worktrees/T<号>-<话题 id 前 8 位>/<仓库>/` 建或复用本话题的 worktree，分支 `topic/T<号>-<id8>`，从远端主干开（`git fetch` 至多 20 秒，取不到用本地主干），同一话题同一仓库加锁，不会建两次；`git worktree add` 中途失败时删掉它刚建的分支。基线提交（`base_oid`）记进 `repos.json`，这一轮的改动对比从它算。`inplace` 的仓库不建 worktree，直接在仓库里改；`readonly`、`frozen` 的仓库 `--write` 被拒。
 - **只读用仓库**：不带 `--write` 的 `use` 不读主检出（它可能落后主干几十个提交），而是先 `git fetch`，在 `<数据根>/worktrees/_read/<仓库>/<提交前 12 位>/` 建或复用 `origin/<主干>` 的 detached 只读 worktree，打印它的路径、提交号和提交时间，规范开头也从它取；同一提交各话题共用。fetch 没成功时用本机上次取到的 `origin/<主干>`，写明“可能落后，未能确认是最新主干”；建不了（如 Codex 只读沙箱里还没有这个提交的只读 worktree）时读仓库目录本身，同样写明。没有 `origin` 的仓库和 `inplace` 的仓库照旧读仓库目录。话题记录里只读条目带这个 worktree，每轮的仓库清单写出它的提交号和时间；本话题已在改的仓库，只读不会换掉它自己的 worktree。
-- **每轮提示**：从主目录启动的话题，系统规则里是主目录、仓库地图路径和主目录的规矩（话题内不变，能命中缓存）；每轮在消息末尾列本话题用到的仓库和规范读没读（`app/repos_turn.py`）：派活时点名的、`covey repo use` 过的、写过的；只读过的照旧记在话题记录里，但不列（工作区要点按同样的口径找相关话题，`core/topic_repos.py` 的 `works_with`）。外部话题（`local: false`）的系统规则只有产物目录和外部版的规矩（[管家 · 外部话题](butler.md#外部话题)）。管家或负责人点名的仓库，第一轮就把规范开头（至多 4 KB）放进消息；某一轮改了一个仓库却没读它的规范，下一轮也放。放进去的是全文才算读过；只放了开头的仍记“未读”，不会每轮重放，之后写了它却还没读，下一轮再放；改到了仓库的主检出（不是本话题的 worktree），下一轮提醒改用 worktree。之前开的话题不列仓库清单，但后两条照样有（它自己 `workdir` 所在的仓库除外：那是它原来的工作方式）。一轮的结果发出之前，Bridge 把它用到的仓库并进话题记录，下一轮读得到。
+- **每轮提示**：从主目录启动的话题，系统规则里是主目录、常用路径文件 `repos.md` 的位置和主目录的规矩（话题内不变，能命中缓存）；每轮在消息末尾列本话题用到的仓库和规范读没读（`app/repos_turn.py`）：派活时点名的、`covey repo use` 过的、写过的；只读过的照旧记在话题记录里，但不列（工作区要点按同样的口径找相关话题，`core/topic_repos.py` 的 `works_with`）。外部话题（`local: false`）的系统规则只有产物目录和外部版的规矩（[管家 · 外部话题](butler.md#外部话题)）。管家或负责人点名的仓库，第一轮就把规范开头（至多 4 KB）放进消息；某一轮改了一个仓库却没读它的规范，下一轮也放。放进去的是全文才算读过；只放了开头的仍记“未读”，不会每轮重放，之后写了它却还没读，下一轮再放；改到了仓库的主检出（不是本话题的 worktree），下一轮提醒改用 worktree。之前开的话题不列仓库清单，但后两条照样有（它自己 `workdir` 所在的仓库除外：那是它原来的工作方式）。一轮的结果发出之前，Bridge 把它用到的仓库并进话题记录，下一轮读得到。
 - **改动对比**：一轮开始前对话题要写的每个仓库（它的 worktree，或原地改的仓库；worktree 还没建的不拍主检出）各拍一次快照；这一轮中途新建的 worktree 从它的 `base_oid` 算（复用的不算，之前留下的改动不归这一轮）；写过却没有基线的仓库只列文件名，不出 git diff（`core/diff.py`）。别的话题的 worktree 不会记成本话题的。
 - **Codex 的沙箱**：`workspace-write` 时可写根除检查点目录外，还有本任务的运行目录、`<数据根>/worktrees/T<号>-<id8>`（开轮前先建好）和本话题要写的每个仓库的 `.git`（原地改的仓库和目录连它本身）。可写根在一轮开头定下：这一轮才用 `covey repo use --write` 声明的仓库，下一轮才进可写根，命令会这样提示。`danger-full-access` 不受影响。数据根在主目录里面时，worktree 本来就在 Codex 能写的范围里。
 - **清理**：只读 worktree 每个用到它的话题每轮结束时续期（旁边的 `<提交前 12 位>.used`）；`use` 建新的只读 worktree 时，同一仓库一天没被用过、干净的只读 worktree 用 `git worktree remove`（不加 `--force`）删掉，有改动或未跟踪文件的留着。被删了的，话题的仓库清单会提示重跑 `covey repo use`。按话题分目录的写 worktree 不自动删。`covey repo prune-plan [--legacy <目录>]` 只读，列出每个 worktree 干不干净、合没合进主干、多久没动，以及清理用的命令（干净、已合入、一天没动的才给），不执行。
@@ -396,7 +396,7 @@
 
 ### 多设备（开发中，默认关）
 
-让话题在另一台机器（Linux，经 ssh）上工作，而不是在 Bridge 所在的机器上。设备上能跑 Claude Code、Codex 和 Antigravity 的话题；默认关，真机验收在进行。结构、连接、离线恢复和文件进出见[架构 · 设备](architecture.md#设备多设备默认关)，Harness 在设备上的差别见[Harness 说明](harnesses.md#在设备上运行)。
+让话题能去另一台机器（Linux，经 ssh）上看和干活：话题仍从主目录启动，用 `covey device` 在设备上跑命令、取放文件（旧版开在设备上的话题还能续接）。设备上能跑 Claude Code、Codex 和 Antigravity；默认关，真机验收在进行。结构、连接、离线恢复和文件进出见[架构 · 设备](architecture.md#设备多设备默认关)，Harness 在设备上的差别见[Harness 说明](harnesses.md#在设备上运行)。
 
 **打开**：`COVEY_DEVICES=1`，再写 `devices.json`（`$COVEY_DATA_HOME/devices.json`，或 `COVEY_DEVICES_FILE` 指的文件），改完文件重启。设备要能从 Bridge 所在的机器免密 ssh 过去，而且 `known_hosts` 里已经有它的主机密钥（先手动 `ssh` 一次）：Covey 从不问密码。
 
@@ -430,7 +430,7 @@
 
 **网页管理**（网页工作台的设置「设备」页，开着多设备或有监控节点就有）：一台机器一行，`devices.json` 和监控节点（下一节）按别名并在一起：名字、用途、可写或只读、ssh 和 Bridge 上次经 ssh 连没连上（`<状态目录>/devices/<别名>/health.json`）、节点在不在线和最近一次样本、最近一次体检。能添加（填了 ssh 先体检，过了才写进 `devices.json`，默认只读；不填 ssh 就是只看状况的机器）、改名字和用途和 ssh、切可写或只读、移除（只从 `devices.json` 去掉，`<状态目录>/devices/<别名>/` 的记录留着，同名的监控节点一起撤销）、体检、经 ssh 装监控节点。网页不收密码和私钥。`devices.json` 只经 `core/devices.py` 的 `update` 写：文件锁 `devices.json.lock`、整份校验后一次写回，没动到的键和条目原样保留，校验不过或读不出来时不写。**体检**是自检的前三步（ssh BatchMode 5 秒、推设备端小程序、`hello`），不查 Harness，结果记进 `profile.json` 的 `check`（`steps: 3`），设备原来的环境档案不动。在网页设置的「常用路径」页可以选一台设备、填它上面的绝对路径（或直接填 `别名:/绝对路径`）加常用路径：由那台设备查（至多 5 秒），有 `.git` 记成仓库，没有记成目录。飞书设置卡的「设备」页只多一行名单摘要和“去网页管理”，不在卡上改。
 
-**用**：新话题已经不能开到设备上（主人 D2Y4T）：启动卡和网页开新话题没有「执行设备」，旧卡上选了设备或设备工作区、管家和负责人开话题带 `别名:路径`，都当场拒绝，提示从主目录开、在话题里用 `covey device`（下面的[设备通道](#设备通道随多设备开)）；换配置也只让已经在设备上的旧话题换到设备工作区。已经开在设备上的旧话题照旧续接，下面的字段、自检和限制对它们仍成立。以前的做法（目录浏览器里输入 `gpu1:/home/me/proj` 登记成设备工作区，开话题时选它）留作旧话题的记录，登记还能做，开话题时会被拒绝。
+**用**：新话题已经不能开到设备上：启动卡和网页开新话题没有「执行设备」一项（已下线），旧卡上选了设备或设备工作区、管家和负责人开话题带 `别名:路径`，都当场拒绝，提示从主目录开、在话题里用 `covey device`（下面的[设备通道](#设备通道随多设备开)）；换配置也只让已经在设备上的旧话题换到设备工作区。已经开在设备上的旧话题照旧续接，下面的字段、自检和限制对它们仍成立。以前的做法（目录浏览器里输入 `gpu1:/home/me/proj` 登记成设备工作区，开话题时选它）留作旧话题的记录，登记还能做，开话题时会被拒绝。
 
 **自检**：`python3 -B bin/covey_devices.py --state-dir "$STATE_DIR" check gpu1`（`list` 只打印每台设备最近一次的结果），新加设备、改了 ssh 或代理设置后跑一次，见[运维 · 设备自检](operations.md#设备自检)。失败时写明是哪一步：连不上、没装、没登录、超时，或连不上模型服务（去哪里设 `HTTPS_PROXY`）。
 
@@ -473,7 +473,7 @@ covey device job stop gpu1 job-0123456789                      # 停整个进程
 - **长任务**（`job`）：交给设备端小程序守着（它自己的进程组，stdin 是 `/dev/null`，stdout 和 stderr 进任务的 journal），断线、`covey device` 退出、这一轮结束都不停；`job log` 从字节偏移补读，每次至多 1 MiB，末尾写下一次的偏移和是否已结束。主人点停止结束的一轮，会停掉这一轮起的 `job`；其他结束方式（做完、失败、中断）不停。
 - **一轮结束时的清理**：`run` 带着这一轮的标记，设备记下它的进程组；`covey device` 被打断（比如 Harness 自己的命令超时杀了它）而设备上的命令还在跑的，一轮结束、答案发出后 Bridge 让设备按标记收割；设备当场连不上就登记进 `pending-reap.json`，后台每分钟重试（见[运维 · 设备通道的审计与收割](operations.md#设备通道的审计与收割)）。
 - **审计**：每次调用（含被拒的）追加一行到 `runs/<任务键>/devices.jsonl`：时间、设备、操作、命令（遮掉像密钥的值，至多 400 字）、目录、退出码、字节数、耗时。一轮结束时 Bridge 把它并进话题记录 `topic.json` 的 `devices`（每台设备一条：首末次时间、次数、各操作次数、起过的任务号、取回或放过的文件的 sha256），任务卡的执行过程里多一条「设备」，列最近 12 次调用（「gpu1：run `make test`，退出 0（3.2 秒）」）。
-- **每轮提示**：本机话题的主目录段多一句固定的话（“要用别的设备：设备和设备上的常用路径在仓库地图末尾，用 covey device……只读设备只能看，不能改。”），设备名单本身在 `repos.md` 末尾的「常用设备」表里按需读，名单变了系统规则不变，缓存不破。外部话题（`local: false`）不加这一句、不提设备；主人点名要用时命令照样能用，护栏一样。
+- **每轮提示**：本机话题的主目录段多一句固定的话（“要用别的设备：设备和设备上的目录在常用路径末尾，用 covey device……只读设备只能看，不能改。”），设备名单本身在 `repos.md` 末尾的「常用设备」表里按需读，名单变了系统规则不变，缓存不破。外部话题（`local: false`）不加这一句、不提设备；主人点名要用时命令照样能用，护栏一样。
 - **退出码**：`run` 是设备上命令的（超时 124）；3 被护栏拦下（原因在 stderr 的 `[covey device]` 行，给模型看的中文）；4 设备没有答复或出错；2 命令行写错。加 `--json` 打一个 JSON 对象。
 - **只读轮的设备工具**：shell 够不着 `covey device` 的只读轮（Codex 的只读沙箱；Antigravity、Claude Code 的负责人和群成员只读轮没有 shell）改用 `bridge_workspace` 服务里的 `device_list`、`device_ls`、`device_stat`、`device_get`，护栏和审计同上，由 Bridge 自己挂（不用另配）；外部话题、没有这一轮聊天能用的设备时不挂，见 [Harness · 设备通道](harnesses.md#设备通道)。
 - **已知限制**：设备上不建 worktree、不做改动对比；文件目录不能整个 `get`（先在设备上打包）；只读轮的工具只能看（列目录、查属性、读文本或取回），跑只读命令（`nvidia-smi`、`ps`、`git log`）还得用有 shell 的轮次。
@@ -540,7 +540,7 @@ covey device job stop gpu1 job-0123456789                      # 停整个进程
 | `COVEY_COLLAB_QUEUE_SECONDS` | `core/collab_records.py`（`queue_seconds`：一次咨询等接收方空出来的时限） | 600 | 否 |
 | `COVEY_COLLAB_WINDOW_SECONDS` | `core/collab_records.py`（`window_seconds`：一次协作的整个时限，到了没答复的咨询到期） | 1800 | 否 |
 | `COVEY_PROJECT_BATCH_SECONDS` | `app/project_loop.py`（`batch_seconds`：`ProjectLoop.look` 的 `settling`） | 20：开了 `COVEY_COLLAB` 时，话题结束这类普通回执攒这么多秒再叫醒负责人（最新一条到了这么久没有新的才叫，最早一条最多等 4 倍），几个话题前后脚结束只叫醒一次；开工、主人在停住卡上的选择、扣住的问题、协作缺口马上叫醒。`0` 不攒；`COVEY_COLLAB` 关着时不读，和原来一样到下一次查看就叫醒 | 否 |
-| `COVEY_KNOWLEDGE` | `core/knowledge.py`（`enabled`）、`core/butler.py`（`mcp_config` 交给管家的 MCP 服务）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此列知识工具） | 空：开；`0`、`off`、`false`、`no` 关：不开知识条目 | 否 |
+| `COVEY_KNOWLEDGE` | `core/knowledge.py`（`enabled`）、`core/butler.py`（不再传给管家的 MCP 服务） | 空：开；`0`、`off`、`false`、`no` 关：上面“知识条目与历史搜索”一节说的几处都不开，旧名 `knowledge_*` 工具回一句没开 | 否 |
 | `COVEY_HISTORY_CMD` | `core/knowledge.py`（`history_cmd`）、`core/butler.py`（`mcp_config` 同上）、`core/butler_tool_specs.py`（`listed`：据此列 `history_search`） | 空：没有历史搜索；要绝对路径 | 否 |
 | `COVEY_EXTENSIONS` | `core/extensions.py` | 空：读仓库根和数据根的 `extensions/enabled`；设成空串表示一个都不要。逗号分隔的 Python 包名，见[扩展](architecture.md#扩展) | 否 |
 | `COVEY_EXTENSION_PATH` | `core/extensions.py` | 空：仓库根的 `extensions/`。`os.pathsep` 分隔的目录，扩展包在这些目录里找 | 否 |
@@ -577,7 +577,7 @@ covey device job stop gpu1 job-0123456789                      # 停整个进程
 | `COVEY_PROJECT_LEAD` | `core/butler.py`（`mcp_config`：只在专项负责人的任务里把专项 id 写进 MCP 配置，要专项开着）、`core/butler_tool_specs.py`（`listed`：MCP 服务据此只列负责人的工具） | 无；设了就列 `topic_read`、`topics_search`、`repos_list` 加 `project_*`，其余管家工具都不列 | 否 |
 | `COVEY_PROJECT_AUTOWAKE` | `core/projects.py`（`autowake_enabled`，要专项开着）、`app/project_loop.py`（`ProjectLoop` 据此决定哪些回执唤醒负责人、要不要查停滞，关着时不叫醒谁的专项照常空闲收起）、`core/butler.py`（`mcp_config` 把它交给负责人的 MCP 服务）、`core/butler_tool_specs.py`（`lead_tools`：没开时 `project_topic_start` 的说明写话题结束不会叫醒负责人） | 空：开，话题一轮结束、主人在专项的话题里说话、停滞提醒也唤醒负责人，并开停滞检查；`0`、`off`、`false`、`no` 关：只有专项的第一条回执唤醒负责人。见[架构 · 专项](architecture.md#专项) | 否 |
 | `COVEY_PROJECT_MEMORY` | `core/projects.py`（`memory_enabled`，要专项开着）、`app/project_context.py`（专项的话题开工带上记忆和资料库索引、主人答专项的问题卡记一条决定、主人发给负责人的文件和各话题的产物、交付进资料库）、`app/project_lead.py`（`library_index`：状态包的资料库）、`app/runs.py`（`bridge_rules`、`_with_rules` 取专项块） | 空：开，专项的话题开工带上专项记忆和资料库索引，主人的回答记成决定，主人发的文件和话题的产物进资料库；`0`、`off`、`false`、`no` 关：专项的话题开工不多带东西、不自动记、不收资料库。见[专项记忆与资料库](projects.md#专项记忆与资料库) | 否 |
-| `COVEY_MEMORY` | `core/memory.py`（`enabled`）；用它的：`app/memory_turn.py`（每轮那一块“记忆”）、`app/memory_collect.py`（话题一轮结束后核对 `memory`、`memory_void`）、`app/runs.py`、`app/knowledge_turn.py`、`app/project_context.py`、`app/memory_tidy.py` 和 `app/digest.py`（整理记忆，每天一次） | 空：开，原则、知识条目、专项记忆、话题记忆拼成一块“记忆”，主人说的长期要求一轮结束后记下，每天按规则整理一次资料和决定；`0`、`off`、`false`、`no` 关：规则、续接提醒和答案卡与没有这个功能时逐字相同。见[记忆](#记忆) | 否 |
+| `COVEY_MEMORY` | `core/memory.py`（`enabled`）；用它的：`app/memory_turn.py`（每轮那一块“记忆”）、`app/memory_collect.py`（话题一轮结束后核对 `memory`、`memory_void`）、`app/runs.py`、`app/knowledge_turn.py`、`app/project_context.py`、`app/memory_tidy.py` 和 `app/digest.py`（整理记忆，每天一次） | 空：开，全局、专项、话题的规矩、资料和决定拼成一块“记忆”，主人说的长期要求一轮结束后记下，每天按规则整理一次资料和决定；`0`、`off`、`false`、`no` 关：规则、续接提醒和答案卡与没有这个功能时逐字相同。见[记忆](#记忆) | 否 |
 | `COVEY_MEMORY_LEARN` | `core/memory.py`（`learning`，要 `COVEY_MEMORY` 开着）；用它的：`app/memory_turn.py`（带上候选、查记忆的命令；辅助模型不是“不用模型”时不带“以后/别再”那句）、`app/memory_learn.py`（每轮之后读主人的话、记用到的编号）、`app/memory_panel.py` | 不设（或空、`1`）：开，记忆自己长，见[记忆](#记忆)；`0`、`off`、`false`、`no`：关，记忆和没有它时一样 | 否 |
 | `COVEY_WORKSPACE_GISTS` | `app/workspace_gists.py`（`count`；`app/runs.py` 的 `Runs.bridge_rules` 只在新会话的规则里放这一块）、`app/about_panel.py`（设置卡「诊断」页下半“能做什么”的那一行） | 空：3；`1` 到 `10`：同一聊天、同一工作区新开的话题，第一轮的规则带上这个工作区最近这么多个别的话题的[话题要点](projects.md#整理专项)（要点要整理专项开着才会写）；只在主人自己的一轮、普通话题里带；`0` 或别的值：关，规则和没有这个功能时逐字相同。见[新话题带上最近话题的要点](#新话题带上最近话题的要点) | 否 |
 | `COVEY_PROJECT_TRIAGE` | `core/triage.py`（`enabled`，要专项开着）、`core/butler.py`（`mcp_config` 把它交给负责人的 MCP 服务）、`core/butler_tool_specs.py`（`lead_tools`）、`app/triage.py`、`app/project_loop.py`（`ProjectLoop.tick` 扫扣住的问题） | 空：开，选择题先交给负责人，3 分钟内它能替主人答的就答，其余才发问题卡；`0`、`off`、`false`、`no` 关：专项的话题的问题直接发给主人。见[专项的问题分流](projects.md#专项的问题分流) | 否 |
@@ -625,8 +625,8 @@ covey device job stop gpu1 job-0123456789                      # 停整个进程
 | `COVEY_REQUIRED_MOUNT` | `service/manager.py` | 开机守护设置，不要手设 | 否 |
 | `COVEY_RUNNER_PYTHONPATH` | `app/runner.py` | Bridge 交给任务进程，不要手设 | 否 |
 | `COVEY_TASK_DIR` | `app/leftovers.py`、`core/device_link.py`、`core/topic_repos.py`（`covey repo use` 写本任务的 `repos.json`，Codex 的可写根）、`core/device_access.py`（`covey device` 读这一轮的 `device-turn.json`、写 `devices.jsonl`） | 任务进程给本轮命令设置，不要手设 | 否 |
-| `COVEY_STATE` | `core/repomap.py`（`bin/covey_repo.py` 找仓库地图和话题记录）、`core/device_access.py`（`covey device` 找设备记录；空时拒绝） | Bridge 给每个本机的 Harness 进程设成状态目录（`core/home.py` 的 `env`），不要手设；空时 `covey repo list` 说地图是空的，见[主目录与仓库地图](#主目录与仓库地图) | 否 |
-| `COVEY_HOME` | `core/repomap.py`（`bin/covey_repo.py`：相对路径从这里算）、`backends/claude/tool_guard.py`（搜索垫片：主目录取 `$COVEY_HOME`） | Bridge 给每个本机的 Harness 进程设成主目录（服务的 `--workdir`），不要手设，见[主目录与仓库地图](#主目录与仓库地图) | 否 |
+| `COVEY_STATE` | `core/repomap.py`（`bin/covey_repo.py` 找常用路径和话题记录）、`core/device_access.py`（`covey device` 找设备记录；空时拒绝） | Bridge 给每个本机的 Harness 进程设成状态目录（`core/home.py` 的 `env`），不要手设；空时 `covey repo list` 说常用路径是空的，见[主目录与常用路径](#主目录与常用路径) | 否 |
+| `COVEY_HOME` | `core/repomap.py`（`bin/covey_repo.py`：相对路径从这里算）、`backends/claude/tool_guard.py`（搜索垫片：主目录取 `$COVEY_HOME`） | Bridge 给每个本机的 Harness 进程设成主目录（服务的 `--workdir`），不要手设，见[主目录与常用路径](#主目录与常用路径) | 否 |
 | `COVEY_TOPIC` | `core/repomap.py`（`bin/covey_repo.py`）、`core/device_access.py`（`covey device` 的任务标记） | Bridge 给每个本机的 Harness 进程设成这一轮的话题 id，`covey repo` 据此找本话题的 worktree 目录和用到的仓库，不要手设 | 否 |
 | `CODEX_HOME` | `core/paths.py`（`codex_home`，Codex 的会话目录从它取）、`core/model_settings.py`、`backends/codex/consult.py`（协作咨询轮的私有 home 从它链接）、`core/same_account.py`（读它的 config.toml / settings.json，看自己的登录和哪个模型网关是同一账号） | `~/.codex` | 否 |
 | `COVEY_SYSTEM_RULES` | `app/rules_sent.py`（`enabled`：`app/runs.py` 据此把桥接规则放到 Harness 的系统级，`app/butler.py`、`app/project_lead.py` 的管家、负责人规则跟着走） | 开：声明了 `system_instructions` 的 Harness（现在四个核心 Harness 都是）规则放系统级，见[续接轮的规则](architecture.md#续接轮的规则)；`0` 关：规则放用户消息，和原来一样 | 否 |
@@ -672,11 +672,11 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 | `--state-dir` | `core/workspaces.py` | 见 `--help` | 否 |
 | `--json` | `service/plugins.py`（`bin/covey_plugins.py`） | `list` 的 JSON 输出；子命令 `list`、`enable`、`disable`、`doctor` 见[扩展](architecture.md#扩展)的「装和卸」 | 否 |
 | `--state`、`--topic`、`--workspace`、`--owner`、`--limit`、`--json` | `core/memory_search.py`（`bin/covey_memory.py search`，记忆自己长的查记忆） | 状态目录（必填）、这一轮的话题、按哪个工作区查（默认话题自己的）、带上全局的、最多几条（8）、JSON 输出 | 否 |
-| `--json`、`--write`、`--legacy` | `core/repomap.py`（`bin/covey_repo.py`：子命令 `list`、`use <仓库>`、`status`、`prune-plan`） | `--json` JSON 输出（放在子命令前后都行）；`--write` 是 `use` 的：要改这个仓库（建或复用本话题的 worktree）；`--legacy` 是 `prune-plan` 的：另看一个目录下一层的旧 worktree，见[主目录与仓库地图](#主目录与仓库地图) | 否 |
+| `--json`、`--write`、`--legacy` | `core/repomap.py`（`bin/covey_repo.py`：子命令 `list`、`use <仓库>`、`status`、`prune-plan`） | `--json` JSON 输出（放在子命令前后都行）；`--write` 是 `use` 的：要改这个仓库（建或复用本话题的 worktree）；`--legacy` 是 `prune-plan` 的：另看一个目录下一层的旧 worktree，见[主目录与常用路径](#主目录与常用路径) | 否 |
 | `--state-dir`、`--json` | `app/owner_ledger.py`（`bin/covey_ledger.py`：等主人的账，只读） | 状态目录（必填）；`--json` JSON 输出。见[架构 · 等主人的账](architecture.md#等主人的账) | 否 |
 | `--state`、`--limit`、`--json` | `core/inbound_ledger.py`（`bin/covey_inbound.py`，查主人消息的去向） | 状态目录（必填）、`recent` 最多列几条（10）、JSON 输出；子命令 `where <消息 id>`、`recent` | 否 |
 | `--state-dir`、`--no-probe`、`--json` | `service/device_check.py`（`bin/covey_devices.py`） | 见 `--help`；见[多设备](#多设备开发中默认关)的「自检」 | 否 |
-| `--json`、`--write`、`--dir`、`--timeout`、`--approved` | `core/device_cli.py`（`bin/covey_device.py`：子命令 `list`、`run`、`ls`、`stat`、`get`、`put`、`job`（`start`、`log`、`status`、`stop`）） | `--json` 打一个 JSON 对象；`--write` 是 `put` 的：设备上已有、这个话题又没取回过的文件确定整个覆盖；`--dir` 是 `run` 和 `job start` 的：设备上的工作目录（默认设备的家目录）；`--timeout` 是 `run` 的：最多等几秒（默认 120，1 到 3600），超时按进程组杀掉、退出 124；`--approved` 是 `run` 的：主人回答的问题号，这一版只记进审计，危险命令的硬拦留到后面的版本。见[设备通道](#设备通道随多设备开) | 否 |
+| `--json`、`--write`、`--dir`、`--timeout`、`--approved` | `core/device_cli.py`（`bin/covey_device.py`：子命令 `list`、`run`、`ls`、`stat`、`get`、`put`、`job`（`start`、`log`、`status`、`stop`）） | `--json` 打一个 JSON 对象；`--write` 是 `put` 的：设备上已有、这个话题又没取回过的文件确定整个覆盖；`--dir` 是 `run` 和 `job start` 的：设备上的工作目录（默认设备的家目录）；`--timeout` 是 `run` 的：最多等几秒（默认 120，1 到 3600），超时按进程组杀掉、退出 124；`--approved` 是 `run` 和 `job start` 的：主人回答的问题号，危险命令先被拦下，主人在问题卡上同意后带它重跑，只认本话题里主人本人的回答，也记进审计（见[设备通道](#设备通道随多设备开)的“危险命令要主人先答应”）。见[设备通道](#设备通道随多设备开) | 否 |
 | `--root`、`--extra-root` | `backends/codex/workspace_reader.py` | 见 `--help`（不给 `--root` 时只有设备工具，要带 `--state`、`--run-dir`） | 否 |
 | `--state`、`--run-dir` | `backends/codex/workspace_reader.py`：只读轮的设备工具（`core/device_tools.py`），给了这两个才多 `device_list`、`device_ls`、`device_stat`、`device_get`，Bridge 自己传，见 [Harness · 设备通道](harnesses.md#设备通道) | 空：没有设备工具 | 否 |
 | `--mode`、`--notes`、`--home` | `backends/claude/tool_guard.py`（`bin/covey_tool_guard.py`：Claude Code 的 PreToolUse 钩子，Bridge 自己写进那一轮的 `--settings`。`--mode proxy` 是代答话题的，`--notes` 是联系人的笔记目录；`--mode home-search` 是从主目录启动的一轮的，`--home` 是主目录，只拦目标是主目录根（或它的上级）又没限深度的递归搜索，`cd <仓库> && rg`、具体子目录、`find -maxdepth` 照常跑，自己出错时放行；`--mode shim <命令名> <参数…>` 是 `<数据根>/bin` 里的搜索垫片问的（主目录取 `$COVEY_HOME`，规则同上，拒绝退出码 3，由垫片转成 2，出错一律放行）） | `proxy`；`--notes` 空：编辑工具哪里都不能写 | 否 |

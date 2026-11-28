@@ -13,9 +13,9 @@ deletes them (``delete``) and marks them 常驻 (``pin``).
     principle: {"id": "p1a2b3c", "text": "≤200 字，一行", "at": "2026-11-08T12:00:00Z",
                 "source": {"job_key": "<管家任务键>", "job_id": 12}, "pinned": true, "edited": "2026-11-24T14:00:00Z"}
 
-Each group keeps at most GROUP_LIMIT, oldest first. ``pinned`` (常驻, absent: not) is the owner's mark from the 设置
-card's 记忆 tab (``pin``, app/memory_panel.py): a pinned principle is never left out of a turn for want of room
-(core/memory.py select, app/prompts.py principles_block); at most PINNED_LIMIT in a group. ``edited`` (absent: never) is when the
+Each group keeps at most GROUP_LIMIT, oldest first. ``pinned`` (常驻, absent: not) is the mark the 设置 card's older 记忆 tab
+set (gone, nothing sets it now): a pinned principle an older release marked is never left out of a turn for want of room
+(core/memory.py select, app/prompts.py principles_block); at most PINNED_LIMIT in a group were marked. ``edited`` (absent: never) is when the
 owner last changed its words on the web page (``edit``, app/web_memory.py); ``at`` stays when it was first noted.
 
 A write reads, changes and replaces the whole file (core/state.py write_json) under its shared file lock (core/locks.py,
@@ -176,30 +176,6 @@ def save(state_dir, scope, text, *, workspace="", source=None, now=None) -> tupl
         group.append(item)
         _write(state_dir, data, bad, now)
     return dict(item), True
-
-
-def pin(state_dir, pid, on, *, now=None) -> dict | None:
-    """Mark the principle ``pid`` 常驻 (``on``) or not: it, with its "scope" and "workspace", as it is now; None when
-    there is none. ValueError says why nothing was written (PINNED_LIMIT in its group already)."""
-    pid = str(pid or "").strip()
-    with shared_file_lock(path(state_dir)):
-        data, bad = _read(state_dir, writing=True)
-        groups = [(OWNER, "", data["owner"]), *((WORKSPACE, name, group) for name, group in data["workspaces"].items())]
-        for scope, name, group in groups:
-            for item in group:
-                if item["id"] != pid:
-                    continue
-                if bool(item.get("pinned")) != bool(on):
-                    if on and sum(1 for other in group if other.get("pinned")) >= PINNED_LIMIT:
-                        where = "通用" if scope == OWNER else f"工作区 {name} "
-                        raise ValueError(f"{where}的常驻已有 {PINNED_LIMIT} 条：先取消一条再标")
-                    if on:
-                        item["pinned"] = True
-                    else:
-                        item.pop("pinned", None)
-                    _write(state_dir, data, bad, time.time() if now is None else now)
-                return {"scope": scope, "workspace": name, **item}
-    return None
 
 
 def edit(state_dir, pid, text, *, base=None, now=None) -> dict | None:

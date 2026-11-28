@@ -69,7 +69,6 @@ from covey.app.menu_panel import MenuPanel
 from covey.app.card_lanes import after_ack
 from covey.cards.board import KINDS as BOARD_KINDS, OPEN_KIND, RETIRED_KINDS, board_card
 from covey.cards.digest import MEMORY_KIND, ORIGIN, digest_card, digest_text, folded_board
-REMEMBER_KIND = "bridge_digest_remember"  # 你反复说的's 记下 / 不用, taken off the evening card: an older card's click.
 from covey.core import board_read, knowledge, look, memory, projects, quiet_hours, turn_words, web_sync
 from covey.core import project_proposals
 from covey.core import progress as turn_progress
@@ -635,7 +634,7 @@ class Digest:
 
     @staticmethod
     def matches(raw):
-        return isinstance(raw, dict) and (raw.get("kind") in BOARD_KINDS or raw.get("kind") in (MEMORY_KIND, REMEMBER_KIND))
+        return isinstance(raw, dict) and (raw.get("kind") in BOARD_KINDS or raw.get("kind") == MEMORY_KIND)
 
     def claim(self, ctx, event, raw, owner):
         """刷新, 记为看过 or a project's 继续 on a 看板 card, or 去看板 under an answered question (cards/board.py KINDS;
@@ -652,14 +651,6 @@ class Digest:
         if kind == MEMORY_KIND:
             return self.memory_click(ctx, event, raw)
         message = str(event.get("message_id") or "")
-        if kind == REMEMBER_KIND:
-            # 记下 / 不用 under 你反复说的 on an older evening card (the section is gone): said in words, nothing recorded.
-            chat_id, event_id = str(event.get("chat_id") or ""), str(event.get("event_id") or message)
-            if chat_id:
-                from covey.app.card_actions import RETIRED_TEXT
-                after_ack(lambda: self.messenger.reply(ctx, chat_id, RETIRED_TEXT[REMEMBER_KIND],
-                                                       self.voice.key("retired-button", event_id), voice=self.voice))
-            return "digest_remember_retired"
         if kind == OPEN_KIND:
             # 去看板 under an answered question: the bot menu's 看板, a new card for this click (its event id keys it).
             chat, source = str(event.get("chat_id") or ""), str(event.get("event_id") or "")

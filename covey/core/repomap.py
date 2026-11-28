@@ -16,7 +16,7 @@ in a home Covey made it is ``<home>/repos.md``, else ``<state>/repos.md`` (a tak
 bin/covey_repo.py (``list``, ``use``, ``status``, ``prune-plan``): a task finds its context in ``COVEY_STATE``,
 ``COVEY_HOME``, ``COVEY_TOPIC`` and its run directory (``COVEY_TASK_DIR``), and writes only that run directory's
 ``repos.json`` (core/topic_repos.py), which the Bridge folds into the topic when the turn ends
-(docs/configuration.md 主目录与仓库地图).
+(docs/configuration.md 主目录与常用路径).
 """
 from __future__ import annotations
 

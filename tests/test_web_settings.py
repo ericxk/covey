@@ -17,6 +17,7 @@ from unittest import mock
 
 from support.world import UnifiedCase
 from support.butler import switch_on
+from covey.app.card_actions import WORKSPACE_KINDS, WORKSPACE_RETIRED
 from covey.app import butler_panel, web_settings, web_switch as web_switch_words
 from covey.app.butler_env import ButlerEnv
 from covey.app.web_ops import Ops
@@ -207,8 +208,8 @@ class WebSettingsTest(SettingsCase):
         for kind, option in ((cards.MODE, "topics"), (cards.MODE, "agent"), (cards.ENABLE, "on")):  # Retired (T946).
             self.assertEqual(self.op(what="row", kind=kind, option=option, confirm=True), ("failed", cards.MODE_RETIRED))
         self.assertEqual(self.op(what="row", kind=cards.TOPIC_HARNESS, option="nowhere"), ("failed", web_settings.GONE))
-        for kind in (cards.TOPIC_WORKSPACE, cards.TOPIC_RUN_MODE, cards.SPACE):  # Offline: the rows are gone from the page.
-            self.assertEqual(self.op(what="row", kind=kind, option="worktree"), ("failed", cards.OFFLINE_NOTICE))
+        for kind in WORKSPACE_KINDS:  # Offline: the rows are gone from the page (app/card_actions.py).
+            self.assertEqual(self.op(what="row", kind=kind, option="worktree"), ("failed", WORKSPACE_RETIRED))
         self.assertEqual(self.op(operator="ou_other", what="row", kind=cards.TOPIC_HARNESS, option="codex"),
                          ("failed", web_settings.OWNER_ONLY))
         self.assertEqual(self.op(what="nope", kind=cards.TOPIC_HARNESS), ("failed", "不认识的设置改动"))
@@ -940,7 +941,7 @@ class WebSettingsTest(SettingsCase):
         self.assertEqual(self.switch(topic, "op-p4", **same, repos=[{"name": "web", "mode": "write"}]),
                          ("failed", "仓库「web」只读，不能改；只读就把 mode 写成 read"))
         self.assertEqual(self.switch(topic, "op-p5", **same, repos=[{"name": "nope", "mode": "read"}]),
-                         ("failed", "仓库地图里没有「nope」，可选：covey、web"))
+                         ("failed", "常用路径里没有「nope」，可选：covey、web"))
         self.assertEqual(self.switch(topic, "op-p6", **same, repos="covey")[0], "failed")
         self.assertEqual([r["name"] for r in json.loads(path.read_text())["repos"]], ["covey"])
         # Left out: a model change alone keeps them.

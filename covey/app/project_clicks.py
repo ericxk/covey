@@ -212,12 +212,6 @@ def downgrade_project(host, ctx, event) -> bool:
     return say(host, ctx, event, downgrade(host, ctx, record), "project-down")
 
 
-def delete_memory(host, ctx, event) -> bool:
-    """删 on a row of 专项记忆 of a card drawn before (the card now says the counts and the way to the web page): deletes
-    nothing; managing a project's memory (收起, 作废) is the 网页记忆中心's."""
-    return say(host, ctx, event, "删除已下线：到网页记忆中心收起或作废", "project-mem-offline")
-
-
 def delete_library(host, ctx, event) -> bool:
     """删 on a row of 资料库: an entry of the index (and its copy in library/) or, for a file the index does not name, the file
     (a plain name inside library/, nothing else)."""

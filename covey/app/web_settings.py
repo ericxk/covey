@@ -20,7 +20,7 @@ itself draws and writes with. Nothing here is a second copy of a rule.
   old ``workspace_add``, ``workspace_remove`` and ``workspace_prune`` still change the workspace list and are mirrored into the map
   (a directory with ``.git`` is added to it). The map is repos.json (core/repomap.py); before it exists the page shows the old workspace
   list as a read-only view, and the first change makes the file (``edit_repos``). The 新话题 and 管家 rows have no 工作区 or 运行方式
-  row any more (cards/butler_panel.py OFFLINE_KINDS).
+  row any more (app/card_actions.py WORKSPACE_KINDS: a page drawn before that sends one is told so).
   Data contract v15: 免@ set to 关闭 or 只有你 (``free``), a workspace added by its path, removed, the missing ones removed, and the 设备 and 代答
   pages (app/web_panels.py); 本周用量 as the card counts it (``usage``, the item key USAGE_KEY).
   敏感词脱敏 is retired: the page no longer draws it, and a change of its two switches (``redaction``) or its terms (``terms``) from a
@@ -57,7 +57,7 @@ from covey.cards.settings_hub import (ABOUT, CONFIG, DOCTOR, GROUPS, LABELS, MEM
 from covey.cards.workspace_manager import list_entries, tag_words, tail
 from covey.app import quota_watch, self_upgrade, web_launch, web_panels
 from covey.app.access import free_talk_on
-from covey.app.card_actions import REVIEW_KINDS, REVIEW_RETIRED
+from covey.app.card_actions import REVIEW_KINDS, REVIEW_RETIRED, WORKSPACE_KINDS, WORKSPACE_RETIRED
 from covey.app.workspace_manager import derived_repos, repo_entries
 from covey.core import assist as assist_records
 from covey.core import butler, butler_settings, projects, repomap, web_sync
@@ -939,8 +939,8 @@ class WebSettings:
 
     def change_row(self, ctx, payload) -> str:
         kind, option = str(payload.get("kind") or ""), payload.get("option")
-        if kind in cards.OFFLINE_KINDS:
-            raise ValueError(cards.OFFLINE_NOTICE)
+        if kind in WORKSPACE_KINDS:  # The 工作区 and 运行方式 rows on a page drawn before they were taken out.
+            raise ValueError(WORKSPACE_RETIRED)
         if kind in REDACTION_KINDS:  # 敏感词脱敏's rows on a page drawn before it was taken out.
             raise ValueError(REDACTION_RETIRED)
         if kind in REVIEW_KINDS:  # 独立复核's rows on a page drawn before it was taken out (app/card_actions.py).

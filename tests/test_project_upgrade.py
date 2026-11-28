@@ -631,7 +631,7 @@ class DirectTest(UpCase):
     def test_an_unknown_workspace_is_refused_as_topic_start_refuses_it(self):
         answer = self.start("p5", project=True, workspace="nowhere")  # An older call's workspace: one repository read.
         self.assertFalse(answer["ok"])
-        self.assertIn("仓库地图里没有「nowhere」", answer["text"])
+        self.assertIn("常用路径里没有「nowhere」", answer["text"])
         self.assertEqual(self.projects_on_disk(), [])
 
     def test_a_card_that_was_not_sent_is_made_up_for_by_the_thread(self):

@@ -240,9 +240,9 @@ PROJECT_LIBRARY_HEAD = "专项资料库（主人给专项的文件，和专项�
 # A project's memory in its three parts (core/memory.py project_view), as a member topic reads it with COVEY_MEMORY off and as the
 # lead's state pack has it (app/project_lead.py): each part's head and lines, what was left out, what was voided, the version.
 PROJECT_PART_HEADS = {
-    core_memory.RULE: "长期约定（主人明说以后都照做的）：",
-    core_memory.DECISION: "当前决定（主人答过的问题，一题一条，只管那道题问的范围；换了批次、目标或扩大范围要重新问）：",
-    core_memory.REFERENCE: "待核对参考（负责人整理的口径，不是主人原话；和主人的话冲突时让路，不能单独作为替主人答题的依据）：",
+    core_memory.RULE: "规矩（主人明说以后都照做的）：",
+    core_memory.DECISION: "决定（主人答过的问题，一题一条，只管那道题问的范围；换了批次、目标或扩大范围要重新问）：",
+    core_memory.REFERENCE: "负责人记的（负责人整理的口径，不是主人原话；和主人的话冲突时让路，不能单独作为替主人答题的依据）：",
 }
 VOIDED_HEAD = "上一轮之后作废、不再适用的（之前带过，现在不要再照着做）："
 LEFT_PARTS = "专项记忆里这一轮放不下、没有带上的：{parts}（都还在专项记忆里）。"
@@ -255,7 +255,7 @@ def unsourced(item) -> bool:
 
 
 def item_text(item) -> str:
-    """An item's words as a block says them: a 当前决定 with the day it was given, a line with its conditions (``applies``)."""
+    """An item's words as a block says them: a 决定 with the day it was given, a line with its conditions (``applies``)."""
     text = item["text"]
     if item.get("part") == core_memory.DECISION and item.get("at"):
         text += f"（{stamp(item['at'], '%m-%d')}）"
@@ -369,10 +369,10 @@ MEMORY_RULES = (
     "要问主人之前，先看标“你说的”的记忆：主人已经同意的事（比如测试通过就合并、空闲时直接部署）照着做，不要再问。",
 )
 MEMORY_LAYER_RULES = (  # With a project's lines in the block: what its three parts are (core/memory.py PARTS).
-    "专项的记忆分三段：“长期约定”是主人明说以后都照做的；“当前决定”是主人答过的问题，一题一条，只管那道题问的范围"
+    "专项的记忆分三段：“规矩”是主人明说以后都照做的；“决定”是主人答过的问题，一题一条，只管那道题问的范围"
     "（哪一版、哪一批、什么目标），同一范围里照着做、重试不用再问，换了批次、目标或扩大了范围，不能当作主人已经同意，照常问；"
-    "“待核对参考”是负责人整理的口径。",
-    "标“待核对参考”的可以照着做，但它不是主人的原话：和主人的话、长期约定、当前决定冲突时让路，也不能单独作为替主人答题、"
+    "“负责人记的”是负责人整理的口径。",
+    "标“负责人记的”的可以照着做，但它不是主人的原话：和主人的话、规矩、决定冲突时让路，也不能单独作为替主人答题、"
     "或做要主人点头的事的依据。",
 )
 NO_ORIGIN_RULE = "标“你说的（无出处）”的是没留下原问题或原话出处的旧记录，条件可能不全，拿不准就照常问主人。"
@@ -396,7 +396,7 @@ MEMORY_FIX_RULE = (
 
 
 def memory_line(item, new=False) -> str:
-    """One item of the memory block: "- M12 · 管这个专项 · 当前决定 · 你说的：…" (a project's line says its part, and
+    """One item of the memory block of data contract v37's preview (app/web_memory.py view): "- M12 · 管这个专项 · 决定 · 你说的：…" (a project's line says its part, and
     ``item_text`` what else it knows); ``new``: written since the topic's previous turn."""
     part = core_memory.PART_WORDS.get(item.get("part")) if item["scope"] == core_memory.PROJECT else None
     return (f"- {item['n']} · 管{core_memory.WORDS[item['scope']]} · " + (f"{part} · " if part else "")

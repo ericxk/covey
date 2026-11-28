@@ -3,7 +3,7 @@ topic_fork, handlers as app/butler_env.py describes them. Only in the owner's pr
 
 - ``topic_start`` sends the topic card (cards/topic_card.py) at the chat's top level, opens the topic on it as
   app/forks.py opens a fork on its root, and replaces the card once with the topic's number. Every new topic starts at
-  once in the home with the repositories it names (``plan_start``, ``declared_repos``; docs/configuration.md 主目录与仓库地图),
+  once in the home with the repositories it names (``plan_start``, ``declared_repos``; docs/configuration.md 主目录与常用路径),
   is bound as a fork is and its first turn is submitted; one an older release saved to wait (独立 worktree) waits on its
   launch card, prefilled from ``origin.launch`` in its topic.json (app/launch.py build_launch_card), with the prompt as
   the waiting turn. An older call's workspace on a device opens nothing (主人 D2Y4T, ``device_refusal``): a topic uses a
@@ -227,7 +227,7 @@ NO_WRITE = {"frozen": "已冻结", "readonly": "只读"}  # core/repomap.py STAT
 
 def declared_repos(state_dir, value, *, workspace="", now=None) -> list:
     """The repositories a new topic says it uses (topic_start's and project_topic_start's ``repos``, the web page's launch,
-    docs/configuration.md 主目录与仓库地图) as ``topic.json`` keeps them (core/topic_repos.py TopicRepo's keys): each
+    docs/configuration.md 主目录与常用路径) as ``topic.json`` keeps them (core/topic_repos.py TopicRepo's keys): each
     ``{name, path, mode, source: "declared", first_at}``, by the repo map's names (core/repomap.py), or a saved
     workspace's while the map has none of that name. ``workspace``: an older call's argument, one more read. A name
     twice is one, its write kept. ValueError says what is wrong: not a list of at most REPOS_MAX ``{name, mode}``, a
@@ -264,7 +264,7 @@ def declared_repos(state_dir, value, *, workspace="", now=None) -> list:
             path = str(Path(spaces[name]).expanduser())
         else:
             known = [repo.name for repo in repos] or [space for space, where in spaces.items() if not devices.is_device_value(where)]
-            raise ValueError(f"仓库地图里没有「{name[:40]}」，可选：{'、'.join(known[:20]) or '（没有）'}；用 repos_list 看")
+            raise ValueError(f"常用路径里没有「{name[:40]}」，可选：{'、'.join(known[:20]) or '（没有）'}；用 repos_list 看")
         kept = found.get(name)
         if kept is None or mode == "write":
             found[name] = {"name": name, "path": path, "mode": mode if kept is None else "write", "source": "declared",
@@ -274,7 +274,7 @@ def declared_repos(state_dir, value, *, workspace="", now=None) -> list:
 
 def plan_start(env, args, settings):
     """What topic_start opens: the Harness, model and budget as ``resolve`` finds them; the home, where every new topic
-    starts (docs/configuration.md 主目录与仓库地图, app/launch_submit.py home_binding: its ``workspace`` and ``workdir`` as
+    starts (docs/configuration.md 主目录与常用路径, app/launch_submit.py home_binding: its ``workspace`` and ``workdir`` as
     before, so an older release reads them), ``home_start`` and the ``repos`` it uses (``declared_repos``). Every new topic starts at once in 原目录:
     the run mode 独立 worktree is gone (a repository to change gets its worktree from ``covey repo use --write``). A str
     saying why not. A call's ``redaction`` (an older butler's) is ignored.
