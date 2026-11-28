@@ -163,7 +163,7 @@
 | `app/leftovers.py` | After a turn's backend has closed, the processes its commands left running |
 | `app/limit_notice.py` | One notice in the owner's private chat when several topics stopped on the same cause with an automatic retry … |
 | `app/memguard_alerts.py` | The memory watchdog's alerts, sent by the Bridge |
-| `app/memory_collect.py` | What the owner said in a topic's turn that holds from now on becomes memory, and a click takes it back |
+| `app/memory_collect.py` | What the owner said in a topic's turn that holds from now on, or asked to be noted, becomes memory, and a … |
 | `app/memory_learn.py` | 记忆自己长, one turn at a time |
 | `app/memory_observe.py` | What the Bridge sees of a turn's use of the memory: the strong signals the ranking counts, nothing else |
 | `app/memory_panel.py` | The 设置 card's 记忆 tab, shown when COVEY_MEMORY=1 |

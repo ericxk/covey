@@ -1,6 +1,8 @@
 """The write gate of a memory entry (core/memory_gate.py): time words and a live state refused or rewritten, vague pointers
-only flagged, a decision never refused. Its write and revise (WAVE12 C8, W1-0) pass through to core/memstore.py: the files
-they write are byte for byte the same call's there; and app/memory_proof.py, the only maker of a Proven."""
+only flagged, a decision never refused. Its write and revise (WAVE12 C8) write what the same core/memstore.py call writes,
+byte for byte; the one way the owner's words go in (T908 M3a): a learned rule that grants waits in 待审核, a rule for every
+topic holds where it was said while 待审核 asks (an accept moves it, never a second one), the same words as a lead's line
+confirm that line; and app/memory_proof.py, the only maker of a Proven, proves a quote in a turn of the owner's."""
 from __future__ import annotations
 
 import itertools
@@ -250,12 +252,133 @@ class MemoryProofTest(unittest.TestCase):
             with self.subTest(open_id=open_id):
                 self.assertIsNone(memory_proof.by_click(access, open_id, "card"))
 
-    def test_a_proof_of_words_proves_nothing_yet(self):
-        from covey.app import memory_proof
-        from covey.core.memory_gate import Proof
+    def test_a_quote_is_proven_only_in_a_turn_of_the_owners_own_words(self):
+        from support.records import write_job
 
-        self.assertIsNone(memory_proof.prove(self.Access(), Path("/absolute/state"),
-                                             Proof(message_id="om_1", quote="以后部署都先问我一句"), job_key="om_1"))
+        from covey.app import memory_proof
+        from covey.core import turn_source
+        from covey.core.memory_gate import Proof, Proven
+
+        class Access:
+            def owner_turn(self, chat, sender):
+                return sender == "ou_owner"
+
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+            said = "以后部署都先问我一句，别直接上"
+            for key, sender, extra in (("om_1", "ou_owner", {}), ("om_2", "ou_other", {}), ("main-tok1", "ou_owner", {}),
+                                       ("om_3", "ou_owner", {"turn_source": turn_source.make(turn_source.ANSWER, asserted_by="owner",
+                                                                                             origin={"question": "ab" * 8})})):
+                write_job(state, key, message_id=key, chat_id="oc_dm", sender_id=sender, user_text=said, **extra)
+            prove = lambda key, **proof: memory_proof.prove(Access(), state, Proof(**proof), job_key=key)  # noqa: E731
+            self.assertEqual(prove("om_1", quote="部署都先问我 一句", via="butler"),
+                             Proven(Proof(message_id="om_1", quote="部署都先问我 一句", via="butler"), turn_source.LEVEL_OWNER,
+                                    said="部署都先问我 一句"))  # Whitespace aside.
+            self.assertEqual(prove("om_3", quote="别直接上").proof.question, "ab" * 8)  # The question his answer was to.
+            for name, key, proof in (("not-his-words", "om_1", dict(quote="以后都直接部署")), ("no-quote", "om_1", dict(quote="")),
+                                     ("another-message", "om_1", dict(quote="别直接上", message_id="om_9")),
+                                     ("not-his-turn", "om_2", dict(quote="别直接上")),
+                                     ("a-hand-on", "main-tok1", dict(quote="别直接上")),  # Not a message of his the Bridge took in.
+                                     ("no-job", "om_404", dict(quote="别直接上")), ("no-key", "", dict(quote="别直接上")),
+                                     ("a-path", "../om_1", dict(quote="别直接上"))):
+                with self.subTest(name):
+                    self.assertIsNone(prove(key, **proof))
+
+
+class OneWayInTest(unittest.TestCase):
+    """T908 M3a: what core/memory_gate.py write does with the owner's words beyond passing them through."""
+
+    def setUp(self):
+        from covey.core import projects
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.state = Path(tmp.name)
+        projects.create(self.state, projects.new_record(chat_id="oc_chat", name="迁移账单", project_id=PID, now=NOW))
+
+    def owner(self, quote="以后都这样"):
+        from covey.core import turn_source
+        from covey.core.memory_gate import Proof, Proven
+
+        return Proven(Proof(message_id="om_1", quote=quote), turn_source.LEVEL_OWNER)
+
+    def write(self, **given):
+        from covey.core import memory_gate
+
+        return memory_gate.write(self.state, **{"kind": "rule", "scope": "project", "owner_key": PID, "proof": self.owner(),
+                                                "by": "owner", "source": "learn", "place": "topic", **given})
+
+    def test_a_learned_rule_that_grants_waits_in_review_and_is_written_nowhere(self):
+        from covey.core import memory_gate, memory_review, memstore
+
+        for text, grant in (("改完直接部署到本机", "deploy"), ("旧分支直接删掉", "delete"), ("额度不够直接扣共享池", "额度")):
+            with self.subTest(grant):
+                written = self.write(text=text, learned=True, origin={"topic_key": "t1"})
+                self.assertEqual((written.entry, written.reason, written.grant, written.fresh), (None, memory_gate.GRANT, grant, True))
+                item = next(item for item in memory_review.items(self.state) if item.key == written.review)
+                self.assertEqual((item.type, item.suggest, item.quote, item.origin),
+                                 ("learn", {"kind": "rule", "scope": "project", "project_key": PID, "grant": grant}, "以后都这样",
+                                  {"topic_key": "t1"}))
+        self.assertEqual(memstore.entries(self.state), [])
+        # Not learned (the butler's, the owner's click), or a note: written as it is.
+        self.assertIsNotNone(self.write(text="改完直接部署到本机").entry)
+        self.assertIsNotNone(self.write(kind="note", text="部署脚本在 scripts 下", learned=True).entry)
+        # Accepted, it holds, his: the one way a learned rule that grants comes into force.
+        key = next(item.key for item in memory_review.items(self.state) if item.suggest.get("grant") == "delete")
+        done = memory_review.decide(self.state, key, "accept")
+        found = memstore.find(self.state, done["refs"][0])
+        self.assertEqual((found.text, found.said, found.scope, found.status), ("旧分支直接删掉", "owner", "project", "active"))
+
+    def test_a_rule_for_every_topic_holds_where_it_was_said_and_an_accept_moves_that_line(self):
+        from covey.core import memory_review, memstore
+
+        written = self.write(text="回复都用中文", wider="global")
+        self.assertEqual((written.entry.scope, written.entry.said, written.fresh), ("project", "owner", True))
+        [item] = memory_review.items(self.state)
+        self.assertEqual((item.key, item.suggest, item.items), (written.review, {"kind": "rule", "scope": "global"},
+                                                                (written.entry.ref,)))
+        self.assertEqual(self.write(text="回复都用中文", wider="global").fresh, False)  # Asked once.
+        done = memory_review.decide(self.state, written.review, "accept")
+        [moved] = memstore.entries(self.state, scope="global")
+        self.assertEqual((done["refs"], moved.code, moved.text), ([moved.ref], written.entry.code, "回复都用中文"))  # Moved: one line.
+        self.assertEqual(memstore.find(self.state, written.entry.ref).status, "archived")
+        self.assertEqual([entry.text for entry in memstore.entries(self.state, scope="project", owner_key=PID)], [])
+        # Never for a line from a topic with redaction on.
+        marked = self.write(text="回复先给结论", wider="global", redacted=True)
+        self.assertEqual((marked.review, len(memory_review.items(self.state))), ("", 0))
+
+    def test_a_refused_text_is_rewritten_unless_strict_and_pending_writes_nothing(self):
+        from covey.core import memory_gate, memory_review, memstore
+
+        self.assertEqual(self.write(text="从今天起回复用中文").entry.text, "回复用中文")
+        strict = self.write(text="今天起汇报先给结论", strict=True)
+        self.assertEqual((strict.entry, strict.rewrite), (None, "汇报先给结论"))
+        self.assertIn("会过时", strict.reason)
+        refused = self.write(text="现网第 9 代")
+        self.assertEqual((refused.entry, refused.rewrite), (None, ""))
+        held = self.write(scope="global", owner_key="", text="回复先给结论", by="butler", pending=True)
+        self.assertEqual((held.entry, held.reason), (None, memory_gate.PENDING))
+        self.assertEqual([item.suggest for item in memory_review.items(self.state)], [{"kind": "rule", "scope": "global"}])
+        self.assertEqual([entry.text for entry in memstore.entries(self.state)], ["回复用中文"])
+
+    def test_the_owners_words_the_same_as_a_summary_confirm_it_where_it_is(self):
+        from covey.core import memstore
+
+        for scope, owner in (("global", ""), ("project", PID), ("topic", "t1")):
+            with self.subTest(scope):
+                summed = memstore.add(self.state, kind="rule", scope=scope, owner_key=owner, text=f"合并前先跑冒烟（{scope}）",
+                                      said="summary", by="lead")
+                again, how = memstore.put(self.state, kind="rule", scope=scope, owner_key=owner, text=f"合并前先跑冒烟（{scope}）",
+                                          said="summary", by="lead")
+                self.assertEqual((again.ref, again.said, how), (summed.ref, "summary", memstore.SAME))
+                written = self.write(scope=scope, owner_key=owner, text=f"合并前先跑冒烟（{scope}）")
+                self.assertEqual((written.entry.ref, written.entry.code, written.entry.said, written.done),
+                                 (summed.ref, summed.code, "owner", memstore.CONFIRMED))
+                if scope != "topic":  # A topic's line keeps no origin of its own.
+                    self.assertEqual(written.entry.origin.get("message_id"), "om_1")
+                self.assertEqual(memstore.log_read(self.state)[0]["action"], "confirm")
+                self.assertEqual(self.write(scope=scope, owner_key=owner, text=f"合并前先跑冒烟（{scope}）").done, memstore.SAME)
+                self.assertEqual(len(memstore.entries(self.state, scope=scope, owner_key=owner)), 1)
 
 
 if __name__ == "__main__":

@@ -1239,10 +1239,11 @@ def against(found, listed):
 
 class MemoryWriteTest(unittest.TestCase):
     """G6 (WAVE12 C11): core/memstore.py's writes and principles.save are called only by core/memory_gate.py and the store's
-    own modules; core/memory_gate.py's Proven is made only by app/memory_proof.py. Today's callers are listed (``WRITES``)
-    until W1-D moves them behind core/memory_gate.py write and revise."""
+    own modules; core/memory_gate.py's Proven is made only by app/memory_proof.py. The owner's words of a turn (记忆自己长,
+    a checkpoint's memory, the butler's memory_save) go through core/memory_gate.py write alone (T908 M3a); the callers
+    still writing on their own are listed (``WRITES``) until their packages move them behind it."""
 
-    STORE = {"covey.core.memstore": {"add", "add_decision", "supersede", "archive", "settle", "set_status"},
+    STORE = {"covey.core.memstore": {"add", "put", "add_decision", "supersede", "archive", "settle", "set_status"},
              "covey.core.principles": {"save"}}
     PROOF = {"covey.core.memory_gate": {"Proven"}}
     OWN = {"covey/core/memory_gate.py", "covey/core/memstore.py", "covey/core/memory_review.py", "covey/core/migrate.py"}
@@ -1251,11 +1252,7 @@ class MemoryWriteTest(unittest.TestCase):
         "covey/app/butler_knowledge.py::memory_revise::memstore.add": 1,
         "covey/app/butler_knowledge.py::memory_revise::memstore.add_decision": 1,
         "covey/app/butler_knowledge.py::memory_revise::memstore.supersede": 1,
-        "covey/app/butler_knowledge.py::memory_save::memstore.add": 1,
-        "covey/app/butler_knowledge.py::memory_save::memstore.add_decision": 1,
         "covey/app/butler_tools.py::principle_save::principles.save": 1,
-        "covey/app/knowledge_collect.py::_remember::memstore.add": 1,
-        "covey/app/memory_collect.py::_take::memstore.add": 1,
         "covey/app/memory_collect.py::promote::principles.save": 1,
         "covey/app/memory_panel.py::MemoryPanel.put_away::memstore.archive": 1,
         "covey/app/project_context.py::remember_answer::memstore.add_decision": 1,

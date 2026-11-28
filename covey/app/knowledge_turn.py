@@ -66,12 +66,13 @@ def block(ctx, job, *, owner_turn, resumed: bool) -> str:
 
 
 def remembers(ctx, job, *, owner_turn) -> bool:
-    """Whether the turn's rules carry the ``remember`` rule: entries are on, it is the owner's own turn in a topic of
+    """Whether the turn's rules carry the ``remember`` rule: entries are on and the memory off (with COVEY_MEMORY=1 the
+    memory's one rule takes 记一下 too, app/prompts.py MEMORY_FIX_RULE, T908 M3a), it is the owner's own turn in a topic of
     their own (not the butler's, which has tools; not one the butler or a lead handed on, whose owner's words the butler
     took with its own tool; not a 代答 topic; not one with redaction on, or whose setting cannot be read), the cases
     app/knowledge_collect.py would collect from: a turn it drops is never told to write ``remember``, so its model does
     not tell the owner 已记下 for nothing."""
-    if not knowledge.enabled() or not owner_turn() or proxy_topic(ctx):
+    if not knowledge.enabled() or core_memory.enabled() or not owner_turn() or proxy_topic(ctx):
         return False
     if not turn_source.behavior(job).owner_words:
         return False  # A 协作 turn's words are not the owner's: no 记一下 from them (app/knowledge_collect.py skips it too).

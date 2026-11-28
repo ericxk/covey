@@ -339,8 +339,9 @@ def knowledge_block(owner, workspace=(), workspace_name: str = "", *, state_dir=
 
 
 # 记忆 (core/memory.py), when COVEY_MEMORY=1: one block of what the owner said and what the project noted, in place of the
-# principles', the knowledge entries' and the project memory's own blocks; and, on a turn whose owner's words carry a
-# 以后 / 每次 / 别再 …, the rule for writing ``memory`` and ``memory_void`` into the checkpoint (app/memory_collect.py reads them).
+# principles', the knowledge entries' and the project memory's own blocks; and, on a turn whose owner's words carry one of
+# core/memory.py CUES (以后 / 每次 / 别再 / 记一下 …), the one rule for writing ``memory`` and ``memory_void`` into the
+# checkpoint (app/memory_collect.py reads them; it took the place of the knowledge entries' REMEMBER_RULE too, T908 M3a).
 MEMORY_HEAD = "记忆（主人说过的话，和专项里记下的约定；每条前面是它的编号、管哪儿、谁说的；做事时照着办）："
 MEMORY_RULES = (
     "怎么用这些记忆：谁说了算，主人这一轮的话最大，其次是标“你说的”的，再其次是标“它总结的”的；同一类里管得窄的压过管得宽的，新的压过旧的。",
@@ -363,11 +364,15 @@ MEMORY_SEARCH_RULE = ("查记忆：放不下的、整理时收起的、以前问
 MEMORY_USED_RULE = ("这一轮照着哪几条记忆做了（或因为它没有再问主人），在检查点里写 memory_used：[\"M12\"]，只写编号；"
                     "Bridge 据此决定哪些留着，不用在回复里提。")
 MEMORY_FIX_RULE = (
-    "记忆纠正：主人这一轮的话里说了“以后”“每次”“别再”“不要再”“记住”这类长期适用的话，才在检查点里加 memory："
-    '[{"quote":"主人原话里的一段","text":"一句话，最多 200 字，把“这个”“那个”写成所指的事"}]，最多 3 条；'
+    "记忆：主人这一轮的原话里说了“以后”“每次”“别再”“记住”这类以后都照做的话，或让你“记一下”“记下来”某件事，才在检查点里加 memory："
+    '[{"quote":"主人原话里的一段","text":"一句话，最多 200 字，把“这个”“那个”写成所指的事","kind":"rule","scope":"topic"}]，最多 3 条。'
+    "kind：rule 是以后照做的规矩，note 是让你记下的事实、做法或坑（资料，相关时才带）。"
+    "scope 是它管多宽：topic 只对这件事，project 这个专项里都适用（不在专项里就写 topic），"
+    "global 换了专项、换了工作区也适用（规矩先在这里生效，管不管全局由主人在待审核里定）；拿不准写 topic。"
     "上面标“负责人记的”的某条被主人这一轮的话否定了，再加 memory_void："
     '[{"id":"短码，如 R7K2M","quote":"主人原话里的一段"}]。quote 必须是主人这一轮原话里连续的一段，不是你的转述。'
-    "只记主人说的，不记“要先问主人”；主人没明说就不要写。主人的话只管一类事时（如“监视进程这类用 Codex”），text 照写那一类，不扩大。"
+    "只记主人说的，不记“要先问主人”；主人没明说就不要写，也不要自己总结着记。主人的话只管一类事时（如“监视进程这类用 Codex”），"
+    "text 照写那一类，不扩大。"
 )
 
 
@@ -657,8 +662,11 @@ SHARED_RULES = (
     "先用 topic_stop 停掉再从看板撤下；已经停着的只从看板撤下。专项的话题不用 topic_stop，照下面专项那条交给负责人停。",
     "- 要看或改管家的设置，用 settings_panel 把设置卡发出来；设置只有主人能在卡上改。",
     "- 主人说出长期适用的原则或偏好（“以后……”“原则是……”“记住……”“都要……”）时，用 memory_save 记成一条规矩"
-    "（kind rule；处处适用的 scope 写 global，只对某个仓库成立的在 repos 里写仓库名），回复里说一句“已记下：……”和它的短码；"
-    "只对这件事、这一轮的要求不记。主人说“忘掉/删掉那条”时，用 memory_search 找到它的短码，再用 memory_revise（action retire）收起。"
+    "（kind rule，quote 照抄主人这一轮原话里说这件事的一段，一字不改；Bridge 核对不到原话会拒收，照原话重记）。"
+    "按内容选范围：只关某个专项的 scope 写 project，只关某个话题的写 topic，只对某个仓库成立的在 repos 里写仓库名；"
+    "主人原话明说“所有”“以后都”“处处”的才写 global，没明说的写 global 会进待审核，主人采纳后才管全局。"
+    "回复里说一句“已记下：……”和它的短码；只对这件事、这一轮的要求不记。"
+    "主人说“忘掉/删掉那条”时，用 memory_search 找到它的短码，再用 memory_revise（action retire）收起。"
     "记下的规矩每一轮都附在 Bridge 的规则里，你和各个话题都会看到。",
 )
 # 管家 (COVEY_BUTLER_RULES, on unless 0; docs/butler.md 管家规则): the butler only answers quickly and hands the rest on, so
@@ -718,8 +726,10 @@ def knowledge_rules() -> tuple[str, ...]:
     rules = []
     if knowledge.enabled():
         rules += [
-            "- 主人说“记一下……”“记下来”，用 memory_save 记一条：一件具体的事实、做法或坑记资料（kind note），定下的事记决定"
-            "（kind decision），以后每次都要照做的记规矩（kind rule）；通用的 scope 写 global，只关某个仓库的在 repos 里写仓库名。"
+            "- 主人说“记一下……”“记下来”，用 memory_save 记一条：一件具体的事实、做法或坑记资料（kind note，相关时才带），"
+            "以后每次都要照做的记规矩（kind rule）；quote 照抄主人这一轮原话里的一段；只关某个专项、话题的记到那里，"
+            "其余的资料 scope 写 global，只关某个仓库的在 repos 里写仓库名。"
+            "主人答过的题 Bridge 已记成决定，不用再记。"
             "主人说“把 T483 的结论记一下”，先用 topic_read 读那一轮再起草。记完在回复里列出短码和正文。",
             "- 主人说“改成……”用 memory_revise（action update 或 supersede，给原因），说“删了”“作废”用 memory_revise（action retire）；"
             "先用 memory_search 找到短码。只记主人说的，不要自己总结着记。"]

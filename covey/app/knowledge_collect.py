@@ -1,4 +1,4 @@
-"""A topic's turn writes what the owner asked it to remember (docs/butler.md 知识库, COVEY_KNOWLEDGE=1):
+"""A topic's turn writes what the owner asked it to remember (docs/butler.md 知识库, COVEY_KNOWLEDGE=1 with COVEY_MEMORY=0):
 the model puts ``remember`` ([{kind, text, why, scope}], at most five) into its checkpoint when the owner's words in
 that turn said 记一下 / 记住 / 记下来 (app/prompts.py REMEMBER_RULE), and the Bridge, not the task runner (rule 8: a
 task process changes only its own task's card and record), reads it here once the runner has exited and the record
@@ -6,16 +6,15 @@ is settled (app/detached.py finish_detached, app/job_dispatch.py for a run in th
 
 It writes only when all of these hold, else it drops the list and logs ``knowledge remember ignored reason=…``:
 the turn ended normally (done, or waiting for the owner's answer); it is the owner's own turn (app/access.py
-owner_turn); the owner's words (user_text) hold a trigger word; it is not a turn the butler or a lead handed on
-(its message id, core/butler_opened.py handed_on: the butler records with its own tool); the topic is not a 代答 topic
-and has no redaction (a setting that cannot be read counts as on). The entries are ``by=topic`` with the turn as their
-source; the same turn (job key) never writes twice (core/knowledge.py collected). Never raises: a failure is a log line
-and the turn's other ending steps go on.
+owner_turn); the owner's words (user_text) hold a trigger word (core/memory.py CUES, the one set); it is not a turn the
+butler or a lead handed on (its message id, core/butler_opened.py handed_on: the butler records with its own tool); the
+topic is not a 代答 topic and has no redaction (a setting that cannot be read counts as on). The entries are ``by=topic``
+with the turn as their source; the same turn (job key) never writes twice (core/knowledge.py collected). Never raises: a
+failure is a log line and the turn's other ending steps go on.
 
-With COVEY_MEMORY=1 the entries go to the one memory (core/memstore.py add; docs/butler.md 记忆) as the owner's own, ``by`` the
-topic's turn: a decision or a practice is a rule, a pitfall, a fact or a question a note; 通用 is 全局, a workspace's is 全局 too with
-the workspace's name in ``repos``. The write gate (core/memory_gate.py) refuses what it does for any entry. The job's record gets
-``knowledge_remembered`` (how many were written) so the same turn never writes twice. Without it the entries are core/knowledge.py's.
+With COVEY_MEMORY=1 there is no ``remember`` rule (app/knowledge_turn.py remembers): the memory's one rule takes 记一下 as
+a note (app/prompts.py MEMORY_FIX_RULE, read by app/memory_collect.py; T908 M3a), and a ``remember`` a session still writes
+from older rules is dropped (logged ``reason=memory``): it carries no quote of the owner's words to check it by.
 
 A job's ``prompt_text`` says nothing about who handed it on: every message the owner writes is queued with its expanded
 input there (app/app.py handle_event: the text, a group's sender line, attachments, quotes), and so are an answer, a
@@ -23,21 +22,18 @@ page's words and a supplement queued again. Read as "handed on" it dropped every
 """
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
-from covey.core import knowledge, memory_gate, memstore, turn_source
+from covey.core import knowledge, turn_source
 from covey.core.checkpoint import read_checkpoint
 from covey.core import memory as core_memory
-from covey.core.jobs import find_job_record, upsert_job_record
+from covey.core.jobs import find_job_record
 from covey.core.butler import is_butler_topic
 from covey.core.butler_opened import handed_on
 from covey.core.redaction import topic_redaction
 from covey.core.topics import proxy_topic, topic_file
 from covey.core.state import read_object
 
-RULE_KINDS = ("decision", "practice")  # The knowledge kinds that are a rule of the memory; the others are a note.
-TRIGGERS = ("记一下", "记住", "记下来")
 ENDED_WELL = ("done", "waiting_user")
 
 
@@ -51,7 +47,7 @@ def reason_to_ignore(runtime, ctx, job, record) -> str:
     if not runtime.access.owner_turn(str(record.get("chat_id") or getattr(job, "chat_id", "")),
                                      str(record.get("sender_id") or getattr(job, "sender_id", "") or "")):
         return "not-owner"
-    if not any(word in str(record.get("user_text") or getattr(job, "user_text", "") or "") for word in TRIGGERS):
+    if not any(word in str(record.get("user_text") or getattr(job, "user_text", "") or "") for word in core_memory.CUES):
         return "no-trigger"
     if handed_on(record.get("message_id") or getattr(job, "message_id", "")):
         return "handed-on"
@@ -75,7 +71,7 @@ def collect(runtime, job, ctx) -> None:
         remember = read_checkpoint(Path(path)).get("remember") if path else None
         if not isinstance(remember, list) or not remember:
             return
-        reason = reason_to_ignore(runtime, ctx, job, record)
+        reason = "memory" if core_memory.enabled() else reason_to_ignore(runtime, ctx, job, record)
         key = str(record.get("key") or "")
         if reason:
             runtime.log(f"knowledge remember ignored reason={reason} job=#{record.get('job_id')}")
@@ -84,42 +80,7 @@ def collect(runtime, job, ctx) -> None:
         number = read_object(topic_file(Path(ctx.state_dir), topic_id)).get("topic_number") if topic_id else None
         source = {"job_key": key, "job_id": record.get("job_id"), **({"topic": f"T{number}"} if type(number) is int else {})}
         workspace = str(record.get("workspace_name") or "")
-        if core_memory.enabled():
-            written = _remember(ctx, record, remember, source, workspace, runtime.log)
-        else:
-            written = knowledge.remember(ctx.state_dir, remember, job_key=key, source=source, workspace=workspace)
+        written = knowledge.remember(ctx.state_dir, remember, job_key=key, source=source, workspace=workspace)
         runtime.log(f"knowledge remember written={len(written)} job=#{record.get('job_id')}")
     except Exception as exc:  # noqa: BLE001 - the turn's ending goes on; the owner's words are in the record
         runtime.log(f"knowledge remember failed job=#{getattr(job, 'job_id', '?')}: {type(exc).__name__}")
-
-
-def _remember(ctx, record, items, source, workspace, log) -> list:
-    """The ``remember`` items written as entries of the memory (the module's docstring), at most five; the new ones."""
-    key = str(record.get("key") or "")
-    if "knowledge_remembered" in record:
-        return []
-    written = []
-    for item in items[:5]:
-        if not isinstance(item, dict):
-            continue
-        text = knowledge.clean_text(item.get("text"))[:knowledge.TEXT_LIMIT]
-        if not text:
-            continue
-        rule = item.get("kind") in RULE_KINDS
-        text, _ = memory_gate.accept(text, kind="rule" if rule else "note")
-        if not text:
-            log(f"knowledge remember refused by the gate job=#{record.get('job_id')}")
-            continue
-        stamp = time.time()
-        try:
-            entry = memstore.add(ctx.state_dir, kind="rule" if rule else "note", scope="global", text=text,
-                                 why=knowledge.clean_text(item.get("why"))[:knowledge.TEXT_LIMIT], said="owner", by="owner",
-                                 origin={"job": key, **({"topic_number": int(source["topic"][1:])} if source.get("topic") else {})},
-                                 repos=(workspace,) if workspace and item.get("scope") != knowledge.OWNER else (), now=stamp)
-        except ValueError as exc:
-            log(f"knowledge remember skipped job=#{record.get('job_id')}: {exc}")
-            continue
-        if entry.at >= stamp - 1:
-            written.append(entry)
-    upsert_job_record(ctx.state_dir, key, knowledge_remembered=len(written))
-    return written

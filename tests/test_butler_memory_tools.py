@@ -1,6 +1,8 @@
-"""The butler's memory tools (app/butler_knowledge.py memory_save, memory_revise, memory_search): a save goes through the write
-gate and into core/memstore.py as the owner's own by the butler, a revise updates, replaces or retires what its key names, a
-search lists short code, kind, scope and text. The tools are not in ``TOOLS`` (app/butler_memory.py adapts them)."""
+"""The butler's memory tools (app/butler_knowledge.py memory_save, memory_revise, memory_search): a save quotes the owner's words
+of the butler's turn (app/memory_proof.py proves them, one it cannot is refused), goes through core/memory_gate.py write and
+into core/memstore.py as the owner's own by the butler, 全局 only when his words say so (else 待审核), never a decision (T908
+M3a); a revise updates, replaces or retires what its key names, a search lists short code, kind, scope and text. The tools are
+not in ``TOOLS`` (app/butler_memory.py adapts them)."""
 from __future__ import annotations
 
 import tempfile
@@ -9,8 +11,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from support.records import write_job
+
 from covey.app import butler_knowledge
-from covey.core import memory_gate, memstore
+from covey.core import memory_gate, memory_review, memstore, project_memory
 from covey.core.state import write_json
 
 PID = "a1b2c3d4e5f6"
@@ -28,13 +32,22 @@ class Case(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.state = Path(tmp.name)
-        self.env = SimpleNamespace(state_dir=self.state)
+        access = SimpleNamespace(owner_turn=lambda chat, sender: sender == "ou_owner")
+        self.env = SimpleNamespace(state_dir=self.state, runtime=SimpleNamespace(access=access))
         patcher = mock.patch.object(memory_gate, "check", gate)
         patcher.start()
         self.addCleanup(patcher.stop)
+        self.turns = 0
 
-    def save(self, **args):
-        return butler_knowledge.memory_save(self.env, {"kind": "rule", "scope": "global", **args})
+    SAID = "以后都汇报先给结论；记一下 rg 会扫 NAS；这件事别再先问"
+
+    def save(self, *, said=SAID, sender="ou_owner", **args):
+        """memory_save in a butler's turn of the owner's ``said`` (sent by ``sender``); the quote, unless given, his words."""
+        self.turns += 1
+        key = f"om_butler{self.turns}"
+        write_job(self.state, key, message_id=key, chat_id="oc_dm", sender_id=sender, user_text=said, status="running")
+        args = {"kind": "rule", "scope": "global", "quote": said, **args}
+        return butler_knowledge.memory_save(self.env, args, SimpleNamespace(job_key=key))
 
 
 class ShapeTest(Case):
@@ -44,24 +57,66 @@ class ShapeTest(Case):
 
 
 class SaveTest(Case):
-    def test_a_global_rule_is_written_as_the_owners_by_the_butler(self):
-        answer = self.save(text="汇报先给结论", title="汇报顺序", why="他嫌长")
+    def test_a_global_rule_his_words_say_is_for_everywhere_is_written_as_the_owners_by_the_butler(self):
+        answer = self.save(text="汇报先给结论", title="汇报顺序", why="他嫌长", quote="以后都汇报先给结论")
         self.assertTrue(answer["ok"])
         [entry] = memstore.entries(self.state, scope="global")
         self.assertEqual((entry.kind, entry.said, entry.by, entry.title, entry.why), ("rule", "owner", "butler", "汇报顺序", "他嫌长"))
+        self.assertEqual((entry.origin["message_id"], entry.origin["quote"], entry.origin["via"]),
+                         ("om_butler1", "以后都汇报先给结论", "butler"))
         self.assertEqual(answer["text"], f"记下了：{entry.code} 汇报顺序 · 管全局")
         self.assertEqual((answer["data"]["code"], answer["data"]["ref"]), (entry.code, entry.ref))
 
-    def test_a_note_keeps_its_repos_and_a_decision_goes_to_the_decisions(self):
-        self.assertTrue(self.save(kind="note", text="rg 会扫 NAS", repos=["covey"])["ok"])
-        [note] = memstore.entries(self.state, scope="global", kinds=("note",))
-        self.assertEqual(note.repos, ("covey",))
-        write_json(self.state / "projects" / f"{PID}.json", {"id": PID, "name": "迁移", "chat_id": "oc"})
-        answer = self.save(kind="decision", scope="project", project="迁移", text="选 Postgres，不用 Redis")
+    def test_a_global_rule_his_words_do_not_say_is_for_everywhere_waits_in_the_review_queue(self):
+        answer = self.save(text="这件事不先问", said="这件事别再先问", quote="这件事别再先问")
         self.assertTrue(answer["ok"], answer)
-        [decision] = memstore.decisions(self.state, "project", PID)
-        self.assertEqual((decision.text, decision.said, decision.by), ("选 Postgres，不用 Redis", "owner", "butler"))
+        self.assertIn("待审核", answer["text"])
+        self.assertEqual(memstore.entries(self.state), [])
+        [item] = memory_review.items(self.state)
+        self.assertEqual((item.type, item.text, item.suggest, item.quote), ("learn", "这件事不先问", {"kind": "rule", "scope": "global"},
+                                                                          "这件事别再先问"))
+
+    def test_without_his_words_of_this_turn_nothing_is_written_and_it_is_told_to_quote_them(self):
+        for name, args in (("no-quote", dict(quote="")), ("not-his-words", dict(quote="以后都用英文")),
+                           ("not-his-turn", dict(quote="以后都汇报先给结论", sender="ou_other"))):
+            with self.subTest(name):
+                answer = self.save(text="汇报先给结论", **args)
+                self.assertFalse(answer["ok"])
+                self.assertEqual(answer["text"], butler_knowledge.UNPROVEN)
+        answer = butler_knowledge.memory_save(self.env, {"kind": "rule", "scope": "global", "text": "汇报先给结论",
+                                                         "quote": "以后都汇报先给结论"})  # No turn to look in.
+        self.assertFalse(answer["ok"])
+        self.assertEqual(memstore.entries(self.state), [])
+        self.assertEqual(memory_review.items(self.state), [])
+
+    def test_a_note_keeps_its_repos_and_a_decision_is_no_kind_of_a_save(self):
+        self.assertTrue(self.save(kind="note", text="rg 会扫 NAS", repos=["covey"], quote="记一下 rg 会扫 NAS", scope="global")["ok"])
+        [note] = memstore.entries(self.state, scope="global", kinds=("note",))  # A note goes 全局 as asked: carried when related.
+        self.assertEqual((note.repos, note.said), (("covey",), "owner"))
+        self.assertEqual(memory_review.items(self.state), [])
+        write_json(self.state / "projects" / f"{PID}.json", {"id": PID, "name": "迁移", "chat_id": "oc"})
+        answer = self.save(kind="note", scope="project", project="迁移", text="rg 会扫 NAS", quote="记一下 rg 会扫 NAS")
+        self.assertTrue(answer["ok"], answer)
+        [note] = memstore.entries(self.state, scope="project", owner_key=PID, kinds=("note",))
+        self.assertEqual((note.text, note.said, note.by), ("rg 会扫 NAS", "owner", "butler"))
         self.assertTrue(answer["text"].endswith("管这个专项"))
+        answer = self.save(kind="decision", scope="project", project="迁移", text="选 Postgres，不用 Redis")
+        self.assertFalse(answer["ok"])
+        self.assertEqual(answer["text"], butler_knowledge.NO_DECISION)
+        self.assertEqual(memstore.decisions(self.state, "project", PID), [])
+
+    def test_the_owners_words_the_same_as_a_leads_line_confirm_that_line_where_it_is(self):
+        write_json(self.state / "projects" / f"{PID}.json", {"id": PID, "name": "迁移", "chat_id": "oc"})
+        lead = memstore.add(self.state, kind="rule", scope="project", owner_key=PID, text="合并前先跑冒烟", said="summary", by="lead")
+        answer = self.save(scope="project", project=PID, text="合并前先跑冒烟", said="以后合并前先跑冒烟", quote="以后合并前先跑冒烟")
+        self.assertTrue(answer["ok"], answer)
+        self.assertIn("现在算主人定的", answer["text"])
+        [entry] = memstore.entries(self.state, scope="project", owner_key=PID)
+        self.assertEqual((entry.ref, entry.code, entry.said), (lead.ref, lead.code, "owner"))  # The same line, his now.
+        self.assertEqual(entry.origin.get("quote"), "以后合并前先跑冒烟")
+        row = next(row for row in project_memory.stored(self.state, PID) if row["id"] == memstore.parse_ref(lead.ref)[2])
+        self.assertEqual(row["meta"]["asserted_by"] if "meta" in row else row.get("asserted_by"), "owner")
+        self.assertEqual(memstore.log_read(self.state)[0]["action"], "confirm")  # Newest first.
 
     def test_a_topic_is_named_by_its_id_or_its_t_number(self):
         write_json(self.state / "topics" / "om_t1" / "topic.json", {"topic_number": 483})

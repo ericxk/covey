@@ -265,14 +265,17 @@ class TurnTest(TurnCase):
         self.assertTrue(memory_turn.fix_rule(self.ctx, self.job("以后别再问", message_id="web-op1", prompt_text="以后别再问"), lambda: True))
         self.assertTrue(memory_turn.fix_rule(self.ctx, self.job("以后别再问", prompt_text="话题起始消息：…\n\n以后别再问"), lambda: True))
 
-    def test_knowledge_keeps_its_own_remember_words(self):
-        self.env(**ON, **{knowledge.ENV: "1"})
-        runs = self.app().runs
-        self.assertFalse(memory_turn.fix_rule(self.ctx, self.job("记住这个坑"), lambda: True))
-        self.assertTrue(memory_turn.fix_rule(self.ctx, self.job("记住，以后都这样"), lambda: True))
-        self.env(**{knowledge.ENV: "0"})
-        self.assertTrue(memory_turn.fix_rule(self.ctx, self.job("记住这个坑"), lambda: True))
-        self.assertIsNotNone(runs)
+    def test_the_one_rule_takes_note_words_too_and_the_knowledge_rule_is_not_told(self):
+        # T908 M3a: one set of trigger words (core/memory.py CUES), one checkpoint rule; with the memory on the knowledge entries'
+        # remember rule is never told (app/knowledge_turn.py remembers), whatever COVEY_KNOWLEDGE says.
+        from covey.app import knowledge_turn
+        for on in ("1", "0"):
+            with self.subTest(knowledge=on):
+                self.env(**ON, **{knowledge.ENV: on})
+                for said in ("记住这个坑", "记一下：账单表按日期分区", "记住，以后都这样"):
+                    self.assertTrue(memory_turn.fix_rule(self.ctx, self.job(said), lambda: True))
+                self.assertFalse(knowledge_turn.remembers(self.ctx, self.job("记一下这个坑"), owner_turn=lambda: True))
+        self.assertIs(memory.CORRECTION_WORDS, memory.CUES)
 
 
 class CollectCase(Case):
@@ -293,7 +296,7 @@ class CollectCase(Case):
     def turn(self, *, memory_lines=None, void=None, user_text="以后别再先问侧重点，直接开工", status="done", sender=OWNER,
              prompt_text="", topic="t1", ids=(), key="", **record):
         self.count += 1
-        key = key or f"om{self.count}"
+        key = key or f"om_{self.count}"  # A message id of the owner's the Bridge took in (core/turn_source.py DIRECT).
         path = self.state / f"cp-{key}.json"
         data = {"phase": "完成"}
         if memory_lines is not None:
@@ -303,7 +306,7 @@ class CollectCase(Case):
         write_json(path, data)
         write_job(self.state, key, job_id=self.count, topic_id=topic, chat_id=DM, status=status, user_text=user_text,
                   workspace_name="bridge", checkpoint_path=str(path), prompt_text=prompt_text, sender_id=sender,
-                  memory_ids=list(ids), **record)
+                  memory_ids=list(ids), message_id=record.pop("message_id", key), **record)
         return ReplyJob(job_id=self.count, user_text=user_text, chat_id=DM, message_id=key, timeout=0, sender_id=sender,
                         topic_id=topic, prompt_text=prompt_text or None)
 
@@ -377,6 +380,41 @@ class CollectTest(CollectCase):
         rows = project_memory.live(self.state, projects.read_record(self.state, PID))
         self.assertEqual([(r["text"], r["source"], r["kind"]) for r in rows], [(self.LINE["text"], "owner", "constraint")])
         self.assertEqual(record["memory_notes"][0]["scope"], "管这个专项")
+        self.assertEqual(topic_memory.live(self.state, "t1"), [])
+
+    def test_the_one_rule_says_kind_and_scope_and_writes_them_the_one_way(self):
+        # T908 M3a: one checkpoint rule (MEMORY_FIX_RULE, kind rule|note and a suggested scope) written through
+        # core/memory_gate.py write: a note says 相关时才带, 这个话题 stays the topic's in a project's topic too, 处处 holds in the
+        # project while 待审核 asks, and a rule that would let a turn skip asking waits there instead.
+        from covey.core import memory_review
+        projects.create(self.state, projects.new_record(chat_id=CHAT, name="迁移账单", project_id=PID, now=NOW))
+        write_topic(self.state, topic_id="t1", topic_number=7, project=projects.project_field(PID, projects.MEMBER))
+        said = "以后回复都先给结论；记一下：账单表按日期分区；这件事别再先问；以后合完直接部署"
+        lines = [{"quote": "以后回复都先给结论", "text": "回复先给结论", "kind": "rule", "scope": "global"},
+                 {"quote": "记一下：账单表按日期分区", "text": "账单表按日期分区", "kind": "note", "scope": "project"},
+                 {"quote": "这件事别再先问", "text": "这件事不先问", "kind": "rule", "scope": "topic"}]
+        record = self.collect(self.turn(memory_lines=lines, user_text=said))
+        self.assertEqual([(n["kind"], n["text"], n["scope"], n.get("entry_kind")) for n in record["memory_notes"]],
+                         [("remembered", "回复先给结论", "管这个专项", None),
+                          ("pending", "回复先给结论", memory_collect.WIDER_WORDS, None),
+                          ("remembered", "账单表按日期分区", "管这个专项", "note"),
+                          ("remembered", "这件事不先问", "管这个话题", None)])
+        self.assertEqual([row["text"] for row in topic_memory.live(self.state, "t1")], ["这件事不先问"])
+        self.assertEqual([(item.suggest, item.items) for item in memory_review.items(self.state)],
+                         [({"kind": "rule", "scope": "global"}, (record["memory_notes"][0]["ref"],))])
+        sent = json.dumps(cards.memory_element(record["memory_notes"], "t1", str(record["job_id"])), ensure_ascii=False)
+        self.assertIn("记下了：账单表按日期分区（相关时才带） · 管这个专项", sent)
+        grant = self.collect(self.turn(memory_lines=[{"quote": "以后合完直接部署", "text": "合完直接部署", "scope": "project"}],
+                                       user_text=said))
+        self.assertEqual([(n["kind"], n["scope"]) for n in grant["memory_notes"]], [("pending", memory_collect.GRANT_WORDS)])
+        self.assertNotIn("合完直接部署", [entry.text for entry in memstore.entries(self.state)])
+        self.assertEqual(memory_review.items(self.state)[-1].suggest["grant"], "deploy")
+
+    def test_a_line_whose_turn_is_not_proven_his_is_not_written(self):
+        # app/memory_proof.py: a turn whose message is not one the Bridge took in from him (a hand-on's made-up id) proves nothing.
+        record = self.collect(self.turn(memory_lines=[self.LINE], message_id="revisit-1"))
+        self.assertNotIn("memory_notes", record)
+        self.assertTrue(any("reason=unproven" in line for line in self.logs), self.logs)
         self.assertEqual(topic_memory.live(self.state, "t1"), [])
 
     def test_a_quote_that_is_not_the_owners_words_a_missing_trigger_and_the_other_cases_write_nothing(self):

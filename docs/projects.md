@@ -111,7 +111,7 @@
 
 **记忆**不受开关影响：负责人的 `project_remember`、`project_style`、状态包、专项卡和卡上的“删”都经 `core/project_memory.py`，读写同一个文件 `projects/<id>/memory.json`。旧版留在专项记录 `memory` 字段里的条目照常读出来、和文件合并显示，下一次写入搬进文件。
 
-- **谁写的**（条目的 `source`）由写进来的那条路定，不看模型怎么说：负责人的 `project_remember`、`project_style` 是 `lead`；话题里你说了“以后……”、模型引了你的原话记下的是 `owner`（记忆开着，`app/memory_collect.py`）；你答问题卡记的是 `owner_answer`；你在分流记录上点“不对”纠正的是 `owner_fix`。给了别的值一律记成 `lead`。
+- **谁写的**（条目的 `source`）由写进来的那条路定，不看模型怎么说：负责人的 `project_remember`、`project_style` 是 `lead`；话题里你说了“以后……”、模型引了你的原话记下的是 `owner`（记忆开着，`app/memory_collect.py`；负责人话题里你说的也记进这个专项、算 `owner`，记忆自己长读，`app/memory_learn.py`，这时负责人的 `project_remember` 只记它自己的总结）；和负责人记的某条正文相同时，就地把那一条确认成你的；你答问题卡记的是 `owner_answer`；你在分流记录上点“不对”纠正的是 `owner_fix`。给了别的值一律记成 `lead`。
 - **来源**（`core/memory.py` 的 `describe`，含义见[架构 · 参与者、交付与来源](architecture.md#参与者交付与来源)）：每条读出来是谁说的 `asserted_by`、谁写下的 `recorded_by`、出处 `origin`、来源等级 `level`。没纠正过的条目按 `source` 读：`owner`、`owner_answer`、`owner_fix` 是你说的、Bridge 写下的；其余是负责人说的、负责人写下的。`level` 只由 `core/turn_source.py` 的 `provenance` 算：你说的、而且出处是 Bridge 收进来的（消息 id `message_id`、问题卡的标识 `question`）才是 `owner`，其余都是 `agent`；工具参数和模型写的东西里给了 `level` 或 `asserted_by` 也不认。“你说的 / 它总结的”跟着 `asserted_by` 走，只是标签；你说的但没有出处的旧条目（改成一题一条之前记下的问答）标“你说的（无出处）”，规则里写明它条件可能不全。
 - **出处**（`origin`）：知道的才写，你的消息 `message_id`、原问题（标识 `question`、第几题 `index`、题目 id `item`）、话题 `topic`、任务 `job`、你的原话 `quote`。
 - **三层**（`layer`，名词见[名词表](glossary.md)）：`rule` 长期约定、`decision` 当前决定（问答、你的纠正，负责人记的决定也在这一层）、`history` 历史记录；`valid` 是 `active`、`done`、`superseded`（带 `superseded_by`）或作废的 `void`，做完和被替代的进历史记录；`applies` 是适用范围和条件。

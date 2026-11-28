@@ -36,8 +36,9 @@ def legacy_save(args) -> str:
 
 
 def new_save(args) -> dict:
-    """An old principle_save or knowledge_save call's arguments in memory_save's words."""
-    kind = {"principle": "rule", "knowledge": "decision" if args.get("kind") == "decision" else "note"}[legacy_save(args)]
+    """An old principle_save or knowledge_save call's arguments in memory_save's words (a decision a note: memory_save
+    takes none). It carries no quote: memory_save asks for the owner's words again."""
+    kind = {"principle": "rule", "knowledge": "note"}[legacy_save(args)]
     workspace = str(args.get("workspace") or "").strip() if args.get("scope") == "workspace" else ""
     return {key: value for key, value in {"text": args.get("text"), "kind": kind, "scope": "global", "why": args.get("why"),
                                           "repos": [workspace] if workspace else None}.items() if value}
@@ -47,7 +48,7 @@ def memory_save(env, request):
     args = request.args if isinstance(request.args, dict) else {}
     made = memory_handler("memory_save")
     if made is not None:
-        return answer_of(made(env, new_save(args) if legacy_save(args) else args))
+        return answer_of(made(env, new_save(args) if legacy_save(args) else args, request))
     old = legacy_save(args)
     if old == "principle":
         return principle_save(env, request)

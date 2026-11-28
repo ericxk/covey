@@ -437,7 +437,12 @@ class ReposAndMemoryToolsTest(unittest.TestCase):
     are there (app/repos_turn.py repos_list, app/butler_knowledge.py memory_*), and the older names an earlier session
     still calls (core/butler_tool_specs.py RENAMED_TOOLS) taken with their arguments as they were."""
 
-    setUp = HandlerTest.setUp
+    def setUp(self):
+        HandlerTest.setUp(self)
+        # The butler's turn whose owner's words a memory_save quotes (app/memory_proof.py prove, T908 M3a).
+        self.env.runtime.access.owner_turn = lambda chat, sender: sender == "ou_owner"
+        write_job(self.state, "main-1", message_id="om_b1", chat_id=CHAT, sender_id="ou_owner", status="running",
+                  user_text="以后都回复先给结论；以后所有长任务都用 Codex 跑")
 
     def call(self, name, **args):
         from covey.app import butler_memory
@@ -500,25 +505,25 @@ class ReposAndMemoryToolsTest(unittest.TestCase):
 
     def test_memory_save_writes_the_store_and_an_older_calls_arguments_are_said_in_the_new_words(self):
         """With package M2 in (T870 Wave 2B) the memory tools are app/butler_knowledge.py's on core/memstore.py: the code back."""
+        from covey.app import butler_knowledge
         from covey.core import memstore
-        saved = self.call("memory_save", text="回复先给结论", kind="rule", scope="global")
+        saved = self.call("memory_save", text="回复先给结论", kind="rule", scope="global", quote="以后都回复先给结论")
         self.assertTrue(saved["ok"], saved)
         self.assertTrue(saved["text"].startswith("记下了："), saved)
         self.assertRegex(saved["data"]["code"], memstore.CODE_RE)
         entry = memstore.find(self.state, saved["data"]["ref"])
-        self.assertEqual((entry.kind, entry.scope, entry.text), ("rule", "global", "回复先给结论"))
-        old = self.call("memory_save", scope="owner", text="不在根目录递归搜索")  # principle_save's arguments.
-        self.assertTrue(old["ok"], old)
-        self.assertEqual(memstore.find(self.state, old["data"]["ref"]).kind, "rule")
+        self.assertEqual((entry.kind, entry.scope, entry.text, entry.origin["message_id"]), ("rule", "global", "回复先给结论", "om_b1"))
+        # principle_save's arguments, in the new words: they carry no quote of his words, so it is asked for (T908 M3a).
+        old = self.call("memory_save", scope="owner", text="不在根目录递归搜索")
+        self.assertEqual((old["ok"], old["text"]), (False, butler_knowledge.UNPROVEN))
         listed = self.call("memory_search")["text"]  # principles_list's: no query, the latest.
         self.assertIn(saved["data"]["code"], listed)
-        self.assertIn(old["data"]["code"], listed)
-        self.assertIn("加 project", self.call("memory_save", text="x", kind="rule", scope="project")["text"])
+        self.assertIn("加 project", self.call("memory_save", text="x", kind="rule", scope="project", quote="以后都回复先给结论")["text"])
         self.assertFalse(self.call("memory_save", text="x", kind="practice", scope="global")["ok"])
 
     def test_memory_revise_changes_or_retires_an_entry_by_its_code_or_its_old_arguments(self):
         from covey.core import memstore
-        first = self.call("memory_save", text="用 Codex 跑长任务", kind="rule", scope="global")["data"]
+        first = self.call("memory_save", text="用 Codex 跑长任务", kind="rule", scope="global", quote="以后所有长任务都用 Codex 跑")["data"]
         changed = self.call("memory_revise", key=first["code"], action="update", text="长任务用 Codex")
         self.assertTrue(changed["ok"], changed)
         self.assertEqual(memstore.find(self.state, first["ref"]).text, "长任务用 Codex")
@@ -531,7 +536,7 @@ class ReposAndMemoryToolsTest(unittest.TestCase):
     def test_the_memory_tools_hand_on_to_their_own_handlers_once_they_are_there(self):
         calls = []
 
-        def made(env, args):
+        def made(env, args, *request):
             calls.append(args)
             return {"ok": True, "text": "记下了 R7K2", "data": {"code": "R7K2"}}
         with mock.patch("covey.app.butler_knowledge.memory_save", create=True, side_effect=made):

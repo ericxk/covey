@@ -5,8 +5,13 @@ each takes the entry file's own lock and sends nothing to Feishu (rules 1 and 2)
 
 memory_save, memory_revise and memory_search (docs/butler.md 记忆) are the memory's own tools, the one set that replaces
 principle_* and knowledge_*: module-level functions ``(env, args) -> {ok, text, data}`` that app/butler_memory.py calls once
-it has put an older call's arguments in the new words (they are not in ``TOOLS``). A save goes through the write gate
-(core/memory_gate.py) and is written to core/memstore.py as the owner's own, by the butler.
+it has put an older call's arguments in the new words (they are not in ``TOOLS``). A save (T908 M3a) is a rule or a note
+(no decision: the butler's has no question a turn could carry it by) and carries the owner's words of this turn it is
+of (``quote``): app/memory_proof.py proves them in the butler's turn, and one it cannot is refused, so the butler writes
+again with his words; it goes through core/memory_gate.py write (the one way in, ``strict``: a refusal comes back with
+the rewrite offered) as the owner's own, by the butler, in the scope it chose by what it is about: 全局 only when his words
+say so (core/memory_gate.py EVERYWHERE: 所有、以后都、处处), else a rule waits in 待审核 for his accept (a note, carried
+only when related, goes 全局 as asked).
 
 history_search runs ``<cmd> search [--workspace W] [--since Nd] -- <query>`` as a subprocess of its own in its own
 process group, waits HISTORY_TIMEOUT seconds at most (the command has its own 60 s limit; this one is the Bridge's)
@@ -21,6 +26,7 @@ import subprocess
 import threading
 from pathlib import Path
 
+from covey.app import memory_proof
 from covey.app.butler_env import reply
 from covey.app.butler_tools import workspace_spaces
 from covey.core import knowledge, memory_gate, memstore, projects
@@ -213,30 +219,47 @@ def _refused(verdict) -> dict:
     return reply(False, text + (f"。可以改成：{verdict.text}" if verdict.text else "") + "。没有记。", refused=True)
 
 
-def memory_save(env, args):
-    """memory_save: one entry in the memory (规矩, 资料 or 决定), through the write gate."""
+SAVE_KINDS = ("rule", "note")
+UNPROVEN = ("核对不到主人这一轮的原话：quote 要照抄主人这一轮说这件事的一段（一字不改，不是你的转述），照他的原话再记一次。"
+            "没有记。")
+NO_DECISION = "kind 只能是 rule（规矩）或 note（资料）：主人答过的题 Bridge 已记成决定，不用记。没有记。"
+
+
+def memory_save(env, args, request=None):
+    """memory_save: one rule or note in the memory, of the owner's words of this turn (``quote``, proven in the turn of
+    ``request``), through core/memory_gate.py write (the module's docstring)."""
     kind, scope = str(args.get("kind") or "note"), str(args.get("scope") or "global")
     text, title = knowledge.clean_text(args.get("text")), knowledge.clean_text(args.get("title"))
+    quote = knowledge.clean_text(args.get("quote"))
+    if kind not in SAVE_KINDS:
+        return reply(False, NO_DECISION, refused=True)
     if not text:
         return reply(False, "要写的内容（text）是空的。")
     owner, why_not = _owner_of(env, scope, args)
     if why_not:
         return reply(False, why_not)
-    verdict = memory_gate.check(text, kind=kind, title=title)
-    if not verdict.ok:
-        return _refused(verdict)
+    access = getattr(getattr(env, "runtime", None), "access", None)
+    proof = memory_proof.prove(access, env.state_dir, memory_gate.Proof(quote=quote, via="butler"),
+                               job_key=str(getattr(request, "job_key", "") or "")) if quote and access is not None else None
+    if proof is None:
+        return reply(False, UNPROVEN, refused=True)
+    asked = kind == "rule" and scope == "global" and not memory_gate.everywhere(quote)  # A rule's 全局 he did not ask for: 待审核.
     try:
-        if kind == "decision":
-            entry = memstore.add_decision(env.state_dir, scope=scope, owner_key=owner, text=text, title=title, said="owner",
-                                          by="butler")
-        else:
-            entry = memstore.add(env.state_dir, kind=kind, scope=scope, owner_key=owner, text=text, title=title,
-                                 why=knowledge.clean_text(args.get("why")), said="owner", by="butler",
-                                 repos=tuple(args.get("repos") or ()), who="butler")
+        written = memory_gate.write(env.state_dir, kind=kind, scope=scope, owner_key=owner, text=text, title=title,
+                                    why=knowledge.clean_text(args.get("why")), repos=tuple(args.get("repos") or ()),
+                                    proof=proof, by="butler", source="memory_save", place="butler", strict=True,
+                                    pending=asked)
     except ValueError as exc:
         return reply(False, str(exc))
-    return reply(True, f"记下了：{entry.code} {entry.title} · {_where(entry)}", code=entry.code, ref=entry.ref,
-                 flags=list(verdict.flags))
+    if written.reason == memory_gate.PENDING:
+        return reply(True, "主人原话没说“所有”“以后都”“处处”，这条放进了待审核，主人采纳后才管全局；只关某个专项或话题的，"
+                           "改记到那个专项或话题（scope project 或 topic）。", review=written.review, flags=list(written.flags))
+    if written.entry is None:
+        return _refused(memory_gate.Verdict(False, written.rewrite, written.flags, written.reason))
+    entry = written.entry
+    said = {memstore.CONFIRMED: "（原来是负责人记的同一条，现在算主人定的）", memstore.SAME: "（已经记过这一条）"}.get(written.done, "")
+    return reply(True, f"记下了：{entry.code} {entry.title} · {_where(entry)}{said}", code=entry.code, ref=entry.ref,
+                 flags=list(written.flags))
 
 
 def memory_revise(env, args):

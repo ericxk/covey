@@ -367,7 +367,7 @@ class ToolTest(unittest.TestCase):
             self.assertNotIn(name, specs)
             self.assertIn(current_name(name), specs)
             self.assertIn(current_name(name), butler_memory.TOOLS)
-        self.assertEqual(specs["memory_save"]["input_schema"]["required"], ["text", "kind", "scope"])
+        self.assertEqual(specs["memory_save"]["input_schema"]["required"], ["text", "kind", "scope", "quote"])
         self.assertIn("一次性的要求", specs["memory_save"]["description"])
 
 

@@ -1,34 +1,41 @@
-"""What the owner said in a topic's turn that holds from now on becomes memory (COVEY_MEMORY=1, docs/butler.md 记忆), and a
-click takes it back.
+"""What the owner said in a topic's turn that holds from now on, or asked to be noted, becomes memory (COVEY_MEMORY=1,
+docs/butler.md 记忆), and a click takes it back.
 
-The model may write ``memory`` ([{quote, text}], at most ``PER_TURN``) and ``memory_void`` ([{id, quote}]) into its checkpoint on a
-turn whose rules said so (app/memory_turn.py fix_rule: the owner's words hold 以后 / 每次 / 别再 …). The Bridge, not the task
-runner (rule 8: a task process changes only its own task's card and record), checks them here once the runner has exited and the
-record is settled (app/detached.py finish_detached, app/job_dispatch.py for a run in this process): ``collect``.
+The model may write ``memory`` ([{quote, text, kind, scope}], at most ``PER_TURN``) and ``memory_void`` ([{id, quote}]) into its
+checkpoint on a turn whose rules said so (app/memory_turn.py fix_rule: the owner's words hold one of core/memory.py CUES;
+app/prompts.py MEMORY_FIX_RULE, the one rule that took the place of the knowledge entries' ``remember`` too, T908 M3a). The
+Bridge, not the task runner (rule 8: a task process changes only its own task's card and record), checks them here once the
+runner has exited and the record is settled (app/detached.py finish_detached, app/job_dispatch.py for a run in this process):
+``collect``.
 
-- A ``quote`` must be a run of the owner's own words of that turn (app/memory_turn.py ``owner_words``: the job record's ``user_text``, but of an
-  answer's turn only what he answered and added, never the question's own words); one that is not drops its line.
-- A ``memory`` line goes through the write gate (core/memory_gate.py: a time that stops being true or a live state is refused,
-  logged, not written) and becomes a rule the owner said (core/memstore.py add, ``said`` owner) in the narrowest place there is:
-  the project the topic belongs to, else the topic; 全局 only when the item says ``scope: global`` and the owner's quote says 全局.
-  A topic with redaction on (or whose setting cannot be read) marks it, and a marked line never goes 全局.
+- A ``quote`` must be a run of the owner's own words of that turn (app/memory_proof.py prove: of his level, his turn, and
+  app/memory_turn.py ``owner_words``: of an answer's turn only what he answered and added, never the question's own words);
+  one that is not drops its line.
+- ``take`` is the one way the owner's words of a turn reach the memory, this module's and 记忆自己长's (app/memory_learn.py):
+  through core/memory_gate.py write (the gate refuses a time that stops being true or a live state, logged, not written), as
+  his (``said`` owner, his message and quote the origin). ``kind`` rule (以后照做) or note (资料, carried when related). Its
+  ``scope`` is the model's suggestion: ``topic`` the topic (only this matter), ``project`` the topic's project (in a project's
+  topic, or its lead's, in force at once), ``global`` every topic: a note goes 全局 at once; a rule is written where it was said
+  (the project, else the topic) and 待审核 asks whether it is to hold 全局. A lead's own topic has no line of its own: what the
+  owner says there is the project's. A rule whose words name what only he says yes to (core/memory_gate.py grants) is not
+  written: it waits in 待审核 and holds once he accepts it. A topic with redaction on (or whose setting cannot be read) marks
+  it, and a marked line never goes 全局. The same words as a line of the lead's confirm that line (core/memstore.py put).
 - A ``memory_void`` id is a short code, a ref or an older M number of a turn (core/memstore.py find_in_turn) of an entry the turn
   carried that was not said by the owner; it becomes a tombstone (memstore.void: the text stays, nothing is lost). What the owner said
   himself (a correction of his included) is never voided this way.
-- The record gets ``memory_notes`` [{kind: remembered|voided|undone, text, scope, entry_id, ref?, redacted?}] and the turn's answer cards
-  a line each (cards/answer_card.py memory_element); the 不对 on a "记下了" line takes that line back (``undo``): the entry becomes
-  a tombstone, the note's kind ``undone``. 升为全局 beside it (``promote``, T647 E4: what he said in one topic held only there)
-  moves the line to 全局 (memstore.promote); the note says 管全局 then, its entry the new one, and 不对 takes it back.
+- The record gets ``memory_notes`` [{kind: remembered|voided|undone|pending, text, scope, entry_id, ref?, redacted?, entry_kind?}]
+  and the turn's answer cards a line each (cards/answer_card.py memory_element; a note's line says 相关时才带); the 不对 on a
+  "记下了" line takes that line back (``undo``): the entry becomes a tombstone, the note's kind ``undone``; on a 待审核 line it
+  turns the item down. 升为全局 of an older card (``promote``, T647 E4) moves the line to 全局 (memstore.promote).
 
 It writes only when the turn ended well, was the owner's own in an ordinary topic (not the butler's, not a 代答 topic, not one the
 butler handed on) whose words hold a trigger word, and not twice for one job. Never raises: a failure is a log line and the turn's
 other ending steps go on."""
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
-from covey.app import answer_cards, memory_turn
+from covey.app import answer_cards, memory_proof, memory_turn
 from covey.app.card_actions import action_value
 from covey.app.card_lanes import after_ack
 from covey.cards.answer_card import memory_element
@@ -42,21 +49,19 @@ from covey.core.topics import proxy_topic
 PER_TURN = 3
 ENDED_WELL = ("done", "waiting_user")
 PROJECT_WORDS, TOPIC_WORDS = "管这个专项", "管这个话题"
-GLOBAL_WORDS = "管全局"  # A line 升为全局 (``promote``): one of the owner's principles now.
-WORKSPACE_WORDS = "管这个工作区"  # A line the memory learned as a principle of the topic's workspace (app/memory_learn.py).
+GLOBAL_WORDS = "管全局"  # A line of 全局 (a note said so, a line 升为全局, ``promote``).
+WORKSPACE_WORDS = "管这个工作区"  # A line an older release learned as a principle of the topic's workspace.
 PRINCIPLE_WORDS = (GLOBAL_WORDS, WORKSPACE_WORDS)  # A note whose entry is a principle: 不对 removes the principle.
-SAID_GLOBAL = "全局"  # What the owner's quote says when a ``memory`` line is for every topic.
+WIDER_WORDS = "要不要管全局等你采纳"  # A rule for every topic, held where it was said meanwhile (core/memory_gate.py write ``wider``).
+GRANT_WORDS = "涉及要你点头的事，采纳后才生效"  # A learned rule that would let a turn skip asking (core/memory_gate.py GRANT).
+KINDS = ("rule", "note")
+SCOPES = ("topic", "project", "global")  # A line's suggested scope, narrowest first.
 REDACTED_REFUSAL = "这条来自开着脱敏的话题，不能升为全局：全局的记忆会带进不脱敏的话题。"
-
-
-def _squash(text) -> str:
-    return "".join(str(text or "").split())
 
 
 def from_owner(quote, said) -> bool:
     """Whether ``quote`` (not empty) is a run of ``said``, the owner's words of the turn, whitespace aside."""
-    quote = _squash(quote)
-    return bool(quote) and quote in _squash(said)
+    return memory_proof.said_in(quote, said)
 
 
 def reason_to_ignore(runtime, ctx, job, record) -> str:
@@ -95,35 +100,60 @@ def _topic_marked(ctx, topic_id) -> bool:
         return True
 
 
-def _take(ctx, record, text, marked, quote="", *, everywhere=False, log=None):
-    """(the note of one ``memory`` line, or None): the line written in the narrowest place (a rule the owner said); a project's
-    keeps where it came from (the owner's message the turn answered, its topic and job, and the owner's words ``quote``d).
-    ``everywhere``: the owner said 全局 (never for a marked line). The gate's refusal is logged by ``log``, never the words."""
-    topic_id = str(record.get("topic_id") or "")
-    state = ctx.state_dir
-    found = projects.topic_project(state, topic_id) if projects.memory_enabled() else None
-    if everywhere and not marked:
-        scope, owner, words = "global", "", GLOBAL_WORDS
-    elif found is not None and found.role == projects.MEMBER:
-        scope, owner, words = "project", found.id, PROJECT_WORDS
-    elif found is None:
-        scope, owner, words = "topic", topic_id, TOPIC_WORDS
+def place(state_dir, topic_id, scope) -> tuple[str, str, str]:
+    """(scope, owner key, its words) a line of the topic ``topic_id`` suggested for ``scope`` (``SCOPES``) is written in:
+    ``topic`` the topic's own, ``project`` the topic's project when it has one; a project lead's topic has no line of its own
+    (the project's), and ``global`` or no suggestion is the narrowest place there is, the project, else the topic."""
+    found = projects.topic_project(state_dir, topic_id) if projects.memory_enabled() else None
+    if found is not None and (scope != "topic" or found.role == projects.LEAD):
+        return "project", found.id, PROJECT_WORDS
+    return "topic", topic_id, TOPIC_WORDS
+
+
+def take(ctx, record, text, marked, quote="", *, kind="rule", scope="", access=None, source="checkpoint", log=None) -> list:
+    """The notes of one line of the owner's words of the turn of ``record`` (the module's docstring), through
+    core/memory_gate.py write: [] when his ``quote`` is not proven his (app/memory_proof.py prove, by ``access``), the gate
+    refuses it (logged by ``log``, never the words) or the words were there already as his. ``kind`` rule or note; ``scope``
+    the suggestion (``SCOPES``); ``source`` the log line's (checkpoint, learn)."""
+    log = log or (lambda line: None)
+    state, topic_id, job = ctx.state_dir, str(record.get("topic_id") or ""), record.get("job_id")
+    kind = kind if kind in KINDS else "rule"
+    scope = scope if scope in SCOPES else ""
+    proof = memory_proof.prove(access, state, memory_gate.Proof(message_id=str(record.get("message_id") or ""),
+                                                                quote=str(quote or "")),
+                               job_key=str(record.get("key") or "")) if access is not None else None
+    if proof is None:
+        log(f"memory line dropped reason=unproven job=#{job}")
+        return []
+    if scope == "global" and kind == "note" and not marked:
+        where, owner, words = "global", "", GLOBAL_WORDS
     else:
-        return None  # A lead's own topic: the butler's tools are its way.
-    text, verdict = memory_gate.accept(text, kind="rule")
-    if not text:
-        if log:
-            log(f"memory line refused by the gate reason={verdict.reason or 'gate'} job=#{record.get('job_id')}")
-        return None
-    origin = {"message_id": str(record.get("message_id") or ""), "topic_key": topic_id, "job": str(record.get("key") or ""),
-              "quote": str(quote or "")}
-    stamp = time.time()
-    entry = memstore.add(state, kind="rule", scope=scope, owner_key=owner, text=text, said="owner", by="owner",
-                         origin=origin, redacted=marked, now=stamp)
-    new = entry.at >= stamp - 1
-    return ({"kind": "remembered", "text": entry.text, "scope": words, "entry_id": memstore.parse_ref(entry.ref)[2],
-             "ref": entry.ref, **({"code": entry.code} if entry.code else {}), **({"redacted": True} if marked else {})}
-            if new else None)
+        where, owner, words = place(state, topic_id, scope)
+    origin = {"topic_key": topic_id, "job": str(record.get("key") or "")}
+    number = record.get("topic_number")
+    if type(number) is int:
+        origin["topic_number"] = number
+    try:
+        written = memory_gate.write(state, kind=kind, scope=where, owner_key=owner, text=text, proof=proof, by="owner",
+                                    source=source, place="topic", origin=origin, redacted=marked, learned=True,
+                                    wider="global" if scope == "global" and kind == "rule" else "")
+    except ValueError as exc:
+        log(f"memory line skipped job=#{job}: {exc}")
+        return []
+    if written.reason == memory_gate.GRANT:
+        log(f"memory line waits for the owner reason=grant kind={written.grant} job=#{job}")
+        return [{"kind": "pending", "text": text, "scope": GRANT_WORDS, "entry_id": written.review}] if written.fresh else []
+    if written.entry is None:
+        log(f"memory line refused by the gate reason={written.reason or 'gate'} job=#{job}")
+        return []
+    entry, notes = written.entry, []
+    if written.done != memstore.SAME:
+        notes.append({"kind": "remembered", "text": entry.text, "scope": words, "entry_id": memstore.parse_ref(entry.ref)[2],
+                      "ref": entry.ref, **({"code": entry.code} if entry.code else {}), **({"redacted": True} if marked else {}),
+                      **({"entry_kind": "note"} if entry.kind == "note" else {})})
+    if written.review and written.fresh:
+        notes.append({"kind": "pending", "text": entry.text, "scope": WIDER_WORDS, "entry_id": written.review})
+    return notes
 
 
 def _void(ctx, record, item):
@@ -171,8 +201,8 @@ def _lines(runtime, messenger, job, ctx) -> None:
         for item in wanted[:PER_TURN]:
             text = project_memory.clean(item.get("text")) if isinstance(item, dict) else ""
             if text and from_owner(item.get("quote"), said):
-                everywhere = item.get("scope") == "global" and SAID_GLOBAL in _squash(item.get("quote"))
-                notes.append(_take(ctx, record, text, marked, item.get("quote"), everywhere=everywhere, log=runtime.log))
+                notes += take(ctx, record, text, marked, item.get("quote"), kind=str(item.get("kind") or "rule"),
+                              scope=str(item.get("scope") or ""), access=runtime.access, log=runtime.log)
         notes = [note for note in notes if note]
         runtime.log(f"memory lines written={len(notes)} of {len(wanted) + len(voids)} job=#{record.get('job_id')}")
         if notes:

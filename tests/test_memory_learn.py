@@ -71,7 +71,7 @@ class Case(unittest.TestCase):
 
     def turn(self, user_text="以后汇报都先给结论，再给表", *, status="done", sender=OWNER, key="", checkpoint=None, **record):
         self.count += 1
-        key = key or f"om{self.count}"
+        key = key or f"om_{self.count}"  # A message id of the owner's the Bridge took in (core/turn_source.py DIRECT).
         path = self.state / f"cp-{key}.json"
         write_json(path, checkpoint or {"phase": "完成"})
         write_job(self.state, key, job_id=self.count, topic_id=record.pop("topic", "t1"), chat_id=DM, status=status,
@@ -130,32 +130,75 @@ class OwnerWordsTest(Case):
 
 
 class LearnTest(Case):
-    def test_a_line_for_every_topic_waits_in_the_review_queue_and_a_workspace_one_is_the_topics(self):
+    def test_a_rule_for_every_topic_holds_where_it_was_said_and_waits_for_global_and_a_workspace_one_is_the_topics(self):
+        # T908 M3a: 处处 → in force where it was said at once, and 待审核 asks whether it is to hold 全局 (its line in items).
         job = self.turn("以后汇报都先给结论，再给表；这个仓库别再跑全量测试")
         answer = {"remember": [{"quote": "以后汇报都先给结论，再给表", "text": "汇报先给结论再给表", "scope": "global"},
                                {"quote": "这个仓库别再跑全量测试", "text": "这个仓库不跑全量测试", "scope": "workspace"}],
                   "void": []}
         notes, asked, record = self.learn(job, answer)
         # The workspace is no scope of the memory any more: that line is the topic's, written at once.
-        self.assertEqual([(note["kind"], note["text"]) for note in notes],
-                         [("pending", "汇报先给结论再给表"), ("remembered", "这个仓库不跑全量测试")])
-        self.assertEqual(memstore.entries(self.state, scope="global"), [])  # Nothing global takes effect before his accept.
+        self.assertEqual([(note["kind"], note["text"], note["scope"]) for note in notes],
+                         [("remembered", "汇报先给结论再给表", "管这个话题"),
+                          ("pending", "汇报先给结论再给表", memory_collect.WIDER_WORDS),
+                          ("remembered", "这个仓库不跑全量测试", "管这个话题")])
+        self.assertEqual(memstore.entries(self.state, scope="global"), [])  # 全局 only with his accept.
+        self.assertEqual([row["text"] for row in topic_memory.live(self.state, "t1")], ["汇报先给结论再给表", "这个仓库不跑全量测试"])
         self.assertEqual([(item.type, item.text, item.suggest) for item in self.reviewed],
                          [("learn", "汇报先给结论再给表", {"kind": "rule", "scope": "global"})])
+        self.assertEqual(self.reviewed[0].items, (notes[0]["ref"],))
         self.assertEqual(self.reviewed[0].quote, "以后汇报都先给结论，再给表")
         self.assertEqual(self.reviewed[0].origin, {"topic_key": "t1"})
         self.assertEqual(record["memory_notes"], notes)
         self.assertEqual(record["memory_learned"]["state"], "done")
         self.assertEqual(asked[0]["said"], "以后汇报都先给结论，再给表；这个仓库别再跑全量测试")
         self.assertEqual(asked[0]["topic"], "选型")
+        self.assertNotIn("project", asked[0])
         self.assertFalse(any("汇报" in line for line in self.logs))  # His words never in a log line.
         card = json.dumps(memory_element(notes, "t1", "4"), ensure_ascii=False)
-        self.assertIn("待审核：汇报先给结论再给表", card)
-        self.assertEqual(card.count("bridge_memory_wrong"), 2)  # 不对 on each: it drops the candidate.
+        self.assertIn("待审核：汇报先给结论再给表 · " + memory_collect.WIDER_WORDS, card)
+        self.assertEqual(card.count("bridge_memory_wrong"), 3)  # 不对 on each: on 待审核 it turns the proposal down.
         with mock.patch.object(memstore, "review_set") as rejected:
-            after = memory_collect.take_back(self.state, "t1", record, notes[0]["entry_id"])
-        self.assertEqual(after[0]["kind"], "undone")
-        rejected.assert_called_once_with(self.state, notes[0]["entry_id"], "rejected", by="owner")
+            after = memory_collect.take_back(self.state, "t1", record, notes[1]["entry_id"])
+        self.assertEqual(after[1]["kind"], "undone")
+        rejected.assert_called_once_with(self.state, notes[1]["entry_id"], "rejected", by="owner")
+
+    def test_a_project_line_is_the_projects_at_once_and_a_note_says_it_is_carried_when_related(self):
+        # T908 M3a: 这个专项 → the project's, no 待审核 in a project's topic any more; 记一下 → a note (资料).
+        projects.create(self.state, projects.new_record(chat_id=CHAT, name="迁移账单", project_id=PID, now=NOW))
+        write_topic(self.state, topic_id="t1", topic_number=7, project=projects.project_field(PID, projects.MEMBER))
+        job = self.turn("这个专项以后都先跑冒烟；记一下：账单表按日期分区；这件事别再先问")
+        notes, asked, _ = self.learn(job, {"remember": [
+            {"quote": "这个专项以后都先跑冒烟", "text": "合并前先跑冒烟测试", "kind": "rule", "scope": "project"},
+            {"quote": "记一下：账单表按日期分区", "text": "账单表按日期分区", "kind": "note", "scope": "project"}]})
+        self.assertEqual(asked[0]["project"], "迁移账单")
+        self.assertEqual([(note["kind"], note["scope"], note.get("entry_kind")) for note in notes],
+                         [("remembered", "管这个专项", None), ("remembered", "管这个专项", "note")])
+        self.assertEqual(self.reviewed, [])
+        found = {entry.text: entry for entry in memstore.entries(self.state, scope="project", owner_key=PID)}
+        self.assertEqual((found["合并前先跑冒烟测试"].kind, found["合并前先跑冒烟测试"].said), ("rule", "owner"))
+        self.assertEqual((found["账单表按日期分区"].kind, found["账单表按日期分区"].said), ("note", "owner"))
+        self.assertEqual(found["合并前先跑冒烟测试"].origin.get("message_id"), job.message_id)
+        self.assertEqual(found["合并前先跑冒烟测试"].origin.get("quote"), "这个专项以后都先跑冒烟")
+        card = json.dumps(memory_element(notes, "t1", "4"), ensure_ascii=False)
+        self.assertIn("记下了：账单表按日期分区（相关时才带） · 管这个专项", card)
+        self.assertNotIn("合并前先跑冒烟测试（相关时才带）", card)
+
+    def test_a_learned_rule_that_would_let_a_turn_skip_asking_waits_and_holds_only_once_accepted(self):
+        # T908 M3a: the five kinds' one list (core/ask_kinds.py) and the gate words: a learned rule naming one never holds before
+        # his accept, so nothing learned lets a turn deploy, delete, spend, send or occupy without asking.
+        for said, text, kind in (("以后改完直接部署到本机", "改完直接部署到本机，不用再问", "deploy"),
+                                 ("以后清理旧分支不用问我", "清理旧分支不用问", "delete"),
+                                 ("以后结论直接发给同事", "结论直接发给同事", "send"),
+                                 ("以后密钥过期了直接换", "密钥过期了直接换新的", "密钥")):
+            with self.subTest(kind):
+                self.reviewed.clear()
+                notes, _, _ = self.learn(self.turn(said), {"remember": [{"quote": said, "text": text, "scope": "topic"}]})
+                self.assertEqual([(note["kind"], note["scope"]) for note in notes], [("pending", memory_collect.GRANT_WORDS)])
+                self.assertEqual(topic_memory.live(self.state, "t1"), [])  # Not in force.
+                self.assertEqual([(item.type, item.suggest) for item in self.reviewed],
+                                 [("learn", {"kind": "rule", "scope": "topic", "owner_key": "t1", "grant": kind})])
+        self.assertTrue(any("reason=grant" in line for line in self.logs))
 
     def test_a_workspace_line_in_a_topic_without_a_workspace_stays_in_the_topic(self):
         self.ctx.workspace_name = ""
@@ -200,10 +243,10 @@ class ProposedOnceTest(Case):
         said = "以后汇报都先给结论，再给表"
         answer = {"remember": [{"quote": said, "text": "汇报先给结论再给表", "scope": "global"}], "void": []}
         first, _, _ = self.learn(self.turn(said), answer)
-        self.assertEqual([note["kind"] for note in first], ["pending"])
+        self.assertEqual([note["kind"] for note in first], ["remembered", "pending"])
         self.count += 1
         again, _, record = self.learn(self.turn(said), answer)
-        self.assertEqual(again, [])  # T914 M1: the item is the one there already: the card says no 待审核 for it.
+        self.assertEqual(again, [])  # T914 M1: the line and the item are the ones there already: the card says nothing again.
         self.assertEqual(len(self.reviewed), 1)
 
 
@@ -276,9 +319,11 @@ class SupersedeTest(Case):
         ids = [{"n": "M01", "ref": old.ref, "scope": "global", "by": "owner"}]
         job = self.turn("以后这些回复用英文，不要用中文", memory_ids=ids)
         notes, _, _ = self.learn(job, {"supersede": [{"id": "M01", "quote": "以后这些回复用英文", "text": "回复用英文"}]})
-        self.assertEqual([note["kind"] for note in notes], ["pending"])
-        self.assertIn("和 M01：回复用中文 矛盾，那条没动", notes[0]["text"])
+        # T908 M3a: what he says now holds where he said it; 待审核 asks whether it is to hold 全局.
+        self.assertEqual([note["kind"] for note in notes], ["remembered", "pending"])
+        self.assertIn("和 M01：回复用中文 矛盾，那条没动", notes[1]["text"])
         self.assertEqual([entry.text for entry in memstore.entries(self.state, scope="global")], ["回复用中文"])
+        self.assertEqual([row["text"] for row in topic_memory.live(self.state, "t1")], ["回复用英文"])
         self.assertEqual([item.text for item in self.reviewed], ["回复用英文"])
 
     def test_a_quote_that_is_not_his_or_an_id_the_turn_did_not_carry_changes_nothing(self):
@@ -300,20 +345,44 @@ class LeadAndQuestionTest(Case):
         self.lead()
         read = self.turn("以后汇报都先给结论")
         wake = self.turn("[Bridge 唤醒] 专项状态里的收件箱有新的回执，主人不在场：以后每次先查状态")
-        loose = self.turn("先看看，别动，总是这样")  # Only memory's own words count in a lead's topic.
+        again = self.turn("你总是先问，说过别这样")  # One set of trigger words, a lead's topic too (core/memory.py CUES).
+        loose = self.turn("先看看，别动")
         reasons = [memory_learn.reason_to_skip(self.runtime, self.ctx, job, find_job_record(self.state, job.message_id), {})
-                   for job in (read, wake, loose)]
-        self.assertEqual(reasons, ["", "not-owner-words", "no-cue"])
+                   for job in (read, wake, again, loose)]
+        self.assertEqual(reasons, ["", "not-owner-words", "", "no-cue"])
 
-    def test_in_a_lead_topic_only_the_lines_that_reach_past_it_are_kept(self):
+    def test_in_a_lead_topic_his_words_are_the_projects_as_his(self):
+        # T908 M3a: a lead's topic has no line of its own; what he says there is the project's, his own (the lead notes only its
+        # own summaries, app/project_lead.py), and 处处 waits for 全局 in 待审核 while it holds in the project.
         self.lead()
         job = self.turn("以后汇报都先给结论；这件事别再先问")
-        notes, _, _ = self.learn(job, {"remember": [
+        notes, asked, _ = self.learn(job, {"remember": [
             {"quote": "以后汇报都先给结论", "text": "汇报先给结论", "scope": "global"},
             {"quote": "这件事别再先问", "text": "这件事不先问", "scope": "topic"}]})
-        self.assertEqual([(note["kind"], note["text"]) for note in notes], [("pending", "汇报先给结论")])
-        self.assertTrue(any("reason=lead-topic" in line for line in self.logs))
+        self.assertEqual([(note["kind"], note["text"], note["scope"]) for note in notes],
+                         [("remembered", "汇报先给结论", "管这个专项"), ("pending", "汇报先给结论", memory_collect.WIDER_WORDS),
+                          ("remembered", "这件事不先问", "管这个专项")])
+        self.assertEqual(asked[0]["project"], "迁移")
         self.assertEqual(topic_memory.live(self.state, "t1"), [])
+        found = memstore.entries(self.state, scope="project", owner_key=PID)
+        self.assertEqual(sorted((entry.text, entry.said, entry.origin.get("message_id")) for entry in found),
+                         [("汇报先给结论", "owner", job.message_id), ("这件事不先问", "owner", job.message_id)])
+        self.assertEqual([(item.suggest, item.items) for item in self.reviewed],
+                         [({"kind": "rule", "scope": "global"}, (notes[0]["ref"],))])
+
+    def test_the_lead_notes_only_its_own_summaries_while_the_bridge_notes_his_words(self):
+        # T908 M3a: never the same words twice: with 记忆自己长 reading the lead's topic the lead's rules say project_remember is
+        # for its own summaries; without it, as before, the lead notes his words.
+        from covey.app import project_lead
+        noted, before = project_lead.lead_rules(noted=True), project_lead.lead_rules()
+        self.assertIn(project_lead.LEAD_REMEMBER, noted)
+        self.assertNotIn(project_lead.OWNER_REMEMBER, noted)
+        self.assertIn(project_lead.OWNER_REMEMBER, before)
+        self.assertNotIn(project_lead.LEAD_REMEMBER, before)
+        self.lead()
+        self.assertIn(project_lead.LEAD_REMEMBER, project_lead.rules_of(self.ctx, self.turn()))
+        self.env(**{memory.LEARN_ENV: ""})
+        self.assertIn(project_lead.OWNER_REMEMBER, project_lead.rules_of(self.ctx, self.turn()))
 
     def question(self, token="0123456789abcdef", text="是否删掉记忆中这一部分？"):
         write_json(self.state / "questions" / f"{token}.json", {"questions": [

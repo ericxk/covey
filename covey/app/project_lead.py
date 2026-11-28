@@ -133,6 +133,14 @@ WOKEN = "话题有了结果，会有下一轮叫醒你。"
 NOT_WOKEN = ("话题有了结果不会叫醒你（没开叫醒负责人）：它的回执留在收件箱，主人下次找你时一起读；"
              "别对主人说“我会跟进”“有结果我再告诉你”。")
 assert any(WOKEN in rule for rule in IDENTITY)
+# Who notes the owner's own words in a lead's topic (T908 M3a): with 记忆自己长 reading them (app/memory_turn.py learner_reads)
+# the Bridge does, as his, in the project (app/memory_learn.py), and the lead notes only its own summaries (``lead_rules``
+# ``noted``): never the same words twice. Without it the lead notes them, as before.
+OWNER_REMEMBER = "主人说出这个专项里长期适用的做法、偏好或坑，"
+LEAD_REMEMBER = ("你自己总结出的这个专项里长期适用的做法或坑（主人自己说的“以后……”“记住……”，Bridge 会照他的原话记进这个专项，"
+                 "你不用再记，免得记两遍），")
+OWNER_FIXED = "主人纠正过的做法，用 project_remember 记下，之后照做。"
+LEAD_FIXED = "主人纠正过的做法 Bridge 会照他的原话记下，你之后照做。"
 TOOL_RULES = (
     "- 下面说的工具都是 Bridge 工具（MCP 服务 bridge 的工具，名字是 mcp__bridge__<工具名> 或 mcp_bridge_<工具名>）。开话题用 project_topic_start（写干净的任务说明：做什么、范围、约束、"
     "交付什么；不抄本机路径；什么时候问主人话题自己知道，不用写“严禁发问题卡”“别问主人”），给已有话题加话用 project_topic_send；同时在做的话题不设上限，一件独立的事一个话题。",
@@ -146,7 +154,7 @@ TOOL_RULES = (
     "- 要主人定的事（范围、取舍、部署这一批、要不要停）用 project_ask 问：每题写 kind，选项写清，一次最多 4 题，"
     "你之前问了还没答的会并进同一张卡；这一轮结束时 Bridge 发问题卡，任何汇报风格都发，主人答了会接着叫你。不要只在回复里问。",
     "- 专项的目标和完成标准用 project_goal 写成给主人看的一两句（网页上专项标题下显示）：第一轮写，主人改了要求再更新；只写目标，不写进度。",
-    "- 主人说出这个专项里长期适用的做法、偏好或坑，用 project_remember 记下：kind 写 rule（规矩，以后照做的）或 note（资料，供参考的事实），"
+    "- " + OWNER_REMEMBER + "用 project_remember 记下：kind 写 rule（规矩，以后照做的）或 note（资料，供参考的事实），"
     "title 写一句不超过 40 字的标题；你记的规矩当场在这个专项生效、标“负责人记的”，主人不逐条审。主人答过的题 Bridge 已记成决定，不用再记。"
     "主人说“少打扰我”“多报一点”这类，用 project_style 改汇报风格。",
     "- 专项记忆的口径变了（记错了、主人改了主意、两条说同一件事），用 project_memory_revise 改那一条（id 写那一条开头〔〕里的短码）：update 改正文，supersede 用新条"
@@ -185,7 +193,7 @@ TRIAGE_RULES = (
     "“当前决定”只管那道题问的范围，换了批次、目标或扩大范围的转给主人）：用 project_answer，每题都答，答案写选项原文，多选给数组；"
     "回答会注明是你替主人答的，记在专项卡的分流记录里，主人不同意会在那个话题里直接说。",
     f"- 拿不准、记忆里没有依据、涉及{ASK_SHORT}或别的撤不回的操作，都用 project_escalate 转给主人并写清 why，别猜；"
-    "自由文字的问题不会交给你。主人纠正过的做法，用 project_remember 记下，之后照做。",
+    "自由文字的问题不会交给你。" + OWNER_FIXED,
 )
 # With 协作 on (COVEY_COLLAB=1): the lead answers for the project's goal (docs/projects.md 负责人对照目标跟进), not for
 # passing on what its topics said, and an answer it gives for the owner names its grounds (app/triage.py grounds).
@@ -216,13 +224,16 @@ def style_rule(style) -> str:
     return f"- 汇报风格：{REPORT_WORDS[style[REPORT]]}；说明的详细程度“{style[DETAIL]}”。"
 
 
-def lead_rules(style=None, practice=PRACTICE) -> str:
+def lead_rules(style=None, practice=PRACTICE, *, noted: bool = False) -> str:
     """The lead's rules: identity (NOT_WOKEN for WOKEN without COVEY_PROJECT_AUTOWAKE=1), tools, the style as the record has it,
     the practice layer (``practice``; none by default). The language rule is the bridge rules' (app/prompts.py
     LANGUAGE_RULE), said there once. With 协作 on
     (COVEY_COLLAB=1) the lead's duty to the goal (``COLLAB_RULES``) follows the tools; with the triage, on or off 协作, the
-    grounds an answer names (``EVIDENCE_RULE``, W0-2)."""
+    grounds an answer names (``EVIDENCE_RULE``, W0-2). ``noted``: the Bridge notes the owner's own words of the lead's topic
+    (记忆自己长): project_remember is for the lead's own summaries (``LEAD_REMEMBER``)."""
     tools = TOOL_RULES if not triage.enabled() else (*(rule.replace(NOT_YET, "") for rule in TOOL_RULES), *TRIAGE_RULES)
+    if noted:
+        tools = tuple(rule.replace(OWNER_REMEMBER, LEAD_REMEMBER).replace(OWNER_FIXED, LEAD_FIXED) for rule in tools)
     if turn_source.enabled():
         tools = (*tools, *COLLAB_RULES)
     if triage.enabled():
@@ -1085,8 +1096,15 @@ def lead_turn(ctx, job, prompt, session_id, log, release, now=None):
     except Exception as exc:  # noqa: BLE001 - the turn goes on with the rules alone
         log(f"lead state pack unavailable job=#{job.job_id}: {type(exc).__name__}")
         pack = "[专项状态暂时读不到：先用 topic_read 看话题]"
-    rules = "" if at_system else lead_rules(record.get("style"))
+    rules = "" if at_system else lead_rules(record.get("style"), noted=_noted(ctx))
     return ctx, "\n\n".join(part for part in (rules, pack, prompt) if part)
+
+
+def _noted(ctx) -> bool:
+    """Whether the Bridge notes the owner's own words of a lead's topic (app/memory_turn.py learner_reads)."""
+    from covey.app.memory_turn import learner_reads
+
+    return learner_reads(ctx)
 
 
 def rules_of(ctx, job) -> str:
@@ -1096,7 +1114,7 @@ def rules_of(ctx, job) -> str:
         record = projects.read_record(ctx.state_dir, found.id) if found is not None else {}
     except (OSError, ValueError):
         return ""
-    return lead_rules(record.get("style")) if record else ""
+    return lead_rules(record.get("style"), noted=_noted(ctx)) if record else ""
 
 
 def pack_sent(state_dir, project_id, job, session_id) -> dict | None:

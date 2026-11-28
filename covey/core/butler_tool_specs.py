@@ -67,21 +67,25 @@ REPOS_ARG = {"type": "array", "maxItems": 10, "description": "可选，要用的
 WORKSPACE_ARG = {"type": "string", "description": "旧参数，同 repos 里只读的一项"}
 WHY_ARG = {"type": "string", "description": "一行中文：为什么这样配置"}
 
-# 记忆 (docs/butler.md 记忆): one set of tools for the owner's 规矩, 决定 and 资料 (app/butler_knowledge.py memory_save,
-# memory_revise, memory_search), always listed. The principle_* and knowledge_* tools of older sessions are run as these
-# (RENAMED_TOOLS).
-MEMORY_KINDS = ("rule", "note", "decision")
+# 记忆 (docs/butler.md 记忆): one set of tools for the owner's 规矩 and 资料 (app/butler_knowledge.py memory_save,
+# memory_revise, memory_search), always listed; a save quotes the owner's words of the turn (T908 M3a). The principle_*
+# and knowledge_* tools of older sessions are run as these (RENAMED_TOOLS).
+MEMORY_KINDS = ("rule", "note")
 MEMORY_SCOPES = ("global", "project", "topic")
 MEMORY_TOOLS = (
     {"name": "memory_save",
-     "description": "记一条记忆：主人说“以后……”“记住……”“记一下……”时用。kind：rule 规矩（以后都照做）、note 资料（事实、做法、坑）、"
-                    "decision 决定（题和主人的回答）；scope：global 通用、project 本专项、topic 本话题。text 用主人的说法写一句，"
-                    "主人只管某类事时照写那一类，不写机密，不写“今天”“现在”这类会过时的说法。一次性的要求（只对这件事、这一轮）不记，"
-                    "意思相同的不重复记。记完回复“已记下：……”。",
-     "input_schema": {"type": "object", "required": ["text", "kind", "scope"], "properties": {
-         "text": {"type": "string", "description": "一句话，200 字内（决定 600 字内）"},
+     "description": "记一条记忆：主人说“以后……”“记住……”“记一下……”时用。kind：rule 规矩（以后都照做）、note 资料（事实、做法、坑，"
+                    "相关时才带）；主人答过的题 Bridge 已记成决定，不用记。quote 照抄主人这一轮原话里说这件事的一段（一字不改），"
+                    "核对不到就不记。scope 按内容选：只关某个专项的 project、只关某个话题的 topic；规矩要主人原话明说“所有”“以后都”“处处”"
+                    "才 global，没明说的进待审核等主人采纳。text 用主人的说法写一句，主人只管某类事时照写那一类，不写机密，"
+                    "不写“今天”“现在”这类会过时的说法。一次性的要求（只对这件事、这一轮）不记，意思相同的不重复记。记完回复“已记下：……”。",
+     "input_schema": {"type": "object", "required": ["text", "kind", "scope", "quote"], "properties": {
+         "text": {"type": "string", "description": "一句话，200 字内"},
+         "quote": {"type": "string", "description": "主人这一轮原话里说这件事的一段，一字不改"},
          "kind": {"type": "string", "enum": list(MEMORY_KINDS)},
          "scope": {"type": "string", "enum": list(MEMORY_SCOPES)},
+         "project": {"type": "string", "description": "scope 为 project 时写：专项 id 或名字"},
+         "topic": {"type": "string", "description": "scope 为 topic 时写：话题 T 号或 id"},
          "title": {"type": "string", "description": "可选，标题，40 字内"},
          "why": {"type": "string", "description": "可选，为什么，200 字内"},
          "repos": {"type": "array", "maxItems": 10, "items": {"type": "string"}, "description": "可选，只对这些仓库成立"}}}},

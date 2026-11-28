@@ -340,7 +340,7 @@
 
 两个变量互相独立：知识条目默认开，历史搜索要自己指一个命令。关着（`COVEY_KNOWLEDGE=0` 或没设 `COVEY_HISTORY_CMD`）时不建目录、不改规则和提示词、管家的工具清单里没有对应的工具、汇总里没有这一节。设计和实现见[管家 · 知识库](butler.md#知识库)，主人怎么用见[使用指南 · 知识条目](usage.md#知识条目)。
 
-- `COVEY_KNOWLEDGE`：默认开，设 `0`、`off`、`false`、`no` 才关。记录在 `<state>/knowledge/`；管家的知识条目工具已换成一直列着的记忆工具（`memory_save`、`memory_revise`、`memory_search`，[butler.md 工具清单](butler.md#工具清单)），这个开关不再增减工具；每个话题的新会话带上条目，续接的会话只补上一轮之后新增或改动的；主人在话题里明确说“记一下 / 记住 / 记下来”时，Bridge 在那一轮结束后把检查点的 `remember` 记下来；早晚汇总多“新记的知识”。
+- `COVEY_KNOWLEDGE`：默认开，设 `0`、`off`、`false`、`no` 才关。记录在 `<state>/knowledge/`；管家的知识条目工具已换成一直列着的记忆工具（`memory_save`、`memory_revise`、`memory_search`，[butler.md 工具清单](butler.md#工具清单)），这个开关不再增减工具；每个话题的新会话带上条目，续接的会话只补上一轮之后新增或改动的；记忆（`COVEY_MEMORY`）关着时，主人在话题里明确说“记一下 / 记住 / 记下来”，Bridge 在那一轮结束后把检查点的 `remember` 记下来（记忆开着时归记忆的那一条检查点规则，记成资料）；早晚汇总多“新记的知识”。
 - `COVEY_HISTORY_CMD=/absolute/path/to/kb-history`：历史搜索命令的**绝对路径**（相对路径等于没设）。设了以后，主人自己的话题规则里多一行“要查以前做过的事用 `<命令> search <一句话>`”，管家多 `history_search`（跑 `<命令> search [--workspace W] [--since Nd] -- <一句话>`，自己的进程组里最多等 70 秒，超时整组杀，输出最多 20 KB）。命令本身不在这个仓库。
 - 关掉：按[改开关三步](#改开关三步)设成 `0`；已经写下的 `knowledge/` 留着。
 - 日志：`knowledge remember written=N job=#…`、`knowledge remember ignored reason=… job=#…`、`knowledge remember failed job=#…`；管家工具的 `main tool name=knowledge_save …`。

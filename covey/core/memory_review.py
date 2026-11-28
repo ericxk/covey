@@ -2,6 +2,9 @@
 
 What the memory's own learning would make reach past its topic, a conflict, a tidy proposal and the third same-class
 question (class3) wait here for the owner's word; a lead's rule does not (it holds in its project at once, 负责人记的).
+Of the learning's (type learn, core/memory_gate.py write): a rule for every topic, held where it was said meanwhile (its
+line in ``items``: accepting moves that line to 全局, ``memstore.promote``, never a second one), and a learned rule whose
+words name what only the owner says yes to (``suggest.grant``: in force only once accepted).
 Items older releases put here (a lead's rule, an evening candidate, a Harness's import, a lead's line the migration
 carried) stay readable and decidable until they are decided or expire: an open item EXPIRE_DAYS old is closed as expired
 by the daily upkeep (core/memstore.py upkeep), kept, never deleted. Only the owner's submit moves an item out otherwise; a
@@ -123,6 +126,10 @@ def _written(state_dir, row: dict, action: str, who, token, now) -> list[str]:
         return written
     if action == "reject":
         return []
+    if kind == "learn" and refs and suggest.get("scope") == "global":  # Held where it was said (T908 M3a): moved, not made again.
+        here = memstore.find(state_dir, refs[0])
+        if here is not None and here.status == "active" and here.scope != "global":
+            return [memstore.promote(state_dir, here.ref, scope="global", who=who, token=token, now=now).ref]
     return _add(state_dir, row, who, token, now, by=_BY.get(kind, "bridge"))
 
 

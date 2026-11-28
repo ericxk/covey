@@ -314,11 +314,13 @@ MEMORY_PROMOTE_KIND = "bridge_memory_promote"  # 升为全局 of the older card:
 MEMORY_LINES = {"remembered": "记下了", "voided": "作废了", "undone": "已撤销", "superseded": "收起了", "pending": "待审核"}
 UNDOABLE = ("remembered", "superseded", "pending")  # The lines with a 不对 (app/memory_collect.py take_back).
 EDIT_LABEL = "改"
+NOTE_WORDS = "（相关时才带）"  # After a 资料 the owner asked to be noted (a note's ``entry_kind``): not carried every turn.
 
 
 def memory_element(notes, topic_id="", job_id="", url=None):
     """The grey lines at the bottom of a turn's answer card (COVEY_MEMORY=1, app/memory_collect.py): one per note of the job
-    record's ``memory_notes`` ({kind, text, scope, entry_id, title?, code?, redacted?}), "记下了：<title, else text> · 管这个专项" and a
+    record's ``memory_notes`` ({kind, text, scope, entry_id, title?, code?, redacted?, entry_kind?}), "记下了：<title, else text> ·
+    管这个专项" (a 资料, ``entry_kind`` note, says ``NOTE_WORDS`` after its words) and a
     不对 button that takes it back (``MEMORY_WRONG_KIND``), then with the web page on a 改 button that opens that entry on the
     web page's 记忆 (``url`` + ``?code=<the note's short code>``; ``url`` default: the page's /memory; no button without the
     page); "作废了：<text>", "已撤销：<text>" once taken back. There is no 升为全局 here: moving an entry to a larger scope is the
@@ -333,7 +335,7 @@ def memory_element(notes, topic_id="", job_id="", url=None):
         kind = note.get("kind")
         if kind not in MEMORY_LINES:
             continue
-        text = literal_text(note.get("title") or note.get("text"))
+        text = literal_text(note.get("title") or note.get("text")) + (NOTE_WORDS if note.get("entry_kind") == "note" else "")
         words = f"{MEMORY_LINES[kind]}：{text}" + (f" · {note.get('scope')}" if kind in UNDOABLE and note.get("scope") else "")
         line = md(grey(words), size="notation")
         if kind in UNDOABLE:

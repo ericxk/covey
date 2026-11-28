@@ -57,8 +57,13 @@ SPARE_ORDER = (RULE, DECISION, REFERENCE)  # Who takes, in turn, the room the pa
 REFERENCE_CAP = PART_LIMITS[REFERENCE] * 5 // 4  # 待核对参考 (1000) never takes more than this with lent room: the owner's decisions come first.
 LIMITS = {GLOBAL: 1200, WORKSPACE: 800, PROJECT: sum(PART_LIMITS.values()), TOPIC: 800}  # Characters of a scope's lines.
 OWNER, LEAD = "owner", "lead"
-# The owner's words that start a correction (app/memory_turn.py, app/memory_learn.py).
-CORRECTION_WORDS = ("以后", "每次", "别再", "不要再", "记住", "再也不要", "从现在起")
+# The owner's words that say "from now on" or "note this" (T908 M3a): the one set of trigger words. A turn whose owner's words
+# hold one is told the checkpoint's memory rule (app/memory_turn.py fix_rule), and its words are read by 记忆自己长
+# (app/memory_learn.py), in an ordinary topic, a project's or its lead's alike. Only words that say so (T852): everyday ones
+# (先, 不要, 别, 不是, 应该, 改成, 又, 必须) are in nearly every message. 总是, 老是 and 说过 are those of a correction said again.
+CUES = ("以后", "每次", "别再", "不要再", "记住", "再也不要", "从现在起", "一律", "永远", "总是", "老是", "说过", "规则是", "默认",
+        "记一下", "记下来")
+CORRECTION_WORDS = CUES  # The name app/memory_turn.py reads them by.
 OWNER_WORDS = {OWNER: "你说的", LEAD: "它总结的"}
 OWNER_SOURCES = project_memory.OWNERS  # Of a project line: the owner's own words.
 ANSWER_SOURCES = project_memory.ANSWERS  # Of a project line: the owner's answer to a question.

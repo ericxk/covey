@@ -864,14 +864,24 @@ def _legacy_kind(kind):
     return "constraint" if kind == "rule" else "fact"
 
 
-def add(state_dir, *, kind: str, scope: str, owner_key: str = "", text: str, title: str = "", why: str = "",
+NEW, CONFIRMED, SAME = "new", "confirmed", "same"  # What ``put`` did.
+
+
+def add(state_dir, **fields) -> Entry:
+    """A new entry: ``put``'s, without saying what it did."""
+    return put(state_dir, **fields)[0]
+
+
+def put(state_dir, *, kind: str, scope: str, owner_key: str = "", text: str, title: str = "", why: str = "",
         said: str = "owner", by: str = "owner", origin: dict | None = None, repos=(), device: str = "",
         verified_at: float = 0.0, redacted: bool = False, status: str = "active", aliases=(), who: str = "",
-        because: dict | None = None, token: str = "", log: bool = True, now: float | None = None) -> Entry:
-    """A new entry (a decision goes through ``add_decision``). 全局 into memory/global.json; a project's or a topic's into its
-    memory.json, the store every release reads, with the rest in its memory-v2.json. The same text of the same kind still
-    live in that store is the one returned (its title and fields as given are laid over it). Logged (``token`` names the
-    change for ``undo``). ValueError says why nothing was written."""
+        because: dict | None = None, token: str = "", log: bool = True, now: float | None = None) -> tuple[Entry, str]:
+    """(the entry, what was done: ``NEW``, ``CONFIRMED`` or ``SAME``): a new entry (a decision goes through
+    ``add_decision``). 全局 into memory/global.json; a project's or a topic's into its memory.json, the store every release
+    reads, with the rest in its memory-v2.json. The same text of the same kind still live in that store is the one returned,
+    as it was (``SAME``); but when it is somebody else's summary and this one is the owner's (``said`` owner), that line is
+    confirmed where it is (同文就地确认, T908 M3a): 你定的 from now on, the owner's origin laid over its own, logged as a
+    confirm (``CONFIRMED``). Logged (``token`` names the change for ``undo``). ValueError says why nothing was written."""
     if kind == "decision":
         raise ValueError("决定记录用 add_decision")
     stamp = time.time() if now is None else now
@@ -886,18 +896,30 @@ def add(state_dir, *, kind: str, scope: str, owner_key: str = "", text: str, tit
             key = same_key(text)
             row = next((row for row in rows if isinstance(row, dict) and row.get("kind") == kind
                         and row.get("status") in ("active", "pending") and same_key(row.get("text")) == key), None)
-            if row is not None:
-                return _global_entry(row)
-            taken = {str(r.get("id")) for r in rows if isinstance(r, dict)}
-            gid = next(gid for gid in ("g" + secrets.token_hex(3) for _ in iter(int, 1)) if gid not in taken)
-            row = {"id": gid, "text": text, "at": stamp, "origin": {"at": stamp, **dict(origin or {})}, "status": "active",
-                   **({"redacted": True} if redacted else {})}
-            row.update({k: v for k, v in extra.items() if v is not None})
-            rows.append(row)
-            ref = f"global:{gid}"
-            row["code"] = assign(state_dir, [(ref, kind)], aliases={a: ref for a in _refs(aliases)})[ref]
+            if row is not None and (said != "owner" or row.get("said", "owner") == "owner"):
+                return _global_entry(row), SAME
+            before = None
+            if row is not None:  # The owner says what somebody else summed up: that line is his now, where it is.
+                before = _global_entry(dict(row))
+                row.update(said="owner", origin={**dict(row.get("origin") or {}), **dict(origin or {})})
+            else:
+                taken = {str(r.get("id")) for r in rows if isinstance(r, dict)}
+                gid = next(gid for gid in ("g" + secrets.token_hex(3) for _ in iter(int, 1)) if gid not in taken)
+                row = {"id": gid, "text": text, "at": stamp, "origin": {"at": stamp, **dict(origin or {})}, "status": "active",
+                       **({"redacted": True} if redacted else {})}
+                row.update({k: v for k, v in extra.items() if v is not None})
+                rows.append(row)
+                ref = f"global:{gid}"
+                row["code"] = assign(state_dir, [(ref, kind)], aliases={a: ref for a in _refs(aliases)})[ref]
             write_json(global_path(state_dir), {**data, "version": VERSION, "entries": rows}, ensure_ascii=False, indent=1)
         entry = _global_entry(row)
+        if before is not None:
+            if log:
+                log_change(state_dir, who=who or by, action="confirm", refs=[entry.ref], title=entry.title,
+                           before={entry.ref: snapshot(before)}, after={entry.ref: snapshot(entry)}, because=because,
+                           token=token, now=stamp)
+            _done(state_dir, stamp)
+            return entry, CONFIRMED
     elif scope == "project":
         source = "owner" if said == "owner" else "lead"
         try:
@@ -906,7 +928,7 @@ def add(state_dir, *, kind: str, scope: str, owner_key: str = "", text: str, tit
         except KeyError:
             raise ValueError("专项不存在") from None
         if not new:
-            return find(state_dir, f"project:{owner_key}:{row['id']}")
+            return _same(state_dir, f"project:{owner_key}:{row['id']}", said, who or by, because, token, stamp, log)
         _put_sidecar(state_dir, "project", owner_key, {row["id"]: extra})
         ref = f"project:{owner_key}:{row['id']}"
         assign(state_dir, [(ref, kind)], aliases={a: ref for a in _refs(aliases)})
@@ -915,7 +937,7 @@ def add(state_dir, *, kind: str, scope: str, owner_key: str = "", text: str, tit
         row, new = topic_add(state_dir, owner_key, text, source="owner" if said == "owner" else "lead", redacted=redacted,
                              now=stamp, kind=_legacy_kind(kind))
         if not new:
-            return find(state_dir, f"topic:{owner_key}:{row['id']}")
+            return _same(state_dir, f"topic:{owner_key}:{row['id']}", said, who or by, because, token, stamp, log)
         _put_sidecar(state_dir, "topic", owner_key, {row["id"]: extra})
         ref = f"topic:{owner_key}:{row['id']}"
         assign(state_dir, [(ref, kind)], aliases={a: ref for a in _refs(aliases)})
@@ -924,7 +946,17 @@ def add(state_dir, *, kind: str, scope: str, owner_key: str = "", text: str, tit
         log_change(state_dir, who=who or by, action="add", refs=[entry.ref], title=entry.title, before={entry.ref: None},
                    after={entry.ref: snapshot(entry)}, because=because, token=token, now=stamp)
     _done(state_dir, stamp, scope=scope, owner_key=owner_key)
-    return entry
+    return entry, NEW
+
+
+def _same(state_dir, ref, said, who, because, token, now, log=True) -> tuple[Entry, str]:
+    """``put``'s answer for a project's or a topic's line whose words were there already: it as it was, or, the owner saying
+    what somebody else summed up, confirmed (said owner; core/project_memory.py add laid his origin on a project's line)."""
+    entry = find(state_dir, ref)
+    if said != "owner" or entry is None or entry.said == "owner":
+        return entry, SAME
+    return (change(state_dir, ref, action="confirm", who=who, because=because, token=token, log=log, now=now, said="owner"),
+            CONFIRMED)
 
 
 def _legacy_origin(origin) -> dict:

@@ -395,7 +395,9 @@ def _edit(state_dir, project_id, edit, also=None, now=None):
 
 def add(state_dir, project_id, text, kind="fact", source="lead", *, now=None, also=None, redacted=False, origin=None) -> tuple:
     """(the entry, whether it is new): ``text`` as an entry of ``kind``. The same text of the same kind that is still
-    there is the one returned, not noted twice. ``also(record)``: more to change in the project's record in the same write.
+    there is the one returned, not noted twice; the owner's (``source`` one of ``OWNERS``) on a line of the lead's confirms
+    that line where it is (同文就地确认, T908 M3a: its parties the owner's and the Bridge's as ``fix`` writes them, his
+    ``origin`` laid over its own). ``also(record)``: more to change in the project's record in the same write.
     ``redacted``: the line came from a topic with redaction on (it is only read back by such a topic, core/memory.py).
     ``source`` is one of ``SOURCES`` (any other is the lead's); ``origin`` where the line came from (``ORIGIN_KEYS``, kept in
     the meta)."""
@@ -410,6 +412,12 @@ def add(state_dir, project_id, text, kind="fact", source="lead", *, now=None, al
     def edit(rows, meta):
         same = next((row for row in rows if not row["deleted"] and row["kind"] == wanted["kind"] and row["text"] == wanted["text"]), None)
         if same is not None:
+            kept = dict(meta.get(same["id"]) or {})
+            if source in OWNERS and same["source"] not in OWNERS and kept.get("asserted_by") != turn_source.PARTY_OWNER:
+                kept.update(asserted_by=turn_source.PARTY_OWNER, recorded_by=turn_source.PARTY_BRIDGE,
+                            **({"origin": {**dict(kept.get("origin") or {}), **origin}} if origin else {}))
+                meta[same["id"]] = kept
+                return {**same, **kept}, False
             return same, False
         rows.append(wanted)
         if origin:

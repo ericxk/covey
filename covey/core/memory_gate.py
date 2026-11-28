@@ -7,17 +7,20 @@ like; such a state goes nowhere in memory, the entry says where to look). Vague 
 written through it (docs/butler.md 记忆); ``check`` is a pure function.
 
 ``write`` and ``revise`` are the one way into core/memstore.py's writes that WAVE12 C8 asks for (``Proof`` what the
-owner's words were, ``Proven`` that app/memory_proof.py checked them, ``Written`` what came of it). Readers first (W1-0):
-they pass the write through to core/memstore.py as it is, the files written byte for byte what the same call there writes,
-and no caller uses them yet; the rules of whose words make an entry the owner's, of the scope and of review come with the
-package that moves the callers here (W1-D).
+owner's words were, ``Proven`` that app/memory_proof.py checked them, ``Written`` what came of it). The owner's words reach
+the memory through ``write`` alone (T908 M3a): 记忆自己长 (app/memory_learn.py), a turn's checkpoint (app/memory_collect.py,
+app/knowledge_collect.py) and the butler's memory_save (app/butler_knowledge.py). ``write`` checks the words (``check``;
+``accept`` takes the rewrite offered, ``strict`` hands the refusal back), counts the entry the owner's only with his words
+proven, keeps a learned rule that would let a turn skip asking him (``grants``) out of force until he accepts it, and puts
+the question whether a rule is for every topic (``wider``) in 待审核 while it holds where it was said. What it writes is
+byte for byte what the same core/memstore.py call writes.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
-from covey.core import turn_source
+from covey.core import ask_kinds, project_gates, turn_source
 
 TIME_WORDS = ("今天", "明天", "昨天", "刚才", "刚刚", "目前", "现在", "本周", "这周", "今晚", "今早", "上周", "下周")
 DYNAMIC_RES = (re.compile(r"现网(?:是|在|为)?第\s*\d+\s*代"), re.compile(r"(?:当前|现在)(?:版本|部署)(?:是|为)\s*\S+"))
@@ -104,11 +107,36 @@ class Proven:
 class Written:
     """What a write or a revision did."""
 
-    entry: object | None  # The core/memstore.py Entry; None when it went to review instead.
-    review: str = ""  # The review item's key, then.
+    entry: object | None  # The core/memstore.py Entry; None when it went to review instead, or was refused.
+    review: str = ""  # The review item's key: the item it went to, or the one asking whether it is to hold 全局.
     said: str = ""  # Whose the entry is counted as (core/memstore.py SAID).
     scope: str = ""  # The scope it went to.
-    reason: str = ""  # Why it was refused or narrowed.
+    reason: str = ""  # Why it was refused or narrowed: the gate's words, or GRANT.
+    rewrite: str = ""  # A refused text's rewrite the gate offers (``strict``).
+    flags: tuple = ()  # Of FLAGS.
+    done: str = ""  # core/memstore.py put's NEW, CONFIRMED or SAME.
+    fresh: bool = False  # The review item is new (one there already is not said to wait again).
+    grant: str = ""  # What the words name of the five kinds or the gate words (``grants``).
+
+
+GRANT = "grant"  # Written.reason of a learned rule that waits in 待审核: its words name what only the owner says yes to.
+PENDING = "pending"  # Written.reason of a write ``pending`` asked for: it waits in 待审核, written once he accepts it.
+GLOBAL = "global"
+# The owner's words that say a rule is for every topic: the butler writes one 全局 only with one of them in his words (T908 M3a).
+EVERYWHERE = ("所有", "以后都", "处处", "全局")
+
+
+def grants(text, title="") -> str:
+    """What a rule saying ``text`` (``title``) would let a turn do without asking the owner: the key of the first of the five
+    kinds its words name (core/ask_kinds.py classify, the one list), else the first gate word (core/project_gates.py words:
+    secrets, quota…); '' for none. The lists lean to hits: one costs the owner a click in 待审核."""
+    seen = f"{title or ''} {text or ''}"
+    return ask_kinds.classify(seen) or next(iter(project_gates.words(seen)), "")
+
+
+def everywhere(quote) -> bool:
+    """Whether the owner's ``quote`` says the rule is for every topic (``EVERYWHERE``)."""
+    return any(word in str(quote or "") for word in EVERYWHERE)
 
 
 DECISION_FIELDS = ("question", "answer", "question_ref", "topic_key", "chosen", "category", "polarity", "status")
@@ -130,27 +158,81 @@ def _because(source, place="") -> dict:
     return {key: value for key, value in (("source", source), ("place", place)) if value}
 
 
+def _suggest(kind, scope, owner_key, **more) -> dict:
+    where = {"project_key": owner_key} if scope == "project" else {"owner_key": owner_key} if scope == "topic" else {}
+    return {"kind": kind, "scope": scope, **where, **more}
+
+
+def _review(state_dir, *, kind, text, title, suggest, proof, origin, flags, items=(), now=None) -> tuple[str, bool]:
+    """(the key, whether it is new) of a 待审核 item of type learn (core/memory_review.py add) proposing ``text``."""
+    import time
+
+    from covey.core import memory_review, memstore
+
+    given = proof.proof if isinstance(proof, Proven) else None
+    where = {key: origin[key] for key in ("topic_key", "topic_number") if origin.get(key) not in (None, "")}
+    return memory_review.add(state_dir, memory_review.ReviewItem(
+        key="", type="learn", title=title or memstore.auto_title(text, kind), text=text, suggest=suggest,
+        created_at=time.time() if now is None else now, quote=getattr(given, "quote", "") or "", origin=where,
+        items=tuple(items), flags=tuple(flags)))
+
+
 def write(state_dir, *, kind, scope, owner_key="", text, title="", why="", repos=(), proof: Proven | None, by: str,
-          source: str, place: str, decision: dict | None = None, supersedes: str = "", redacted=False,
+          source: str, place: str = "", decision: dict | None = None, supersedes: str = "", redacted=False,
+          origin: dict | None = None, strict: bool = False, learned: bool = False, wider: str = "", pending: bool = False,
           now=None) -> Written:
-    """A new entry, through to core/memstore.py: ``add`` (``add_decision`` for kind ``decision``, with ``decision``'s
+    """A new entry, through to core/memstore.py: ``put`` (``add_decision`` for kind ``decision``, with ``decision``'s
     fields of DECISION_FIELDS), counted as the owner's when ``proof`` is his level, else as a summary by ``by``; its origin
-    the proof's parts, its log line's ``because`` ``source`` and ``place``. ``supersedes``: the ref of an entry it
-    replaces (core/memstore.py supersede). ValueError from core/memstore.py says why nothing was written."""
+    ``origin`` (where: topic_key, job, topic_number) with the proof's parts over it, its log line's ``because`` ``source``
+    and ``place``. ``supersedes``: the ref of an entry it replaces (core/memstore.py supersede).
+
+    The words go through the gate first (a decision's never refused): refused, nothing is written and ``reason`` says why,
+    with the rewrite it offers in ``rewrite`` when ``strict`` (the butler's: it writes again), else the rewrite is written
+    (``accept``) when there is one. ``learned``: a rule a model took from the owner's words (记忆自己长, a checkpoint's): one
+    whose words name what only he says yes to (``grants``) is not written; it waits in 待审核 (type learn, its scope and
+    ``grant`` suggested; reason ``GRANT``) and holds once he accepts it, never before, so a learned rule never lets a turn
+    skip asking him. ``wider`` "global": a rule the model says is for every topic, written where it was said, and 待审核
+    asks whether it is to hold 全局 (``review``; the item's ``items`` the line written, which an accept moves there); never
+    for a line from a topic with redaction on. ``pending``: nothing is written, the entry waits in 待审核 at its scope (reason
+    ``PENDING``; the butler's 全局 the owner's words did not ask for). ValueError from core/memstore.py says why nothing was
+    written."""
     from covey.core import memstore
 
-    said, origin, because = _said(proof), _origin(proof), _because(source, place)
+    said, because = _said(proof), _because(source, place)
+    origin = {**{key: value for key, value in dict(origin or {}).items() if value not in (None, "")}, **_origin(proof)}
+    flags = ()
+    if kind != "decision":
+        verdict = check(text, kind=kind, title=title)
+        flags = verdict.flags
+        if not verdict.ok:
+            kept = "" if strict else accept(text, kind=kind, title=title)[0]
+            if not kept:
+                return Written(entry=None, scope=scope, reason=verdict.reason or "gate", rewrite=verdict.text, flags=flags)
+            text = kept
+        grant = grants(text, title) if learned and kind == "rule" else ""
+        if grant or pending:
+            target = GLOBAL if wider == GLOBAL and not redacted else scope
+            more = {"grant": grant} if grant else {}
+            key, fresh = _review(state_dir, kind=kind, text=text, title=title, proof=proof, origin=origin, flags=flags,
+                                 suggest=_suggest(kind, target, "" if target == GLOBAL else owner_key, **more), now=now)
+            return Written(entry=None, review=key, said=said, scope=target, reason=GRANT if grant else PENDING, flags=flags,
+                           fresh=fresh, grant=grant)
     if kind == "decision":
         fields = {key: value for key, value in dict(decision or {}).items() if key in DECISION_FIELDS}
         entry = memstore.add_decision(state_dir, scope=scope, owner_key=owner_key, text=text, title=title, said=said, by=by,
                                       origin=origin, redacted=redacted, who=by, because=because, now=now, **fields)
+        done = memstore.NEW
     else:
-        entry = memstore.add(state_dir, kind=kind, scope=scope, owner_key=owner_key, text=text, title=title, why=why,
-                             said=said, by=by, origin=origin, repos=repos, redacted=redacted, who=by, because=because,
-                             now=now)
+        entry, done = memstore.put(state_dir, kind=kind, scope=scope, owner_key=owner_key, text=text, title=title, why=why,
+                                   said=said, by=by, origin=origin, repos=repos, redacted=redacted, who=by, because=because,
+                                   now=now)
     if supersedes:
         memstore.supersede(state_dir, supersedes, entry.ref, who=by, because=because, now=now)
-    return Written(entry=entry, said=entry.said, scope=entry.scope)
+    key, fresh = "", False
+    if wider == GLOBAL and kind == "rule" and entry.scope != GLOBAL and not entry.redacted and entry.status == "active":
+        key, fresh = _review(state_dir, kind=kind, text=entry.text, title=title, proof=proof, origin=origin, flags=flags,
+                             suggest=_suggest(kind, GLOBAL, ""), items=(entry.ref,), now=now)
+    return Written(entry=entry, review=key, said=entry.said, scope=entry.scope, flags=flags, done=done, fresh=fresh)
 
 
 def revise(state_dir, ref, action, *, proof: Proven | None, by: str, source: str, text="", why="", by_ref="") -> Written:
