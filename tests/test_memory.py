@@ -82,13 +82,12 @@ class SelectTest(Case):
         self.assertRegex(next(iter(first.values())), r"^M\d{2,3}$")
         self.assertNotEqual(memory.number("a", {memory.number("a", set())}), memory.number("a", set()))
 
-    def test_sources_and_redaction(self):
+    def test_sources_and_an_old_redacted_mark(self):
         self.assertEqual([memory.by_source(s) for s in ("owner", "owner_answer", "owner_fix", "lead", "", "x")],
                          ["owner", "owner", "owner", "lead", "lead", "lead"])
         marked = {"id": "a", "text": "脱敏话题里说的", "source": "owner", "at": 1, "redacted": True}
         plain = {"id": "b", "text": "普通的", "source": "owner", "at": 1}
-        self.assertEqual([row["text"] for row in memory.items(topic=[marked, plain])], ["普通的"])
-        self.assertEqual(len(memory.items(topic=[marked, plain], redacted=True)), 2)
+        self.assertEqual([row["text"] for row in memory.items(topic=[marked, plain])], ["脱敏话题里说的", "普通的"])  # Read as ordinary.
 
     def test_the_block_says_number_scope_layer_and_speaker_then_the_rules(self):
         kept, left = memory.select([item("project:x:o1", memory.PROJECT, memory.OWNER, "先做迁移"),
@@ -122,13 +121,6 @@ class TopicMemoryTest(Case):
         self.assertEqual(topic_memory.live(self.state, "t1"), [])
         kept = json.loads(topic_memory.memory_path(self.state, "t1").read_text())["entries"]
         self.assertEqual((len(kept), kept[0]["deleted"] > 0), (1, True))  # A tombstone: the text stays.
-
-    def test_a_redacted_line_has_its_mark_and_an_ordinary_one_has_no_key(self):
-        write_topic(self.state, topic_id="t1")
-        topic_memory.add(self.state, "t1", "甲", redacted=True)
-        topic_memory.add(self.state, "t1", "乙")
-        marks = {r["text"]: r.get("redacted") for r in topic_memory.live(self.state, "t1")}
-        self.assertEqual(marks, {"甲": True, "乙": None})
 
     def test_the_oldest_becomes_a_logged_tombstone_past_the_limit(self):
         write_topic(self.state, topic_id="t1")
@@ -447,14 +439,6 @@ class CollectTest(CollectCase):
         self.assertEqual(topic_memory.live(self.state, "t1"), [])
         self.messenger.patch_card.assert_not_called()
 
-    def test_a_redacted_topic_still_notes_what_the_owner_said_with_the_mark(self):
-        with mock.patch("covey.core.redaction.topic_redaction", return_value=True):
-            self.collect(self.turn(memory_lines=[self.LINE]))
-        self.assertTrue(topic_memory.live(self.state, "t1")[0]["redacted"])
-        with mock.patch("covey.core.redaction.topic_redaction", side_effect=ValueError("unreadable")):
-            self.collect(self.turn(memory_lines=[{**self.LINE, "text": "另一句"}]))
-        self.assertTrue(topic_memory.live(self.state, "t1")[1]["redacted"])
-
     def test_at_most_three_lines_a_turn(self):
         lines = [{**self.LINE, "text": f"第 {i} 条"} for i in range(5)]
         self.assertEqual(len(self.collect(self.turn(memory_lines=lines))["memory_notes"]), memory_collect.PER_TURN)
@@ -546,17 +530,6 @@ class PromoteTest(CollectCase):
         self.assertEqual(memstore.entries(self.state, scope="global"), [])
         self.assertEqual(find_job_record(self.state, job.message_id)["memory_notes"][0]["kind"], "undone")
 
-    def test_a_line_from_a_topic_with_redaction_on_stays_there(self):
-        with mock.patch.object(memory_collect, "_topic_marked", return_value=True):
-            _, record = self.remembered()
-        note = record["memory_notes"][0]
-        self.assertTrue(note["redacted"])
-        self.assertNotIn(cards.MEMORY_PROMOTE_KIND, json.dumps(cards.memory_element([note], "t1", 5), ensure_ascii=False))
-        with self.assertRaisesRegex(ValueError, "脱敏"):
-            memory_collect.promote(self.host, self.ctx, self.click(cards.MEMORY_PROMOTE_KIND, record, note["entry_id"]))
-        self.assertEqual(memstore.entries(self.state, scope="global"), [])
-        self.assertEqual(len(topic_memory.live(self.state, "t1")), 1)
-
     def test_a_line_deleted_since_is_not_promoted(self):
         _, record = self.remembered()
         entry = record["memory_notes"][0]["entry_id"]
@@ -578,8 +551,8 @@ class CardTest(Case):
         self.assertEqual(text.count('"不对"'), 1)
         self.assertEqual(text.count('"升为全局"'), 0)  # Moving to a larger scope is the 网页记忆中心's now.
         self.assertIn('"entry_id": "ab12"', text)
-        for scope, redacted in (("管全局", False), ("管这个话题", True)):
-            line = cards.memory_element([{**notes[0], "scope": scope, **({"redacted": True} if redacted else {})}], "t1", 7)
+        for scope in ("管全局", "管这个话题"):
+            line = cards.memory_element([{**notes[0], "scope": scope}], "t1", 7)
             self.assertNotIn("升为全局", json.dumps(line, ensure_ascii=False), scope)
         self.assertIsNone(cards.memory_element([]))
         self.assertIsNone(cards.memory_element([{"kind": "other", "text": "x"}]))

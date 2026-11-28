@@ -9,11 +9,11 @@ import * as S from '../client/src/cv/switchConfig.ts';
 
 const m = (key, extra = {}) => ({
   key, harness: key.split(':')[0], harness_title: key.split(':')[0], provider: '', provider_title: '自带', label: key,
-  budgets: [{ value: 'high', text: '高' }], default_budget: 'high', start_budget: 'high', redaction: true, work_modes: [], ...extra,
+  budgets: [{ value: 'high', text: '高' }], default_budget: 'high', start_budget: 'high', work_modes: [], ...extra,
 });
-const models = [m('claude:opus'), m('codex:gpt', { redaction: false })];
-const pre = { model: 'claude:opus', effort: 'high', work_mode: '', redaction: 'off' };
-const swap = (mm, s) => ({ ...s, model: mm.key, effort: mm.start_budget, work_mode: '', redaction: mm.redaction ? s.redaction : 'off' });
+const models = [m('claude:opus'), m('codex:gpt')];
+const pre = { model: 'claude:opus', effort: 'high', work_mode: '' };
+const swap = (mm, s) => ({ ...s, model: mm.key, effort: mm.start_budget, work_mode: '' });
 const pickDevice = (d, sel, name) => R.applyDevice(d, sel, name, swap);
 const NEW = { models, preselect: pre, devices: [{ name: 'mac', dot: 'ok', harnesses: [] }, { name: 'box', dot: 'down', harnesses: ['codex'] }] };
 const OLD = {
@@ -88,7 +88,6 @@ test('设备联动：Harness 不在设备能用的里就换模型', () => {
   const a = pickDevice(NEW, { ...pre }, 'box');
   assert.equal(a.device, 'box');
   assert.equal(a.model, 'codex:gpt');
-  assert.equal(a.redaction, 'off');
   const b = pickDevice(NEW, { ...pre }, 'mac');
   assert.equal(b.model, 'claude:opus');
   assert.match(R.deviceText(NEW.devices[1]), /离线/u);
@@ -149,7 +148,7 @@ test('launch payload：新 Covey 没有 workspace、run_mode，键集合同 gold
   assert.deepEqual(Object.keys(p).sort(), ['device', ...want].sort());
   // 默认：不带 repos、单设备不带 device
   const q = R.launchPayload({ ...NEW, devices: [NEW.devices[0]] }, { ...pre, repos: [] }, 'hi', [], false);
-  assert.deepEqual(Object.keys(q).sort(), ['effort', 'model', 'redaction', 'text', 'work_mode']);
+  assert.deepEqual(Object.keys(q).sort(), ['effort', 'model', 'text', 'work_mode']);
 });
 
 test('switch payload：新 Covey 键集合同 golden；全取消发 []；负责人不带仓库', () => {

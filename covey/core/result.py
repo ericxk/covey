@@ -21,6 +21,7 @@ ERROR_CODES = frozenset({"", "child_error", "child_aborted", "child_unknown", "s
     "max_turns", "budget_exceeded", "authentication_error", "rate_limited", "workspace_routing_timeout",
     "workdir_missing", "background_timeout", "quota_exhausted", "model_blocked", "redaction_failed",
     "read_only_refused", "server_fault", "request_hung", "model_unavailable"}) | POLICY_CODES
+# compat: ``redaction_failed`` is no new turn's (敏感词脱敏 was taken out, T947); a record from before still reads.
 
 
 # What the user can do next, where a failure has a clear way on. The plain words replace

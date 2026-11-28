@@ -39,13 +39,13 @@ def ids(built):
 
 class PartsTest(unittest.TestCase):
     def test_input_in_the_owner_s_order_and_output_with_the_cache(self):
-        self.assertEqual(input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", True, "demo-app"),
-                         ["Claude Code", "Claude 自带", "Opus 5.5", "思考 xhigh", "脱敏开", "demo-app"])
-        # Six parts, none left out (V9, 2026-11-08): a Harness that cannot redact does not; one not known reads "—".
-        self.assertEqual(input_parts("Codex", "Acme", "GPT-6", "", None, "w"),
-                         ["Codex", "Acme", "GPT-6", "思考 默认", "脱敏关", "w"])
-        self.assertEqual(input_parts("Claude Code", "", "", "ultracode", False, ""),
-                         ["Claude Code", "—", "默认模型", "思考 ultracode", "脱敏关", "—"])
+        self.assertEqual(input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", "demo-app"),
+                         ["Claude Code", "Claude 自带", "Opus 5.5", "思考 xhigh", "demo-app"])
+        # Five parts, none left out (V9, 2026-11-08; 脱敏 went with 敏感词脱敏, T947): one not known reads "—".
+        self.assertEqual(input_parts("Codex", "Acme", "GPT-6", "", "w"),
+                         ["Codex", "Acme", "GPT-6", "思考 默认", "w"])
+        self.assertEqual(input_parts("Claude Code", "", "", "ultracode", ""),
+                         ["Claude Code", "—", "默认模型", "思考 ultracode", "—"])
         out = " · ".join(output_parts(SNAPSHOT, 760))
         for part in ("**12分40秒**", "**41** <font color='grey'>token/s</font>", "**76万**", "缓存命中</font> **92%**"):
             self.assertIn(part, out)
@@ -86,12 +86,12 @@ class PartsTest(unittest.TestCase):
         # The topic side panel's chat column split "推理 / xhigh", "缓存命中 / 94%" (2026-11-08): within a part no
         # space breaks and no two characters part; between parts the line breaks after the grey bar (the owner,
         # 2026-11-09: 不用 · 分割，换成明显的分隔符), never before it.
-        box = facts_element(input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", False, "ws"),
+        box = facts_element(input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", "ws"),
                             ["<font color='grey'>缓存命中</font> **94%**"], link="T439")
         rows = [row.split("</font> ", 1)[1] for row in box["content"].split("\n")]
         shown = [re.sub(r"<[^>]*>|\*\*", "", row) for row in rows]
         self.assertEqual([row.replace("\u2060", "").replace("\u00a0", " ") for row in shown],
-                         ["Claude Code ｜ Claude 自带 ｜ Opus 5.5 ｜ 思考 xhigh ｜ 脱敏关 ｜ ws", "缓存命中 94% ｜ T439 ›"])
+                         ["Claude Code ｜ Claude 自带 ｜ Opus 5.5 ｜ 思考 xhigh ｜ ws", "缓存命中 94% ｜ T439 ›"])
         self.assertIn("\u00a0<font color='grey'>｜</font> ", rows[1])
         breaks = [[text.replace("\u2060", "") for text in row.split("\u00a0｜ ")] for row in shown]
         self.assertEqual(breaks[0][3], "思考\u00a0xhigh")
@@ -115,17 +115,19 @@ class LinesTest(unittest.TestCase):
     def test_a_saved_reasoning_part_reads_as_the_thinking_budget(self):
         # The owner, 2026-11-09: 推理深度统一叫思考预算. A job's input_parts and a relay's record saved before then say
         # 推理 <budget>; the box shows them as the new ones do, and leaves a part merely starting with 推理 alone.
+        # And they had 脱敏开/关 before the workspace (taken out with 敏感词脱敏, T947): left out.
         old = facts_element(["Claude Code", "Claude 自带", "Opus 5.5", "推理 xhigh", "脱敏关", "ws"], ["x"])
-        new = facts_element(input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", False, "ws"), ["x"])
+        self.assertEqual(facts_element(["Claude Code", "Claude 自带", "Opus 5.5", "思考 xhigh", "脱敏开", "ws"], ["x"]), old)
+        new = facts_element(input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", "ws"), ["x"])
         self.assertEqual(old, new)
-        self.assertEqual(self.rows(old)[0], "Claude Code ｜ Claude 自带 ｜ Opus 5.5 ｜ 思考 xhigh ｜ 脱敏关 ｜ ws")
+        self.assertEqual(self.rows(old)[0], "Claude Code ｜ Claude 自带 ｜ Opus 5.5 ｜ 思考 xhigh ｜ ws")
         self.assertIn("推理器", input_lines(["推理器", "b", "c", "d", "e", "f"])[0].replace("\u2060", ""))
 
     def test_inputs_and_outputs_a_line_each(self):
-        box = facts_element(input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", True, "demo-app"),
+        box = facts_element(input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", "demo-app"),
                             output_parts(SNAPSHOT, 760), link="T439")
         given, made = self.rows(box)
-        self.assertEqual(given, "Claude Code ｜ Claude 自带 ｜ Opus 5.5 ｜ 思考 xhigh ｜ 脱敏开 ｜ demo\u2011app")
+        self.assertEqual(given, "Claude Code ｜ Claude 自带 ｜ Opus 5.5 ｜ 思考 xhigh ｜ demo\u2011app")
         self.assertNotIn("\n", made)
         self.assertRegex(made, r"^用时 12分40秒 ｜ 41 token/s ｜ token 76万 ｜ 缓存命中 92% ｜ T439 ›$")
 
@@ -436,9 +438,9 @@ class DefaultsTest(unittest.TestCase):
 
     def test_no_model_chosen_reads_default_and_a_job_s_time_comes_from_its_timings(self):
         harness = SimpleNamespace(spec=SimpleNamespace(name="claude", title="Claude Code"))
-        job = SimpleNamespace(model="", model_label="", effort="", redaction=False, workspace_label="repo.code")
+        job = SimpleNamespace(model="", model_label="", effort="", workspace_label="repo.code")
         self.assertEqual(answer_cards.inputs(job, harness),
-                         ["Claude Code", "Claude 自带", "默认模型", "思考 默认", "脱敏关", "repo.code"])
+                         ["Claude Code", "Claude 自带", "默认模型", "思考 默认", "repo.code"])
         # The model the turn ran (Claude's init row, in its process snapshot) by the launch card's name, the budget
         # its context ran with.
         with tempfile.TemporaryDirectory() as temp:
@@ -446,7 +448,7 @@ class DefaultsTest(unittest.TestCase):
                        {"updated_at": 1, "models": {"claude-opus-5-5": {"display_name": "Opus 5.5"}}})
             ctx = SimpleNamespace(state_dir=Path(temp), effort="xhigh")
             self.assertEqual(answer_cards.inputs(job, harness, {"model": "claude-opus-5-5[1m]"}, ctx),
-                             ["Claude Code", "Claude 自带", "Opus 5.5", "思考 xhigh", "脱敏关", "repo.code"])
+                             ["Claude Code", "Claude 自带", "Opus 5.5", "思考 xhigh", "repo.code"])
             self.assertEqual(answer_cards.inputs(job, harness, {"model": "claude-sonnet-5-5"}, ctx)[2], "Sonnet 5.5")
             # Claude Code's "Default (recommended)" names no model: the one it ran, once said (T698 ran Opus 5.5, T718).
             native = SimpleNamespace(**{**vars(job), "model": "default",
@@ -457,7 +459,7 @@ class DefaultsTest(unittest.TestCase):
         # A MASO budget preset run as it is (no effort of its own): the budget its name gives, not 默认.
         maso = SimpleNamespace(spec=SimpleNamespace(name="maso", title="MASO"))
         argon = SimpleNamespace(model="gemini-4-argon_reasoning_high", model_label="MASO · Gemini 4 Argon", effort="",
-                                redaction=None, workspace_label="w")
+                                workspace_label="w")
         self.assertEqual(answer_cards.inputs(argon, maso)[2:4], ["Gemini 4 Argon", "思考 high"])
         self.assertEqual(answer_cards.inputs(SimpleNamespace(**{**vars(argon), "model": "seed-stable-reasoning"}),
                                              maso)[3], "思考 默认")

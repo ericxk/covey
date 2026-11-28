@@ -468,8 +468,8 @@ class ResultTest(Case):
         saved = read_object(self.state / "jobs" / "om_r1.json")
         self.assertEqual((saved["result_file_path"], saved["result_file_kept"]), (str(path), True))
         [row] = self.results()
-        self.assertEqual((row["kind"], row["ref"], row["name"], row["topic_id"], row["redacted"]),
-                         ("path", str(path), "T12 #41 结论全文", MEMBER, False))
+        self.assertEqual((row["kind"], row["ref"], row["name"], row["topic_id"]),
+                         ("path", str(path), "T12 #41 结论全文", MEMBER))
         project_loop.after_runner(self.logs.append, self.state, SimpleNamespace(topic_id=MEMBER, chat_id=CHAT, message_id="om_r1", job_id=41))
         self.assertEqual(len(self.results()), 1)
         self.assertEqual(self.logs, [])
@@ -497,22 +497,6 @@ class ResultTest(Case):
         self.assertFalse((self.state / "result-files").exists())
         self.assertEqual(self.results(), [])
 
-    def test_a_redacted_topics_reply_is_listed_only_for_a_reader_with_redaction_on(self):
-        write_topic(self.state, topic_id=MEMBER, chat_id=CHAT, topic_number=12, redaction=True,
-                    project=projects.project_field(PID, projects.MEMBER))
-        path = self.end("om_r5", "含敏感词的结论")
-        [row] = self.results()
-        self.assertTrue(row["redacted"])
-        self.assertNotIn(str(path), "\n".join(library.index_lines(self.state, PID)))
-        self.assertIn(str(path), "\n".join(library.index_lines(self.state, PID, redacted_reader=True)))
-        self.assertIn(str(path), project_context.block(self.ctx(), self.job(), resumed=False))  # Its own topic: redaction on.
-        plain = "cd" * 16
-        write_topic(self.state, topic_id=plain, chat_id=CHAT, project=projects.project_field(PID, projects.MEMBER))
-        self.assertNotIn(str(path), project_context.block(self.ctx(plain), self.job(plain), resumed=False))
-        (self.state / "topics" / plain / "topic.json").write_text("{")
-        self.assertTrue(project_context.source_redacted(self.state, plain))  # Its setting cannot be read: redacted.
-        self.assertFalse(project_context.marked(self.state, plain))  # Nor does it read the redacted ones.
-
     def test_a_delivery_line_is_cut_field_by_field_and_a_members_line_names_its_topic(self):
         library.add_ref(self.state, PID, "delivery", "提交 a6bc1481234567 9d3aecd 51c2e07 1111111 2222222；部署 " + "第 12 代" * 20
                         + "；验收 " + "测" * 100, name="交付", source="delivery", topic_id=MEMBER, now=NOW)
@@ -535,7 +519,7 @@ class ResultTest(Case):
         library.add_ref(self.state, PID, "path", "/data/in/brief.pdf", source="owner_file", now=NOW)
         for number in range(5):
             library.add_ref(self.state, PID, "path", f"/state/result-files/om_{number}.md", name=f"T12 #{number} 结论全文",
-                            source="result", topic_id=MEMBER, now=NOW + 1 + number, redacted=False)
+                            source="result", topic_id=MEMBER, now=NOW + 1 + number)
         lines = library.index_lines(self.state, PID)
         self.assertEqual([line.rsplit("/", 1)[-1] for line in lines[:4]], ["om_4.md", "om_3.md", "om_2.md", "brief.pdf"])
         self.assertEqual(lines[-1], "另有 2 条较早的未列出")

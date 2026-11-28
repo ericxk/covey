@@ -295,14 +295,6 @@ def record_job(record, saved_job, *, harness, cards, ctx, log):
         saved_job.model_label = cards.model_label(ctx, saved_job.model) if saved_job.model else ""
     except Exception as exc:  # noqa: BLE001 - named from the model itself
         log(f"model label unavailable: {type(exc).__name__}")
-    try:
-        from covey.core.harness import backend_capabilities
-        from covey.core.redaction import topic_redaction
-
-        redacts = backend_capabilities(getattr(harness, "backend", None), ctx).redaction
-        saved_job.redaction = topic_redaction(ctx.state_dir, saved_job.topic_id) if redacts else None
-    except Exception as exc:  # noqa: BLE001 - 脱敏 left out
-        log(f"redaction unavailable: {type(exc).__name__}")
     return saved_job
 
 

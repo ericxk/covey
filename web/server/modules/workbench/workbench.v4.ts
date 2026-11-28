@@ -188,7 +188,6 @@ export function configOf(v: unknown): TopicConfig | undefined {
     work_mode: str(d.work_mode),
     workspace,
     run_mode: d.run_mode === 'worktree' ? 'worktree' : 'direct',
-    redaction: d.redaction === 'on' ? 'on' : 'off',
   };
 }
 

@@ -1,4 +1,4 @@
-"""Requests a local relay or gateway sends on to its upstream (backends/claude/redaction.py, backends/acme,
+"""Requests a local relay or gateway sends on to its upstream (an extension's Claude Code relay, backends/acme,
 an extension's model catalog read), and the answer it passes back.
 
 They never follow a redirect: a token, key or body only goes to the address it was meant for, and a 3xx is an

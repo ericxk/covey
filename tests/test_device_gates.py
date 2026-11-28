@@ -53,7 +53,7 @@ HUB_ENV = {"LARK_APP_SECRET": "hub-secret-lark", "LARK_BRIDGE_TOKEN": "hub-token
 DOC = {"schema": 1, "control_dir": "/dev/shm/covey-ssh-gates",
        "devices": {"gpu1": {"ssh": {"host": "gpu1.example"}, "harnesses": ["claude", "codex"],
                             "spaces": ["owner_private"]}}}
-REMOVED = {"native_fork", "compaction", "session_files", "redaction", "rewind", "command_stop", "bridge_tools", "collab",
+REMOVED = {"native_fork", "compaction", "session_files", "rewind", "command_stop", "bridge_tools", "collab",
            "ask_once", "look_gate"}  # ask_once: Codex's and agy's one question runs in a home and a directory of this machine.
 # look_gate (W1-C): a LOOK turn's hook script, write tool server and private home are this machine's.
 
@@ -67,7 +67,7 @@ class Capabilities(unittest.TestCase):
     def ctx(self, **fields):
         return make_context(Path("/nonexistent-root"), **fields)
 
-    def test_a_device_turns_off_exactly_the_ten_that_need_the_hubs_files_or_its_processes(self):
+    def test_a_device_turns_off_exactly_the_nine_that_need_the_hubs_files_or_its_processes(self):
         self.assertEqual(set(DEVICE_OFF), REMOVED)
         for backend in (ClaudeBackend(), CodexBackend()):
             local = backend_capabilities(backend, self.ctx())
@@ -89,7 +89,7 @@ class Capabilities(unittest.TestCase):
         self.assertEqual(backend_capabilities(ClaudeBackend(), object()), HarnessCapabilities(
             questions=True, image_bytes=claude_caps().image_bytes, image_frame=claude_caps().image_frame, steering=True,
             native_fork=True, rate_limit_retry=True, incomplete_retry=True, fault_retry=True, steer_reads=True, compaction=True,
-            command_stop=True, session_files=True, redaction=True, rewind=True, bridge_tools=True, read_only=True, collab=True,
+            command_stop=True, session_files=True, rewind=True, bridge_tools=True, read_only=True, collab=True,
             look_gate=True, question_tool="AskUserQuestion", nudges=True, system_instructions=True,
             system_refresh="compaction"))
 
@@ -641,17 +641,6 @@ class DeviceTurn:
         self.assertIn("switch_action", self.element_ids())
         if self.harness == "claude":
             self.assertIn("rewind_action", self.element_ids())
-
-    def test_redaction_is_refused_on_a_device_not_sent_unredacted(self):
-        with mock.patch("covey.app.runs.topic_redaction", return_value=True):
-            refused = self.app.runs._refusal(self.ctx, None, self.job(self.ctx))
-            self.assertEqual(refused.outcome.error_code, "redaction_failed")
-            self.assertIn("设备 gpu1", refused.failure_detail)
-            local = self.app.runs._refusal(dataclasses.replace(self.local, workdir=self.root), None, self.job(self.local))
-            if self.harness == "claude":  # Its twin on this machine runs through the term relay.
-                self.assertIsNone(local)
-            else:
-                self.assertNotIn("设备", local.failure_detail)
 
     def test_directory_status_and_prune_leave_the_device_workspace_alone(self):
         value = "gpu1:%s" % self.device.home

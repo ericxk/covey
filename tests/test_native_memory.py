@@ -1,5 +1,6 @@
-"""A Harness's own memory (Claude Code's auto memory, Codex's memories) and the turns that must stay out of it: a 代答 turn
-and a redacted one (backends/claude/argv.py turn_env, backends/codex/appserver.py server_flags and keep_out_of_memories)."""
+"""A Harness's own memory (Claude Code's auto memory, Codex's memories) and the turns that must stay out of it: a 代答 turn,
+and on Claude Code one an extension's hook put behind a relay (backends/claude/argv.py turn_env, backends/codex/appserver.py
+server_flags and keep_out_of_memories)."""
 
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from unittest import mock
 
 from support import make_context
 from covey.backends.claude import argv as claude_argv
-from covey.backends.claude import redaction
+from covey.backends.claude import upstream
 from covey.backends.codex import appserver
 from covey.backends.codex.rpc import AppServer, RpcError
 from covey.core.harness import CONSULT, LEAD, LOOK, PROXY, READ, TOOL_LIMIT
@@ -25,9 +26,9 @@ class ClaudeAutoMemoryTest(unittest.TestCase):
     def env(self, **options):
         return claude_argv.turn_env(make_context(Path("/x"), options=options), {"PATH": "/bin"})
 
-    def test_a_proxy_turn_and_a_redacted_one_run_without_auto_memory(self):
+    def test_a_proxy_turn_and_one_behind_a_relay_run_without_auto_memory(self):
         self.assertEqual(self.env(**{TOOL_LIMIT: PROXY})[claude_argv.NO_AUTO_MEMORY], "1")
-        relayed = {redaction.SETTINGS_ENV: {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/"}}
+        relayed = {upstream.SETTINGS_ENV: {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/"}}
         self.assertEqual(self.env(**relayed)[claude_argv.NO_AUTO_MEMORY], "1")
 
     def test_every_other_turn_keeps_it_as_the_environment_has_it(self):

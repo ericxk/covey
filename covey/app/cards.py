@@ -39,7 +39,6 @@ from covey.core import butler, placement, turn_source
 from covey.cards.streaming import (ACTION_ROW_ELEMENT_ID, SIDE_CHAT_ELEMENT_ID, STEER_ELEMENT_ID, answer_element,
                                    card_title_for_question, steer_button)
 from covey.cards.card_cost import exceeds_stream_card_limit
-from covey.core.redaction import topic_redaction
 from covey.cards.trace_view import TraceView, clock
 from covey.cards.trace_updates import incremental_actions, panel_json
 from covey.core.harness import BridgeContext, backend_capabilities
@@ -160,9 +159,6 @@ class Cards:
         job.model_label = self.model_label(ctx, job.model)
         # The 输入/输出 box's 输入 (cards/task_figures.py job_inputs): where the turn runs (``place_label``).
         job.workspace_label = place_label(ctx.state_dir, job.topic_id, ctx.workspace_name)
-        # Whether the turn redacts (the box's 输入, cards/answer_card.py input_parts): None for a Harness that cannot.
-        job.redaction = (topic_redaction(ctx.state_dir, job.topic_id)
-                         if getattr(getattr(job, "harness_capabilities", None), "redaction", False) else None)
         try:
             # The 输入/输出 box's 输入 (cards/task_figures.py io_box), as the answer card's says it.
             job.input_parts = answer_cards.inputs(job, self.harness, ctx=ctx)

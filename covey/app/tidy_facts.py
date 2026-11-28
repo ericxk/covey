@@ -196,7 +196,7 @@ def chosen(state, chat, view, fields) -> tuple:
     numbers, unknown = topic_links.topic_numbers(state, chat), []
     for word in re.findall(r"[Tt]?\d+", str(fields.get(cards.MORE_FIELD) or "")):
         topic = numbers.get(int(word.lstrip("Tt")))
-        if topic and not sorter.hidden(state, topic) and not is_butler_topic(topic, chat):
+        if topic and not is_butler_topic(topic, chat):
             topics.append(topic)
         else:
             unknown.append("T" + word.lstrip("Tt"))

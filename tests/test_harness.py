@@ -47,10 +47,8 @@ from covey.backends.claude.bridge import CLAUDE_SPEC, ClaudeBackend
 from covey.backends.claude.argv import stream_argv
 from covey.backends.claude.sessions import ClaudeSessionStore
 from covey.backends.codex.bridge import CODEX_SPEC
-from covey.cards.redaction_panel import ROTATE as ROTATE_KIND
 from covey.cards.group_manager import KINDS as GROUP_KINDS
 from covey.cards.butler_panel import KINDS as BUTLER_PANEL_KINDS
-from covey.cards.redaction_panel import KINDS as REDACTION_KINDS
 from covey.cards.node_panel import KINDS as NODE_PANEL_KINDS
 from covey.cards.memory_panel import KINDS as MEMORY_PANEL_KINDS
 from covey.cards.digest import MEMORY_KIND
@@ -455,11 +453,10 @@ class TwoStagePromptTest(unittest.TestCase):
         self.assertIn(IMAGES_RULE.removeprefix("- "), app.runs._images_note(ctx, job, resumed=True))
         self.assertEqual(app.runs._images_note(ctx, job), "")  # A new session's rules have it already.
 
-    def test_a_home_topics_resumed_turn_keeps_the_home_block_and_the_redaction_note_turned_on_later(self) -> None:
+    def test_a_home_topics_resumed_turn_keeps_the_home_block_and_a_backend_note_that_came_later(self) -> None:
         """T900 W0-4: a resumed turn's reminder had the workspace block, not the rules' 主目录段, so from its second turn a
         topic from the home lost its repo map and ``covey repo use``; and a backend note that came after the session
-        started (redaction turned on in the middle) never reached a resumed turn."""
-        from covey.backends.claude.bridge import REDACTION_NOTE
+        started never reached a resumed turn."""
         topic = "h" * 32
         app = harness_app(CLAUDE_SPEC, ClaudeBackend(), ClaudeSessionStore())
         quiet(app)
@@ -473,11 +470,12 @@ class TwoStagePromptTest(unittest.TestCase):
             self.assertIn(part, fresh)
             self.assertIn(part, resumed)
         self.assertNotIn("当前工作区：", resumed)  # The workspace block is the rules' only for a topic not from the home.
-        self.assertNotIn(REDACTION_NOTE, resumed)
-        write_topic(ctx.state_dir, {"home_start": True, "redaction": True}, topic_id=topic)  # Turned on mid-topic.
-        resumed = app.runs._with_rules(ctx, job, "MSG", "", system=False, fresh=False, rules_session=False)
-        self.assertIn(REDACTION_NOTE, resumed)
-        self.assertIn(resume_reminders(app.runs.backend_notes(ctx)), resumed)
+        note = "后来才有的一条约束。"
+        self.assertNotIn(note, resumed)
+        with mock.patch.object(ClaudeBackend, "prompt_notes", lambda backend, ctx: (note,)):  # Came mid-topic.
+            resumed = app.runs._with_rules(ctx, job, "MSG", "", system=False, fresh=False, rules_session=False)
+            self.assertIn(note, resumed)
+            self.assertIn(resume_reminders(app.runs.backend_notes(ctx)), resumed)
         # A topic from before the home keeps its workspace block, as the rules have it.
         write_topic(ctx.state_dir, {}, topic_id=topic)
         resumed = app.runs._with_rules(ctx, job, "MSG", "", system=False, fresh=False, rules_session=False)
@@ -720,10 +718,10 @@ class RetiredHarnessTests(unittest.TestCase):
 
     def test_every_old_card_click_gets_the_notice_and_reaches_no_handler(self):
         remember_topic_message(self.state, self.topic.topic_id, 'chat', 'om_card')
-        # The 代答设置, 重新发送, 群管理, 旧敏感词看板链接卡, 管家 and 设置 cards' kinds (按建议回复 too) are not on task cards: they
-        # never route to a topic (tests/test_proxy_panel.py, test_group_chat.py, test_redaction_panel.py,
+        # The 代答设置, 重新发送, 群管理, 管家 and 设置 cards' kinds (按建议回复 too) are not on task cards: they
+        # never route to a topic (tests/test_proxy_panel.py, test_group_chat.py,
         # test_butler_panel.py).
-        private = PROXY_PANEL_KINDS | GROUP_KINDS | BUTLER_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST, ROTATE_KIND}
+        private = PROXY_PANEL_KINDS | GROUP_KINDS | BUTLER_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST}
         private |= set(extensions.card_kinds())  # An enabled extension's cards (tests/test_extension_cards.py).
         private |= {OVERVIEW_DISMISS, OVERVIEW_UNDO}  # 手上的事's 这些都不用回答了 and its 撤销 (tests/test_pins.py).
         private |= BOARD_KINDS  # The 看板's 刷新 and 记为看过 (tests/test_digest.py).
@@ -733,7 +731,6 @@ class RetiredHarnessTests(unittest.TestCase):
         private |= WEB_LOGIN_KINDS  # 网页登录确认 (tests/test_web_login.py).
         private |= {WELCOME_KIND}  # 发这句 on the welcome card (tests/test_welcome.py).
         private |= {GROUP_MENU_KIND}  # A personal group's menu card (tests/test_personal_spaces.py).
-        private |= REDACTION_KINDS  # The 设置 card's 脱敏 tab (tests/test_redaction_panel.py).
         private |= NODE_PANEL_KINDS  # The 设置 card's 设备 tab (tests/test_nodes.py).
         private |= MEMORY_PANEL_KINDS  # The 设置 card's 记忆 tab (tests/test_memory_panel.py).
         private |= set(TIDY_KINDS)  # 整理专项's cards, the private chat's or a topic card's 移出 (tests/test_project_tidy.py).

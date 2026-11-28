@@ -1,6 +1,6 @@
 """The small model that judges a message the rules left open (app/track_judge.py), against fake child processes: a normal
-answer, a hang past the hard limit, bad output, an index out of range, low confidence, a redacted topic (nothing is
-started), and the ``cmd:`` channel."""
+answer, a hang past the hard limit, bad output, an index out of range, low confidence
+, and the ``cmd:`` channel."""
 from __future__ import annotations
 
 import json
@@ -83,9 +83,9 @@ class Base(unittest.TestCase):
         self.live = (LiveJob(1, "j1", "running", "整理对比表", NOW - 300, NOW - 200),
                      LiveJob(2, "j2", "paused", "翻译 README", NOW - 100, NOW - 90))
 
-    def ask(self, text="再加一列", live=None, *, quote="", question="", redacted=False, **kwargs):
+    def ask(self, text="再加一列", live=None, *, quote="", question="", **kwargs):
         message = Message(text, self.live if live is None else live, Quote(text=quote), now=NOW)
-        return track_judge.judge(message, question=question, redacted=redacted, backend=self.backend, ctx=self.ctx,
+        return track_judge.judge(message, question=question, backend=self.backend, ctx=self.ctx,
                                  log=self.logs.append, **kwargs)
 
     def recorded(self):
@@ -233,14 +233,6 @@ class ClaudeChannelTest(Base):
         self.say('{"route":"new","confidence":0.1}')
         self.assertEqual((self.ask().route, self.ask().why), ("new", "ok"))
 
-    def test_a_redacted_topic_starts_nothing(self):
-        self.say(reply("merge", 1, 0.99))
-        verdict = self.ask(redacted=True)
-        self.assertEqual((verdict.route, verdict.target, verdict.why), ("new", None, "redacted"))
-        self.assertEqual(self.recorded(), [])
-        self.assertEqual(self.wrapped, [])
-        self.assertIn("skipped reason=redacted", self.logs[-1])
-
     def test_off_starts_nothing(self):
         self.say(reply("merge", 1, 0.99))
         for value in ("off", "OFF", "0", "false", "no"):
@@ -304,15 +296,13 @@ class LogTest(Base):
         self.ask("这是一条私密消息", question="私密问题", quote="私密引用")
         self.say("bad")
         self.ask("这是一条私密消息")
-        self.ask("这是一条私密消息", redacted=True)
-        self.assertEqual(len(self.logs), 3)
+        self.assertEqual(len(self.logs), 2)
         for line in self.logs:
             self.assertTrue(line.startswith("track judge "), line)
             self.assertRegex(line, r" ms=\d+( |$)")
             self.assertNotIn("私密", line)
         self.assertRegex(self.logs[0], r"^track judge route=merge target=2 conf=0\.90 why=ok ms=\d+ via=claude$")
         self.assertRegex(self.logs[1], r"^track judge failed reason=bad_output ms=\d+ via=claude$")
-        self.assertRegex(self.logs[2], r"^track judge skipped reason=redacted ms=\d+ via=claude$")
 
 
 class CommandChannelTest(Base):
@@ -365,11 +355,6 @@ class CommandChannelTest(Base):
             time.sleep(0.05)
         stat = Path(f"/proc/{pid}/stat")
         self.assertTrue(not stat.exists() or stat.read_text().rsplit(")", 1)[1].split()[0] == "Z")
-
-    def test_a_redacted_topic_does_not_reach_the_command_either(self):
-        self.say(reply("merge", 1, 0.9), FAKE_RAW="1")
-        self.assertEqual(self.ask(redacted=True).why, "redacted")
-        self.assertEqual(self.recorded(), [])
 
 
 class SettingsTest(unittest.TestCase):

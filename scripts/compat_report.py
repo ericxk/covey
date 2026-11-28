@@ -263,9 +263,8 @@ def fat_diff_indexes(facts):
 
 
 def switch_form_fields(facts):
-    """换配置 records from before its workspace and 敏感词脱敏 selects."""
-    found = [path.name for path, record in _records(facts.state / "switch-forms")
-             if "selected_workspace" not in record or "selected_redaction" not in record]
+    """换配置 records from before its workspace select."""
+    found = [path.name for path, record in _records(facts.state / "switch-forms") if "selected_workspace" not in record]
     return len(found), " ".join(found)
 
 
@@ -299,7 +298,7 @@ CHECKS = (
     Check("policy-event-runners", "fb0b267", ("core/result.py",), runners_before("fb0b267")),
     Check("auto-retry-kind", "84ad62a", ("app/auto_retry.py",), auto_retry_kinds),
     Check("fat-diff-index", "30c3d17", ("core/maintenance_rules.py",), fat_diff_indexes),
-    Check("switch-form-fields", "ecb0458", ("app/harness_switch.py", "cards/switch_form.py"), switch_form_fields),
+    Check("switch-form-fields", "ecb0458", ("cards/switch_form.py",), switch_form_fields),
 )
 # Taken out; (check, the batch that did). The count must stay 0 while a task runner it served could live.
 REMOVED = (

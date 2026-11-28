@@ -334,7 +334,7 @@ function v43Turn(d: Record<string, unknown>): Partial<TurnView> {
 function ranWithOf(v: unknown): TurnRanWith {
   const o: Record<string, unknown> = obj(v);
   const out: TurnRanWith = {};
-  for (const k of ['harness', 'provider', 'model', 'effort', 'workspace', 'redaction'] as const) {
+  for (const k of ['harness', 'provider', 'model', 'effort', 'workspace'] as const) {
     if (typeof o[k] === 'string' && o[k]) out[k] = (o[k] as string).slice(0, 60);
   }
   return out;
@@ -1057,6 +1057,8 @@ export class WorkbenchQueryService {
     if (!isOutboxKind(str(req?.kind))) throw new BadRequestException('kind 不合法');
     const payload: Record<string, unknown> = obj(req.payload);
     this.checkPayload(req.kind, payload, req);
+    // 敏感词脱敏已下线：旧页面还带着的 redaction 直接丢掉，不报错也不往下传
+    if (req.kind === 'launch' || req.kind === 'switch') delete payload.redaction;
     // v25：开新话题也能带附件，同 say
     if ((req.kind === 'say' || req.kind === 'launch') && payload.files !== undefined) {
       const files: SayFile[] = sayFiles(payload.files);
@@ -1178,6 +1180,8 @@ export class WorkbenchQueryService {
 
   private checkSettings(payload: Record<string, unknown>): void {
     const what: string = str(payload.what);
+    // 敏感词脱敏已下线（T947）：下线前画的旧页面还会发这两种
+    if (what === 'redaction' || what === 'terms') throw new BadRequestException('敏感词脱敏已下线，这次没有改任何设置');
     if (!(SETTINGS_WHATS as readonly string[]).includes(what)) throw new BadRequestException('settings 的 what 不合法');
     if (what === 'row') {
       if (!str(payload.kind)) throw new BadRequestException('row 要 kind');
@@ -1189,17 +1193,6 @@ export class WorkbenchQueryService {
       if (!str(payload.workspace)) throw new BadRequestException('note 要 workspace');
       if (typeof payload.note !== 'string') throw new BadRequestException('note 要 note');
       if (Array.from(payload.note).length > 100) throw new BadRequestException('用途最多 100 字');
-    } else if (what === 'terms') {
-      // 脱敏词表一次批量增删（v14）：原词列表；提示里不写词
-      for (const k of ['add', 'remove'] as const) {
-        const v: unknown = payload[k];
-        if (!Array.isArray(v) || !v.every((t: unknown) => typeof t === 'string')) throw new BadRequestException(`terms 的 ${k} 要是文字列表`);
-        if (v.length > 2000) throw new BadRequestException(`terms 的 ${k} 太多`);
-        if (v.some((t: string) => Array.from(t).length > 400)) throw new BadRequestException(`terms 的 ${k} 里有太长的词`);
-      }
-    } else if (what === 'redaction') {
-      if (payload.name !== 'ignore_case' && payload.name !== 'restore') throw new BadRequestException('redaction 的 name 不合法');
-      if (typeof payload.on !== 'boolean') throw new BadRequestException('redaction 要 on（布尔）');
     } else if (what === 'group') {
       if (!str(payload.group)) throw new BadRequestException('group 要 group');
       if (typeof payload.on !== 'boolean') throw new BadRequestException('group 要 on（布尔）');
@@ -1290,7 +1283,6 @@ export class WorkbenchQueryService {
       if (repoErr) throw new BadRequestException(repoErr);
       // v43：执行设备（可选，只在多设备时网页才带）
       if (payload.device !== undefined && (typeof payload.device !== 'string' || Array.from(payload.device).length > 64)) throw new BadRequestException('device 要是最多 64 字的文字');
-      if (payload.redaction !== 'on' && payload.redaction !== 'off') throw new BadRequestException('launch 的 redaction 要是 on 或 off');
       if (typeof payload.work_mode !== 'string' || Array.from(payload.work_mode).length > 200) throw new BadRequestException('launch 的 work_mode 要是文字（可为空）');
       return;
     }
@@ -1315,7 +1307,6 @@ export class WorkbenchQueryService {
         if (typeof v !== 'string' || Array.from(v).length > 200) throw new BadRequestException(`switch 的 ${k} 要是文字（可为空）`);
       }
       if (payload.run_mode !== undefined && !(LAUNCH_RUN_MODES as readonly string[]).includes(str(payload.run_mode))) throw new BadRequestException('switch 的 run_mode 要是 direct 或 worktree');
-      if (payload.redaction !== 'on' && payload.redaction !== 'off') throw new BadRequestException('switch 的 redaction 要是 on 或 off');
       return;
     }
     if (kind === 'dismiss') {

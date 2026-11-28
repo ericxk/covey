@@ -83,8 +83,8 @@ class ReplacementCardTest(unittest.TestCase):
                                 lambda *a, **k: (None, False), card_limit=10000, update_interval=0)
         job = BridgeReplyJob(job_id=1, user_text='x', chat_id='c', message_id='m', timeout=0,
                              progress=StreamingReply('card', 'm'))
-        facts = {'harness_capabilities': SimpleNamespace(steering=True, redaction=True), 'topic_label': 'T7',
-                 'model_label': 'Claude · Opus 5.5', 'workspace_label': 'repo', 'redaction': True}
+        facts = {'harness_capabilities': SimpleNamespace(steering=True), 'topic_label': 'T7',
+                 'model_label': 'Claude · Opus 5.5', 'workspace_label': 'repo'}
         for name, value in facts.items():
             setattr(job, name, value)
         drawn = []
@@ -99,4 +99,4 @@ class ReplacementCardTest(unittest.TestCase):
         with mock.patch.object(StreamingCard, 'create',
                                side_effect=lambda profile, copy, content: drawn.append(copy) or StreamingReply('card3', 'n2')):
             self.assertTrue(runtime.replace_card(None, bare, 'D', 'failed', 'test'))
-        self.assertFalse(any(hasattr(drawn[1], name) for name in ('workspace_label', 'redaction')))
+        self.assertFalse(any(hasattr(drawn[1], name) for name in ('workspace_label', 'input_parts')))

@@ -170,9 +170,7 @@ def available_models(topics, ctx):
         app = topics.apps[name]
         # A Harness with work modes offers them with each model, its default first.
         modes = {'work_modes': list(app.backend.work_modes)} if getattr(app.backend, 'work_modes', ()) else {}
-        # A Harness that can redact offers the 敏感词脱敏 choice with each model (core/redaction.py).
         capabilities = backend_capabilities(app.backend, ctx)
-        modes = {**modes, 'redaction': True} if capabilities.redaction else modes
         # A Harness that can run the butler (its Bridge tools), on the 设置 card's 管家 tab (cards/butler_panel.py).
         modes = {**modes, 'bridge_tools': True} if capabilities.bridge_tools else modes
         # One the Bridge compacts: the 管家 tab's 压缩阈值 counts only there.

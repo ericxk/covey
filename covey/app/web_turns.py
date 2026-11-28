@@ -16,7 +16,7 @@ the checkpoint's plan, the token figures, the time it took and the notes of the 
 - ``memory`` (data contract v43): how many memory entries the turn carried, the titles of those it used (what the ended turn's
   checkpoint names in ``memory_used``) and their short codes (``memory_of``); a topic item's ``repos`` and ``home_start`` are
   ``topic_fields``.
-- ``ran_with`` (data contract v27): the Harness, provider, model, budget, workspace and 敏感词脱敏 the turn ran with (``ran_with``).
+- ``ran_with`` (data contract v27): the Harness, provider, model, budget and workspace the turn ran with (``ran_with``).
 - ``artifacts`` (data contract v32): the turn's 产物 as its answer card lists them, each by its file name only, with its cloud-space link
   and size once uploaded, why it could not be, or that it is going up (``artifacts_of``).
 - ``failure`` (data contracts v4, v10, v33): why the turn did not succeed and what next (core/failure.py failure_view), with what the
@@ -187,11 +187,10 @@ def figures(record, snapshot, running, now) -> dict:
     return out
 
 
-def ran_with(record, menu=None, redaction=False, topic=None) -> dict:
+def ran_with(record, menu=None, topic=None) -> dict:
     """What the turn the job ``record`` made ran with, in the words the launch card names them (data contract v27 ``ran_with``, the
-    answer's foot on the page): {harness, provider, model, effort, workspace, redaction}. ``menu`` is the launch card's model menu
-    (app/launch_models.py available_models; {} or None: the model's own name, core/model_names.py, and no provider); ``redaction`` is the
-    topic's 敏感词脱敏 now, as the record does not keep it; ``topic`` (topic.json) names the Harness and workspace of an older record that
+    answer's foot on the page): {harness, provider, model, effort, workspace}. ``menu`` is the launch card's model menu
+    (app/launch_models.py available_models; {} or None: the model's own name, core/model_names.py, and no provider); ``topic`` (topic.json) names the Harness and workspace of an older record that
     does not. {} without a Harness."""
     from covey.core.menu_choice import tiers
     from covey.core.model_names import model_name
@@ -206,8 +205,7 @@ def ran_with(record, menu=None, redaction=False, topic=None) -> dict:
     harnesses, providers, _ = tiers(menu, harness) if menu else ({}, {}, {})
     out = {"harness": str(harnesses.get(harness) or harness), "provider": str(providers.get(entry.get("provider", ""), "")) if entry else "",
            "model": str(entry.get("display_name") or entry.get("label") or "") or model_name(model) or model,
-           "effort": str(record.get("effort") or ""), "workspace": str(record.get("workspace_name") or topic.get("workspace_name") or ""),
-           "redaction": "on" if redaction else "off"}
+           "effort": str(record.get("effort") or ""), "workspace": str(record.get("workspace_name") or topic.get("workspace_name") or "")}
     return {key: value for key, value in out.items() if value}
 
 

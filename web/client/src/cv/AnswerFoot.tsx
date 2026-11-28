@@ -38,10 +38,10 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** 回答下面一行的“输入”：Harness ｜ 供应商 ｜ 模型 ｜ 思考 ｜ 脱敏 ｜ 工作区（v27 ran_with，没有的不写） */
+/** 回答下面一行的“输入”：Harness ｜ 供应商 ｜ 模型 ｜ 思考 ｜ 工作区（v27 ran_with，没有的不写） */
 export function inputBits(r: TurnRanWith | undefined): string[] {
   if (!r) return [];
-  return [r.harness, r.provider, r.model, r.effort ? `思考 ${r.effort}` : '', r.redaction ? (r.redaction === 'on' ? '脱敏开' : '脱敏关') : '', r.workspace]
+  return [r.harness, r.provider, r.model, r.effort ? `思考 ${r.effort}` : '', r.workspace]
     .filter((x): x is string => !!x);
 }
 

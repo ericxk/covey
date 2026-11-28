@@ -68,7 +68,6 @@ from covey.core.butler_tool_specs import HANDING
 from covey.core.harness import EXTERNAL, LEAD, LOOK, LOOK_ROOTS, READ, TOOL_LIMIT, backend_capabilities
 from covey.core.history_storage import append_history
 from covey.core.menu_choice import butler_harnesses, harness_of
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.roster import CORE_HARNESSES
 from covey.core.state import write_json
 from covey.core.steer import SteerRefused
@@ -368,9 +367,6 @@ GAPS = {
     ("话题 · 群成员只读", "agy"): "agy 没声明 read_only：群成员只读的群里这一轮不启动（app/tool_limits.py refusal）。"
                                   "它给负责人用的 deny 规则（READ_ONLY_SETTINGS）也能守住只读，待接上",
     ("话题 · 群成员只读", "dsh"): "dsh 没声明 read_only：同上；它给负责人用的 --permission-mode read-only 待接上",
-    ("话题 · 敏感词脱敏", "codex"): "设计如此：脱敏经 Claude 的词表中转，只有 Claude Code 能脱敏（docs/architecture.md 敏感词脱敏）",
-    ("话题 · 敏感词脱敏", "dsh"): "设计如此：同上",
-    ("话题 · 敏感词脱敏", "agy"): "设计如此：同上",
     (LOOK_GATE, "dsh"): "dsh 没声明 look_gate：只读首轮只有文字约束（app/tool_limits.py LOOK_WORDS：只写检查点和产物目录，"
                          "写不了就略过），没有路径闸",
     (LOOK_GIT, "dsh"): "同上：没有路径闸，.git 也只靠文字",
@@ -503,16 +499,13 @@ class LeadRowTest(HarnessCellsCase):
             with self.subTest(harness=name):
                 self.assertIn(name, offered)
 
-    def test_where_the_butler_redacts_a_new_lead_takes_a_harness_only_if_it_redacts(self):
-        """The lead's 脱敏 is the butler's when it is made (app/lead_harness.py binding): a Harness the butler's call names
-        that cannot redact gives way to the butler's own, so no lead turn goes out unredacted. (换配置 on the 专项卡 can turn
-        the lead's 脱敏 off afterwards, as a topic's: docs/projects.md 负责人用哪个 Harness.)"""
-        root = {"harness_id": "claude", "model": "claude-model", REDACTION_KEY: True}
+    def test_a_leads_harness_is_the_one_the_call_names_whatever_the_butlers_topic_had(self):
+        """The lead's Harness is the one the butler's call names on every Harness (app/lead_harness.py binding); an older
+        butler topic's ``redaction`` (敏感词脱敏 was taken out, T947) holds none back."""
+        root = {"harness_id": "claude", "model": "claude-model", "redaction": True}
         for name in CORE_HARNESSES:
             with self.subTest(harness=name):
                 found = lead_harness.binding(self.apps, root, call={"harness": name, "model": f"{name}-model"})
-                self.assertEqual(found["source"] == "call", self.capabilities(name).redaction)
-                found = lead_harness.binding(self.apps, {**root, REDACTION_KEY: False}, call={"harness": name})
                 self.assertEqual((found["source"], found["harness_id"]), ("call", name))
 
     def test_a_leads_turn_is_held_to_reading_with_its_tools_on_every_harness(self):
@@ -589,12 +582,6 @@ class TopicRowTest(HarnessCellsCase):
             with self.subTest(harness=name):
                 self.assertEqual(tool_limits.refusal(ctx, self.capabilities(name), name) == "", held("话题 · 群成员只读", name),
                                  gap_words("话题 · 群成员只读", name))
-
-    def test_redaction(self):
-        for name in CORE_HARNESSES:
-            with self.subTest(harness=name):
-                self.assertEqual(self.capabilities(name).redaction, held("话题 · 敏感词脱敏", name),
-                                 gap_words("话题 · 敏感词脱敏", name))
 
 
 class WebRowTest(HarnessCellsCase):
@@ -1224,9 +1211,9 @@ class RulesRowTest(HarnessCellsCase):
 
 class KnownGapsTest(HarnessCellsCase):
     def test_the_known_gaps_are_still_gaps(self):
-        """The cells GAPS lists are asked above (test_a_group_members_read_only_turn, test_redaction, LookRowTest,
+        """The cells GAPS lists are asked above (test_a_group_members_read_only_turn, LookRowTest,
         RulesRowTest): one that holds now fails there; this one keeps GAPS to cells those tests ask."""
-        self.assertLessEqual({cell for cell, _ in GAPS}, {"话题 · 群成员只读", "话题 · 敏感词脱敏", LOOK_GATE, LOOK_GIT,
+        self.assertLessEqual({cell for cell, _ in GAPS}, {"话题 · 群成员只读", LOOK_GATE, LOOK_GIT,
                                                           LOOK_SHELL, RULE_ASK, RULE_LOOK, RULE_ANCHOR, RULE_CONTEXT,
                                                           RULE_NUDGE, RULE_SEARCH, RULE_WALK, EXT_FILES, EXT_GIT, EXT_FREE})
 

@@ -60,7 +60,7 @@ ONE_OFF = frozenset({"too_long", "bad_output", "out_of_range", "model_error", "e
                      "low_confidence"})
 # No model was asked: the setting says none, the one it names cannot take it now, or no Harness can.
 NOT_ASKED = frozenset({"none", "not_allowed", "no_backend", "broken", "cooling", "refusal_gate", "not_one_shot",
-                       "unusable", "not_enabled", "redacted"})
+                       "unusable", "not_enabled"})
 
 # What each reason is, in the words of a card or the web page (the Harness's name goes before them where there is one).
 WORDS = {
@@ -74,7 +74,6 @@ WORDS = {
     "no_backend": "没有能用的模型（Claude Code、Codex、Antigravity 都没启用）", "broken": "刚失败过，15 分钟内后台先不用它",
     "cooling": "这项后台活刚被它的官方内容安全拦过，6 小时内不再送给它", "refusal_gate": "今天后台被官方内容安全拦了好几次，今天后台先不用它",
     "not_one_shot": "不能一问一答", "unusable": "现在用不了", "not_enabled": "这台机器上没启用",
-    "redacted": "开了脱敏，内容不外发",
 }
 
 

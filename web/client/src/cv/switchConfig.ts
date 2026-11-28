@@ -13,19 +13,19 @@ const sameRepos = (a: LaunchRepo[] | undefined, b: LaunchRepo[] | undefined): bo
 /** v43：换配置的选择多一个 repos（TS 类型上 TopicConfig 没有；新 Covey 初值取话题的 repos） */
 export type SwitchSel = LaunchPreselect & { repos?: LaunchRepo[] };
 
-export const SWITCH_FIELDS = ['model', 'effort', 'work_mode', 'workspace', 'run_mode', 'redaction', 'device', 'repos'] as const;
+export const SWITCH_FIELDS = ['model', 'effort', 'work_mode', 'workspace', 'run_mode', 'device', 'repos'] as const;
 
 /** 负责人只能用的模型说不过去时的那句（同 Covey app/lead_harness.py 的 CANNOT_LEAD） */
 export const LEAD_ONLY = '负责人只能用能接 Bridge 工具的模型（和管家能选的一样）';
 
-/** 面板的初值：话题的配置，补成这个模型能选的（预算不在列表里取 start_budget，工作模式不在取第一个，不能脱敏的模型脱敏视为 off）。
+/** 面板的初值：话题的配置，补成这个模型能选的（预算不在列表里取 start_budget，工作模式不在取第一个）。
  *  模型不在目录里（目录变了）原样留着：面板上那一行显示原值，要重选模型才能确认 */
 export function fromConfig(d: LaunchData, c: TopicConfig): SwitchSel {
   const m: LaunchModel | undefined = d.models.find((x: LaunchModel) => x.key === c.model);
   if (!m) return { ...c };
   const effort: string = m.budgets.some((b) => b.value === c.effort) ? c.effort : m.start_budget;
   const work_mode: string = m.work_modes.includes(c.work_mode) ? c.work_mode : (m.work_modes[0] ?? '');
-  return { ...c, effort, work_mode, redaction: m.redaction ? c.redaction : 'off' };
+  return { ...c, effort, work_mode };
 }
 
 /** 负责人的面板用的目录（v36）：只留能当负责人的模型（bridge_tools）；Harness、供应商、模型几行和联动都从它出 */

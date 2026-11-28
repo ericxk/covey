@@ -72,8 +72,6 @@ export interface MemoryItem {
   ref?: string;
   /** 专项的话题下一轮带不带它 */
   carried?: boolean;
-  /** 来自开了脱敏的话题：只有开了脱敏的话题带它 */
-  redacted?: boolean;
 }
 export interface LibraryItem {
   topic_number?: number;
@@ -420,7 +418,6 @@ export interface TurnRanWith {
   model?: string;
   effort?: string;
   workspace?: string;
-  redaction?: string;
 }
 
 export interface TurnView {
@@ -428,7 +425,7 @@ export interface TurnView {
   collab?: TurnCollab;
   /** v31 新增，可选：这一轮主人那句话的消息 id（记忆的“查看原文”按它找） */
   message_id?: string;
-  /** v27 新增，可选：这一轮用的 Harness、供应商、模型、思考、工作区、脱敏 */
+  /** v27 新增，可选：这一轮用的 Harness、供应商、模型、思考、工作区 */
   ran_with?: TurnRanWith;
   /** v19 新增，可选：这一轮的图 */
   images?: TurnImage[];
@@ -1035,20 +1032,6 @@ export interface SettingsWorkspacePage {
   /** v15：目录确认不存在的有几个 */
   missing?: number;
 }
-export interface SettingsRedactionPage {
-  summary: string;
-  count: number;
-  week: number;
-  topics: { number: number; title: string; hits: number; last: number | null }[];
-  switches: { name: string; label: string; hint: string; on: boolean; editable: boolean }[];
-  /** v14（T567）：词表原词，按词表顺序（旧的在前）；不带替身词。旧 Covey 不推 */
-  terms: string[];
-  ignore_case: boolean;
-  max_terms: number;
-  max_length: number;
-  /** v15：最近几轮的记录（只读） */
-  records?: { time: number; number: number | null; model: string; requests: number; replaced: number }[];
-}
 export interface SettingsGroupItem {
   key: string;
   name: string;
@@ -1133,7 +1116,6 @@ export interface LaunchModel {
   budgets: SettingsOption[];
   default_budget: string;
   start_budget: string;
-  redaction: boolean;
   work_modes: string[];
   /** 卡上对每个工作模式的叫法（Covey v16 后补的字段，旧 Covey 没有） */
   work_mode_texts?: Record<string, string>;
@@ -1161,7 +1143,6 @@ export interface LaunchPreselect {
   model: string;
   effort: string;
   work_mode: string;
-  redaction: 'on' | 'off';
   /** v43：可选（新 Covey 不推） */
   workspace?: string;
   /** v43：可选（新 Covey 不推） */
@@ -1297,7 +1278,6 @@ export interface SettingsData {
   workspace?: SettingsWorkspacePage | SettingsError;
   /** v43：仓库页（「工作区」页 workspace 保留给旧 Covey） */
   repos?: SettingsReposPage | SettingsError;
-  redaction?: SettingsRedactionPage | SettingsError;
   groups?: SettingsGroupsPage | SettingsError;
   nodes?: SettingsNodesPage | SettingsError;
   proxy?: SettingsProxyPage | SettingsError;
@@ -1308,9 +1288,9 @@ export interface SettingsResponse {
   data: SettingsData;
   at: string;
 }
-/** outbox kind=settings 的 payload（v7；terms 是 v14：{add: string[], remove: string[]}） */
+/** outbox kind=settings 的 payload（v7） */
 export const SETTINGS_WHATS = [
-  'row', 'untrust', 'note', 'redaction', 'terms', 'group',
+  'row', 'untrust', 'note', 'group',
   'free', 'workspace_add', 'workspace_remove', 'workspace_prune', 'node_add', 'node_remove', 'refresh', 'proxy',
   // v43：仓库（旧 workspace_add/remove/prune 照收，Bridge 转成 repos_*）
   'repos_set', 'repos_add', 'repos_remove', 'worktrees_prune',

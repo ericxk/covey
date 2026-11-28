@@ -178,12 +178,7 @@ class ChatFinalDeliveryTest(unittest.TestCase):
         self.assertEqual((rows[-1]["flex_mode"], rows[-1]["horizontal_spacing"]), ("flow", "8px"))
         self.assertEqual((text_button("移除", {})["type"], text_button("移除", {})["size"]), ("text", "small"))
 
-    def test_the_title_bar_says_whether_a_redacting_harness_redacts(self) -> None:
-        # The owner, 2026-11-04 17:38: 这个卡片也看不出是否开启敏感过滤.
-        from covey.cards.elements import redaction_tags
-        self.assertEqual(redaction_tags(True), [("敏感词脱敏：开", "green")])
-        self.assertEqual(redaction_tags(False), [("敏感词脱敏：关", "neutral")])
-        self.assertEqual(redaction_tags(None), [])  # Another Harness, or a job from before.
+    def test_the_task_card_says_its_inputs_in_the_box_not_in_a_title_bar(self) -> None:
         runtime = StreamingCard(idempotency_prefix="unit", default_title="Unit", element_id="answer",
                                 progress_factory=lambda **kwargs: kwargs, log=lambda _message: None,
                                 safe_idempotency_key=lambda value: value, card_limit=10000, update_interval=0.0,
@@ -191,13 +186,14 @@ class ChatFinalDeliveryTest(unittest.TestCase):
                                 compact_text=lambda text, _limit: str(text), messenger=None,
                                 send_card=lambda *_args, **_kwargs: (None, False))
         job = make_job(job_id=7, model="opus", effort="max")
-        job.redaction = False
         card = build_stream_card("", "统计行数", runtime, job=job)
         # Since the 输入/输出 box (the "E" sample, 2026-11-08) its 输入 says it, not a tag the side panel cut; no title
         # bar since the title row (2026-11-22).
         self.assertNotIn("header", card)
         box = next(e for e in card["body"]["elements"] if e.get("element_id") == "task_io")
-        self.assertIn("脱敏关", box["columns"][0]["elements"][0]["columns"][1]["elements"][0]["content"].replace("\u2060", ""))
+        words = box["columns"][0]["elements"][0]["columns"][1]["elements"][0]["content"].replace("\u2060", "").replace("\xa0", " ")
+        self.assertIn("思考 max", words)
+        self.assertNotIn("脱敏", words)  # 敏感词脱敏 was taken out (T947).
 
     def test_the_task_card_has_the_dashboard_look_with_the_ids_it_always_had(self) -> None:
         # The A 仪表盘 sample the owner picked (2026-11-04).
@@ -240,7 +236,7 @@ class ChatFinalDeliveryTest(unittest.TestCase):
         # One line, its parts apart by a grey bar (the owner, 2026-11-09 13:48).
         self.assertFalse(shown.startswith("<font color='grey'>"), shown)
         self.assertNotIn("\n", shown)
-        self.assertEqual(re.sub(r"<[^>]*>", "", shown), "— ｜ — ｜ Opus 5 ｜ 思考 max ｜ 脱敏关 ｜ demo\u2011app")
+        self.assertEqual(re.sub(r"<[^>]*>", "", shown), "— ｜ — ｜ Opus 5 ｜ 思考 max ｜ demo\u2011app")
         self.assertEqual((texts[1]["element_id"], texts[1]["content"]), ("task_figures", "<font color='grey'>—</font>"))
         for panel in card["body"]["elements"][4:5]:  # White, in a thin grey border (the "E 白底细边框" pick).
             self.assertNotIn("background_color", panel)

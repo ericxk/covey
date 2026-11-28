@@ -206,7 +206,7 @@ class TaskDetails:
                 # the running panel's title, a running card showed them nowhere.
                 details = self._live_details(job, snapshot) if running else None
                 if details is not None and not getattr(job.progress, "details_panel", True):
-                    # 任务详情 has words for the first time (a subtask, redaction's count): the panel goes in, tried
+                    # 任务详情 has words for the first time (a subtask): the panel goes in, tried
                     # once while the turn runs (not with every event); its end tries again (set_task_details).
                     if not getattr(job.progress, "details_refused", False) and not self.cards.set_task_element(ctx, job, details):
                         job.progress.details_refused = True

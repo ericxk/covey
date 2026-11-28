@@ -23,7 +23,6 @@ from covey.cards import switch_form
 from covey.core import butler, butler_settings, projects
 from covey.core.harness import HarnessCapabilities
 from covey.core.jobs import job_path, upsert_job_record
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.roster import CORE_HARNESSES
 from covey.core.state import write_json
 from covey.core.topics import load_topic, routed_topic, topic_file
@@ -35,8 +34,8 @@ def without_tools(module="covey.backends.dsh.bridge.DshBackend"):
     return mock.patch(module + ".capabilities", lambda self, ctx: HarnessCapabilities(rate_limit_retry=True))
 
 
-def app(name, *, tools=True, redaction=False):
-    backend = SimpleNamespace(capabilities=lambda ctx: HarnessCapabilities(bridge_tools=tools, redaction=redaction))
+def app(name, *, tools=True):
+    backend = SimpleNamespace(capabilities=lambda ctx: HarnessCapabilities(bridge_tools=tools))
     return SimpleNamespace(backend=backend, harness=SimpleNamespace(backend=backend, context=SimpleNamespace(device=None)))
 
 
@@ -44,7 +43,7 @@ class BindingTest(unittest.TestCase):
     """Which Harness, model and budget a new lead takes, by rule alone."""
 
     def setUp(self):
-        self.apps = {"claude": app("claude", redaction=True), "codex": app("codex"), "dsh": app("dsh", tools=False)}
+        self.apps = {"claude": app("claude"), "codex": app("codex"), "dsh": app("dsh", tools=False)}
         self.root = {"harness_id": "claude", "model": "opus-x", "effort": "max"}
 
     def test_the_calls_choice_then_the_settings_then_the_butlers(self):
@@ -62,21 +61,18 @@ class BindingTest(unittest.TestCase):
             with self.subTest(name=name):
                 found = lead_harness.binding(self.apps, self.root, None, butler_settings.LeadModel(harness=name))
                 self.assertEqual((found["harness_id"], found["source"]), ("claude", "butler"))
-        # The butler redacts, so does its lead: a Harness that cannot redact is passed over, the terms never go out.
-        found = lead_harness.binding(self.apps, {**self.root, REDACTION_KEY: True}, {"harness": "codex"}, None)
-        self.assertEqual((found["harness_id"], found["source"]), ("claude", "butler"))
+        # 敏感词脱敏 is retired (T947): a butler topic.json that still has the flag does not narrow the lead's Harness.
+        found = lead_harness.binding(self.apps, {**self.root, "redaction": True}, {"harness": "codex"}, None)
+        self.assertEqual((found["harness_id"], found["source"]), ("codex", "call"))
 
     def test_why_a_harness_cannot_run_a_lead(self):
         self.assertEqual(lead_harness.refusal(self.apps, "codex"), "")
         self.assertEqual(lead_harness.refusal(self.apps, "dsh"), lead_harness.CANNOT_LEAD)
-        self.assertEqual(lead_harness.refusal(self.apps, "codex", redacting=True), lead_harness.CANNOT_REDACT)
         self.assertIn("没有启用 agy", lead_harness.refusal(self.apps, "agy"))
 
     def test_the_menus_models_a_lead_can_run_on(self):
-        menu = {"claude:a": {"bridge_tools": True, "redaction": True}, "codex:b": {"bridge_tools": True},
-                "dsh:c": {"redaction": False}}
+        menu = {"claude:a": {"bridge_tools": True}, "codex:b": {"bridge_tools": True}, "dsh:c": {}}
         self.assertEqual(list(lead_harness.lead_choices(menu)), ["claude:a", "codex:b"])
-        self.assertEqual(list(lead_harness.lead_choices(menu, redacting=True)), ["claude:a"])
         self.assertFalse(lead_harness.can_lead(None))
 
     def test_the_saved_choice_is_read_from_either_shape(self):
@@ -194,7 +190,7 @@ class CardSwitchTest(UpCase):
         self.assertEqual((topic["project"]["role"], topic["workspace_name"]), ("lead", "project"))
         self.assertEqual([s["to"]["harness_id"] for s in topic["switches"]], ["codex"])
         self.assertTrue(projects.is_lead_topic(self.state, self.lead, CHAT))
-        words = hs.done_text(done, done["models"]["codex:codex-model"], topic["effort"], "", None, False, False,
+        words = hs.done_text(done, done["models"]["codex:codex-model"], topic["effort"], "", None,
                              (done["switched"]["from"], done["switched"]["to"]))
         self.assertIn("专项「迁移订单库」的负责人", words)
         self.assertIn(hs.LEAD_NEXT, words)

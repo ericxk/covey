@@ -1,7 +1,7 @@
 """The launch card's and 换配置's click reducers, pinned as they are. Both turn a choice on the card into its record
 and a redraw; they are not merged (batch 5 of the 2026-11-05 refactoring plan),
 and where they differ is the owner's to decide: what a workspace may be, whether the current option chosen again
-redraws the card, what turning 敏感词脱敏 on does to a model that cannot redact, and the budget another model starts
+redraws the card, and the budget another model starts
 from (DifferencesTest). Each row is one click on a fresh record: the fields it changed in the saved record (None
 when nothing was saved) and whether the card is redrawn."""
 from __future__ import annotations
@@ -18,16 +18,15 @@ from covey.app.harness_switch import HarnessSwitch
 from covey.app.model_picker import LaunchModelPicker
 from covey.cards import switch_form
 from covey.cards.launch_config import (BUDGET_ACTION, HARNESS_ACTION, MANAGE_OPTION, MODE_ACTION, MODEL_ACTION,
-                                                PAGE_ACTION, PROVIDER_ACTION, REDACTION_ACTION, WORK_MODE_ACTION,
+                                                PAGE_ACTION, PROVIDER_ACTION, WORK_MODE_ACTION,
                                                 WORKSPACE_ACTION)
 from covey.core.state import read_json, write_json
 from covey.core.topics import topic_file
 
 CHAT, TOKEN, TOPIC = "oc_chat", "ab" * 12, "t" * 16
-OPUS = {"harness": "claude", "label": "Opus", "levels": ["low", "medium", "high"], "work_modes": ["focus", "adaptive"],
-        "redaction": True}
+OPUS = {"harness": "claude", "label": "Opus", "levels": ["low", "medium", "high"], "work_modes": ["focus", "adaptive"]}
 SONNET = {"harness": "claude", "label": "Sonnet", "levels": ["high", "xhigh", "max"]}  # Its own default: 推荐.
-GATEWAY = {"harness": "claude", "label": "Opus 网关", "levels": ["low", "high"], "provider": "gateway", "redaction": True}
+GATEWAY = {"harness": "claude", "label": "Opus 网关", "levels": ["low", "high"], "provider": "gateway"}
 GPT = {"harness": "codex", "label": "GPT", "levels": ["low", "medium", "high", "xhigh"]}
 MODELS = {"claude:opus": OPUS, "claude:sonnet": SONNET, "claude:gateway": GATEWAY, "codex:gpt": GPT}
 PENDING = {"config_pending": True, "config_revision": 5}  # Every redraw: the next revision, pending until drawn.
@@ -80,7 +79,7 @@ def launch_record(**overrides):
 def switch_record(**overrides):
     return {"status": "ready", "chat_id": CHAT, "message_id": "om_card", "topic_id": TOPIC, "config_revision": 4,
             "page": "", "notice": "", "selected_model": "claude:opus", "selected_effort": "high",
-            "selected_redaction": "off", "selected_workspace": "repo", "selected_run_mode": "direct",
+            "selected_workspace": "repo", "selected_run_mode": "direct",
             "workspaces": ["repo", "other"], "current": {"key": "claude:opus", "budget": "high"},
             "usual_efforts": {"codex:gpt": "low"}, "models": dict(MODELS), **overrides}
 
@@ -101,8 +100,6 @@ LAUNCH_ROWS = [
     ("an unknown run mode", {}, MODE_ACTION, "elsewhere", None, False),
     ("a work mode", {}, WORK_MODE_ACTION, "focus", {"selected_work_mode": "focus", **PENDING}, True),
     ("a work mode the model lacks", {}, WORK_MODE_ACTION, "turbo", None, False),
-    ("脱敏 on, the model redacts", {}, REDACTION_ACTION, "on", {"selected_redaction": "on", **PENDING}, True),
-    ("脱敏 on, the model cannot redact", {"selected_model": "claude:sonnet"}, REDACTION_ACTION, "on", None, False),
     ("another budget", {}, BUDGET_ACTION, "4:low", {"selected_effort": "low", **PENDING}, True),
     ("the current budget", {}, BUDGET_ACTION, "4:high", None, False),
     ("a budget of an older revision", {}, BUDGET_ACTION, "3:low", None, False),
@@ -137,13 +134,6 @@ SWITCH_ROWS = [
     ("a budget of an older revision", {}, switch_form.BUDGET, "3:low", None, False),
     ("a budget the model lacks", {}, switch_form.BUDGET, "4:ultra", None, False),
     ("a budget refused on its page", {"page": "effort"}, switch_form.BUDGET, "3:low", {"page": "", **PENDING}, True),
-    ("脱敏 on, the model redacts", {}, switch_form.REDACTION, "on", {"selected_redaction": "on", **PENDING}, True),
-    ("脱敏 on, the model cannot redact", {"selected_model": "claude:sonnet", "selected_effort": "low"},
-     switch_form.REDACTION, "on",
-     {"selected_redaction": "on", "selected_model": "claude:opus", "selected_effort": "high", **PENDING}, True),
-    ("脱敏 off once it turned off by itself", {"redaction_auto_off": True, "selected_redaction": "on"},
-     switch_form.REDACTION, "off", {"selected_redaction": "off", "redaction_auto_off": None, **PENDING}, True),
-    ("the current 脱敏", {}, switch_form.REDACTION, "off", None, False),
     # Its budget by name (docs/ui.md 13 U5): the level 推荐 names, not 推荐 itself.
     ("another model", {}, switch_form.MODEL, "claude:sonnet",
      {"selected_model": "claude:sonnet", "selected_effort": "xhigh", **PENDING}, True),
@@ -151,13 +141,6 @@ SWITCH_ROWS = [
      {"selected_model": "codex:gpt", "selected_effort": "low", **PENDING}, True),
     ("the current model", {}, switch_form.MODEL, "claude:opus", None, False),
     ("the current model on its page", {"page": "model"}, switch_form.MODEL, "claude:opus", {"page": "", **PENDING}, True),
-    ("a model that cannot redact while 脱敏 is on", {"selected_redaction": "on"}, switch_form.MODEL, "claude:sonnet",
-     {"selected_model": "claude:sonnet", "selected_effort": "xhigh", "selected_redaction": "off",
-      "redaction_auto_off": True, **PENDING}, True),
-    ("back to the topic's model after 脱敏 turned off by itself",
-     {"selected_model": "claude:sonnet", "selected_effort": "low", "redaction_auto_off": True}, switch_form.MODEL,
-     "claude:opus", {"selected_model": "claude:opus", "selected_effort": "high", "selected_redaction": "on",
-                     "redaction_auto_off": None, **PENDING}, True),
     ("another Harness", {}, switch_form.HARNESS, "codex",
      {"selected_model": "codex:gpt", "selected_effort": "low", **PENDING}, True),
     ("the current Harness", {}, switch_form.HARNESS, "claude", None, False),
@@ -225,12 +208,6 @@ class DifferencesTest(ReducerCase):
                                                  (BUDGET_ACTION, switch_form.BUDGET, "4:high")):
             with self.subTest(option):
                 self.assertEqual(self.both(launch_kind, switch_kind, option), ((None, False), (PENDING, True)))
-
-    def test_turning_redaction_on_moves_the_switch_card_to_a_model_that_redacts(self):
-        sonnet = {"selected_model": "claude:sonnet", "selected_effort": "low"}
-        launch, switch = self.both(REDACTION_ACTION, switch_form.REDACTION, "on", sonnet, sonnet)
-        self.assertEqual(launch, (None, False))
-        self.assertEqual(switch[0]["selected_model"], "claude:opus")
 
     def test_another_model_starts_from_no_budget_on_the_launch_card_and_from_its_usual_one_on_the_switch_card(self):
         launch, switch = self.both(MODEL_ACTION, switch_form.MODEL, "codex:gpt")

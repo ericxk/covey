@@ -3,7 +3,7 @@
 
 - ``config``: what a topic runs with, in the words of the ``launch`` block (app/web_launch.py catalog): the model's menu key (a topic bound to a
   budget preset is that model with the preset's budget, as the 换配置 card preselects it, app/preselection.py switch_selection), its budget, work
-  mode, 敏感词脱敏 and, as read-only facts for a page that still shows them, workspace and run mode, and the device it works on (``device``,
+  mode and, as read-only facts for a page that still shows them, workspace and run mode, and the device it works on (``device``,
   "" for 本机; T879). Read from topic.json alone, so a push does not ask anything else. ``switch`` never moves a topic to another machine:
   a payload's ``device`` other than the topic's is refused (DEVICE_FIXED), none or "" leaves it.
 - ``switch``: the page's choices checked as 开始任务 checks a model (app/web_launch.py model_choice); a place (workspace, run mode) the payload may still carry (an older page; the new one sends none and the topic stays where it is) other than the
@@ -25,10 +25,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 
 WORKTREE_ON_CARD = "新建独立 worktree 要在飞书的换配置卡上做"
-LEAD_PLACE = "负责人的工作区和运行方式不能换：只能换 Harness、模型、思考预算和脱敏"
+LEAD_PLACE = "负责人的工作区和运行方式不能换：只能换 Harness、模型和思考预算"
 LEAD_REPOS = "负责人用的仓库跟着专项（只读），不能在这里换"
 DEVICE_FIXED = "换配置不能换执行设备，话题留在原来的机器上；要在别的设备上做，开个新话题选那台设备"
 NO_REPOS = "无"
@@ -131,7 +130,7 @@ def topic_config(topic, choices=None, prefix=None):
     key, budget = preset_choice(choices or {}, harness, model) or (f"{harness}:{model}", str(topic.get("effort") or ""))
     return {"model": key, "effort": budget, "work_mode": str(topic.get("work_mode") or ""),
             "workspace": str(topic.get("workspace_name") or ""), "run_mode": run_mode(topic.get("workdir"), prefix),
-            "redaction": "on" if topic.get(REDACTION_KEY) is True else "off", "device": device_of(topic.get("workdir"))}
+            "device": device_of(topic.get("workdir"))}
 
 
 def _label(app, choices, key, topic) -> str:
@@ -164,7 +163,7 @@ def _place(env, ctx, chat, current, workspace, mode, harness, choice):
     return {"workspace": name, "workdir": str(binding.workdir), "run_mode": "direct", "branch": ""}
 
 
-def _receipt(apps, before, after, redaction, was, lead=False, repos="") -> str:
+def _receipt(apps, before, after, lead=False, repos="") -> str:
     from covey.core.model_names import model_name
 
     def named(side):
@@ -176,8 +175,6 @@ def _receipt(apps, before, after, redaction, was, lead=False, repos="") -> str:
         parts.append(f"{named(before)} → {named(after)}" + (f" · 思考 {after['effort']}" if after.get("effort") else ""))
     if (before.get("workspace"), before.get("run_mode")) != (after.get("workspace"), after.get("run_mode")):
         parts.append(f"工作区 {before.get('workspace') or '?'} → {after.get('workspace') or '?'}")
-    if redaction != was:
-        parts.append("脱敏 " + ("关 → 开" if redaction else "开 → 关"))
     if repos:
         parts.append(repos)
     return "已换配置：" + "；".join(parts or ["已更新"]) + ("，负责人下一轮起由新会话接着做" if lead else "，下一句话起由新会话接着做")
@@ -203,7 +200,7 @@ def switch(env, op_id, chat, topic_id, payload) -> str:
     ctx = SimpleNamespace(state_dir=state, profile=env.profile, default_workdir=base.default_workdir)
     choices = available_models(env.topics, ctx)
     current = topic_config(topic, choices)
-    harness, key, choice, budget, mode, redaction = model_choice(env, ctx, payload)
+    harness, key, choice, budget, mode = model_choice(env, ctx, payload)
     # A page that offered the 执行设备 as a choice (before T879) may send one: never applied here, so not taken in silence either.
     asked_device = str(payload.get("device") or "")
     if asked_device and asked_device != current["device"]:
@@ -225,8 +222,7 @@ def switch(env, op_id, chat, topic_id, payload) -> str:
         place = None
     else:
         place = _place(env, ctx, chat, current, workspace, str(payload.get("run_mode") or current["run_mode"]), harness, choice)
-    same = (key, budget, mode, redaction, place) == (current["model"], current["effort"], current["work_mode"],
-                                                     current["redaction"] == "on", None)
+    same = (key, budget, mode, place) == (current["model"], current["effort"], current["work_mode"], None)
     if same and repos is None:
         raise ValueError("配置没有变化")
     reason = busy_reason(env.topics, target, chat, action="换配置")
@@ -254,13 +250,12 @@ def switch(env, op_id, chat, topic_id, payload) -> str:
         refused = devices.undeclared_refusal(where.split(":", 1)[0], harness, choice.get("title") or harness)
         if refused:
             raise ValueError(refused.replace("任务尚未启动", "话题配置没有改变"))
-    was = topic.get(REDACTION_KEY) is True
     form = {"harness_id": topic["harness_id"], "binding_revision": topic.get("binding_revision", 1), "job_id": None}
     record = {"topic": topic_label(state, target.topic_id), "workspace": current["workspace"],
               "current": {"label": _label(app, choices, current["model"], topic), "work_mode": current["work_mode"],
                           "workspace": current["workspace"], "run_mode": current["run_mode"], "workdir": str(topic.get("workdir") or "")},
               **({"lead": lead_harness.named(lead[3])} if lead else {})}
-    switched = switch_topic(env.topics, target, chat, form, harness, model, effort, work_mode, place=place, redaction=redaction)
+    switched = switch_topic(env.topics, target, chat, form, harness, model, effort, work_mode, place=place)
     if repos is not None:  # After the rebind it rode on: one that was refused changed nothing.
         set_repos()
     if switched is not None:
@@ -268,12 +263,10 @@ def switch(env, op_id, chat, topic_id, payload) -> str:
             model_usage.record(state, chat, key, budget, work_mode, "switch", form="web-" + str(op_id))
         except OSError as exc:
             env.runtime.log(f"model usage save failed: {type(exc).__name__}; the switch is done")
-    text = done_text(record, choice, effort, work_mode, place, redaction, was, switched) + (f"\n{moved}" if moved else "")
+    text = done_text(record, choice, effort, work_mode, place, switched) + (f"\n{moved}" if moved else "")
     now = env.topics.apps.get(harness, app)
     try:  # Feishu's thread says it too; the switch is done whether this goes out or not.
         now.messenger.reply(target, chat, text, now.key("switch-web", str(op_id)), voice=now.voice)
     except Exception as exc:  # noqa: BLE001 - the page has its receipt
         env.runtime.log(f"web switch note not sent topic={str(topic_id)[:12]}: {type(exc).__name__}")
-    if switched is None:
-        return ("已打开脱敏，会话不变" if redaction else "已关闭脱敏，会话不变") + (f"；{moved}" if moved else "")
-    return _receipt(env.topics.apps, *switched, redaction, was, lead=bool(lead), repos=moved)
+    return _receipt(env.topics.apps, *switched, lead=bool(lead), repos=moved)

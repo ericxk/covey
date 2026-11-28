@@ -4,7 +4,7 @@
 The butler and the lead read 全局 的「相关时才带」 whole each turn (app/memory_turn.py pool: the 全局 资料); a topic reads only
 what its search finds of it, and what one of them picked for it here. ``check`` takes a call's codes: each must name an
 entry in force, a 资料 (a rule the topic carries already, a decision the Bridge carries while it is in progress), of 全局 or of
-the lead's own project, one with the redaction mark only for a topic with redaction on, at most ``MAX`` of them and ``CHARS``
+the lead's own project, at most ``MAX`` of them and ``CHARS``
 characters with what the topic carries already; each one refused is said with why, the others go on. ``remember`` writes
 the ones taken into the topic's ``memory_carried`` ({code, ref, by}: added to, never twice), and every turn of it after
 carries them whole at the tail of its message, the Bridge's own words over them (app/memory_turn.py ``carried``,
@@ -33,7 +33,7 @@ def codes_of(raw) -> list:
     return found
 
 
-def _why_not(entry, code, *, project, redacted) -> str:
+def _why_not(entry, code, *, project) -> str:
     if entry is None:
         return f"{code}：找不到这条记忆"
     if entry.status != "active":
@@ -46,14 +46,12 @@ def _why_not(entry, code, *, project, redacted) -> str:
         pass
     elif entry.scope != "global":
         return f"{code}：只能带全局的或本专项的"
-    if entry.redacted and not redacted:
-        return f"{code}：是脱敏话题里记的，只能带给开着脱敏的话题"
     return ""
 
 
-def check(state_dir, raw, *, project="", redacted=False, carried=()) -> tuple[list, list]:
+def check(state_dir, raw, *, project="", carried=()) -> tuple[list, list]:
     """(the entries taken, the refusals: a line each, its code first) of a call's ``memory`` ``raw`` for a topic in
-    ``project`` (the lead's, '' for the butler's: 全局 only) whose redaction is ``redacted``; ``carried``: what the topic
+    ``project`` (the lead's, '' for the butler's: 全局 only); ``carried``: what the topic
     carries already (``entries_of``), counted in ``MAX`` and ``CHARS``, and not taken again."""
     taken, refused = [], []
     have = {entry.ref for entry, _ in carried}
@@ -63,7 +61,7 @@ def check(state_dir, raw, *, project="", redacted=False, carried=()) -> tuple[li
             entry = memstore.find(state_dir, code)
         except (OSError, ValueError):
             entry = None
-        why = _why_not(entry, code, project=project, redacted=redacted)
+        why = _why_not(entry, code, project=project)
         if why:
             refused.append(why)
             continue
@@ -99,10 +97,9 @@ def remember(data: dict, entries, by: str) -> list:
     return added
 
 
-def entries_of(state_dir, data: dict, *, project="", redacted=False) -> list:
+def entries_of(state_dir, data: dict, *, project="") -> list:
     """[(Entry, by)] of the topic.json ``data``'s ``memory_carried`` a turn carries now: each found again (by its code, which
-    a change of kind or scope keeps; else by its ref), still a 资料 in force, of 全局 or of ``project`` (the topic's now), and
-    readable with ``redacted``. One no longer so is left out, never an error."""
+    a change of kind or scope keeps; else by its ref), still a 资料 in force, of 全局 or of ``project`` (the topic's now). One no longer so is left out, never an error."""
     out, seen = [], set()
     for row in (data or {}).get(KEY) or ():
         if not isinstance(row, dict):
@@ -116,7 +113,7 @@ def entries_of(state_dir, data: dict, *, project="", redacted=False) -> list:
                     entry = None
                 if entry is not None:
                     break
-        if entry is None or entry.ref in seen or _why_not(entry, entry.code, project=project, redacted=redacted):
+        if entry is None or entry.ref in seen or _why_not(entry, entry.code, project=project):
             continue
         seen.add(entry.ref)
         out.append((entry, "lead" if row.get("by") == "lead" else "butler"))

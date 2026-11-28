@@ -37,7 +37,7 @@ DENIED = "Bridge 交接摘要只要文字回答，不能调用工具。"
 
 def summarize(backend, ctx, session_id, prompt, env, *, cancel=None, seconds=SUMMARY_SECONDS, first_seconds=None):
     """(summary text, outcome words) from a fork of ``session_id`` run in ``ctx`` (the old binding's
-    workdir, model and budget; for a redacted topic, its term relay). ``first_seconds``: FIRST_SECONDS unless given."""
+    workdir, model and budget, and the relay an extension's hook gave it). ``first_seconds``: FIRST_SECONDS unless given."""
     first_seconds = FIRST_SECONDS if first_seconds is None else first_seconds
     options = {k: v for k, v in ctx.options.items() if k not in DROPPED}
     ctx = dataclasses.replace(ctx, timeout=seconds, skip_permissions=False,

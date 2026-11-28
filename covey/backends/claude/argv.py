@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from covey.backends.claude import redaction, subagents, tool_guard
+from covey.backends.claude import subagents, tool_guard, upstream
 from covey.backends.claude.sessions import ClaudeSessionStore, claude_projects_root
 from covey.core.harness import CONSULT, EXTERNAL, LEAD, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
 from covey.core.home import home_dir
@@ -173,12 +173,13 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
         # Its subagents' read-only Explore on Haiku (backends/claude/subagents.py), unless the setting says "same" or
         # the app sets the subagents' model (a retry after a refusal).
         argv += subagents.argv(ctx)
-        # One --settings: a redacted topic's turn, its compaction included, talks to the model through the term relay;
+        # One --settings: a turn an extension's hook gave a relay (backends/claude/upstream.py), its compaction included,
+        # talks to the model through it;
         # a 代答 turn's shell and edit tools go through its PreToolUse hook (backends/claude/tool_guard.py); a turn started
         # from the home has the home-search hook (home_hooks), a held LOOK turn the look hook (look_hooks), ahead of the
         # extensions' (TURN_HOOKS), in any but a CONSULT one; a topic that keeps off this machine's files leaves the home's
         # instruction files out (``md_excludes``).
-        settings = redaction.settings(ctx)
+        settings = upstream.settings(ctx)
         excluded = md_excludes(ctx)
         if excluded:
             settings["claudeMdExcludes"] = excluded
@@ -210,13 +211,15 @@ def turn_env(ctx, env):
     (its Bridge tools in ``ctx.options["mcp_config"]``) loads every tool with the session instead of finding them
     through tool search, as Persona's assistant does: a Bridge tool called beside that search went out with no
     arguments and was refused (the first call of topic_start and of topic_send). Its subagents' model as
-    backends/claude/subagents.py says. A 代答 turn and a redacted one (through the term relay) neither read nor write
-    Claude Code's own memory (``NO_AUTO_MEMORY``): the repository's MEMORY.md is every topic's of that workspace, and what
-    such a turn said must reach none of them, nor what they noted reach it (docs/proxy.md, docs/architecture.md 敏感词脱敏)."""
+    backends/claude/subagents.py says. A 代答 turn neither reads nor writes Claude Code's own memory (``NO_AUTO_MEMORY``):
+    the repository's MEMORY.md is every topic's of that workspace, and what such a turn said must reach none of them, nor
+    what they noted reach it (docs/proxy.md). Nor does a turn an extension's hook put behind a relay
+    (backends/claude/upstream.py ``settings``), as before 敏感词脱敏 was taken out, when its relay and the term relay
+    shared the one setting."""
     child = {**subagents.turn_env(ctx, env), "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
              "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1"}
     if ctx.options.get("mcp_config") and ctx.options.get(TOOL_LIMIT) != CONSULT:
         child["ENABLE_TOOL_SEARCH"] = "false"
-    if ctx.options.get(TOOL_LIMIT) == PROXY or redaction.settings(ctx):
+    if ctx.options.get(TOOL_LIMIT) == PROXY or upstream.settings(ctx):
         child[NO_AUTO_MEMORY] = "1"
     return child

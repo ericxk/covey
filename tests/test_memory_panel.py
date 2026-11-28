@@ -301,7 +301,7 @@ class WorstCaseTests(HubCase):
                   {'key': 'topics', 'title': '话题', 'counts': {}},
                   *({'key': f'p:{i:012x}', 'title': '名' * 60, 'counts': {'rule': 99, 'decision': 99, 'note': 99, 'pending': 99}}
                     for i in range(40))]
-        top = [tab_row(MEMORY, 'c' * 24, ['topic', 'main', 'workspace', 'redaction', 'groups', 'memory', 'nodes', 'doctor'])]
+        top = [tab_row(MEMORY, 'c' * 24, ['topic', 'main', 'workspace', 'groups', 'memory', 'nodes', 'doctor'])]
         for url in ('', URL):
             data = {'counts': {'rule': 99, 'decision': 99, 'note': 99, 'pending': 40}, 'scopes': scopes, 'review': review,
                     'rules': rules, 'url': url}
@@ -384,13 +384,15 @@ class AboutTabTests(HubCase):
 
     def test_without_claude_code_the_butler_runs_on_codex_and_without_any_it_says_how_to_get_one(self):
         """T664: no Harness named, no Claude Code: the butler runs on Codex (app/butler_harness.py); only with no Harness
-        that takes the Bridge's tools is there none, and the row says how to get one. 脱敏 still needs Claude Code."""
+        that takes the Bridge's tools is there none, and the row says how to get one. 回退 still needs Claude Code."""
         def row(apps, name):
             rows = about_panel.features(about_panel.Probe(self.state, apps, self.app.runtime))
             return next(row for row in rows if row['name'] == name)
         apps = {name: app for name, app in self.app.topics.apps.items() if name != 'claude'}
         self.assertTrue(row(apps, '管家')['on'])
-        self.assertFalse(row(apps, '敏感词脱敏')['on'])
+        self.assertFalse(row(apps, '回退一步')['on'])
+        self.assertFalse(any(row['name'] == '敏感词脱敏' for row in about_panel.features(
+            about_panel.Probe(self.state, apps, self.app.runtime))))  # 敏感词脱敏 was taken out (T947).
         # DeepSeek Harness takes the Bridge's tools too since T700: with it alone the butler runs.
         self.assertTrue(row({name: app for name, app in apps.items() if name == 'dsh'}, '管家')['on'])
         from covey.app.butler_harness import takes_tools  # An enabled extension's that takes them too (MASO) goes as well.

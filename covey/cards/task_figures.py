@@ -79,7 +79,7 @@ def job_inputs(job: Any) -> list[str]:
         return [str(part) for part in parts]
     model = getattr(job, "model_label", "") or getattr(job, "model", "") or ""
     return answer_card.input_parts("", "", str(model).rsplit(" · ", 1)[-1], getattr(job, "effort", "") or "",
-                                   getattr(job, "redaction", None), getattr(job, "workspace_label", "") or "")
+                                   getattr(job, "workspace_label", "") or "")
 
 
 def io_lines(pairs=(), ran: str = "", *, slim: bool = False) -> list[str]:

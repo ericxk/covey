@@ -6,8 +6,7 @@ only describes the Claude Code Harness: every turn runs ``claude -p`` with strea
 input and output in ``--workdir`` (``backends/claude/runtime.py``), multi-turn
 continuity via ``--resume <session_id>``; the bridge rules travel at the system level, appended to Claude Code's own
 system prompt on every invocation (``system_instructions``, app/rules_sent.py); a resumed
-session compacted before the turn when asked (``backends/claude/compaction.py``); a topic that chose
-redaction through its term relay (``backends/claude/redaction.py``). A topic on a removed provider's model
+session compacted before the turn when asked (``backends/claude/compaction.py``). A topic on a removed provider's model
 (core/providers.py RETIRED_PREFIXES) is refused before Claude Code starts.
 """
 
@@ -26,7 +25,7 @@ from covey.core.process import device_of
 from covey.core.process_env import child_process_env, process_device
 from covey.core.harness import BackendConfig, BridgeContext, HarnessSpec, RunRequest, RunResult, UUID_RE
 from covey.backends.claude.models import model_catalog, with_extension_models
-from covey.backends.claude import redaction, rewind
+from covey.backends.claude import rewind, upstream
 from covey.backends.claude.argv import TURN_HOOKS, merge_hooks
 from covey.core.providers import retired_provider, retired_provider_notice
 
@@ -36,9 +35,6 @@ STATE_DIR_NAME = "claude-lark-bridge"
 DEFAULT_MODEL = "claude-fable-5"
 DEFAULT_EFFORT = "xhigh"
 DEFAULT_CLAUDE_CMD = "claude"
-# prompt_notes of a topic that chose redaction (backends/claude/redaction.py).
-REDACTION_NOTE = ("这段对话里有些名字在发给你之前换成了替身，其中一些是 RX 加 8 位十六进制数。替身照原样写，路径和代码里也一样；"
-                  "不要猜，也不要问它代表什么。")
 DEFAULT_CLAUDE_TIMEOUT = 0
 SKIP_PERMISSIONS_DEFAULT = True
 LOGIN_SHELL_DEFAULT = False
@@ -158,7 +154,7 @@ class ClaudeBackend(BackendRuntime):
         from covey.core.attachments import MAX_IMAGE_BYTES
         return for_device(HarnessCapabilities(questions=True, image_bytes=MAX_IMAGE_BYTES, image_frame=IMAGE_FRAME, steering=True,
             native_fork=True, rate_limit_retry=True, incomplete_retry=True, fault_retry=True, steer_reads=True, compaction=True,
-            command_stop=True, session_files=True, redaction=True, rewind=True, bridge_tools=True, read_only=True,
+            command_stop=True, session_files=True, rewind=True, bridge_tools=True, read_only=True,
             # 协作 asks held to CONSULT in a fork (C8 on the installed CLI: tests/test_collab_c8.py). look_gate: a LOOK turn's
             # PreToolUse hook (backends/claude/tool_guard.py --mode look, W1-C).
             collab=True, look_gate=True,
@@ -205,29 +201,22 @@ class ClaudeBackend(BackendRuntime):
             raise ValueError(retired_provider_notice(removed))
         if self.retired_gateway(request.context):
             raise ValueError("本话题的模型所在网关已下线，不能再用它；请点任务卡上的“换配置”选择其他模型")
-        return redacted_stream(self, request, self.child_env(request.context))
+        return extension_stream(self, request, self.child_env(request.context))
 
     def compact_session(self, request: RunRequest) -> bool:
-        """``/compact`` on ``request.session_id`` and nothing else (the butler's idle compaction): the turn's
-        environment and, for a redacted topic, its term relay (backends/claude/runtime.py compact_only)."""
+        """``/compact`` on ``request.session_id`` and nothing else (the butler's idle compaction), in the turn's
+        environment and inside the extensions' ``claude_turn`` hooks (backends/claude/runtime.py compact_only)."""
         from covey.backends.claude.runtime import compact_only
         if device_of(request.context):
             return False  # The session is on a device: its file is not ours to read (compact_before_turn).
         ctx, env = request.context, self.child_env(request.context)
-        want_redact = redaction.wanted(ctx)
         with _extension_turn(ctx, env, run_id=request.inputs.run_id) as (ctx, env):
-            request = dataclasses.replace(request, context=ctx)
-            if not want_redact:
-                return compact_only(self, request, env)
-            with redaction.turn(ctx, env, run_id=request.inputs.run_id) as (ctx, env):
-                return compact_only(self, dataclasses.replace(request, context=ctx), env)
+            return compact_only(self, dataclasses.replace(request, context=ctx), env)
 
-    def handoff_summary(self, ctx, session_id, prompt, *, redact, cancel=None, run_id=""):
+    def handoff_summary(self, ctx, session_id, prompt, *, cancel=None, run_id=""):
         """(text, outcome) of a handoff summary on a fork of ``session_id`` (backends/claude/handoff.py), for the
-        first run after 🔁 换配置 away from this session (app/switch_handoff.py). ``redact``: the session's turns went
-        through the term relay; then, or when ``ctx``'s topic has 敏感词脱敏 on now, so does the summary call. It is
-        not sent when the relay cannot run or the topic's setting cannot be read. ``run_id``: its row in the relay's
-        counts, apart from the turns'."""
+        first run after 🔁 换配置 away from this session (app/switch_handoff.py), inside the extensions'
+        ``claude_turn`` hooks as a turn is."""
         from covey.backends.claude.handoff import summarize
         # The same refusals as ``run``: a removed provider's or gateway's model is never asked, not even for a summary.
         removed = retired_provider(ctx.model)
@@ -236,15 +225,8 @@ class ClaudeBackend(BackendRuntime):
         if self.retired_gateway(ctx):
             return "", "原来的模型所在网关已下线，没有发送"
         env = self.child_env(ctx)
-        try:
-            want_redact = redact or redaction.wanted(ctx)
-            with _extension_turn(ctx, env, run_id=run_id) as (ctx, env):
-                if not want_redact:
-                    return summarize(self, ctx, session_id, prompt, env, cancel=cancel)
-                with redaction.turn(ctx, env, run_id=run_id) as (ctx, env):
-                    return summarize(self, ctx, session_id, prompt, env, cancel=cancel)
-        except redaction.Unavailable:
-            return "", "敏感词中继不可用，没有发送"
+        with _extension_turn(ctx, env, run_id=run_id) as (ctx, env):
+            return summarize(self, ctx, session_id, prompt, env, cancel=cancel)
 
     @contextlib.contextmanager
     def one_shot(self, ctx, env, *, run_id=""):
@@ -253,11 +235,11 @@ class ClaudeBackend(BackendRuntime):
         (``_extension_turn``; covey-internal's protocol-normalization relay, COVEY_CLAUDE_CLI_NORMALIZE=1, is one: a
         machine that reaches its model only through it would have every background question refused upstream without
         it), and ``settings`` its ``--settings``: no hook of the user's (``disableAllHooks``) and, when a hook gave the
-        turn a relay (backends/claude/redaction.py SETTINGS_ENV: its ANTHROPIC_BASE_URL), what points Claude Code at it.
+        turn a relay (backends/claude/upstream.py SETTINGS_ENV: its ANTHROPIC_BASE_URL), what points Claude Code at it.
         The hooks' own Claude Code hooks (TURN_HOOKS) are not taken: the question runs none. Whatever the hooks started
         ends when the block does."""
         with _extension_turn(ctx, env, run_id=run_id) as (ctx, env):
-            yield ctx, env, {"disableAllHooks": True, **redaction.settings(ctx)}
+            yield ctx, env, {"disableAllHooks": True, **upstream.settings(ctx)}
 
     def subagent_report(self, ctx, session_id, since):
         """Each subagent of the session's turn from ``since``: its description, end and last text (backends/claude/subagent_report.py)."""
@@ -279,7 +261,7 @@ class ClaudeBackend(BackendRuntime):
         return "Claude Code 权限模式：default，桥接器只回答 AskUserQuestion，其他权限请求一律拒绝"
 
     def prompt_notes(self, ctx: BridgeContext) -> tuple[str, ...]:
-        return self._completion_notes(ctx) + (REDACTION_NOTE,) * _redacted_topic(ctx)
+        return self._completion_notes(ctx)
 
     def _completion_notes(self, ctx: BridgeContext) -> tuple[str, ...]:
         wait, total = ctx.options.get("completion_wait_seconds"), ctx.options.get("completion_total_seconds")
@@ -337,28 +319,11 @@ def _extension_turn(ctx, env, *, run_id=""):
         yield ctx, env
 
 
-def redacted_stream(backend, request, env):
-    """``run_stream`` for the turn; through the term relay when the topic chose redaction. A turn that
-    cannot be redacted fails before Claude Code starts, with the reason on the card."""
+def extension_stream(backend, request, env):
+    """``run_stream`` for the turn, inside the extensions' ``claude_turn`` hooks (``_extension_turn``)."""
     from covey.backends.claude.runtime import run_stream
-    ctx = request.context
-    try:
-        want_redact = redaction.wanted(ctx)
-        with _extension_turn(ctx, env, run_id=request.inputs.run_id) as (ctx, env):
-            request = dataclasses.replace(request, context=ctx)
-            if not want_redact:
-                return run_stream(backend, request, env)
-            with redaction.turn(ctx, env, run_id=request.inputs.run_id) as (ctx, env):
-                return run_stream(backend, dataclasses.replace(request, context=ctx), env)
-    except redaction.Unavailable as exc:
-        return redaction.unavailable_result(request, exc)
-
-
-def _redacted_topic(ctx):
-    try:
-        return redaction.wanted(ctx)
-    except ValueError:
-        return False  # The turn itself fails and says why.
+    with _extension_turn(request.context, env, run_id=request.inputs.run_id) as (ctx, env):
+        return run_stream(backend, dataclasses.replace(request, context=ctx), env)
 
 
 def _token_count(value: str) -> int:

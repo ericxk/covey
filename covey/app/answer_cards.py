@@ -48,9 +48,8 @@ def record_path(state_dir, key) -> Path:
 
 
 def inputs(job, harness, snapshot=None, ctx=None) -> list:
-    """输入 of ``job`` run by the Harness ``harness`` (its spec: name, title), always its six parts: the
-    Harness, the provider as the 换配置 card names it, the model's name, the reasoning budget, 脱敏
-    and the workspace. No model chosen, or Claude Code's "Default (recommended)" (core/menu_choice.py NATIVE: the
+    """输入 of ``job`` run by the Harness ``harness`` (its spec: name, title), always its five parts: the
+    Harness, the provider as the 换配置 card names it, the model's name, the reasoning budget and the workspace. No model chosen, or Claude Code's "Default (recommended)" (core/menu_choice.py NATIVE: the
     Harness picks): the one the turn ran as its process ``snapshot`` names it (Claude's, app/launch_models.py
     shown_model: Opus 5.5, T718), else the entry's name, else 默认模型; no budget chosen, the one its context ``ctx``
     (core/jobs.py context_for_job) ran with, else 默认."""
@@ -74,7 +73,7 @@ def inputs(job, harness, snapshot=None, ctx=None) -> list:
     effort = str(getattr(job, "effort", "") or "") or str(getattr(ctx, "effort", "") or "") or named_effort(model)
     # The card's workspace (app/cards.py card_facts), else the one its context ran in.
     workspace = str(getattr(job, "workspace_label", "") or "") or str(getattr(ctx, "workspace_name", "") or "")
-    return input_parts(title, source, name, effort, getattr(job, "redaction", None), workspace)
+    return input_parts(title, source, name, effort, workspace)
 
 
 def named_effort(model) -> str:

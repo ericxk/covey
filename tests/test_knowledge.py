@@ -21,7 +21,7 @@ from support.fake_backends import FakeBackend
 from support.records import write_job, write_topic
 from support.world import UnifiedCase, harness_app
 from covey.core import env as cenv
-from covey.app import digest, knowledge_collect, knowledge_turn, butler_knowledge, butler_tools
+from covey.app import digest, knowledge_collect, butler_knowledge, butler_tools
 from covey.app.butler_env import ButlerEnv
 from covey.app.prompts import (AREA_OPENING, area_rule, KNOWLEDGE_HEAD, KNOWLEDGE_NEW_HEAD, REMEMBER_RULE,
                                         SHARED_RULES, USAGE_RULE, constraints, history_line, resume_reminders,
@@ -372,19 +372,13 @@ class TurnTest(StateCase):
         self.assertIn(history_line("/absolute/kb-history"), rules)
         self.assertNotIn(REMEMBER_RULE, rules)
 
-    def test_a_proxy_topic_a_redacted_topic_and_the_butler_get_no_remember_rule_and_a_proxy_topic_nothing(self):
+    def test_a_proxy_topic_and_the_butler_get_no_remember_rule_and_a_proxy_topic_nothing(self):
         self.env(**ON, **{knowledge.HISTORY_ENV: "/absolute/kb-history"})
         self.save()
         runs = self.app().runs
         main = self.job(chat=DM, sender="", topic=butler.butler_topic_id(DM))
         self.assertNotIn(REMEMBER_RULE, runs.bridge_rules(self.ctx, main))
         self.assertIn(KNOWLEDGE_HEAD, runs.bridge_rules(self.ctx, main))
-        write_topic(self.ctx, redaction=True)
-        job = self.job(topic="t1")
-        with mock.patch.object(knowledge_turn, "topic_redaction", return_value=True):
-            self.assertNotIn(REMEMBER_RULE, runs.bridge_rules(self.ctx, job))
-        with mock.patch.object(knowledge_turn, "topic_redaction", side_effect=ValueError("unreadable")):
-            self.assertNotIn(REMEMBER_RULE, runs.bridge_rules(self.ctx, job))
         write_topic(self.ctx, proxy={"contact": "ou_x"})
         rules = runs.bridge_rules(self.ctx, self.job(chat=DM, sender=OWNER))
         self.assertNotIn(KNOWLEDGE_HEAD, rules)
@@ -791,19 +785,13 @@ class CollectTest(StateCase):
                 self.assertEqual(self.logs, [f"knowledge remember written=1 job=#{job.job_id}"])
         self.assertEqual(sorted(e["text"] for e in self.written()), [f"坑 {n}" for n in range(len(cases))])
 
-    def test_a_proxy_topic_and_a_redacted_topic_or_one_whose_setting_cannot_be_read_write_nothing(self):
-        for topic_data in ({"proxy": {"contact": "ou_x"}}, {"redaction": True}):
+    def test_a_proxy_topic_writes_nothing(self):
+        for topic_data in ({"proxy": {"contact": "ou_x"}},):
             write_topic(self.state, topic_id="t1", topic_number=483, **topic_data)
             self.ctx.history_path = self.state / "topics" / "t1" / "history.jsonl"
             with self.subTest(topic_data):
                 self.collect(self.turn())
                 self.assertEqual(self.written(), [])
-        (self.state / "topics" / "t1" / "topic.json").write_text("{broken")
-        self.logs.clear()
-        job = self.turn()
-        self.collect(job)
-        self.assertEqual(self.written(), [])
-        self.assertIn(f"knowledge remember ignored reason=redaction-unreadable job=#{job.job_id}", self.logs)
 
     def test_the_same_turn_collected_twice_writes_once(self):
         job = self.turn()

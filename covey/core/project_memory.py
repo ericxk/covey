@@ -175,8 +175,6 @@ def _entry(row, index=0):
     entry = {"id": str(row.get("id") or f"i{index}"), "text": clean(row.get("text"), ANSWER_TEXT), "kind": kind_of(row.get("kind")),
              "source": str(row.get("source") or "lead")[:30], "at": at if isinstance(at, (int, float)) else 0,
              "deleted": deleted if isinstance(deleted, (int, float)) and not isinstance(deleted, bool) and deleted else 0}
-    if row.get("redacted") is True:  # COVEY_MEMORY=1: a line from a topic with redaction on (core/memory.py); no key otherwise.
-        entry["redacted"] = True
     return entry
 
 
@@ -393,18 +391,17 @@ def _edit(state_dir, project_id, edit, also=None, now=None):
     return box[0]
 
 
-def add(state_dir, project_id, text, kind="fact", source="lead", *, now=None, also=None, redacted=False, origin=None) -> tuple:
+def add(state_dir, project_id, text, kind="fact", source="lead", *, now=None, also=None, origin=None) -> tuple:
     """(the entry, whether it is new): ``text`` as an entry of ``kind``. The same text of the same kind that is still
     there is the one returned, not noted twice; the owner's (``source`` one of ``OWNERS``) on a line of the lead's confirms
     that line where it is (同文就地确认, T908 M3a: its parties the owner's and the Bridge's as ``fix`` writes them, his
     ``origin`` laid over its own). ``also(record)``: more to change in the project's record in the same write.
-    ``redacted``: the line came from a topic with redaction on (it is only read back by such a topic, core/memory.py).
     ``source`` is one of ``SOURCES`` (any other is the lead's); ``origin`` where the line came from (``ORIGIN_KEYS``, kept in
     the meta)."""
     stamp = time.time() if now is None else now
     source = source if source in SOURCES else "lead"
     wanted = {"id": secrets.token_hex(3), "text": clean(text, ANSWER_TEXT if source in ANSWERS else TEXT), "kind": kind_of(kind),
-              "source": source, "at": stamp, "deleted": 0, **({"redacted": True} if redacted else {})}
+              "source": source, "at": stamp, "deleted": 0}
     origin = _origin(origin)
     if not wanted["text"]:
         raise ValueError("text 不能为空")
@@ -619,7 +616,7 @@ def supersede(state_dir, project_id, entry_id, *, text="", kind="", by="", why="
             created = False
         else:
             wanted = {"id": secrets.token_hex(3), "text": text, "kind": kind_of(kind) if kind else row["kind"], "source": "lead",
-                      "at": stamp, "deleted": 0, **({"redacted": True} if row.get("redacted") else {})}
+                      "at": stamp, "deleted": 0}
             same = next((r for r in rows if not r["deleted"] and r["kind"] == wanted["kind"] and r["text"] == text
                          and (meta.get(r["id"]) or {}).get("valid") not in SETTLED), None)
             created = same is None

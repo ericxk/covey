@@ -12,7 +12,7 @@ from covey.core.locks import LOCK, resource_lock, topic_lock
 from covey.core.workspaces import RUN_MODES, load_config, visible_workspaces
 
 
-from covey.cards.launch_config import PAGES, SUBMIT_PREFIX, launch_form_card, unredacted
+from covey.cards.launch_config import PAGES, SUBMIT_PREFIX, launch_form_card
 from covey.app.form_cards import LAUNCH_FORM_LOCK, publish_form, replace_form_card, save_record
 from covey.app.launch_models import available_models
 from covey.app.preselection import launch_selection
@@ -62,8 +62,7 @@ def selected_effort(record, value, *, allow_empty=False):
 def form_draft(record):
     """What a launch form's card is rebuilt from: its recorded selects."""
     return {**record.get('form_defaults', {}), 'model': record['selected_model'],
-            'effort': record.get('selected_effort', ''), 'work_mode': record.get('selected_work_mode', ''),
-            'redaction': record.get('selected_redaction', '')}
+            'effort': record.get('selected_effort', ''), 'work_mode': record.get('selected_work_mode', '')}
 
 
 # The last launch's model_choice, effort, work_mode (only when not the default) and workdir: one record
@@ -206,9 +205,7 @@ def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
                                  model=ctx.options['harness_id'] + ':' + ctx.model, work_mode=ctx.work_mode, fresh=fresh,
                                  saved=saved, draft=draft, notice=notice, topic_budget=topic_budget(ctx.state_dir),
                                  topic_model=(defaults.harness.lower(), defaults.model))
-    # 敏感词脱敏 and 运行方式 keep the card's choice across rebuilds; a new card starts from the 新话题 page's.
-    redaction = draft.get('redaction') if draft.get('redaction') in ('on', 'off') else (
-        'on' if defaults.redaction else 'off')
+    # 运行方式 keeps the card's choice across rebuilds; a new card starts from the 新话题 page's.
     token = secrets.token_hex(12)
     page = draft.get('page') if draft.get('page') in PAGES else ''  # The row drawn open.
     run_mode = draft.get('run_mode') if draft.get('run_mode') in RUN_MODES else (
@@ -221,17 +218,14 @@ def build_launch_card(topics, ctx, *, new_topic=False, draft=None, notice=''):
         'harness_id': ctx.options['harness_id'], 'new_topic': False, 'status': 'ready',
         'schema_version': 3, 'compact': True, 'models': selection.choices, 'selected_model': selection.model,
         'config_revision': 1, 'selected_effort': selection.effort, 'selected_work_mode': selection.work_mode,
-        'selected_redaction': redaction,
         'form_defaults': ({'workspace': place[0], 'path': draft.get('path') or '', 'run_mode': run_mode} if legacy
                           else {'device': selection.device}),
         **({'page': page} if page else {}),
-        # The card says its 脱敏 is lost on this model and asks (cards/launch_config.py unredacted): its 不脱敏开始 may start it.
-        **({'redaction_asked': selection.model} if unredacted(selection.choices.get(selection.model, {}), redaction) else {}),
     })
     config = load_config(ctx.state_dir, ctx.default_workdir) if legacy else {'workspaces': {}}
     return launch_form_card(token, model=selection.model, choices=selection.choices, effort=selection.effort,
                             **({'workspace': place[0], 'names': place[1], 'run_mode': run_mode} if legacy else {}),
-                            notice=selection.notice, work_mode=selection.work_mode, redaction=redaction,
+                            notice=selection.notice, work_mode=selection.work_mode,
                             topic_tag=topic_label(ctx.state_dir, ctx.topic_id), expanded=bool(draft.get('expanded')),
                             page=page, devices=device_titles(config), device=selection.device, device_options=options)
 

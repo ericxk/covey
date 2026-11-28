@@ -580,7 +580,7 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
 
     def test_task_details_never_go_on_a_card_and_one_sent_before_keeps_its_words(self):
         # The owner, 2026-11-22: 任务详情就没必要了 (the card keeps 本轮请求 and 执行过程). A turn with words for it (a
-        # timeout, redacted terms, its figures) writes none, running or ended, and a card that had one (sent before)
+        # timeout, its figures) writes none, running or ended, and a card that had one (sent before)
         # keeps what it shows: no write of 任务详情, none refused.
         from covey.core.trace import task_trace
         for live in (False, True):
@@ -591,7 +591,6 @@ class TaskControlsTest(TopicFixture, unittest.TestCase):
                 job.progress.live_details, job.progress.details_text = live, "token 用量：输入 1 · 输出 1 token" if live else ""
                 job.tool_trace = task_trace()
                 job.tool_trace.accept("token_usage", self.USAGE)
-                job.tool_trace.accept("redaction", {"terms": 3, "hits": 5, "requests": 1})
                 with FakeCardKit() as lark:
                     self.flush(ctx, job)
                     job.tool_trace.accept("tool", {"id": "a", "name": "bash", "status": "running", "detail": "ls",

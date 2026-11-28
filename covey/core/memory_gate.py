@@ -179,7 +179,7 @@ def _review(state_dir, *, kind, text, title, suggest, proof, origin, flags, item
 
 
 def write(state_dir, *, kind, scope, owner_key="", text, title="", why="", repos=(), proof: Proven | None, by: str,
-          source: str, place: str = "", decision: dict | None = None, supersedes: str = "", redacted=False,
+          source: str, place: str = "", decision: dict | None = None, supersedes: str = "",
           origin: dict | None = None, strict: bool = False, learned: bool = False, wider: str = "", pending: bool = False,
           now=None) -> Written:
     """A new entry, through to core/memstore.py: ``put`` (``add_decision`` for kind ``decision``, with ``decision``'s
@@ -193,8 +193,7 @@ def write(state_dir, *, kind, scope, owner_key="", text, title="", why="", repos
     checkpoint's): one whose words name what only he says yes to (``grants``) is not written; it waits in 待审核 (type learn, its scope and
     ``grant`` suggested; reason ``GRANT``) and holds once he accepts it, never before, so a learned rule never lets a turn
     skip asking him. ``wider`` "global": a rule the model says is for every topic, written where it was said, and 待审核
-    asks whether it is to hold 全局 (``review``; the item's ``items`` the line written, which an accept moves there); never
-    for a line from a topic with redaction on. ``pending``: nothing is written, the entry waits in 待审核 at its scope (reason
+    asks whether it is to hold 全局 (``review``; the item's ``items`` the line written, which an accept moves there). ``pending``: nothing is written, the entry waits in 待审核 at its scope (reason
     ``PENDING``; the butler's 全局 the owner's words did not ask for). ValueError from core/memstore.py says why nothing was
     written."""
     from covey.core import memstore
@@ -214,7 +213,7 @@ def write(state_dir, *, kind, scope, owner_key="", text, title="", why="", repos
         # read it as the owner's; a topic's own never goes anywhere else.
         grant = grants(text, title) if learned and (kind == "rule" or (kind == "note" and scope in (GLOBAL, "project"))) else ""
         if grant or pending:
-            target = GLOBAL if wider == GLOBAL and not redacted else scope
+            target = GLOBAL if wider == GLOBAL else scope
             more = {"grant": grant} if grant else {}
             key, fresh = _review(state_dir, kind=kind, text=text, title=title, proof=proof, origin=origin, flags=flags,
                                  suggest=_suggest(kind, target, "" if target == GLOBAL else owner_key, **more), now=now)
@@ -223,16 +222,16 @@ def write(state_dir, *, kind, scope, owner_key="", text, title="", why="", repos
     if kind == "decision":
         fields = {key: value for key, value in dict(decision or {}).items() if key in DECISION_FIELDS}
         entry = memstore.add_decision(state_dir, scope=scope, owner_key=owner_key, text=text, title=title, said=said, by=by,
-                                      origin=origin, redacted=redacted, who=by, because=because, now=now, **fields)
+                                      origin=origin, who=by, because=because, now=now, **fields)
         done = memstore.NEW
     else:
         entry, done = memstore.put(state_dir, kind=kind, scope=scope, owner_key=owner_key, text=text, title=title, why=why,
-                                   said=said, by=by, origin=origin, repos=repos, redacted=redacted, who=by, because=because,
+                                   said=said, by=by, origin=origin, repos=repos, who=by, because=because,
                                    now=now)
     if supersedes:
         memstore.supersede(state_dir, supersedes, entry.ref, who=by, because=because, now=now)
     key, fresh = "", False
-    if wider == GLOBAL and kind == "rule" and entry.scope != GLOBAL and not entry.redacted and entry.status == "active":
+    if wider == GLOBAL and kind == "rule" and entry.scope != GLOBAL and entry.status == "active":
         key, fresh = _review(state_dir, kind=kind, text=entry.text, title=title, proof=proof, origin=origin, flags=flags,
                              suggest=_suggest(kind, GLOBAL, ""), items=(entry.ref,), now=now)
     return Written(entry=entry, review=key, said=entry.said, scope=entry.scope, flags=flags, done=done, fresh=fresh)

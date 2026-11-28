@@ -1,13 +1,11 @@
-"""Change a topic's Harness, provider, model, workspace, run mode or 敏感词脱敏 mid-conversation (🔁 换配置).
+"""Change a topic's Harness, provider, model, workspace or run mode mid-conversation (🔁 换配置).
 
 Task and question cards offer 🔁 换配置, which opens the switch card (cards/switch_form.py; a message of
-换配置 is an ordinary one): Harness, provider and model selects, the budget (and its work mode), the
-敏感词脱敏, then 确认更换 or 取消 (a card sent before the home start also has the workspace and run mode rows; it
+换配置 is an ordinary one): Harness, provider and model selects, the budget (and its work mode), then 确认更换 or 取消 (a card sent before the home start also has the workspace and run mode rows; it
 still moves the topic: ``place``). Confirming a new model, budget, work mode or place
 rebinds the topic under a new binding revision; a new place (an old card's) is another configured workspace or the other
 run mode, a worktree made then from the workspace's current commit (the old one stays). Pending questions of
-the old binding are cancelled, and cards of earlier jobs can no longer start jobs. 敏感词脱敏 alone only
-sets the topic's choice: each request goes through the relay whole, so the session goes on.
+the old binding are cancelled, and cards of earlier jobs can no longer start jobs.
 
 A click from a relay card at the private chat's top level (cards/topic_actions.py RELAY: a 做完了 relay's 换配置, a 停住了
 relay's 换个模型, app/relay_stops.py) opens the card there, a message of its own under the relay that names the topic and
@@ -31,7 +29,7 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
-from covey.app.binding import (REDACTION_ONLY, STALE_CARD, active_task, current_binding_card, run_mode_of,
+from covey.app.binding import (STALE_CARD, active_task, current_binding_card, run_mode_of,
                                         switch_topic)
 from covey.app.card_queue import CardActionQueue
 from covey.app.switch_handoff import tagged
@@ -40,9 +38,8 @@ from covey.cards.elements import notice_card
 from covey.cards.project_card import SWITCH_LEAD
 from covey.cards.launch_config import PAGES
 from covey.core.menu_choice import budget_effort, chosen_work_mode, effort_options, parse_budget, named_budget, tier_pick
-from covey.cards.switch_form import (BUDGET, CANCEL, CONFIRM, HARNESS, MODEL, PAGE, PROVIDER, REDACTION,
+from covey.cards.switch_form import (BUDGET, CANCEL, CONFIRM, HARNESS, MODEL, PAGE, PROVIDER,
                                               RUN_MODE, WORK_MODE, WORKSPACE, build_switch_card)
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.app.menu_panel import valid_token
 from covey.core.locks import resource_lock
 from covey.core.state import keyed_json_path, read_json, write_json
@@ -58,13 +55,13 @@ from covey.core.topics import route_message, topic_label
 from covey.app.form_cards import click_token, publish_form, refused, replace_form_card
 
 OPEN = SWITCH_OPEN
-SELECTS = frozenset({HARNESS, PROVIDER, MODEL, BUDGET, WORK_MODE, WORKSPACE, RUN_MODE, REDACTION})
+SELECTS = frozenset({HARNESS, PROVIDER, MODEL, BUDGET, WORK_MODE, WORKSPACE, RUN_MODE})
 # Recorded on their own; the others choose the model (chosen_model). Either way the card is redrawn: its rows
 # mark what differs from the topic and 确认更换 is greyed out while nothing does (a budget alone left it grey).
 RECORDED = frozenset({BUDGET, WORK_MODE, WORKSPACE, RUN_MODE})
 KINDS = frozenset({OPEN, CONFIRM, CANCEL, PAGE} | SELECTS)
 REBUILD_FAILED = "选项没有刷新成功，卡片上的选项可能还是之前的。请重新选一次，再点确认更换。"
-NO_OTHER_HARNESS = "现在没有别的 Harness 能接着做（没启用、刚报过限流或额度用完，或者这个话题开着脱敏）；可以稍后再试，或点「换个模型」。"
+NO_OTHER_HARNESS = "现在没有别的 Harness 能接着做（没启用、刚报过限流或额度用完）；可以稍后再试，或点「换个模型」。"
 # What a switch confirmed at the top level says comes next: a top-level message is the butler's, a reply to this card the topic's.
 TOP_NEXT = "回复这张卡说一句，就由新会话接着做"
 LEAD = SWITCH_LEAD  # In a 换配置 click from a 专项卡: the project whose lead it changes (cards/project_card.py ``buttons``).
@@ -77,12 +74,10 @@ NO_LEAD_MODEL = "现在没有能当负责人的模型：要能接 Bridge 工具�
 def other_harness_key(topics, state_dir, sel, topic) -> str:
     """The menu entry 换个 Harness preselects (#36): the first in the card's order (the chat's recent ones first,
     app/preselection.py switch_selection) on another Harness than the topic's that can take a task now
-    (app/availability.py usable); '' for none, and for a topic that redacts. The owner still confirms the switch."""
+    (app/availability.py usable); '' for none. The owner still confirms the switch."""
     from covey.app import availability
     from covey.core.menu_choice import harness_of
 
-    if sel.redacting:
-        return ""
     usable = {}
     for key, entry in sel.choices.items():
         name = harness_of(key, entry)
@@ -95,7 +90,7 @@ def other_harness_key(topics, state_dir, sel, topic) -> str:
     return ""
 
 
-def done_text(record, choice, effort, mode, place, redaction, was, switched):
+def done_text(record, choice, effort, mode, place, switched):
     """The 已换配置 card: each change, from what to what, and what the next message gets (a card at the private chat's top
     level, ``top_level``: a reply to it, as a top-level message is the butler's)."""
     current, lead = record["current"], record.get("lead") or {}
@@ -117,8 +112,6 @@ def done_text(record, choice, effort, mode, place, redaction, was, switched):
                 lines.append(f"原来的独立 worktree 还在 {current.get('workdir')}，其中的改动不会自动带过来。")
         else:
             lines.append(f"工作区沿用：{switch_form.place(current.get('workspace') or record.get('workspace') or '', current.get('run_mode') or 'direct')}")
-    if redaction != was:
-        lines.append("敏感词脱敏：关 → 开（之前各轮已经原样发出过）" if redaction else "敏感词脱敏：开 → 关")
     top = bool(record.get("top_level"))
     if lead:
         lines.append(LEAD_NEXT if switched else "会话不变，负责人下一轮起生效。")
@@ -226,20 +219,9 @@ class HarnessSwitch(CardActionQueue):
                         return
                     key = record["selected_model"]
                 else:
-                    if kind == REDACTION:
-                        if option in ("on", "off") and option != record.get("selected_redaction"):
-                            record["selected_redaction"] = option
-                            record.pop("redaction_auto_off", None)  # The owner's own choice from here.
-                        elif not page:
-                            return
                     key = self.chosen_model(record, kind, option)
-                    followed = False
-                    if kind != REDACTION:  # A model's choice, or its own again: 脱敏 follows what it can do.
-                        was = record.get("selected_redaction")
-                        self.follow_redaction(record, key or record["selected_model"])
-                        followed = record.get("selected_redaction") != was
                     if key is None:
-                        if not page and not followed:
+                        if not page:
                             return
                         key = record["selected_model"]
                 revision = record["config_revision"] + 1
@@ -279,20 +261,8 @@ class HarnessSwitch(CardActionQueue):
         return True
 
     @staticmethod
-    def follow_redaction(record, key):
-        """A model that cannot redact turns a chosen 脱敏 off (confirmed with 确认更换's OFF_TITLE); choosing one
-        that can again turns it back on, unless the owner set 脱敏 since. The launch card does not: it keeps the
-        choice, draws no 脱敏 row for such a model, and starts it without redaction (app/launch.py plan)."""
-        redacts = bool(record["models"].get(key, {}).get("redaction"))
-        if record.get("selected_redaction") == "on" and not redacts:
-            record.update(selected_redaction="off", redaction_auto_off=True)
-        elif record.get("redaction_auto_off") and redacts:
-            record["selected_redaction"] = "on"
-            record.pop("redaction_auto_off")
-
-    @staticmethod
     def chosen_model(record, kind, option):
-        """The model a Harness, provider, model or 敏感词脱敏 choice selects: the topic's own where it is among
+        """The model a Harness, provider or model choice selects: the topic's own where it is among
         those the choice leaves, else the first of them (the chat's latest first); None when it changes nothing."""
         offered, prefer = switch_form.offered(record), record["current"]["key"]
         if kind == HARNESS:
@@ -301,16 +271,11 @@ class HarnessSwitch(CardActionQueue):
             # The selected entry's own Harness field: one from before the Harness select has none, so no models.
             harness = record["models"].get(record["selected_model"], {}).get("harness") or ""
             return tier_pick(offered, record["selected_model"], harness=harness, provider=option, prefer=prefer)
-        if kind == MODEL:
-            pool = [option] if option in offered else []
-        else:  # 敏感词脱敏 redraws the card; turned on, a model that cannot redact gives way.
-            redacting = [key for key, entry in offered.items() if entry.get("redaction")]
-            on = record.get("selected_redaction") == "on"
-            pool = [record["selected_model"]] if not on or record["selected_model"] in redacting else redacting
+        pool = [option] if kind == MODEL and option in offered else []
         if not pool:
             return None
         key = prefer if prefer in pool else pool[0]
-        return None if key == record["selected_model"] and kind != REDACTION else key
+        return None if key == record["selected_model"] else key
 
     @staticmethod
     def effort_for(record, key):
@@ -378,11 +343,10 @@ class HarnessSwitch(CardActionQueue):
                                   "effort": topic.get("effort") or "", "key": sel.key, "work_mode": mode,
                                   # What the card preselects for the topic's own model: confirming it unchanged changes nothing.
                                   "budget": sel.effort if sel.selected == sel.key else "",
-                                  "workspace": sel.workspace, "run_mode": run_mode, "redaction": sel.redacting,
+                                  "workspace": sel.workspace, "run_mode": run_mode,
                                   "workdir": str(topic.get("workdir") or "")},
                       # The topic's mode is preselected while the select shows; "" is the default's.
                       "selected_work_mode": mode, "no_place": True,
-                      "selected_redaction": "on" if sel.redacting else "off",
                       "workspace": sel.workspace, "topic": topic_label(ctx.state_dir, target.topic_id),
                       "active_task": active_task(self.topics, ctx.state_dir, target.topic_id),
                       # Opened from a relay card at the top level: it goes there, and so does what it answers.
@@ -461,12 +425,6 @@ class HarnessSwitch(CardActionQueue):
                 if record["selected_model"] == current["key"] and record.get("selected_effort") == current.get("budget"):
                     # The topic's own model and budget, untouched: kept exactly (a budget preset, a native default).
                     model, effort = str(topic.get("model") or ""), str(topic.get("effort") or "")
-                was = topic.get(REDACTION_KEY) is True
-                # compat(ecb0458): a card from before its 敏感词脱敏 select leaves the topic's choice as it is; retire
-                # when no switch-forms record lacks the select's field (compat_report: switch-form-fields)
-                redaction = record["selected_redaction"] == "on" if "selected_redaction" in record else was
-                if redaction and not choice.get("redaction"):
-                    raise ValueError(REDACTION_ONLY)
                 if lead_of(record) and not lead_harness.can_lead(choice):
                     raise ValueError(lead_harness.CANNOT_LEAD)
                 place = None if lead_of(record) else self.place(target, record)  # A lead stays where it reads.
@@ -483,8 +441,7 @@ class HarnessSwitch(CardActionQueue):
                     refused = devices.undeclared_refusal(where.split(":", 1)[0], name, choice.get("title") or name)
                     if refused:
                         raise ValueError(refused.replace("任务尚未启动", "话题配置没有改变"))
-                switched = switch_topic(self.topics, target, chat, record, name, model, effort, mode, place=place,
-                                        redaction=redaction)
+                switched = switch_topic(self.topics, target, chat, record, name, model, effort, mode, place=place)
             except ValueError as exc:
                 reason = str(exc)
                 if lead_of(record):  # A lead has no task card: its 换配置 is on the 专项卡.
@@ -497,7 +454,7 @@ class HarnessSwitch(CardActionQueue):
                                        mode, "switch", form=path.stem)
                 except OSError as exc:
                     self.topics.runtime.log(f"model usage save failed: {type(exc).__name__}; the switch is done")
-            text = done_text(record, choice, effort, mode, place, redaction, was, switched)
+            text = done_text(record, choice, effort, mode, place, switched)
             done = {**record, "status": "done", **({"switched": {"from": switched[0], "to": switched[1]}} if switched else {})}
             if not self.replace(ctx, path, record, done, notice_card(text, "已换配置"), "switch-done"):
                 # With the sequence that write reserved (record holds it), never the one before it (rule 3).

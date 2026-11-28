@@ -1,5 +1,5 @@
 """The launch card's choices: a model change (a Harness or provider choice is one, to its first model)
-rebuilds the card for that model; a budget, work mode, 敏感词脱敏, workspace or run mode is recorded and
+rebuilds the card for that model; a budget, work mode, workspace or run mode is recorded and
 redraws the card too, as its summary names them (cards/launch_config.py). A settings row's options
 open under it in the client; a card sent with options pages (84caa8a) sends a row's tap, which redraws
 the card with that row open, and its ‹ 返回, which redraws it with none: there a choice, the current one too, closes
@@ -12,7 +12,7 @@ from covey.app.form_cards import LAUNCH_FORM_LOCK
 from covey.app.launch import (alias_harnesses, device_harnesses, form_draft, form_topic_root, rebuild_launch_card, refuse_retired_form,
                                        retired_form, retired_form_at)
 from covey.cards.launch_config import (BUDGET_ACTION, DEVICE_ACTION, HARNESS_ACTION, MANAGE_OPTION, MODE_ACTION, MODEL_ACTION,
-                                                PAGE_ACTION, PAGES, PROVIDER_ACTION, REDACTION_ACTION, REDACTION_LABELS,
+                                                PAGE_ACTION, PAGES, PROVIDER_ACTION,
                                                 WORK_MODE_ACTION, WORKSPACE_ACTION)
 from covey.core.menu_choice import find_choice, parse_budget, tier_pick
 from covey.app.menu_panel import valid_token
@@ -39,7 +39,7 @@ class LaunchModelPicker(CardActionQueue):
 
     def matches(self, event):
         return self.action(event).get('kind') in (HARNESS_ACTION, PROVIDER_ACTION, MODEL_ACTION, BUDGET_ACTION,
-                                                  WORK_MODE_ACTION, REDACTION_ACTION, WORKSPACE_ACTION, MODE_ACTION,
+                                                  WORK_MODE_ACTION, WORKSPACE_ACTION, MODE_ACTION,
                                                   DEVICE_ACTION, PAGE_ACTION)
 
     def claim(self, ctx, event, raw, owner):
@@ -91,7 +91,7 @@ class LaunchModelPicker(CardActionQueue):
                 self.submit('configuration remains pending', self.process, ctx, path, revision)
                 return
             record['page'] = ''  # Any choice returns to the list.
-            if kind in (WORKSPACE_ACTION, MODE_ACTION, DEVICE_ACTION, WORK_MODE_ACTION, REDACTION_ACTION, BUDGET_ACTION):
+            if kind in (WORKSPACE_ACTION, MODE_ACTION, DEVICE_ACTION, WORK_MODE_ACTION, BUDGET_ACTION):
                 # On a page, the option already chosen (or one no longer offered) returns to the list too.
                 if not record.get('compact'):
                     return
@@ -162,7 +162,7 @@ class LaunchModelPicker(CardActionQueue):
 
     @staticmethod
     def record_choice(record, kind, option):
-        """Record a workspace, run mode, work mode, 敏感词脱敏 or budget chosen on the card; whether it was one
+        """Record a workspace, run mode, work mode or budget chosen on the card; whether it was one
         of the select's options and changed the record. A workspace removed since the card was sent is kept,
         so 开始任务 reports it instead of starting in the previous choice."""
         choice = record['models'][record['selected_model']]
@@ -180,9 +180,6 @@ class LaunchModelPicker(CardActionQueue):
             return changed
         if kind == WORK_MODE_ACTION:
             field, valid = 'selected_work_mode', option in (choice.get('work_modes') or ())
-        elif kind == REDACTION_ACTION:
-            # Shown only for a model that can redact, and checked again at 开始任务.
-            field, valid = 'selected_redaction', option in REDACTION_LABELS and bool(choice.get('redaction'))
         else:
             option = parse_budget(option, record['config_revision'], choice)  # One tapped on a card sent before stays.
             field, valid = 'selected_effort', option is not None

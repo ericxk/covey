@@ -64,7 +64,7 @@ class LaunchCardTests(LaunchCardCase):
         # A fold each, its options under it, all closed (no select: iOS's picker, 2026-11-04).
         self.assertEqual({(e['tag'],e['expanded']) for e in adjust['elements']},{('collapsible_panel',False)})
         rows=settings_rows(self.card)
-        self.assertEqual(list(rows),['harness','provider','model','effort','redaction'])
+        self.assertEqual(list(rows),['harness','provider','model','effort'])
         self.assertEqual({tap['token'] for row in rows.values() for tap in row['taps'].values()},{self.path.stem})
         self.assertNotIn('工作区',json.dumps(self.card,ensure_ascii=False))
         self.assertNotIn('运行方式',json.dumps(self.card,ensure_ascii=False))
@@ -86,7 +86,7 @@ class LaunchCardTests(LaunchCardCase):
         token=current_token(self.ctx.state_dir,self.path.stem)
         card=self.tap({'kind':PAGE_ACTION,'token':token,'page':'run_mode','current':'direct'})
         rows=settings_rows(card)
-        self.assertEqual(list(rows),['harness','provider','model','effort','redaction','workspace','run_mode'])
+        self.assertEqual(list(rows),['harness','provider','model','effort','workspace','run_mode'])
         self.assertEqual(rows['workspace']['current'],name)
         self.assertEqual(rows['run_mode']['current'],'direct')
         self.assertEqual({tap['kind'] for tap in rows['run_mode']['taps'].values()},{'bridge_launch_mode'})
@@ -249,9 +249,10 @@ class LaunchCardTests(LaunchCardCase):
         base={'model_label':'Claude Code · Opus 5.5','effort':'max','workdir':str(self.work),'run_mode':'direct','topic':'T384'}
         def tags(selection):
             return [tag['text']['content'] for tag in build_receipt_card(selection)['header']['text_tag_list']]
-        self.assertEqual(tags({**base,'redaction':True}),['原目录','敏感词脱敏：开'])
-        self.assertEqual(tags({**base,'redaction':False}),['原目录','敏感词脱敏：关'])
-        self.assertEqual(tags(base),['原目录'])  # A model that cannot redact, or a receipt from before.
+        self.assertEqual(tags(base),['原目录'])
+        # 敏感词脱敏 is retired (T947): a receipt from before that says 开 or 关 draws no tag for it.
+        self.assertEqual(tags({**base,'redaction':True}),['原目录'])
+        self.assertEqual(tags({**base,'redaction':False}),['原目录'])
         maso=build_receipt_card({**base,'model_label':'MASO · GPT-6 Astra','work_modes':True})
         self.assertEqual(maso['header']['subtitle']['content'],'话题 T384 · MASO · GPT-6 Astra · 思考预算 max · 工作模式 Focus')
         adaptive=build_receipt_card({**base,'work_mode':'maso_adaptive','work_modes':True})
@@ -935,9 +936,8 @@ class CatalogTooLongTests(unittest.TestCase):
         return {'token': 'f' * 24, 'topic': 'T9', 'workspace': 'project', 'config_revision': 3,
                 'models': self.choices(count), 'selected_model': selected, 'selected_effort': 'high',
                 'current': {'label': 'Codex · current', 'effort': 'high', 'key': current, 'budget': 'high',
-                            'workspace': 'project', 'run_mode': 'direct', 'redaction': False},
-                'workspaces': ['project'], 'selected_workspace': 'project', 'selected_run_mode': 'direct',
-                'selected_redaction': 'off'}
+                            'workspace': 'project', 'run_mode': 'direct'},
+                'workspaces': ['project'], 'selected_workspace': 'project', 'selected_run_mode': 'direct'}
 
     @staticmethod
     def model_options(card):

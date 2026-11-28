@@ -23,7 +23,6 @@ from covey.core.butler import butler_topic_id
 from covey.core.checkpoint import read_checkpoint, upload_ledger
 from covey.core.jobs import job_key, select_job_records, topic_job_records
 from covey.core.model_names import model_name
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.state import epoch_seconds, read_object
 from covey.core.statuses import ENDED, OPEN_QUESTIONS, RUNNING
 from covey.core.store import directory_store
@@ -739,14 +738,13 @@ class Collector:
     def put_ran_with(self, turns, records, data) -> None:
         """Each answer's ``ran_with`` (data contract v27, web_turns.ran_with) from its task's record: the page writes it under the answer."""
         by_job = {str(record.get("job_id") or ""): record for record in records if record.get("job_id")}
-        redaction = data.get(REDACTION_KEY) is True
         menu = None
         for turn in turns:
             job = by_job.get(str(turn.get("job_id") or "")) if turn.get("role") == "agent" else None
             if job is None:
                 continue
             menu = self.menu() if menu is None else menu
-            ran = web_turns.ran_with(job, menu, redaction, data)
+            ran = web_turns.ran_with(job, menu, data)
             if ran:
                 turn["ran_with"] = ran
 
@@ -1210,11 +1208,9 @@ class Collector:
                 continue
             try:
                 entries = project_memory.entries(state, record)
-                # The read a member topic's turn takes (app/project_context.py memory_view): one without redaction, and a line
-                # from a topic with redaction on as a topic with it on carries it.
+                # The read a member topic's turn takes (app/project_context.py memory_view).
                 view = core_memory.project_view(entries, pid)
-                carried = {item["ref"] for item in view["kept"]} | {
-                    item["ref"] for item in core_memory.project_view(entries, pid, redacted=True)["kept"] if item["redacted"]}
+                carried = {item["ref"] for item in view["kept"]}
                 def number(topic):
                     return self.topic_number(state, topic)
                 memory = [self.memory_row(row, pid, carried, number) for row in entries if not row["deleted"]]
@@ -1272,8 +1268,6 @@ class Collector:
             origin["topic_number"] = number(origin["topic"])
         if origin:
             out["origin"] = origin
-        if row.get("redacted"):
-            out["redacted"] = True
         return out
 
     @staticmethod

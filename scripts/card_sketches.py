@@ -41,10 +41,10 @@ ASK = "给 demo-app 加个登录页，邮箱加密码就行"
 TITLE = "给 demo-app 加登录页"
 LABEL = "T7"
 CAPTION = "卡片示意 · 演示数据，由卡片 JSON 渲染，非真实客户端截图"
-INPUTS = ("Claude Code", "Claude 自带", "Opus 5.5", "high", False, "demo-app")
+INPUTS = ("Claude Code", "Claude 自带", "Opus 5.5", "high", "demo-app")
 CHOICES = {
     "claude:opus": {"harness": "claude", "title": "Claude Code", "provider": "anthropic", "provider_title": "Claude 自带",
-                    "display_name": "Opus 5.5", "redaction": True, "label": "Claude Code · Opus 5.5",
+                    "display_name": "Opus 5.5", "label": "Claude Code · Opus 5.5",
                     "levels": ["low", "high", "xhigh", "max"]},
     "codex:gpt": {"harness": "codex", "title": "Codex", "provider": "openai", "provider_title": "Codex 自带",
                   "display_name": "GPT-6", "label": "Codex · GPT-6", "levels": ["low", "high", "xhigh"]},
@@ -188,26 +188,6 @@ def launch_sketch():
     return [("user", ASK), ("card", card)]
 
 
-def redaction_sketch():
-    """The 设置 card's 脱敏 tab: terms shown by their first character and length, the topics that use them."""
-    from covey.cards.redaction_panel import redaction_card
-    from covey.cards.settings_hub import tab_row
-    token = "d" * 24
-    facts = {"error": "", "config": {"default_on": False, "ignore_case": True, "restore": True, "upstream": ""},
-             "rows": [{"key": "a" * 12, "label": "星··（4 字）", "anywhere": True, "restore": "还原", "hits": 14, "week": 9},
-                      {"key": "b" * 12, "label": "金··（5 字）", "anywhere": False, "restore": "还原", "hits": 7, "week": 5},
-                      {"key": "c" * 12, "label": "D··（8 字）", "anywhere": True, "restore": "不还原", "hits": 3, "week": 0}],
-             "count": 3, "week": 14, "updated": "11-20 13:40",
-             "topics": [{"number": 7, "title": TITLE, "turns": 2, "hits": 9, "last": "11-20 14:05"},
-                        {"number": 5, "title": "修登录接口的报错", "turns": 3, "hits": 5, "last": "11-19 17:12"}],
-             "turns": [{"time": "11-20 14:05", "number": 7, "model": "opus", "requests": 6, "replaced": 4},
-                       {"time": "11-20 14:02", "number": 7, "model": "opus", "requests": 3, "replaced": 5}]}
-    card = redaction_card(token, {"revision": 1, "hub": True}, facts,
-                          top=[tab_row("redaction", token, ["config", "workspace", "redaction", "groups", "memory", "about",
-                                                            "doctor"])])
-    return [("card", card)]
-
-
 OPTIONS = ({"label": "首页（推荐）", "description": "和现在注册成功后一样；选另一个要多记一个跳转参数"},
            {"label": "登录前打开的页面", "description": "用户少点一次，但要处理跳转参数"})
 
@@ -285,10 +265,9 @@ def switch_sketch():
     from covey.cards.switch_form import build_switch_card
     form = {"token": "s" * 24, "topic": LABEL, "workspace": "demo-app", "config_revision": 1,
             "current": {"label": CHOICES["claude:opus"]["label"], "effort": "high", "key": "claude:opus",
-                        "budget": "high", "workspace": "demo-app", "run_mode": "worktree", "redaction": False},
+                        "budget": "high", "workspace": "demo-app", "run_mode": "worktree"},
             "models": dict(CHOICES), "selected_model": "codex:gpt", "selected_effort": "high",
-            "workspaces": ["demo-app", "docs-site"], "selected_workspace": "demo-app", "selected_run_mode": "worktree",
-            "selected_redaction": "off"}
+            "workspaces": ["demo-app", "docs-site"], "selected_workspace": "demo-app", "selected_run_mode": "worktree"}
     return [("card", build_switch_card(form))]
 
 
@@ -314,7 +293,7 @@ def board_sketch():
 
 
 SKETCHES = {"01-butler": butler_sketch, "02-task-card": task_sketch, "03-answer-card": answer_sketch,
-            "04-launch-card": launch_sketch, "05-settings-redaction": redaction_sketch, "06-question-card": question_sketch,
+            "04-launch-card": launch_sketch, "06-question-card": question_sketch,
             "07-stopped-card": stopped_sketch, "08-switch-card": switch_sketch, "09-board": board_sketch}
 
 

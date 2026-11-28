@@ -688,7 +688,7 @@ class ClaudeAlignmentTests(unittest.TestCase):
         listed = dataclasses.replace(self.ctx, model="claude/claude-opus-5")
         with mock.patch("covey.backends.claude.bridge.model_catalog",
                         return_value={"opus": {}, "claude/claude-opus-5": {}}), \
-                mock.patch("covey.backends.claude.bridge.redacted_stream", return_value="ran") as stream:
+                mock.patch("covey.backends.claude.bridge.extension_stream", return_value="ran") as stream:
             with self.assertRaisesRegex(ValueError, "模型所在网关已下线.*换配置"):
                 ClaudeBackend().run(RunRequest(gone, "hi"))
             stream.assert_not_called()
@@ -701,7 +701,7 @@ class ClaudeAlignmentTests(unittest.TestCase):
         for error in (RuntimeError("Claude 模型目录查询超时，请稍后刷新"), OSError("no claude"), ValueError("bad menu")):
             with self.subTest(error=type(error).__name__), \
                     mock.patch("covey.backends.claude.bridge.model_catalog", side_effect=error), \
-                    mock.patch("covey.backends.claude.bridge.redacted_stream", return_value="ran") as stream:
+                    mock.patch("covey.backends.claude.bridge.extension_stream", return_value="ran") as stream:
                 self.assertFalse(ClaudeBackend().retired_gateway(ctx))
                 self.assertEqual(ClaudeBackend().run(RunRequest(ctx, "hi")), "ran")
                 self.assertEqual(stream.call_args.args[1].context.model, "gone-gateway/claude-opus-5-5")
@@ -715,7 +715,7 @@ class ClaudeAlignmentTests(unittest.TestCase):
                             {"options": {"return_value": {model: {}}}}):
                 with self.subTest(model=model, catalog=catalog), \
                         mock.patch("covey.backends.claude.bridge.model_catalog", **catalog["options"]), \
-                        mock.patch("covey.backends.claude.bridge.redacted_stream") as stream:
+                        mock.patch("covey.backends.claude.bridge.extension_stream") as stream:
                     with self.assertRaisesRegex(ValueError, f"已下线的供应商「{name}」.*换配置"):
                         ClaudeBackend().run(RunRequest(dataclasses.replace(self.ctx, model=model), "hi"))
                     stream.assert_not_called()
@@ -1229,10 +1229,10 @@ class ClaudeHandoffSummaryTests(unittest.TestCase):
                                   options={"transport": "stream-json", "mcp_config": {"mcpServers": {"b": {}}}})
         return dataclasses.replace(ctx, **fields)
 
-    def summarize(self, scenario="handoff", redact=False, run_id="", **fields):
+    def summarize(self, scenario="handoff", run_id="", **fields):
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.config)}):
             return ClaudeBackend().handoff_summary(self.context(scenario, **fields), SID, "[Bridge 交接请求] 写摘要",
-                                                   redact=redact, run_id=run_id)
+                                                   run_id=run_id)
 
     def argv(self):
         return json.loads((self.root / "handoff-argv.json").read_text())
@@ -1288,41 +1288,22 @@ class ClaudeHandoffSummaryTests(unittest.TestCase):
             self.assertEqual(self.summarize(), ("", "原来的模型所在网关已下线，没有发送"))
         self.assertFalse((self.root / "handoff-argv.json").exists())
 
-    def test_a_redacted_session_is_summarized_through_the_relay_or_not_at_all(self):
-        from covey.backends.claude import redaction
+    def test_a_summary_goes_through_the_relay_an_extensions_hook_gives_it(self):
+        from covey.backends.claude import bridge, upstream
         settings = {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9"}
-
         runs = []
 
         @contextlib.contextmanager
-        def relay(ctx, env, **kwargs):
+        def hooked(ctx, env, **kwargs):
             runs.append(kwargs.get("run_id"))
-            yield dataclasses.replace(ctx, options={**ctx.options, redaction.SETTINGS_ENV: settings}), env
-        with mock.patch.object(redaction, "turn", relay):
-            self.assertEqual(self.summarize(redact=True, run_id="handoff-r3")[1], "写好了")
-        self.assertEqual(runs, ["handoff-r3"])  # Its own row in the relay's counts.
+            yield dataclasses.replace(ctx, options={**ctx.options, upstream.SETTINGS_ENV: settings}), env
+        with mock.patch.object(bridge, "_extension_turn", hooked):
+            self.assertEqual(self.summarize(run_id="handoff-r3")[1], "写好了")
+        self.assertEqual(runs, ["handoff-r3"])
         argv = self.argv()
         # The relay's env, beside the home-search hook of a turn started from the home (backends/claude/argv.py home_hooks).
         home = claude_argv.home_hooks(self.context("handoff"))
         self.assertEqual(json.loads(argv[argv.index("--settings") + 1]), {"env": settings, "hooks": home})
-        (self.root / "handoff-argv.json").unlink()
-        # Its turns went out as they were, but the topic has 敏感词脱敏 on now: through the relay as well.
-        topic = codex_context(self.root, "stream-json").state_dir / "topics" / "t-handoff"
-        topic.mkdir(parents=True)
-        (topic / "topic.json").write_text('{"redaction": true}')
-        with mock.patch.object(redaction, "turn", relay):
-            self.assertEqual(self.summarize(topic_id="t-handoff")[1], "写好了")
-        argv = self.argv()
-        self.assertEqual(json.loads(argv[argv.index("--settings") + 1]), {"env": settings, "hooks": home})
-        (self.root / "handoff-argv.json").unlink()
-        (topic / "topic.json").write_text("not json")  # Its setting unknown: not sent.
-        self.assertEqual(self.summarize(topic_id="t-handoff"), ("", "敏感词中继不可用，没有发送"))
-        self.assertFalse((self.root / "handoff-argv.json").exists())
-        ctx = codex_context(self.root, "stream-json")
-        (ctx.state_dir / "redaction").mkdir(parents=True, exist_ok=True)
-        (ctx.state_dir / "redaction" / "config.json").write_text("not json")
-        self.assertEqual(self.summarize(redact=True), ("", "敏感词中继不可用，没有发送"))
-        self.assertFalse((self.root / "handoff-argv.json").exists())
 
 
 class ClaudeOneShotTests(unittest.TestCase):
@@ -1331,7 +1312,7 @@ class ClaudeOneShotTests(unittest.TestCase):
     a hook gave."""
 
     def test_the_settings_take_the_relay_a_hook_gave_and_no_user_hook(self):
-        from covey.backends.claude import bridge as claude_bridge, redaction
+        from covey.backends.claude import bridge as claude_bridge, upstream
         ctx = codex_context(Path("/nonexistent-root"), "stream-json")
         relay = {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9"}
         entered, left = [], []
@@ -1342,7 +1323,7 @@ class ClaudeOneShotTests(unittest.TestCase):
             def turn(ctx, env, *, run_id=""):
                 entered.append(run_id)
                 try:
-                    yield dataclasses.replace(ctx, options={**ctx.options, redaction.SETTINGS_ENV: relay}), {**env, "X": "1"}
+                    yield dataclasses.replace(ctx, options={**ctx.options, upstream.SETTINGS_ENV: relay}), {**env, "X": "1"}
                 finally:
                     left.append(run_id)
         backend = ClaudeBackend()
@@ -1350,7 +1331,7 @@ class ClaudeOneShotTests(unittest.TestCase):
             with backend.one_shot(ctx, {"A": "b"}, run_id="assist-1") as (hooked, env, settings):
                 self.assertEqual(settings, {"disableAllHooks": True, "env": relay})
                 self.assertEqual(env, {"A": "b", "X": "1"})
-                self.assertEqual(hooked.options[redaction.SETTINGS_ENV], relay)
+                self.assertEqual(hooked.options[upstream.SETTINGS_ENV], relay)
                 self.assertEqual(left, [])
         self.assertEqual((entered, left), (["assist-1"], ["assist-1"]))  # The relay ends with the question.
         with mock.patch.object(claude_bridge.extensions, "hooks", return_value=[]):

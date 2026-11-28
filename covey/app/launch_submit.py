@@ -17,7 +17,6 @@ from covey.core.locks import LOCK, resource_lock, topic_lock
 from covey.core.workspaces import RUN_MODES, add_topic_worktree, load_config, plan_topic_worktree, resolve_binding
 
 
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.cards.launch_config import SUBMIT_PREFIX
 from covey.cards.launch_receipt import build_preparing_card
 from covey.app.card_actions import form_fields
@@ -110,9 +109,6 @@ def submit_launch_form(app, ctx, event):
     if not outcome:
         return False
     path = ctx.state_dir / 'launch-forms' / (event['action_name'][len(SUBMIT_PREFIX):] + '.json')
-    if outcome == REDACTION_ASK:
-        after_ack(functools.partial(ask_unredacted, app, ctx, path))
-        return True
     if outcome == 'worktree':
         # A checkout takes seconds to tens of seconds on the NAS. One consumer
         # handles every card click, so the click only switches this card.
@@ -128,23 +124,6 @@ def submit_launch_form(app, ctx, event):
         # waiting (it failed, or a restart came first): "请稍后重试" then means what it says.
         after_ack(functools.partial(app.submission.release_waiting, ctx, event['chat_id']))
     return True
-
-
-REDACTION_ASK = 'redaction_ask'  # _submit_launch_form's outcome for a card that never asked about its lost 脱敏.
-
-
-def ask_unredacted(app, ctx, path):
-    """After the click's acknowledgement: a ready launch card that would start without its 脱敏 and never said so (drawn
-    before T647 P0-8) drawn again with its choices, the note and 不脱敏开始 on it (cards/launch_config.py unredacted);
-    nothing starts until that is clicked."""
-    with resource_lock(LAUNCH_FORM_LOCK, path):
-        try:
-            record = read_json(path)
-        except (OSError, ValueError):
-            return
-        if record.get('status') != 'ready':
-            return
-        rebuild_launch_card(app.topics, ctx, path, record, form_draft(record), kind='launch-redaction')
 
 
 def launch_in_progress(ctx):
@@ -221,16 +200,6 @@ def _submit_launch_form(app, ctx, event):
                 **({'home_start': True} if not selection and not binding.device and run_mode == 'direct' else {}),
                 'chat_id': event['chat_id'], 'submitted_at': submitted_at,
                 'topic': topic_label(ctx.state_dir, ctx.topic_id)}
-        # Only a model whose card showed the select can turn it on; a form from before it has no choice. Such a
-        # model's receipt says 开 or 关, another's nothing.
-        if choice.get('redaction'):
-            plan['redaction'] = record.get('selected_redaction') == 'on'
-        elif record.get('selected_redaction') == 'on':
-            # 脱敏 on and a model that cannot redact (T647 P0-8): only the 不脱敏开始 of a card that said so starts it, and its
-            # receipt says 关. A card drawn before it never asked: it is drawn again with the question (``ask_unredacted``).
-            if record.get('redaction_asked') != model_key:
-                return REDACTION_ASK
-            plan['redaction'] = False
         if choice.get('work_modes'):
             plan['work_modes'] = True  # Its receipt names the mode, the default too (Focus).
         if run_mode == 'worktree':
@@ -351,11 +320,6 @@ def _start_topic(app, ctx, path, record, plan, directory, branch):
         topic.pop('launching', None)
         topic.pop('work_mode', None)
         topic.update(model=plan['model'], effort=plan['effort'], model_settings_snapshot=True, **mode)
-        # Fixed for the topic's life from here: forks copy it, a model switch keeps it.
-        if plan.get('redaction'):
-            topic[REDACTION_KEY] = True
-        else:
-            topic.pop(REDACTION_KEY, None)
         if plan.get('home_start'):  # Once, with its start and slug: its outputs directory never moves after (app/home_turn.py).
             mark_home(topic, title=title, now=plan['submitted_at'])
         save_record(target.history_path.parent / 'topic.json', topic)
@@ -374,7 +338,6 @@ def _start_topic(app, ctx, path, record, plan, directory, branch):
         record.update(status='done', selection={
             'topic': plan['topic'], 'model_label': plan['label'], 'effort': plan['effort'] or '模型默认', **mode,
             'workspace': plan['workspace'], 'workdir': plan['source'] if plan.get('device') else str(directory), 'run_mode': plan['run_mode'], 'branch': branch,
-            **({'redaction': plan['redaction']} if 'redaction' in plan else {}),
             **({'work_modes': True} if plan.get('work_modes') else {}),
         })
         save_record(path, record)

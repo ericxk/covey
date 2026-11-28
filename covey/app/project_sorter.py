@@ -23,7 +23,7 @@ record written but the gists the backfill reads (core/topic_gist.py); app/projec
 Both calls go out through the 辅助模型 (app/assist.py ask, ``Where`` says which of its features and whether the owner asked):
 no tools, MCP servers, hooks or saved session, killed past the limit, on the model and budget of the setting the 辅助模型
 names or follows (app/assist.py: one for every background call; Claude Code with none: COVEY_PROJECT_TIDY_MODEL, else its
-own default). A topic that redacts (core/redaction.py) is never sent and is counted apart. Every failure is a reason (core/assist.py's), never an
+own default). Every failure is a reason (core/assist.py's), never an
 exception (``Failed``); the judge's says which Harness and model it was (``Verdict.via``, ``model``) and their own words,
 secrets hidden (``detail``)."""
 from __future__ import annotations
@@ -39,7 +39,7 @@ from covey.app.track_judge import Failed
 from covey.core import assist as reasons
 from covey.cards.review import answer_lead
 from covey.core import project_proposals as proposals
-from covey.core import projects, redaction, topic_gist
+from covey.core import projects, topic_gist
 from covey.core.jobs import topic_job_records
 from covey.core.state import epoch_seconds, read_object
 from covey.core.text import cut as _cut
@@ -175,14 +175,6 @@ def material(state, chat, topic, now, *, owner_chars=OWNER_CHARS) -> Topic:
                  tuple(dict.fromkeys(repo.name for repo in of_topic(data))), refs_of(owner, label, gist))
 
 
-def hidden(state, topic) -> bool:
-    """Whether ``topic`` redacts (one whose settings cannot be read counts as redacting): nothing of it is sent."""
-    try:
-        return bool(redaction.topic_redaction(state, topic))
-    except ValueError:
-        return True
-
-
 # The calls -----------------------------------------------------------------------------------------------------------
 
 @dataclasses.dataclass(frozen=True)
@@ -202,9 +194,7 @@ def ask(system, data, where, limit) -> str:
     through the 辅助模型 (app/assist.py ask); Failed otherwise. A new route each call: a loop over topics never keeps one."""
     state = assist.state_of(where.topics)
     cwd = proposals.folder(state) / "judge" if state is not None else Path(".")
-    # Never a redacting topic's words: ``hidden`` keeps them out of every question before it is put together.
-    return assist.ask(where.feature, system, data, topics=where.topics, limit=limit, cwd=cwd, manual=where.manual,
-                      redacted=False)
+    return assist.ask(where.feature, system, data, topics=where.topics, limit=limit, cwd=cwd, manual=where.manual)
 
 
 def first_object(text, key):
@@ -226,7 +216,7 @@ def answer(raw) -> str:
 
 # What a read of a topic failed on that is the topic's own: it is marked unreadable until its next turn.
 # A bare non-zero exit is not one: it may be the CLI's environment.
-TOPIC_PROBLEMS = frozenset({"redacted", "empty", "too_long", "refused", "policy_refusal", "bad_output", "out_of_range",
+TOPIC_PROBLEMS = frozenset({"empty", "too_long", "refused", "policy_refusal", "bad_output", "out_of_range",
                             "model_error", "root_failed", "error"})
 
 
@@ -243,9 +233,6 @@ def backfill(state, chat, topic, *, where, log=print, now=None, call=None) -> st
     now = time.time() if now is None else now
     started = time.monotonic()
     found = material(state, chat, topic, now, owner_chars=BACKFILL_CHARS)
-    if hidden(state, topic):
-        topic_gist.mark_unreadable(state, topic, "redacted", job=found.last_job, now=now)
-        return "redacted"
     if not found.owner:
         topic_gist.mark_unreadable(state, topic, "empty", job=found.last_job, now=now)
         return "empty"

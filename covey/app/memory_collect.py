@@ -19,12 +19,11 @@ runner has exited and the record is settled (app/detached.py finish_detached, ap
   (the project, else the topic) and 待审核 asks whether it is to hold 全局. A lead's own topic has no line of its own: what the
   owner says there is the project's. A rule or a note whose words name what only he says yes to (core/memory_gate.py grants)
   is not written: it waits in 待审核 and holds once he accepts it (a note of 全局 the butler or a lead may pick for a topic,
-  app/memory_picks.py, whose turns read it as his). A topic with redaction on (or whose setting cannot be read) marks
-  it, and a marked line never goes 全局. The same words as a line of the lead's confirm that line (core/memstore.py put).
+  app/memory_picks.py, whose turns read it as his). The same words as a line of the lead's confirm that line (core/memstore.py put).
 - A ``memory_void`` id is a short code, a ref or an older M number of a turn (core/memstore.py find_in_turn) of an entry the turn
   carried that was not said by the owner; it becomes a tombstone (memstore.void: the text stays, nothing is lost). What the owner said
   himself (a correction of his included) is never voided this way.
-- The record gets ``memory_notes`` [{kind: remembered|voided|undone|pending, text, scope, entry_id, ref?, redacted?, entry_kind?,
+- The record gets ``memory_notes`` [{kind: remembered|voided|undone|pending, text, scope, entry_id, ref?, entry_kind?,
   review?}] and the turn's answer cards a line each (cards/answer_card.py memory_element; a note's line says 相关时才带). Of the
   two kinds of 待审核 (T908 M3b): a rule for every topic is one line, "记下了：… · 先管这个专项，要管全局吗" (its note's
   ``review`` the item's key), a learned rule that grants a 待审核 line; both have 采纳 (``accept_click``: core/memory_review.py
@@ -63,7 +62,6 @@ WIDER_WORDS = "要不要管全局等你采纳"  # An older release's 待审核 l
 GRANT_WORDS = "涉及要你点头的事，采纳后才生效"  # A learned rule that would let a turn skip asking (core/memory_gate.py GRANT).
 KINDS = ("rule", "note")
 SCOPES = ("topic", "project", "global")  # A line's suggested scope, narrowest first.
-REDACTED_REFUSAL = "这条来自开着脱敏的话题，不能升为全局：全局的记忆会带进不脱敏的话题。"
 
 
 def from_owner(quote, said) -> bool:
@@ -98,15 +96,6 @@ def _knowledge_takes(runtime, ctx, job, record) -> bool:
     return knowledge_turn.remembers(ctx, job, owner_turn=lambda: True)
 
 
-def _topic_marked(ctx, topic_id) -> bool:
-    """Whether a line from the topic carries the redaction mark: redaction on, or its setting cannot be read."""
-    from covey.core.redaction import topic_redaction
-    try:
-        return bool(topic_redaction(ctx.state_dir, topic_id))
-    except ValueError:
-        return True
-
-
 def place(state_dir, topic_id, scope) -> tuple[str, str, str]:
     """(scope, owner key, its words) a line of the topic ``topic_id`` suggested for ``scope`` (``SCOPES``) is written in:
     ``topic`` the topic's own, ``project`` the topic's project when it has one; a project lead's topic has no line of its own
@@ -117,7 +106,7 @@ def place(state_dir, topic_id, scope) -> tuple[str, str, str]:
     return "topic", topic_id, TOPIC_WORDS
 
 
-def take(ctx, record, text, marked, quote="", *, kind="rule", scope="", access=None, source="checkpoint", log=None) -> list:
+def take(ctx, record, text, quote="", *, kind="rule", scope="", access=None, source="checkpoint", log=None) -> list:
     """The notes of one line of the owner's words of the turn of ``record`` (the module's docstring), through
     core/memory_gate.py write: [] when his ``quote`` is not proven his (app/memory_proof.py prove, by ``access``), the gate
     refuses it (logged by ``log``, never the words) or the words were there already as his. ``kind`` rule or note; ``scope``
@@ -132,7 +121,7 @@ def take(ctx, record, text, marked, quote="", *, kind="rule", scope="", access=N
     if proof is None:
         log(f"memory line dropped reason=unproven job=#{job}")
         return []
-    if scope == "global" and kind == "note" and not marked:
+    if scope == "global" and kind == "note":
         where, owner, words = "global", "", GLOBAL_WORDS
     else:
         where, owner, words = place(state, topic_id, scope)
@@ -142,7 +131,7 @@ def take(ctx, record, text, marked, quote="", *, kind="rule", scope="", access=N
         origin["topic_number"] = number
     try:
         written = memory_gate.write(state, kind=kind, scope=where, owner_key=owner, text=text, proof=proof, by="owner",
-                                    source=source, place="topic", origin=origin, redacted=marked, learned=True,
+                                    source=source, place="topic", origin=origin, learned=True,
                                     wider="global" if scope == "global" and kind == "rule" else "")
     except ValueError as exc:
         log(f"memory line skipped job=#{job}: {exc}")
@@ -157,7 +146,7 @@ def take(ctx, record, text, marked, quote="", *, kind="rule", scope="", access=N
     asks = written.review if written.review and written.fresh else ""  # 推断全局: held here, 待审核 asks about 全局.
     if written.done != memstore.SAME or asks:
         notes.append({"kind": "remembered", "text": entry.text, "scope": words, "entry_id": memstore.parse_ref(entry.ref)[2],
-                      "ref": entry.ref, **({"code": entry.code} if entry.code else {}), **({"redacted": True} if marked else {}),
+                      "ref": entry.ref, **({"code": entry.code} if entry.code else {}),
                       **({"entry_kind": "note"} if entry.kind == "note" else {}), **({"review": asks} if asks else {}),
                       **({"over": True} if _over_room(state, entry) else {})})
     return notes
@@ -210,14 +199,14 @@ def _lines(runtime, messenger, job, ctx) -> None:
         if reason:
             runtime.log(f"memory lines ignored reason={reason} job=#{record.get('job_id')}")
             return
-        said, marked, notes = memory_turn.owner_words(record, ctx.state_dir), _topic_marked(ctx, str(record.get("topic_id") or "")), []
+        said, notes = memory_turn.owner_words(record, ctx.state_dir), []
         for item in voids[:PER_TURN]:
             if isinstance(item, dict) and from_owner(item.get("quote"), said):
                 notes.append(_void(ctx, record, item))
         for item in wanted[:PER_TURN]:
             text = project_memory.clean(item.get("text")) if isinstance(item, dict) else ""
             if text and from_owner(item.get("quote"), said):
-                notes += take(ctx, record, text, marked, item.get("quote"), kind=str(item.get("kind") or "rule"),
+                notes += take(ctx, record, text, item.get("quote"), kind=str(item.get("kind") or "rule"),
                               scope=str(item.get("scope") or ""), access=runtime.access, log=runtime.log)
         notes = [note for note in notes if note]
         runtime.log(f"memory lines written={len(notes)} of {len(wanted) + len(voids)} job=#{record.get('job_id')}")
@@ -401,7 +390,7 @@ def _entry(state, topic_id, entry_id, ref=""):
     """The live entry ``entry_id`` a turn of ``topic_id`` wrote, in its project's memory or the topic's; None when it is gone."""
     if ref:
         found = memstore.find(state, ref)
-        return {"id": entry_id, "text": found.text, "redacted": found.redacted} if found and found.status == "active" else None
+        return {"id": entry_id, "text": found.text} if found and found.status == "active" else None
     found = projects.topic_project(state, topic_id) if projects.memory_enabled() else None
     rows = [row for row in (project_memory.stored(state, found.id) if found is not None else []) if not row.get("deleted")]
     rows = [*rows, *topic_memory.live(state, topic_id)]
@@ -411,8 +400,7 @@ def _entry(state, topic_id, entry_id, ref=""):
 def promote(host, ctx, event) -> bool:
     """升为全局 on a "记下了" line of 管这个专项 or 管这个话题 (``host``: the TaskControls, COVEY_MEMORY=1): the line becomes one of the
     owner's principles (core/principles.py save, 通用: every topic reads it on his own turns), the entry it was a tombstone, the
-    note 管全局 with the principle as its entry, the lines redrawn. ValueError says why nothing changed (a line from a topic with
-    redaction on, a full group); a second click does nothing."""
+    note 管全局 with the principle as its entry, the lines redrawn. ValueError says why nothing changed (a full group); a second click does nothing."""
     raw = action_value(event)
     if not ctx.topic_id or raw.get("topic_id") != ctx.topic_id:
         return True
@@ -428,8 +416,6 @@ def promote(host, ctx, event) -> bool:
     entry = _entry(ctx.state_dir, ctx.topic_id, entry_id, note.get("ref") or "")
     if entry is None:
         raise ValueError("这条记忆已经不在了（在设置卡「记忆」里删掉过）")
-    if note.get("redacted") or entry.get("redacted"):  # core/memory.py: only a topic with redaction on reads it.
-        raise ValueError(REDACTED_REFUSAL)
     if note.get("ref"):
         moved = memstore.promote(ctx.state_dir, note["ref"], scope="global", who="owner")
         note.update(scope=GLOBAL_WORDS, entry_id=memstore.parse_ref(moved.ref)[2], ref=moved.ref)

@@ -120,8 +120,7 @@ class SearchRulesTests(unittest.TestCase):
         backend = ClaudeBackend()
         ctx = SimpleNamespace(skip_permissions=False, options={}, timeout=1800, topic_id="")
         self.assertNotIn("permission", backend.prompt_runtime_note(ctx))
-        with mock.patch("covey.backends.claude.bridge._redacted_topic", return_value=False):
-            self.assertNotIn("Background", backend.prompt_notes(ctx)[0])
+        self.assertNotIn("Background", backend.prompt_notes(ctx)[0])
 
 
 class WithoutHooksTests(unittest.TestCase):

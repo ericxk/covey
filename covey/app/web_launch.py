@@ -7,14 +7,13 @@ owner's private chat, pushed for the page's chat box (``catalog``), and the page
   preselected model first, then the chat's recent ones), each model with its Harness and provider and their titles, the budgets the
   card offers (core/menu_choice.py plain_budgets: the levels by name), ``start_budget`` (the budget the card
   preselects when that model is chosen: launch_selection with that model as the draft, so the 新话题 page's budget, the chat's usual one
-  and 推荐 come in the card's order), whether it can redact and its work modes; ``devices`` (v43, only with COVEY_DEVICES=1 and devices: 本机
+  and 推荐 come in the card's order), and its work modes; ``devices`` (v43, only with COVEY_DEVICES=1 and devices: 本机
   first, then each device, ``device_rows``), the page's 执行设备 choice; no
   workspaces or run modes any more: a topic starts in the home); and ``preselect``, what a launch card of the private chat
   preselects now (the 新话题 page, the last 开始任务, the chat's usage). The page applies two rules of the card's: a Harness or provider
   choice keeps the model when it is among that one's models, else takes the first in this order (core/menu_choice.py tier_pick); a
   model choice takes its ``start_budget``.
-- ``launch``: the choices checked as 开始任务 checks them (the model on the menu, a budget it offers, a work mode it has, 敏感词脱敏 only
-  where it can redact, a device's only where it is allowed and declares the Harness; an older page's workspace and run mode as before, never a
+- ``launch``: the choices checked as 开始任务 checks them (the model on the menu, a budget it offers, a work mode it has, a device's only where it is allowed and declares the Harness; an older page's workspace and run mode as before, never a
   worktree on a device; ``repos``, at most ten, as app/butler_topics.py declared_repos takes them), then the topic opened as the butler opens one that starts at once (app/butler_topics.py: its topic card at the
   top level of the private chat with the configuration line, its topic.json bound, its first turn queued), the turn being the owner's own
   words (no handoff). The choice is kept as the chat's last 开始任务 and in its usage (app/launch_submit.py remember_launch), so the next card
@@ -139,18 +138,16 @@ def catalog(env, ctx, chat) -> dict:
                        "provider": entry.get("provider", ""), "provider_title": providers.get(entry.get("provider", ""), "自带"),
                        "label": str(entry.get("display_name") or entry.get("label") or key.partition(":")[2]),
                        "budgets": [{"value": value, "text": text} for value, text in options], "default_budget": default,
-                       "start_budget": start, "redaction": bool(entry.get("redaction")),
+                       "start_budget": start,
                        # v36: a project's lead can run on it (its Harness takes the Bridge's tools, app/lead_harness.py).
                        "bridge_tools": bool(entry.get("bridge_tools")),
                        "work_modes": list(entry.get("work_modes") or ()),
                        # The card's words for each mode (core/defaults.py WORK_MODES: name（what it does）).
                        "work_mode_texts": {mode: "{}（{}）".format(*WORK_MODES[mode]) if mode in WORK_MODES else mode
                                            for mode in entry.get("work_modes") or ()}})
-    defaults = reads["defaults"]
     devices = device_rows(env, ctx, chat)
     return {"models": models, **({"devices": devices} if devices else {}),
-            "preselect": {"model": found.model, "effort": plain_budget(ranked.get(found.model) or {}, found.effort), "work_mode": found.work_mode,
-                          "redaction": "on" if defaults.redaction else "off"}}
+            "preselect": {"model": found.model, "effort": plain_budget(ranked.get(found.model) or {}, found.effort), "work_mode": found.work_mode}}
 
 
 def record_path(state_dir, op_id) -> Path:
@@ -158,8 +155,8 @@ def record_path(state_dir, op_id) -> Path:
 
 
 def model_choice(env, ctx, payload) -> tuple:
-    """(harness, key, menu entry, budget, work mode, redaction) of the page's choices of a model, checked as 开始任务 checks them (the
-    model on the menu, a budget it offers, a work mode it has, 敏感词脱敏 only where it can redact); ValueError says why not. The 换配置
+    """(harness, key, menu entry, budget, work mode) of the page's choices of a model, checked as 开始任务 checks them (the
+    model on the menu, a budget it offers, a work mode it has); ValueError says why not. The 换配置
     of the page (app/web_switch.py) checks its model the same way."""
     from covey.app.launch_models import available_models
     from covey.core.menu_choice import budget_options, harness_of
@@ -177,10 +174,7 @@ def model_choice(env, ctx, payload) -> tuple:
     work_mode = str(payload.get("work_mode") or "")
     if work_mode and work_mode not in (choice.get("work_modes") or ()):
         raise ValueError("这个模型没有这个工作模式")
-    redaction = payload.get("redaction") == "on"
-    if redaction and not choice.get("redaction"):
-        raise ValueError("这个模型不能脱敏")
-    return harness, key, choice, effort, work_mode, redaction
+    return harness, key, choice, effort, work_mode  # An older page's ``redaction`` is ignored (敏感词脱敏 is retired).
 
 
 REPOS_MAX = 10
@@ -221,7 +215,7 @@ def plan_of(env, ctx, chat, payload) -> dict:
     from covey.core import devices
     from covey.core.menu_choice import chosen_work_mode
     from covey.core.workspaces import RUN_MODES, resolve_binding
-    harness, key, choice, effort, work_mode, redaction = model_choice(env, ctx, payload)
+    harness, key, choice, effort, work_mode = model_choice(env, ctx, payload)
     repos = repos_of(env, ctx, payload)
     workspace, requested = str(payload.get("workspace") or ""), str(payload.get("run_mode") or "")
     run_mode = requested or "direct"
@@ -251,7 +245,7 @@ def plan_of(env, ctx, chat, payload) -> dict:
     return {"harness": harness, "model": model, "model_key": key, "effort": run_effort, "preference_effort": effort,
             "label": str(choice.get("label") or model), "work_mode": chosen_work_mode(choice, work_mode),
             "workspace": name, "workdir": binding.value if binding.device else str(binding.workdir), "run_mode": run_mode,
-            "redaction": redaction, "start": run_mode == "direct", **({"repos": repos} if repos else {}),
+            "start": run_mode == "direct", **({"repos": repos} if repos else {}),
             # A home start on this machine only: one on a device runs in the device's directory, as the butler's and the
             # launch card's do (core/topics.py mark_home).
             **({"home_start": True} if home and not binding.device else {})}

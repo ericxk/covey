@@ -56,7 +56,7 @@ MATRIX = {
     "U5": {BUTLER: ("settings.config_butler",), LEAD: ("settings.config_lead", "settings.config_lead_chosen", "switch.card_lead"),
            "新话题默认": ("settings.config_topics",),
            "代答": ("proxy.panel",), WEB: ("main_topic.numbered",),
-           TOPIC: ("launch.codex", "launch.claude_redacting", "launch.maso_expanded", "switch.card", "switch.card_old_record"),
+           TOPIC: ("launch.codex", "launch.claude", "launch.maso_expanded", "switch.card", "switch.card_old_record"),
            "顶层换配置": ("switch.card_top",)},
 }
 # The cards of a conversation (docs/ui.md 10 ③): no conclusion band on any (U1), whatever entry drew them.
@@ -422,11 +422,11 @@ class AssistSectionTest(unittest.TestCase):
 
 
 class MoreFoldTest(unittest.TestCase):
-    """U15: the rows nobody changes are in their open section's 更多 at its end, closed unless the click was in it; 脱敏 on
-    and 每条直接开一个话题 stay in sight."""
+    """U15: the rows nobody changes are in their open section's 更多 at its end, closed unless the click was in it;
+    每条直接开一个话题 stays in sight."""
 
     def test_closed_open_and_in_sight(self):
-        from covey.cards.butler_panel import FOLDED, MODE, PROVIDER, REDACTION
+        from covey.cards.butler_panel import FOLDED, MODE, PROVIDER
 
         def mores(card):
             return [node for node in walk(card) if node.get("tag") == "collapsible_panel"
@@ -436,8 +436,9 @@ class MoreFoldTest(unittest.TestCase):
         self.assertEqual((closed["expanded"], opened["expanded"]), (False, True))
         self.assertTrue(closed["header"]["title"]["content"].startswith("更多："))
         inside = {node["value"]["kind"] for node in walk(opened) if isinstance(node.get("value"), dict)}
-        self.assertTrue({PROVIDER, REDACTION, MODE} <= inside)
-        self.assertEqual(len(FOLDED), 8)  # 10 till 独立复核's 模型 and 供应商 went with its section (T937).
+        self.assertTrue({PROVIDER, MODE} <= inside)
+        # 10 till 独立复核's 模型 and 供应商 went with its section (T937), 8 till the 脱敏 rows went (T947).
+        self.assertEqual(len(FOLDED), 6)
         # 纯话题: the mode is no usual choice and is the section's one row, in sight, no 更多.
         self.assertEqual(mores(CARDS["settings.config_topics"]), [])
 

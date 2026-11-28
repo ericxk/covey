@@ -21,7 +21,7 @@ is neither carried nor listed (the owner's own turn looks the whole memory up wi
 nothing of its project either (the pack has it). ``preview`` is the same reckoning for the web page (data contract v43
 MemoryPreview).
 
-Who reads what is as it was: a 代答 topic nothing; a line from a topic with redaction on only one with it on; 待审核 never.
+Who reads what is as it was: a 代答 topic nothing; 待审核 never.
 Nothing is written but the job record's ``memory_ids`` (carried whole: {n, ref, scope, kind, by}) and ``memory_listed``
 (titles only: {n, ref}) — app/memory_observe.py counts them once the turn has ended — and nothing raises into the turn.
 ``fix_rule`` says whether the turn's rules tell the model it may write ``memory`` and ``memory_void`` into its checkpoint
@@ -45,7 +45,6 @@ from covey.core.butler_opened import handed_on
 from covey.core.jobs import job_key, topic_job_records, upsert_job_record
 from covey.core.paths import entry_script
 from covey.core.process import device_of
-from covey.core.redaction import topic_redaction
 from covey.core.state import epoch_seconds
 from covey.core.topics import load_topic, proxy_topic, topic_number
 
@@ -105,16 +104,7 @@ def active(ctx) -> bool:
     return memory.enabled() and not proxy_topic(ctx)
 
 
-def redacted(ctx, topic_id) -> bool:
-    """Whether the topic has redaction on; off when it cannot be read (the lines that need it are then left out)."""
-    return project_context.marked(ctx.state_dir, topic_id)
-
-
 # ------------------------------------------------------------------------------------------------------------ the rules
-
-
-def _readable(entry, redacted_on) -> bool:
-    return not (entry.redacted and not redacted_on)
 
 
 def _rule_order(entry):
@@ -157,13 +147,12 @@ def titles_of(left, chars=TITLE_CHARS) -> tuple[list, int]:
     return shown, cut
 
 
-def scope_rules(state_dir, scope, key, redacted_on=False) -> list:
-    """The active rules of one scope a reader with ``redacted_on`` may read."""
-    return [entry for entry in memstore.entries(state_dir, scope=scope, owner_key=key, kinds=("rule",))
-            if _readable(entry, redacted_on)]
+def scope_rules(state_dir, scope, key) -> list:
+    """The active rules of one scope."""
+    return list(memstore.entries(state_dir, scope=scope, owner_key=key, kinds=("rule",)))
 
 
-def rules_of(state_dir, *, topic="", project="", owner=False, redacted_on=False, lead=False) -> tuple[list, list]:
+def rules_of(state_dir, *, topic="", project="", owner=False, lead=False) -> tuple[list, list]:
     """(carried, titles only) of the rules a turn of ``topic`` in ``project`` reads (the module's docstring); ``lead``: the
     topic is ``project``'s lead's, which reads 全局 alone (its project's are in its state pack, app/project_lead.py)."""
     carried, left = [], []
@@ -172,20 +161,20 @@ def rules_of(state_dir, *, topic="", project="", owner=False, redacted_on=False,
         scopes += [("project", project)] if project else []
         scopes += [("topic", topic)] if topic else []
     for scope, key in scopes:
-        picked, over = pick_rules(scope_rules(state_dir, scope, key, redacted_on), scope)
+        picked, over = pick_rules(scope_rules(state_dir, scope, key), scope)
         carried += picked
         left += over
     return carried, left
 
 
-def pool_of(state_dir, redacted_on=False) -> tuple[list, list]:
+def pool_of(state_dir) -> tuple[list, list]:
     """(carried whole, titles only) of the 全局 资料 the butler's and a lead's rules read (相关时才带, the pool they pick
     from for the topics they hand work to): its room POOL_CAPS goes to the owner's first, then the newest (``pick_rules``)."""
-    found = [entry for entry in memstore.entries(state_dir, scope="global", kinds=("note",)) if _readable(entry, redacted_on)]
+    found = list(memstore.entries(state_dir, scope="global", kinds=("note",)))
     return pick_rules(found, "global", POOL_CAPS)
 
 
-def carried(state_dir, topic, *, project="", redacted_on=False) -> list:
+def carried(state_dir, topic, *, project="") -> list:
     """[(Entry, by)] the butler or the lead picked for ``topic`` (app/memory_picks.py entries_of of its topic.json), as its
     turn in ``project`` reads them now; [] for none, or when the record cannot be read."""
     if not topic:
@@ -194,7 +183,7 @@ def carried(state_dir, topic, *, project="", redacted_on=False) -> list:
         data = load_topic(state_dir, topic)
     except (OSError, ValueError):
         return []
-    return memory_picks.entries_of(state_dir, data, project=project, redacted=redacted_on)
+    return memory_picks.entries_of(state_dir, data, project=project)
 
 
 def over_room(state_dir, entry) -> bool:
@@ -203,7 +192,7 @@ def over_room(state_dir, entry) -> bool:
     if entry is None or entry.kind != "rule" or entry.status != "active":
         return False
     try:
-        _, over = pick_rules(scope_rules(state_dir, entry.scope, entry.owner_key, entry.redacted), entry.scope)
+        _, over = pick_rules(scope_rules(state_dir, entry.scope, entry.owner_key), entry.scope)
     except Exception:  # noqa: BLE001 - not known: nothing said
         return False
     return any(found.ref == entry.ref for found in over)
@@ -284,7 +273,7 @@ def sibling(entry, topic, lead) -> bool:
     return bool(topic) and entry.scope == "project" and bool(asked) and asked not in (topic, lead)
 
 
-def decisions_of(state_dir, *, topic="", project="", redacted_on=False, now=None, cache=None) -> list:
+def decisions_of(state_dir, *, topic="", project="", now=None, cache=None) -> list:
     """The decisions in progress a turn of ``topic`` in ``project`` carries, the newest first, a question once: the topic's own
     and the lead's (``in_progress``), never another topic's of the project (``sibling``). ``cache``: the asking topics' job
     records as ``in_progress`` read them, shared by the caller (the web page's previews of one build)."""
@@ -298,7 +287,7 @@ def decisions_of(state_dir, *, topic="", project="", redacted_on=False, now=None
     lead = lead_of(state_dir, project)
     seen, out = set(), []
     for entry in sorted(found, key=lambda e: -e.at):
-        if not _readable(entry, redacted_on) or sibling(entry, topic, lead):
+        if sibling(entry, topic, lead):
             continue
         if not in_progress(state_dir, entry, topic, now=now, cache=cache):
             continue
@@ -361,12 +350,12 @@ def moved_copy(state_dir, item) -> bool:
     return live is not None and live.ref != item["ref"] and live.status == "active"
 
 
-def notes_of(state_dir, queries, *, topic="", project="", owner=False, redacted_on=False, carried=(),
+def notes_of(state_dir, queries, *, topic="", project="", owner=False, carried=(),
              lead=False) -> tuple[list, list]:
     """((Entry, sim) carried as 资料, the related hits only listed) for ``queries`` (``queries_of``), both ``in_reach``."""
     if not queries:
         return [], []
-    context = {"topic": topic, "project": project, "owner": owner, "redacted": redacted_on, "tau": memory_search.DEFAULT_TAU}
+    context = {"topic": topic, "project": project, "owner": owner, "tau": memory_search.DEFAULT_TAU}
     hits = [item for item in memory_search.rank_many(memory_search.index(state_dir), queries, context)
             if in_reach(item, topic, project, lead)]
     taken, notes, listed, used = set(carried), [], [], 0
@@ -395,7 +384,7 @@ _plans: dict = {}
 _PLANS_KEPT = 64
 
 
-def make_plan(state_dir, *, topic="", project="", owner=False, redacted_on=False, words="", title="", repos=(),
+def make_plan(state_dir, *, topic="", project="", owner=False, words="", title="", repos=(),
               now=None, cache=None, lead=False, pool=False) -> Plan:
     """What a turn of ``topic`` in ``project`` carries (``owner``: the owner's own turn; ``words``: the owner's words of
     it; ``lead``: ``topic`` is ``project``'s lead's, which carries nothing of its project here: ``rules_of``, ``in_reach``;
@@ -403,11 +392,10 @@ def make_plan(state_dir, *, topic="", project="", owner=False, redacted_on=False
     The same arguments and memory give the same plan."""
     now = time.time() if now is None else now
     state_dir = Path(state_dir)
-    rules, left = rules_of(state_dir, topic=topic, project=project, owner=owner, redacted_on=redacted_on, lead=lead)
-    pooled, pool_left = pool_of(state_dir, redacted_on) if pool and owner else ([], [])
-    picked = [] if pool else carried(state_dir, topic, project="" if lead else project, redacted_on=redacted_on)
-    decisions = decisions_of(state_dir, topic=topic, project="" if lead else project, redacted_on=redacted_on, now=now,
-                             cache=cache)
+    rules, left = rules_of(state_dir, topic=topic, project=project, owner=owner, lead=lead)
+    pooled, pool_left = pool_of(state_dir) if pool and owner else ([], [])
+    picked = [] if pool else carried(state_dir, topic, project="" if lead else project)
+    decisions = decisions_of(state_dir, topic=topic, project="" if lead else project, now=now, cache=cache)
     kept, shown = [], 0
     for entry in decisions:
         size = min(len(entry.text), DECISION_LINE)
@@ -417,7 +405,7 @@ def make_plan(state_dir, *, topic="", project="", owner=False, redacted_on=False
     spare = [entry for entry in decisions if entry not in kept]
     queries = queries_of(state_dir, topic, words, title=title, repos=repos)
     taken = [entry.ref for entry in (*rules, *left, *kept, *pooled, *pool_left, *(entry for entry, _ in picked))]
-    notes, listed = notes_of(state_dir, queries, topic=topic, project=project, owner=owner, redacted_on=redacted_on,
+    notes, listed = notes_of(state_dir, queries, topic=topic, project=project, owner=owner,
                              carried=taken, lead=lead)
     left, cut = titles_of(left)
     pool_left, _ = titles_of(pool_left)
@@ -476,7 +464,7 @@ def plan(ctx, job, owner_turn) -> Plan:
     lead = lead_project(ctx.state_dir, topic)
     butler = is_butler_topic(topic, getattr(job, "chat_id", ""))
     made = make_plan(ctx.state_dir, topic=topic, project=lead or _turn_project(ctx, job), owner=bool(owner_turn()),
-                     redacted_on=redacted(ctx, topic), words=words, lead=bool(lead), pool=bool(lead) or butler)
+                     words=words, lead=bool(lead), pool=bool(lead) or butler)
     if len(_plans) >= _PLANS_KEPT:
         _plans.pop(next(iter(_plans)))
     _plans[key] = (stamp, made)
@@ -485,24 +473,19 @@ def plan(ctx, job, owner_turn) -> Plan:
 
 def search_command(ctx, job, owner) -> str:
     """The command line a turn looks its memory up with (bin/covey_memory.py search, core/memory_search.py): this
-    deployment's state and the turn's topic, ``--owner`` on the owner's own turn (his 全局 lines), ``--redacted`` in a topic
-    with redaction on (the lines only such a topic reads); '' on a device, whose files are not this machine's. Through
+    deployment's state and the turn's topic, ``--owner`` on the owner's own turn (his 全局 lines);
+    '' on a device, whose files are not this machine's. Through
     ``<数据根>/bin/covey memory`` (core/home.py ``ensure_shim``, which each deploy points at its release), so the line, and
     the rules it is in, stay the same from one deploy to the next (WAVE12 C9); the release's own script when that is not there."""
     if device_of(ctx):
         return ""
     topic_id = str(getattr(job, "topic_id", "") or ctx.topic_id or "")
-    try:
-        hidden = bool(topic_redaction(ctx.state_dir, topic_id))
-    except ValueError:
-        hidden = False  # Its redacted lines are then not looked up, as the block leaves them out.
     shim = home.bin_dir() / home.SHIM
     try:
         head = [str(shim), "memory"] if shim.is_file() else [sys.executable, "-B", str(entry_script("covey_memory.py"))]
     except OSError:
         head = [sys.executable, "-B", str(entry_script("covey_memory.py"))]
-    words = [*head, "search", "--state", str(ctx.state_dir), "--topic", topic_id, *(["--owner"] if owner else []),
-             *(["--redacted"] if hidden else [])]
+    words = [*head, "search", "--state", str(ctx.state_dir), "--topic", topic_id, *(["--owner"] if owner else [])]
     return " ".join(shlex.quote(word) for word in words) + ' "<一句话>"'
 
 
@@ -561,21 +544,20 @@ def record(ctx, job, owner_turn, log=None) -> None:
 def preview(state_dir, topic_key: str = "", *, project_key: str = "", title: str = "", query: str = "",
             repos: tuple = (), cache: dict | None = None) -> dict:
     """What a turn of ``topic_key`` would carry, as the web page shows it (data contract v43 MemoryPreview): {topic_key, title,
-    chars, rules, decisions, notes: [{code, sim}], listed}; the owner's own turn, the topic's redaction as it is set."""
+    chars, rules, decisions, notes: [{code, sim}], listed}; the owner's own turn."""
     state_dir = Path(state_dir)
     topic = str(topic_key or "")
     project = str(project_key or "")
     if topic and not project:
         found = projects.topic_project(state_dir, topic)
         project = found.id if found is not None and found.role == projects.MEMBER else ""
-    hidden = project_context.marked(state_dir, topic) if topic else False
     shown = title
     if topic and not shown:
         try:
             shown = str(load_topic(state_dir, topic).get("title") or "")
         except (OSError, ValueError):
             shown = ""
-    made = make_plan(state_dir, topic=topic, project=project, owner=True, redacted_on=hidden, words=query, title=title,
+    made = make_plan(state_dir, topic=topic, project=project, owner=True, words=query, title=title,
                      repos=tuple(repos or ()), cache=cache)
     text = memory_rules_block(made.rules, made.left, project_name=made.project_name, search="", cut=made.cut)
     text += memory_tail_block(made.decisions, made.notes, made.listed, numbers=made.numbers, project=made.project,
@@ -600,7 +582,7 @@ def build(ctx, job, owner_turn) -> tuple[list, int]:
     used = memory_usage.last_used(state) if memory.learning() else None
     return memory.select(memory.items(principles=(mine if owner else [], space), entries=(entries[0] if owner else [], entries[1]),
                                       project=rows, topic=topic_memory.live(state, topic_id), project_id=project_id,
-                                      redacted=redacted(ctx, topic_id), drafts=((), ()), used=used))
+                                      drafts=((), ()), used=used))
 
 
 def triggered(text, *, knowledge_takes=False) -> bool:

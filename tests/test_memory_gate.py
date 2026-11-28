@@ -131,11 +131,11 @@ class PassThroughTest(unittest.TestCase):
              lambda state: memstore.add(state, kind="note", scope="project", owner_key=PID, text="账单表按日期分区",
                                         said="summary", by="lead", origin={}, who="lead",
                                         because={"source": "project_remember", "place": "lead"}, now=NOW)),
-            # An agent's level is no proof either; a topic's rule, redacted.
+            # An agent's level is no proof either; a topic's rule.
             (dict(kind="rule", scope="topic", owner_key=TOPIC, text="只改测试目录", proof=Proven(Proof(message_id="om_2"), "agent"),
-                  by="lead", source="x", place="topic", redacted=True),
+                  by="lead", source="x", place="topic"),
              lambda state: memstore.add(state, kind="rule", scope="topic", owner_key=TOPIC, text="只改测试目录", said="summary",
-                                        by="lead", origin={"message_id": "om_2"}, who="lead", redacted=True,
+                                        by="lead", origin={"message_id": "om_2"}, who="lead",
                                         because={"source": "x", "place": "topic"}, now=NOW)),
             # A decision with its fields.
             (dict(kind="decision", scope="project", owner_key=PID, text="主人答：范围？→全部", proof=owner, by="owner",
@@ -363,9 +363,6 @@ class OneWayInTest(unittest.TestCase):
         self.assertEqual((done["refs"], moved.code, moved.text), ([moved.ref], written.entry.code, "回复都用中文"))  # Moved: one line.
         self.assertEqual(memstore.find(self.state, written.entry.ref).status, "archived")
         self.assertEqual([entry.text for entry in memstore.entries(self.state, scope="project", owner_key=PID)], [])
-        # Never for a line from a topic with redaction on.
-        marked = self.write(text="回复先给结论", wider="global", redacted=True)
-        self.assertEqual((marked.review, len(memory_review.items(self.state))), ("", 0))
 
     def test_a_refused_text_is_rewritten_unless_strict_and_pending_writes_nothing(self):
         from covey.core import memory_gate, memory_review, memstore

@@ -40,7 +40,6 @@ from covey.core import assist, devices, quota_hold
 from covey.core.defaults import work_mode_tag
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import topic_job_records
-from covey.core.redaction import topic_redaction
 from covey.core.session_guard import session_is_blocked
 from covey.core.state import epoch_seconds, write_private_text
 from covey.core.history_storage import history_lines, recent_rounds
@@ -65,8 +64,8 @@ REFUSED = {"policy refusal": "原会话被安全拒绝停过，" + _RAW,
 WHY_WORDS = {"no session": "原来的配置还没有会话", "not supported": "原来的 Harness 不会写交接摘要",
              "policy refusal": "原会话被安全拒绝停过", "policy fallback": "原会话因官方模型降级停过",
              "policy retry": "原会话是安全拒绝后的重试", "session blocked": "原会话已禁止续接",
-             "rewind pending": "更换时还有一步回退没做完", "no redaction record": "这次更换早于交接摘要功能",
-             "device": "原会话在设备上", "workdir missing": "原来的工作目录不在了", "redaction unknown": "读不出脱敏设置",
+             "rewind pending": "更换时还有一步回退没做完",
+             "device": "原会话在设备上", "workdir missing": "原来的工作目录不在了",
              "assist broken": "原来的 Harness 刚在后台调用里失败过（登录、额度或连接）",
              "model failing": "原来的模型最近一次任务失败了，现在多半还用不了",
              "quota held": "原来的模型所在网关额度用完了", "start refused": "原来的模型现在开不了新的一轮"}
@@ -437,9 +436,6 @@ class SwitchHandoff:
             # Switched with a ↩️ 回退 pending (app/binding.py): a fork of the session's tip would summarize the
             # round the owner dropped (and the files it changed, maybe put back since) for the new model.
             why = "rewind pending"
-        elif "redaction" not in old:
-            # Switched before the summary existed: whether its turns were redacted is not known, so nothing is sent.
-            why = "no redaction record"
         elif getattr(ctx, "device", "") or devices.is_device_value(old.get("workdir") or ""):
             why = "device"  # The old session is on the device; the summary would run on this machine.
         elif not workdir.is_dir():
@@ -449,13 +445,6 @@ class SwitchHandoff:
             why = unfitting
         else:
             why = ""
-        if not why:
-            try:
-                # Through the relay when the old turns went through it or the topic has 敏感词脱敏 on now (turned on
-                # in this switch or after it): the fork sends the whole old session again.
-                redact = old["redaction"] is True or topic_redaction(ctx.state_dir, ctx.topic_id)
-            except ValueError:
-                why = "redaction unknown"
         if why:
             self.runtime.log(f"switch summary skipped topic={ctx.topic_id[:12]} from={old.get('harness_id')} {why}")
             if why in REFUSED:
@@ -477,7 +466,7 @@ class SwitchHandoff:
         if waiting is not None:
             waiting()
         try:
-            text, outcome = summarize(target, old["session_id"], SUMMARY_PROMPT, redact=redact,
+            text, outcome = summarize(target, old["session_id"], SUMMARY_PROMPT,
                                       cancel=cancel, run_id=f"handoff-r{revision}")
         except Exception as exc:  # noqa: BLE001 - the turn goes on with the plain rounds
             text, outcome = "", f"出错（{type(exc).__name__}）"

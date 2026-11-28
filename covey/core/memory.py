@@ -1,7 +1,7 @@
 """The one read port of the owner's memory (COVEY_MEMORY=1, docs/butler.md 记忆): the principles (core/principles.py), the
 knowledge entries (core/knowledge.py), a project's memory (core/project_memory.py) and a topic's (core/topic_memory.py) become
 one list of items, and one block of a turn's rules (app/prompts.py memory_block) says them. An item is
-{ref, scope, by, text, at, redacted, pinned} and, of a project, what ``describe`` says of its line too:
+{ref, scope, by, text, at, pinned} and, of a project, what ``describe`` says of its line too:
 
 - ``ref`` names the entry in its own store ("principle:<id>", "knowledge:<id>", "project:<project id>:<id>", "topic:<id>").
 - ``scope`` is how far it reaches: 全局 (``GLOBAL``), 工作区 (``WORKSPACE``), 专项 (``PROJECT``), 话题 (``TOPIC``).
@@ -14,7 +14,6 @@ one list of items, and one block of a turn's rules (app/prompts.py memory_block)
   ``part`` a turn carries it in, each with its own room (``PART_LIMITS``): 长期约定 (the owner's rules), 当前决定 (the owner's
   decisions: an answer is one, for what that question asked), 待核对参考 (``REFERENCE``: what anybody but the owner noted, below
   the owner's words and never by itself the ground of an answer in the owner's place). A line of the history is not carried.
-- ``redacted``: it came from a topic with redaction on; only such a topic reads it.
 - ``pinned``: a principle the owner marked 常驻 (core/principles.py ``pin``).
 
 ``select`` keeps, per scope, what fits the scope's character limit (``LIMITS``; a project's three parts each their own, the room
@@ -119,11 +118,10 @@ def _at(value) -> float:
     return float(epoch_seconds(value) or 0.0)
 
 
-def make(ref, scope, by, text, at=0, redacted=False, pinned=False) -> dict:
+def make(ref, scope, by, text, at=0, pinned=False) -> dict:
     """An item; one of a project also has what ``describe`` says (made here without a row: the owner's words a 长期约定 at the
     owner's level, anybody else's a 待核对参考), and its ``kind``."""
-    item = {"ref": ref, "scope": scope, "by": by, "text": " ".join(str(text or "").split()), "at": _at(at),
-            "redacted": bool(redacted), "pinned": bool(pinned)}
+    item = {"ref": ref, "scope": scope, "by": by, "text": " ".join(str(text or "").split()), "at": _at(at), "pinned": bool(pinned)}
     if scope == PROJECT:
         item.update(asserted_by=by, recorded_by=turn_source.PARTY_BRIDGE if by == OWNER else by, origin={},
                     level=turn_source.LEVEL_OWNER if by == OWNER else turn_source.LEVEL_AGENT, layer=RULE,
@@ -131,11 +129,11 @@ def make(ref, scope, by, text, at=0, redacted=False, pinned=False) -> dict:
     return item
 
 
-def items(*, principles=((), ()), entries=((), ()), project=(), topic=(), project_id="", redacted=False, drafts=((), ()),
+def items(*, principles=((), ()), entries=((), ()), project=(), topic=(), project_id="", drafts=((), ()),
           used=None) -> list:
     """The items one turn may read: ``principles`` and ``entries`` are (全局, 工作区) lists as core/principles.py and
     core/knowledge.py for_turn give them (the caller leaves 全局 out of a turn that is not the owner's), ``project`` and ``topic``
-    the live rows of those memories. A redacted line is only for a turn with ``redacted`` on. ``drafts`` (全局, 工作区): the
+    the live rows of those memories. ``drafts`` (全局, 工作区): the
     evening candidates an older release carried ({id, text, at}; none now), 它总结的; ``used``: ref -> when a turn last used it
     (core/memory_usage.py last_used), each item's ``seen``."""
     found = []
@@ -151,13 +149,13 @@ def items(*, principles=((), ()), entries=((), ()), project=(), topic=(), projec
     for row in project:
         facts = describe(row)
         item = make(f"project:{project_id}:{row['id']}", PROJECT, OWNER if facts["asserted_by"] == turn_source.PARTY_OWNER else LEAD,
-                    row["text"], row.get("at"), row.get("redacted"))
+                    row["text"], row.get("at"))
         found.append({**item, **facts, "kind": str(row.get("kind") or "")})
     for row in topic:
-        found.append(make(f"topic:{row['id']}", TOPIC, by_source(row.get("source")), row["text"], row.get("at"), row.get("redacted")))
+        found.append(make(f"topic:{row['id']}", TOPIC, by_source(row.get("source")), row["text"], row.get("at")))
     for item in found if used else ():
         item["seen"] = max(item["at"], _at(used.get(item["ref"])))
-    return [item for item in found if item["text"] and (redacted or not item["redacted"])]
+    return [item for item in found if item["text"]]
 
 
 def seen(item) -> float:
@@ -256,19 +254,18 @@ def select(found) -> tuple[list, int]:
     return kept, sum(len(scopes[scope]["left"]) for scope in SCOPES)
 
 
-def project_view(rows, project_id, *, redacted=False, since=None, used=None) -> dict:
+def project_view(rows, project_id, *, since=None, used=None) -> dict:
     """A project's memory as every reader takes it (a member topic's turn, the lead's pack, the web page): ``rows`` is every
     entry of it, tombstones too (core/project_memory.py entries). {version (core/project_memory.py version), items (the live
     lines but the style line, as ``items`` makes them), kept, left, parts (``fill``'s of the project), voided, new}. ``since``,
     when the reader's previous turn began (None: it had none, or reads it whole): ``voided`` the lines deleted after it,
     as items, ``new`` the refs of the kept ones written after it. ``used`` (``items``): when a turn last used each line, so the
-    choice is the one the turn's own memory block makes (app/memory_turn.py) and what both say was left out is the same count. A line from a topic with redaction on is only in a view
-    with ``redacted``."""
+    choice is the one the turn's own memory block makes (app/memory_turn.py) and what both say was left out is the same count."""
     live = [row for row in rows if not row["deleted"] and row["kind"] != "style"]
-    found = items(project=live, project_id=project_id, redacted=redacted, used=used)
+    found = items(project=live, project_id=project_id, used=used)
     room = fill(found)[PROJECT]
     gone = [row for row in rows if row["deleted"] and row["kind"] != "style" and since is not None and row["deleted"] > since]
-    voided = items(project=gone, project_id=project_id, redacted=redacted)
+    voided = items(project=gone, project_id=project_id)
     new = {item["ref"] for item in room["kept"] if since is not None and item["at"] > since}
     return {"version": project_memory.version(rows), "items": found, "kept": room["kept"], "left": room["left"],
             "parts": room["parts"], "voided": voided, "new": new}

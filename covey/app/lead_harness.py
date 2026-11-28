@@ -4,8 +4,7 @@ A new lead (app/projects.py step_lead) takes, in this order, the first of these 
 named for it (topic_start with ``project`` true and a ``harness`` or ``model``, kept in the record's origin as ``lead``),
 the settings' (core/butler_settings.py LeadModel, the 设置 card's 专项负责人), else the butler's own (its topic.json, else
 what its first message would write). A Harness can run a lead when it is enabled here, takes the Bridge's tools
-(core/harness.py bridge_tools: the lead's tools, and the read-only hold app/tool_limits.py puts on its turn) and, where the
-butler redacts, redacts too: the lead's 脱敏 is the butler's, and a turn that would go out unredacted does not start.
+(core/harness.py bridge_tools: the lead's tools, and the read-only hold app/tool_limits.py puts on its turn).
 
 A lead that is there keeps its own until the owner changes it: 换配置 on the 专项卡 (app/harness_switch.py) or on the web page
 (app/web_switch.py), both of which offer only the menu's models ``can_lead`` allows, and a workspace the lead keeps.
@@ -16,45 +15,39 @@ from pathlib import Path
 
 from covey.core import projects
 from covey.core.harness import backend_capabilities
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.text import cut
 from covey.core.topics import load_topic
 
 # Said where a model cannot run a lead: on the 换配置 card, by the web page's switch, to the butler's topic_start.
 CANNOT_LEAD = "负责人只能用能接 Bridge 工具的 Harness（和管家能选的一样），它要用这些工具派话题，并在上面守住只读"
-CANNOT_REDACT = "管家开着敏感词脱敏，负责人也脱敏：只能选能脱敏的模型（Claude）"
 
 
-def can_lead(entry, redacting=False) -> bool:
+def can_lead(entry) -> bool:
     """Whether the menu entry ``entry`` (app/launch_models.py available_models) is a model a lead can run on: its Harness
-    takes the Bridge's tools, and with ``redacting`` it redacts too."""
-    return bool(entry) and bool(entry.get("bridge_tools")) and (bool(entry.get("redaction")) or not redacting)
+    takes the Bridge's tools."""
+    return bool(entry) and bool(entry.get("bridge_tools"))
 
 
-def lead_choices(choices, redacting=False) -> dict:
+def lead_choices(choices) -> dict:
     """``choices`` (the model menu) left with the models a lead can run on (``can_lead``), in their order."""
-    return {key: entry for key, entry in choices.items() if can_lead(entry, redacting)}
+    return {key: entry for key, entry in choices.items() if can_lead(entry)}
 
 
-def runs_lead(app, redacting=False) -> bool:
-    """Whether the Harness app ``app`` (None: not enabled here) can run a lead: it takes the Bridge's tools on this
-    machine and, with ``redacting``, it redacts."""
+def runs_lead(app) -> bool:
+    """Whether the Harness app ``app`` (None: not enabled here) can run a lead: it takes the Bridge's tools on this machine."""
     harness = getattr(app, "harness", None)
     if app is None or harness is None:
         return False
-    capabilities = backend_capabilities(app.backend, harness.context)
-    return bool(capabilities.bridge_tools) and (bool(capabilities.redaction) or not redacting)
+    return bool(backend_capabilities(app.backend, harness.context).bridge_tools)
 
 
-def refusal(apps, name, redacting=False) -> str:
+def refusal(apps, name) -> str:
     """Why the Harness ``name`` cannot run a lead here, '' when it can (``runs_lead``)."""
     app = apps.get(name)
     if app is None:
         return f"本机器人没有启用 {name}"
     if not runs_lead(app):
         return CANNOT_LEAD
-    if not runs_lead(app, redacting):
-        return CANNOT_REDACT
     return ""
 
 
@@ -72,11 +65,10 @@ def wanted_of(value) -> dict:
 def binding(apps, root, call=None, settings=None) -> dict:
     """{harness_id, model, effort, source} a new lead runs with: ``call`` (what the butler's call named for it), else
     ``settings`` (the settings' LeadModel), each as ``wanted_of`` reads it and taken only while its Harness can run a lead
-    where the butler's topic.json ``root`` redacts or not (``runs_lead``); else ``root``'s own, the butler's. ``source``
+    (``runs_lead``); else ``root``'s own, the butler's. ``source``
     says which: "call", "settings" or "butler"."""
-    redacting = root.get(REDACTION_KEY) is True
     for source, choice in (("call", wanted_of(call)), ("settings", wanted_of(settings))):
-        if choice and runs_lead(apps.get(choice["harness"]), redacting):
+        if choice and runs_lead(apps.get(choice["harness"])):
             return {"harness_id": choice["harness"], "model": choice["model"], "effort": choice["effort"], "source": source}
     return {"harness_id": str(root.get("harness_id") or ""), "model": str(root.get("model") or ""),
             "effort": str(root.get("effort") or ""), "source": "butler"}

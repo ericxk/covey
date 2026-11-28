@@ -116,12 +116,10 @@ class ScoreTest(Case):
 class ReadersTest(Case):
     def test_who_may_read_what(self):
         self.add("回复主人用中文", kind="rule", scope="global")
-        self.add("脱敏话题里记的接口名", redacted=True)
         self.add("待审核的一条接口名", status="pending")
         self.assertTrue(self.found("回复主人用中文"))
         self.assertEqual(self.found("回复主人用中文", owner=False), [])
         self.assertEqual(self.found("接口名", tau=0.0, kinds=("note",)), [])
-        self.assertTrue(self.found("脱敏话题里记的接口名", redacted=True))
         self.assertEqual(self.found("回复主人用中文", proxy=True), [])
 
     def test_the_index_follows_a_write(self):
@@ -171,11 +169,11 @@ class CommandTest(Case):
 
 class IsolationTest(Case):
     """T908 M5: ``show`` without ``--owner`` reads what the turn's ``search`` reads (``_allowed``), and the topic's own record,
-    not the command line, says whether it is a 代答 topic and whether it reads the lines from topics with redaction on."""
+    not the command line, says whether it is a 代答 topic."""
 
-    def redact(self, topic, on=True, **more):
+    def proxy(self, topic, **more):
         path = self.state / "topics" / topic / "topic.json"
-        path.write_text(json.dumps({**json.loads(path.read_text()), "redaction": on, **more}, ensure_ascii=False))
+        path.write_text(json.dumps({**json.loads(path.read_text()), **more}, ensure_ascii=False))
 
     def test_show_without_owner_holds_to_the_turns_topic_and_project(self):
         other_topic = "cd" * 32
@@ -195,20 +193,14 @@ class IsolationTest(Case):
             self.assertIsNotNone(shown(entry.code, owner=True), entry.text)  # --owner: as before (the known limit).
         self.assertIsNone(memory_search.show(self.state, mine.code))  # No topic, no --owner: nothing is the turn's.
 
-    def test_redaction_and_proxy_are_read_off_the_topic_not_the_command_line(self):
-        hidden = self.add("脱敏话题里记的接口名", redacted=True)
-        self.assertIsNone(memory_search.show(self.state, hidden.code, topic_id=TOPIC, redacted=True))  # The flag is read past.
-        self.assertEqual(memory_search.search(self.state, "脱敏话题里记的接口名", TOPIC, redacted=True), [])
-        self.assertNotIn(hidden.code, [row["code"] for row in memory_search.listing(self.state, TOPIC, redacted=True)])
-        self.redact(TOPIC)
-        self.assertIsNotNone(memory_search.show(self.state, hidden.code, topic_id=TOPIC))  # The topic has it on: read.
-        self.assertTrue(memory_search.search(self.state, "脱敏话题里记的接口名", TOPIC))
-        self.assertIn(hidden.code, [row["code"] for row in memory_search.listing(self.state, TOPIC)])
-        self.redact(TOPIC, proxy=True)
-        self.assertIsNone(memory_search.show(self.state, hidden.code, topic_id=TOPIC, owner=True))
-        # No topic (a person at a terminal): the flag is what there is.
-        self.assertTrue(memory_search.search(self.state, "脱敏话题里记的接口名", owner=True, redacted=True))
-        self.assertEqual(memory_search.search(self.state, "脱敏话题里记的接口名", owner=True), [])
+    def test_proxy_is_read_off_the_topic_not_the_command_line(self):
+        entry = self.add("话题里记的接口名")
+        self.assertIsNotNone(memory_search.show(self.state, entry.code, topic_id=TOPIC))
+        self.assertTrue(memory_search.search(self.state, "话题里记的接口名", TOPIC))
+        self.assertIn(entry.code, [row["code"] for row in memory_search.listing(self.state, TOPIC)])
+        self.proxy(TOPIC, proxy=True)
+        self.assertIsNone(memory_search.show(self.state, entry.code, topic_id=TOPIC, owner=True))
+        self.assertEqual(memory_search.search(self.state, "话题里记的接口名", TOPIC, owner=True), [])
 
     def test_a_turns_use_does_not_build_the_index_anew(self):
         made = self.add("镜像仓库在内网，拉取要走代理")

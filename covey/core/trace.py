@@ -127,8 +127,6 @@ class ToolTrace:
         self.checkpoint = ""
         # The root's subtask usage report (reduce_subtask_usage); None in a child or an older snapshot.
         self.subtask_usage = None
-        # A redacted topic's turn: {terms, hits, requests} from its ``redaction`` event; None otherwise.
-        self.redaction = None
         # The id of the model the main task ran, when its backend says (token_usage ``model``: Claude's).
         self.model = None
 
@@ -145,8 +143,6 @@ class ToolTrace:
                     "agents": copy.deepcopy(self.agents), "children": {sid: c.snapshot() for sid, c in self.children.items()}}
         if self.subtask_usage is not None:
             snapshot["subtask_usage"] = copy.deepcopy(self.subtask_usage)
-        if self.redaction is not None:
-            snapshot["redaction"] = dict(self.redaction)
         for key in CONTEXT_FIELDS:
             if getattr(self, key, None):
                 snapshot[key] = getattr(self, key)
@@ -187,7 +183,6 @@ class ToolTrace:
         trace.stopped = data.get("stopped") is True
         usage = data.get("subtask_usage")
         trace.subtask_usage = copy.deepcopy(usage) if isinstance(usage, dict) else None
-        trace.accept("redaction", data.get("redaction") or {})
         return trace
 
     def compactions(self) -> int:
@@ -286,13 +281,6 @@ class ToolTrace:
             if report is None or report == self.subtask_usage:
                 return False
             self.subtask_usage = report
-            return True
-        if kind == "redaction":
-            # Counts only: the terms themselves never reach a card.
-            counts = {key: non_negative_int(data.get(key)) for key in ("terms", "hits", "requests")}
-            if None in counts.values() or counts == self.redaction:
-                return False
-            self.redaction = counts
             return True
         if kind == "trace_finished":
             self.finish()

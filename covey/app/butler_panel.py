@@ -26,14 +26,14 @@ from typing import Callable, NamedTuple
 from covey.app import butler_harness
 from covey.app.launch_models import available_models
 from covey.core.menu_choice import (budget_effort, butler_harnesses, default_entry, entry_of, explicit,
-                                    model_provider, models_of, plain_budget, redacts, tiers)
+                                    model_provider, models_of, plain_budget, tiers)
 from covey.app.butler_env import reply
 from covey.app.butler_model_choice import resolve
 from covey.app.menu_panel import MenuPanel, hub_top
 from covey.cards.butler_panel import (ASSIST, ASSIST_EFFORT, ASSIST_MODEL, ASSIST_PROVIDER, COMPACT, EFFORT, ENABLE, HARNESS, KINDS, MODE, MODE_CHOICES, MODEL, MODEL_FOLLOW,
-                                                    NOTE_LENGTH, OFFLINE_KINDS, OFFLINE_NOTICE, PAGE_OF, PROVIDER, REDACTION,
+                                                    NOTE_LENGTH, OFFLINE_KINDS, OFFLINE_NOTICE, PAGE_OF, PROVIDER,
                                                     RETIRED_KINDS, RETIRED_NOTICE, SUBAGENTS,
-                                                    TOPIC_EFFORT, TOPIC_HARNESS, TOPIC_MODEL, TOPIC_PROVIDER, TOPIC_REDACTION,
+                                                    TOPIC_EFFORT, TOPIC_HARNESS, TOPIC_MODEL, TOPIC_PROVIDER,
                                                     CLAUDE, follow_text,
                                                     LEAD_EFFORT, LEAD_HARNESS, LEAD_MODEL, LEAD_PROVIDER, MORE_KINDS,
                                                     PART_OF, SECTION, SECTIONS,
@@ -149,21 +149,13 @@ def pick_harness(rows, choices, option, state_dir):
     return rows.save(**({'harness': option} if option == rows.harness else {'harness': option, 'model': '', 'effort': ''}))
 
 
-def pick_redaction(rows, choices, option, state_dir):
-    """The butler's 脱敏: on only where its Harness can redact."""
-    if option not in ('on', 'off') or option == 'on' and not redacts(choices, rows.harness):
-        return None
-    return {'redaction': option == 'on'}
-
-
 def pick_butler_harness(rows, choices, option, state_dir):
-    """The butler's Harness: one that can run it (butler_harnesses), and with 脱敏 on one that can redact too (the card
-    lists no other: REDACT_FIRST); another one takes its first model by name and that model's budget
+    """The butler's Harness: one that can run it (butler_harnesses); another one takes its first model by name and that model's budget
     (core/menu_choice.py plain_budget), so the rows say what the butler runs (T615). Claude Code is saved as '', the
     default Harness."""
     if option == rows.harness:
         return {}
-    if option not in butler_harnesses(choices, redacting=butler_settings.load(state_dir).redaction):
+    if option not in butler_harnesses(choices):
         return None
     first = next(iter(models_of(explicit(choices), option)), '')
     entry = entry_of(choices, option, first)
@@ -172,14 +164,13 @@ def pick_butler_harness(rows, choices, option, state_dir):
 
 
 def pick_lead_harness(rows, choices, option, state_dir):
-    """专项负责人's Harness: '' follows the butler, emptying the rest; another one that can run a lead (the butler's list,
-    with 脱敏 on only those that redact: the lead keeps the butler's, app/lead_harness.py) takes its first model by name and
+    """专项负责人's Harness: '' follows the butler, emptying the rest; another one that can run a lead (the butler's list, app/lead_harness.py) takes its first model by name and
     that model's budget, as the butler's (pick_butler_harness)."""
     if option == rows.harness:
         return {}
     if not option:
         return rows.save(harness='', model='', effort='')
-    if option not in butler_harnesses(choices, redacting=butler_settings.load(state_dir).redaction):
+    if option not in butler_harnesses(choices):
         return None
     first = next(iter(models_of(explicit(choices), option)), '')
     entry = entry_of(choices, option, first)
@@ -199,12 +190,9 @@ def saved_notice(kind):
 ROW_CHANGES = {
     HARNESS: (BUTLER, pick_butler_harness),
     PROVIDER: (BUTLER, pick_provider), MODEL: (BUTLER, pick_model), EFFORT: (BUTLER, pick_effort),
-    REDACTION: (BUTLER, pick_redaction),
     COMPACT: (BUTLER, lambda rows, choices, option, state_dir: {'compact_tokens': int(option)} if option.isdigit() else None),
     TOPIC_HARNESS: (TOPIC, pick_harness), TOPIC_PROVIDER: (TOPIC, pick_provider), TOPIC_MODEL: (TOPIC, pick_model),
     TOPIC_EFFORT: (TOPIC, pick_effort),
-    TOPIC_REDACTION: (TOPIC, lambda rows, choices, option, state_dir: (
-        rows.save(redaction=option == 'on') if option in ('on', 'off') else None)),
     # 子 Agent: bot-wide (backends/claude/subagents.py), not a new topic's default, though on that page.
     SUBAGENTS: (TOPIC, lambda rows, choices, option, state_dir: (
         {'subagents': option} if option in SUBAGENT_MODES else None)),

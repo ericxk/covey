@@ -109,7 +109,7 @@ SLASH_COMMANDS = (
     SlashCommand("weekly_usage", "usage", "用量", "用量 · 查看本周用量", "Weekly usage"),
     SlashCommand("digest_board", "board", "看板", "看板 · 查看等你、停住和在做的事", "Board"),
     SlashCommand("proxy_settings", "proxy", "代答", "代答 · 打开代答设置", "Proxy settings"),
-    SlashCommand("bridge_settings", "settings", "设置", "设置 · 配置、工作区、脱敏、群聊与诊断", "Settings"),
+    SlashCommand("bridge_settings", "settings", "设置", "设置 · 配置、工作区、群聊与诊断", "Settings"),
 )
 
 

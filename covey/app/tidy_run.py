@@ -31,7 +31,7 @@ OFF_WORDS = "整理专项没有开（COVEY_PROJECT_TIDY）。"
 UNREADABLE_WORDS = {"model_error": "模型返回了错误", "refused": "官方内容安全拦了", "policy_refusal": "官方内容安全拦了",
                     "too_long": "内容太长，一次读不完", "root_failed": "模型返回了错误",
                     "exit_nonzero": "读它的进程出错退出了", "timeout": "读超时了",
-                    "bad_output": "模型的回答看不懂", "empty": "里面还没有你说的话", "redacted": "开了脱敏，内容不外发",
+                    "bad_output": "模型的回答看不懂", "empty": "里面还没有你说的话",
                     "no_backend": "没有能读它的模型（Claude Code、Codex、Antigravity 都没启用，也没设模型网关）",
                     "not_signed_in": "Antigravity 没登录", "error": "读的时候出错"}
 FAILED_WORDS = {"timeout": "判断超时了",
@@ -143,8 +143,6 @@ class Runs:
         if record.get("scope") and projects.valid_id(record["scope"]):
             records = [item for item in records if item["id"] == record["scope"]] or records
         topics = facts.recent_topics(state, chat, now, scope=record.get("scope") or "", records=records)
-        hidden = [topic for topic in topics if sorter.hidden(state, topic)]
-        topics = [topic for topic in topics if topic not in hidden]
         where = sorter.Where(getattr(self.env, "topics", None), assist.TIDY, manual=record.get("origin") in MANUAL)
         missing = [topic for topic in topics if sorter.needs_gist(state, topic, sorter.material(state, chat, topic, now).last_job)]
         unreadable, stopped = self.read_all(ctx, chat, record, missing, where, now)
@@ -156,9 +154,6 @@ class Runs:
         if unreadable:
             view["skipped"].append(f"{len(unreadable)} 个话题读不了，没参与这次整理：" + "；".join(
                 f"{self.words.linked(ctx, [topic])}（{UNREADABLE_WORDS.get(reason, '读的时候出错')}）" for topic, reason in unreadable))
-            view["skipped_md"] = True
-        if hidden:
-            view["skipped"].append(f"{len(hidden)} 个话题开了脱敏，内容不外发，没参与这次整理：" + self.words.linked(ctx, hidden))
             view["skipped_md"] = True
         view["progress"] = {"done": len(missing), "total": len(topics), "current": ""}
         self.redraw(ctx, record)

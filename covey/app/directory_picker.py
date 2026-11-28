@@ -369,8 +369,7 @@ def open_view(ctx, event, record, topic, candidate, allow=None):
         return
     candidate['draft'] = {k: fields.get(k, '') for k in ('model', 'effort', 'workspace', 'path', 'run_mode')}
     candidate['draft'].update(model=record.get('selected_model') or fields.get('model', ''), effort=effort,
-                              work_mode=record.get('selected_work_mode', ''),
-                              redaction=record.get('selected_redaction', ''))
+                              work_mode=record.get('selected_work_mode', ''))
     config = load_config(ctx.state_dir, ctx.default_workdir)
     initial = config['workspaces'].get(fields.get('workspace'), topic['workdir'])
     custom = fields.get('path', '').strip()

@@ -35,8 +35,8 @@ def catalog_row(slug, display_name, description, efforts, default):
 
 # Claude Code lists a gateway's models (claude-opus-5, …) from one cache filed under the base URL it was
 # fetched from, refreshed in the background, so a probe after another Claude Code fetched it from another base URL
-# comes back without any of them (Opus 5 left the launch and 换配置 menus for minutes; redacted turns did that
-# through their relay until they stopped fetching it). The last list that had
+# comes back without any of them (Opus 5 left the launch and 换配置 menus for minutes; turns behind a relay did that
+# until they stopped fetching it). The last list that had
 # them stands in for this long.
 GATEWAY_KEEP = 24 * 3600
 

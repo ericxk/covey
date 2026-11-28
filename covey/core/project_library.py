@@ -1,11 +1,10 @@
 """The library of a project (docs/projects.md 专项记忆与资料库, COVEY_PROJECT_MEMORY=1): the files the owner gave the project and a line
 for what its topics delivered, in ``<state>/projects/<id>/library/`` (the files) and ``library.json`` (the index).
 
-An entry is {id, name, kind, ref, sha256, size, source, topic_id, at, purged} and, when it says, ``redacted``. ``kind`` is
+An entry is {id, name, kind, ref, sha256, size, source, topic_id, at, purged}. ``kind`` is
 ``file`` (a copy in library/, ``ref`` its name there), ``path`` or ``link`` (an artifact of a topic: only where it is, nothing is
 copied) or ``delivery`` (a checkpoint's delivery in one line, ``ref`` the line). ``source`` is ``owner_file`` (the owner sent it
-to the lead), ``artifact``, ``delivery`` or ``result`` (a topic's turn; ``result`` a member turn's whole reply, C7). ``redacted``
-(true): it came from a topic with redaction on, so only a reader with redaction on lists it (``index_lines``). ``purged`` is
+to the lead), ``artifact``, ``delivery`` or ``result`` (a topic's turn; ``result`` a member turn's whole reply, C7). ``purged`` is
 the time the maintenance rule removed a file after the project was done: the entry, with its hash, stays.
 
 Limits: one file up to ``FILE_LIMIT`` is copied (a larger one is only noted by its path), ``PROJECT_LIMIT`` bytes of files in
@@ -63,8 +62,7 @@ def _entry(row):
             "ref": str(row["ref"])[:REF_CHARS], "sha256": str(row.get("sha256") or ""),
             "size": size if type(size) is int and size >= 0 else 0, "source": str(row.get("source") or "")[:20],
             "topic_id": str(row.get("topic_id") or "")[:64], "at": at if isinstance(at, (int, float)) else 0,
-            "purged": purged if isinstance(purged, (int, float)) and not isinstance(purged, bool) and purged else 0,
-            **({"redacted": row["redacted"]} if isinstance(row.get("redacted"), bool) else {})}
+            "purged": purged if isinstance(purged, (int, float)) and not isinstance(purged, bool) and purged else 0}
 
 
 def _rows(state_dir, project_id, *, writing=False) -> list:
@@ -338,12 +336,11 @@ def line_of(state_dir, project_id, row, label="") -> str:
     return f"{row['name']}（{when}）：{row['ref']}"[:LINE_CHARS + 120]
 
 
-def index_lines(state_dir, project_id, limit=INDEX_BYTES, labels=None, *, redacted_reader=False) -> list:
+def index_lines(state_dir, project_id, limit=INDEX_BYTES, labels=None) -> list:
     """The index in lines, the newest first, the lines together at most ``limit`` bytes, at most RESULT_LINES of them whole
     replies (``result``); a last line says how many did not fit. ``labels``: {topic id: its short label} for a line's topic
-    (None: its number, T12, core/topics.py topic_label). ``redacted_reader``: whether the reader is a topic with redaction
-    on; an entry from such a topic (``redacted``) is for it alone, left out (and not counted) for any other reader."""
-    rows = [row for row in reversed(entries(state_dir, project_id)) if redacted_reader or not row.get("redacted")]
+    (None: its number, T12, core/topics.py topic_label)."""
+    rows = list(reversed(entries(state_dir, project_id)))
     older = {row["id"] for row in [row for row in rows if row["source"] == "result"][RESULT_LINES:]}
     listed = [row for row in rows if row["id"] not in older]
     if labels is None:

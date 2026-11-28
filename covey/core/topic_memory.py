@@ -1,6 +1,6 @@
 """The memory of one topic (COVEY_MEMORY=1, docs/butler.md 记忆): what the owner said in this topic that holds for the
 topic and nowhere wider ("这个不要问了"), in ``<state>/topics/<id>/memory.json``, the file format of a project's memory
-(core/project_memory.py: {id, text, kind, source, at, deleted, redacted?}). Only the Bridge writes it
+(core/project_memory.py: {id, text, kind, source, at, deleted}). Only the Bridge writes it
 (app/memory_collect.py after the turn, as the owner's word, source ``owner``; core/memstore.py for the memory center), at
 most ``MAX_ENTRIES`` live ones (past it the oldest becomes a tombstone and the change is logged, T908 M3b). A delete keeps
 the entry as a tombstone. Every write takes the file's shared lock (core/locks.py), lists the topic among those with memory and touches the memory's sentinel
@@ -42,10 +42,10 @@ def _changed(state_dir, topic_id, now=None) -> None:
     memstore.touch_rev(state_dir, now)
 
 
-def add(state_dir, topic_id, text, *, source="owner", redacted=False, now=None, kind="constraint") -> tuple:
+def add(state_dir, topic_id, text, *, source="owner", now=None, kind="constraint") -> tuple:
     """(the entry, whether it is new): ``text`` as a line of the topic (a constraint unless ``kind`` says otherwise: a note
     of core/memstore.py is a fact). The same text still there is the one returned (core/memstore.py topic_add)."""
-    return memstore.topic_add(state_dir, topic_id, text, source=source, redacted=redacted, now=now, kind=kind)
+    return memstore.topic_add(state_dir, topic_id, text, source=source, now=now, kind=kind)
 
 
 def delete(state_dir, topic_id, entry_id, *, now=None) -> bool:

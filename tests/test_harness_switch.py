@@ -15,10 +15,10 @@ from types import MethodType, SimpleNamespace
 from unittest import mock
 
 from support.fake_lark import FakeCardKit
-from support.cards import page_options, settings_rows, walk_dicts, walk_elements as walk
+from support.cards import page_options, settings_rows, walk_dicts
 from support.fake_backends import InstructedBackend
 from support.git import commit_all, init_git_repo, run_git
-from support.launch_fixtures import MASO_MENU, redacting, write_maso_catalog
+from support.launch_fixtures import MASO_MENU, write_maso_catalog
 from support.processes import leftover_check
 from support.records import write_topic
 from support.sessions import write_session_id
@@ -127,13 +127,10 @@ class HarnessSwitchTests(UnifiedCase):
     def notice(path):
         return json.loads(path.read_text()).get('notice', '')
 
-    def switch_to(self, key='claude:claude-model', tag='', redaction=None):
-        """Switch to ``key`` (and 敏感词脱敏 ``redaction`` 'on'/'off'); a second switch in one test gives its own
-        ``tag``: the clicks are new events."""
+    def switch_to(self, key='claude:claude-model', tag=''):
+        """Switch to ``key``; a second switch in one test gives its own ``tag``: the clicks are new events."""
         form, path, _ = self.open(click='click-open' + tag)
         self.click(form, hs.MODEL, key, tag)
-        if redaction:
-            self.click(json.loads(path.read_text()), hs.REDACTION, redaction, tag)
         self.click(json.loads(path.read_text()), hs.CONFIRM, tag=tag)
         return json.loads(path.read_text())
 
@@ -304,7 +301,7 @@ class HarnessSwitchTests(UnifiedCase):
         card = json.dumps(switch_form.build_switch_card(form), ensure_ascii=False)
         harnesses = page_options(switch_form.build_switch_card({**form, 'page': 'harness'}))
         self.assertIn(('claude', 'Claude Code'), harnesses)  # Every Harness, on the Harness row's page.
-        for text in ('确认更换', '取消', 'Codex', 'Codex 自带', 'Codex Model', '敏感词脱敏关',
+        for text in ('确认更换', '取消', 'Codex', 'Codex 自带', 'Codex Model',
                      "<font color='grey'>Harness</font>", "<font color='grey'>供应商</font>", "<font color='grey'>模型</font>",
                      switch_form.SWITCH_NOTE):
             self.assertIn(text, card)
@@ -383,12 +380,12 @@ class HarnessSwitchTests(UnifiedCase):
         self.assertNotIn(switch_form.TOP_SUBTITLE, card)
         self.click(form, hs.MODEL, 'claude:claude-model')
         form = json.loads((self.ctx.state_dir / 'switch-forms' / (form['token'] + '.json')).read_text())
-        text = hs.done_text(form, form['models']['claude:claude-model'], 'high', '', None, False, False,
+        text = hs.done_text(form, form['models']['claude:claude-model'], 'high', '', None,
                             ({'harness_id': 'codex', 'model': 'm', 'effort': 'high', 'work_mode': ''},
                              {'harness_id': 'claude', 'model': 'c', 'effort': 'high', 'work_mode': ''}))
         self.assertIn('下一条消息由新会话接手', text)
-        self.assertEqual(hs.done_text(form, {}, '', '', None, True, False, None).splitlines()[-1], '会话不变，下一条消息起生效。')
-        self.assertEqual(hs.done_text({**form, 'top_level': True}, {}, '', '', None, True, False, None).splitlines()[-1],
+        self.assertEqual(hs.done_text(form, {}, '', '', None, None).splitlines()[-1], '会话不变，下一条消息起生效。')
+        self.assertEqual(hs.done_text({**form, 'top_level': True}, {}, '', '', None, None).splitlines()[-1],
                          '会话不变，话题的下一轮起生效。')
 
     def test_what_a_relay_cards_click_is_told_goes_to_the_top_level(self):
@@ -533,65 +530,26 @@ class HarnessSwitchTests(UnifiedCase):
         job = self.app.runtime.jobs.queue.get_nowait()
         self.assertEqual((job.harness_id, job.model), ('claude', 'claude-model'))
 
-    @requires_extension()
-    def test_a_redacting_topic_can_switch_harness_and_redaction_turns_off_with_notice(self):
-        # The owner, 2026-11-04 17:13 (T178, redaction on): 当前切换不了Harness. Only Claude Code was listed, a tap on
-        # it changed nothing, and the reason was small print at the bottom.
-        redacting(self)
+    def test_an_old_redaction_flag_changes_nothing_on_the_card_and_a_redaction_only_form_is_no_switch(self):
+        # 敏感词脱敏 is retired (T947): a topic.json that still says ``redaction`` is an ordinary topic (every Harness listed, no 脱敏 row,
+        # the flag left on disk); an older form that chose only 脱敏 changes nothing.
         data = self.topic()
         data.update(redaction=True)
         write_topic(self.source, data)
         form, path, _ = self.open()
-        self.assertEqual((form['selected_model'], form['selected_redaction']), ('claude:claude-model', 'on'))
+        self.assertNotIn('脱敏', json.dumps(switch_form.build_switch_card(form), ensure_ascii=False))
         self.assertEqual(len(page_options(switch_form.build_switch_card({**form, 'page': 'harness'}))), len(NAMES))
-        self.assertNotIn(switch_form.AUTO_OFF_NOTE, json.dumps(switch_form.build_switch_card(form), ensure_ascii=False))
-        # Another Harness: chosen, 脱敏 turned off on the card with the reason, and 确认更换 asks first.
-        self.click(form, hs.HARNESS, 'dsh')
-        form = json.loads(path.read_text())
-        self.assertEqual((form['selected_model'], form['selected_redaction']), ('dsh:dsh-model', 'off'))
-        card = switch_form.build_switch_card(form)
-        self.assertIn(switch_form.AUTO_OFF_NOTE, json.dumps(card, ensure_ascii=False))
-        self.assertIn('脱敏', switch_form.changes(form))
-        confirm = next(e for e in walk(card['body']['elements']) if e.get('tag') == 'button' and '确认更换' in json.dumps(e, ensure_ascii=False))
-        self.assertEqual(confirm['confirm']['title']['content'], switch_form.OFF_TITLE)
-        # Back to Claude: 脱敏 on again, as the owner had it; set by hand, it stays as set.
-        self.click(form, hs.HARNESS, 'claude')
-        form = json.loads(path.read_text())
-        self.assertEqual((form['selected_model'], form['selected_redaction']), ('claude:claude-model', 'on'))
-        self.click(form, hs.REDACTION, 'off')
-        self.click(json.loads(path.read_text()), hs.HARNESS, 'dsh')
-        self.click(json.loads(path.read_text()), hs.HARNESS, 'claude')
-        self.assertEqual(json.loads(path.read_text())['selected_redaction'], 'off')
-        # A model that cannot redact with 脱敏 still on (a record forced so, an older card): refused on the card.
-        forced = {**json.loads(path.read_text()), 'selected_model': 'dsh:dsh-model', 'selected_redaction': 'on'}
-        path.write_text(json.dumps(forced, ensure_ascii=False))
-        with mock.patch.object(self.switch, 'replace', wraps=self.switch.replace) as replace:
-            self.click(forced, hs.CONFIRM)
-        self.assertIn(hs.REDACTION_ONLY, self.notice(path))
-        self.assertEqual(replace.call_args.args[4]['schema'], '2.0')  # The whole card, redrawn.
+        old = {**form, 'selected_redaction': 'off', 'current': {**form['current'], 'redaction': True}}
+        path.write_text(json.dumps(old, ensure_ascii=False))
+        self.click(old, hs.CONFIRM)
+        self.assertIn(switch_form.UNCHANGED, self.notice(path))
         self.assertEqual(self.topic()['harness_id'], 'codex')
-        self.click(json.loads(path.read_text()), hs.HARNESS, 'dsh')  # Chosen again: 脱敏 follows it off.
-        self.assertEqual(json.loads(path.read_text())['selected_redaction'], 'off')
+        self.click(json.loads(path.read_text()), hs.HARNESS, 'dsh')
         self.click(json.loads(path.read_text()), hs.CONFIRM)
         self.assertEqual(json.loads(path.read_text())['status'], 'done')
-        self.assertEqual(self.topic()['harness_id'], 'dsh')
-        self.assertNotIn('redaction', self.topic())
-
-    def test_redaction_alone_changes_the_topic_and_keeps_its_session(self):
-        redacting(self, 'codex')
-        form, path, _ = self.open()
-        revision = self.topic().get('binding_revision', 1)
-        self.click(form, hs.REDACTION, 'on')
-        with mock.patch.object(self.switch, 'replace', wraps=self.switch.replace) as replace:
-            self.click(json.loads(path.read_text()), hs.CONFIRM)
-        self.assertEqual(json.loads(path.read_text())['status'], 'done')
         topic = self.topic()
-        self.assertEqual((topic['redaction'], topic.get('binding_revision', 1)), (True, revision))
-        self.assertNotIn('switches', topic)
-        self.assertEqual(self.codex.sessions.read_session_id(self.source.session_path), self.session)
-        text = json.dumps(replace.call_args.args[4], ensure_ascii=False)
-        self.assertIn('敏感词脱敏：关 → 开', text)
-        self.assertIn('会话不变', text)
+        self.assertEqual(topic['harness_id'], 'dsh')
+        self.assertIs(topic.get('redaction'), True)  # Left as it was: not read, not written.
 
     def test_a_card_drawn_since_the_home_start_cannot_change_the_directory(self):
         other = self.root / 'other'
@@ -1112,9 +1070,9 @@ class HarnessSwitchTests(UnifiedCase):
         self.assertNotIn('answer 1\n', prompt)
         self.assertIn('本话题刚从', prompt)
 
-    def leave_claude(self, redaction=None, rewound=False):
-        """The topic on Claude with a session and a long last answer, then switched to Codex (with 敏感词脱敏
-        ``redaction``; ``rewound``: a ↩️ 回退 of the session pending): the old session ID."""
+    def leave_claude(self, rewound=False):
+        """The topic on Claude with a session and a long last answer, then switched to Codex (``rewound``: a ↩️ 回退
+        of the session pending): the old session ID."""
         if self.topic()['harness_id'] != 'claude':
             self.switch_to()
         claude, ctx = self.route('src')
@@ -1127,18 +1085,18 @@ class HarnessSwitchTests(UnifiedCase):
         append_history(self.source.history_path, 'assistant', 'L' * 3000, {})
         upsert_job_record(self.ctx.state_dir, 'job-1', backend='claude', harness_id='claude',
                           binding_revision=self.topic()['binding_revision'])
-        self.switch_to('codex:codex-model', tag='-2', redaction=redaction)
+        self.switch_to('codex:codex-model', tag='-2')
         self.assertEqual(self.topic()['harness_id'], 'codex')
-        self.assertIs(self.topic()['switches'][-1]['from']['redaction'], False)
+        self.assertNotIn('redaction', self.topic()['switches'][-1]['from'])  # No longer recorded (T947).
         return old
 
     def summarized(self, *answers):
         """The Codex app's first prompt after leaving Claude, with Claude's handoff_summary answering ``answers``."""
         calls = []
 
-        def summary(ctx, session_id, prompt, *, redact, cancel=None, run_id=''):
+        def summary(ctx, session_id, prompt, *, cancel=None, run_id=''):
             calls.append({'model': ctx.model, 'effort': ctx.effort, 'workdir': str(ctx.workdir),
-                          'session': session_id, 'redact': redact, 'prompt': prompt, 'cancel': cancel,
+                          'session': session_id, 'prompt': prompt, 'cancel': cancel,
                           'run_id': run_id})
             return answers[len(calls) - 1]
         app, ctx = self.route('src')
@@ -1159,8 +1117,8 @@ class HarnessSwitchTests(UnifiedCase):
         # Once per switch: the next attempt at the first run takes the saved summary.
         self.assertEqual(len(calls), 1)
         call = calls[0]
-        self.assertEqual((call['model'], call['effort'], call['session'], call['redact'], call['workdir']),
-                         ('claude-model', 'xhigh', old, False, str(self.work)))
+        self.assertEqual((call['model'], call['effort'], call['session'], call['workdir']),
+                         ('claude-model', 'xhigh', old, str(self.work)))
         # Its own row in the relay's counts, not one of a turn.
         self.assertEqual(call['run_id'], f"handoff-r{self.topic()['binding_revision']}")
         self.assertTrue(call['prompt'].startswith('[Bridge 交接请求]'))
@@ -1206,13 +1164,13 @@ class HarnessSwitchTests(UnifiedCase):
         self.switch_to()  # From setUp's Codex topic, which has a session.
         calls = []
 
-        def summary(ctx, session_id, prompt, *, redact, cancel=None, run_id=''):
-            calls.append((ctx.model, ctx.effort, str(ctx.workdir), session_id, redact, run_id))
+        def summary(ctx, session_id, prompt, *, cancel=None, run_id=''):
+            calls.append((ctx.model, ctx.effort, str(ctx.workdir), session_id, run_id))
             return '目标：修好 X。下一步：跑测试。', '写好了'
         app, ctx = self.route('src')
         with mock.patch.object(self.app.apps['codex'].backend, 'handoff_summary', side_effect=summary):
             rows, note = app.switch.switch_handoff(ctx, [])
-        self.assertEqual(calls, [('codex-model', 'high', str(self.work), self.session, False,
+        self.assertEqual(calls, [('codex-model', 'high', str(self.work), self.session,
                                   f"handoff-r{self.topic()['binding_revision']}")])
         self.assertIn('目标：修好 X。下一步：跑测试。', note)
         self.assertEqual(sum(r['role'] == 'assistant' for r in rows), switch_handoff.SUMMARY_ROUNDS)
@@ -1238,7 +1196,7 @@ class HarnessSwitchTests(UnifiedCase):
         self.assertTrue(any('switch summary topic=' in line and 'Codex 没有给出分叉' in line for line in self.logs))
         self.assertEqual(list((self.ctx.state_dir / 'tmp').glob('codex-handoff-*')), [])
 
-    def test_no_summary_from_a_harness_that_cannot_fork_or_without_a_redaction_record(self):
+    def test_no_summary_from_a_harness_that_cannot_fork(self):
         # Antigravity and dsh have no handoff_summary: their CLIs only resume a session, never fork one, and a resumed
         # session would keep the summary's turn.
         for name in ('agy', 'dsh'):
@@ -1251,22 +1209,13 @@ class HarnessSwitchTests(UnifiedCase):
         self.assertNotIn('交接摘要', note)
         self.assertEqual(sum(r['role'] == 'assistant' for r in rows), 3)
         self.assertTrue(any('switch summary skipped' in line and 'not supported' in line for line in self.logs))
-        # From Claude, but switched before the summary existed (no redaction in the record): nothing is sent.
+        # From Claude, a switch written before this release (its record has ``redaction``) is summarized like any other.
         self.leave_claude()
         topic = self.topic()
-        del topic['switches'][-1]['from']['redaction']
-        write_topic(self.source, topic)
-        calls, prompts, _ = self.summarized()
-        self.assertEqual(calls, [])
-        self.assertIn('只有最近 3 轮原文', prompts[0])
-
-    def test_a_redacted_old_binding_summarizes_through_the_relay(self):
-        self.leave_claude()
-        topic = self.topic()
-        topic['switches'][-1]['from']['redaction'] = True  # Its turns went through the term relay.
+        topic['switches'][-1]['from']['redaction'] = False
         write_topic(self.source, topic)
         calls, _, _ = self.summarized(('摘要', '完成'))
-        self.assertIs(calls[0]['redact'], True)
+        self.assertEqual(len(calls), 1)
 
     def handed_over(self):
         """(calls of Claude's handoff_summary, the note) of the switched topic's first run, its summary answered;
@@ -1275,52 +1224,13 @@ class HarnessSwitchTests(UnifiedCase):
             kept.unlink()
         calls = []
 
-        def summary(ctx, session_id, prompt, *, redact, cancel=None, run_id=''):
-            calls.append({'session': session_id, 'redact': redact})
+        def summary(ctx, session_id, prompt, *, cancel=None, run_id=''):
+            calls.append({'session': session_id})
             return '摘要', '完成'
         app, ctx = self.route('src')
         with mock.patch.object(self.app.apps['claude'].backend, 'handoff_summary', side_effect=summary, create=True):
             _, note = app.switch.switch_handoff(ctx, [])
         return calls, note
-
-    def test_redaction_turned_on_in_the_switch_or_after_it_sends_the_summary_through_the_relay(self):
-        # The old turns went out as they were; the fork sends them again, now that the topic has 敏感词脱敏 on.
-        redacting(self, 'codex')
-        self.leave_claude(redaction='on')
-        self.assertIs(self.topic()['redaction'], True)
-        calls, note = self.handed_over()
-        self.assertIs(calls[0]['redact'], True)
-        self.assertIn('摘要', note)
-        # Turned on after the switch (a redaction-only switch before the first run): the same.
-        topic = self.topic()
-        topic.pop('redaction')
-        write_topic(self.source, topic)
-        self.assertIs(self.handed_over()[0][0]['redact'], False)
-        write_topic(self.source, {**topic, 'redaction': True})
-        self.assertIs(self.handed_over()[0][0]['redact'], True)
-
-    def test_no_summary_when_the_topics_redaction_cannot_be_read(self):
-        self.leave_claude()
-        with mock.patch.object(switch_handoff, 'topic_redaction', side_effect=ValueError('unreadable')):
-            calls, note = self.handed_over()
-        self.assertEqual(calls, [])
-        self.assertNotIn('交接摘要', note)
-        self.assertTrue(any('switch summary skipped' in line and 'redaction unknown' in line for line in self.logs))
-
-    def test_a_turn_about_to_be_refused_does_not_wait_for_a_summary(self):
-        # 敏感词脱敏 on while the new Harness cannot redact: generate_reply refuses the turn, so nothing is asked first.
-        self.leave_claude()
-        write_topic(self.source, {**self.topic(), 'redaction': True})
-        app, ctx = self.route('src')
-        backend = InstructedBackend(sid=str(uuid.uuid4()))
-        job = BridgeReplyJob(job_id=2, user_text='go on', chat_id='chat', message_id='om_go', timeout=0)
-        with mock.patch.object(self.app.apps['claude'].backend, 'handoff_summary', create=True) as summary, \
-                mock.patch.object(app.harness, 'backend', backend):
-            result = app.runs.generate_reply_for_worker(ctx, job, None, None)
-        summary.assert_not_called()
-        self.assertEqual(backend.prompts, [])
-        self.assertIn('不支持脱敏', result.failure_detail)
-        self.assertTrue(any('switch summary skipped' in line and 'turn refused' in line for line in self.logs))
 
     def test_a_switch_with_a_rewind_pending_hands_over_no_summary_of_the_dropped_round(self):
         # The session's tip still has the round ↩️ 回退 dropped: a fork of it would summarize that round.
@@ -1445,7 +1355,7 @@ class HarnessSwitchTests(UnifiedCase):
         job.tool_trace = object()
         seen = []
 
-        def stopped(ctx, session_id, prompt, *, redact, cancel=None, run_id=''):
+        def stopped(ctx, session_id, prompt, *, cancel=None, run_id=''):
             job.cancel_event.set()
             return '', '已停止'
         backend = InstructedBackend(sid=str(uuid.uuid4()))
@@ -1522,7 +1432,7 @@ class HarnessSwitchTests(UnifiedCase):
         """(calls of Claude's handoff_summary, the note) of the switched topic's first run, card lines to ``note_list``."""
         calls = []
 
-        def summary(ctx, session_id, prompt, *, redact, cancel=None, run_id=''):
+        def summary(ctx, session_id, prompt, *, cancel=None, run_id=''):
             calls.append(session_id)
             return '摘要', '完成'
         app, ctx = self.route('src')
@@ -1669,26 +1579,6 @@ class HarnessSwitchTests(UnifiedCase):
                 mock.patch.object(accounts, 'holding', return_value={'reset_at': time.time() + 600, 'seen_at': time.time()}):
             self.assertEqual(switch_handoff.start_refused(AntigravityBackend(), target), 'start refused')
 
-    def test_a_turn_about_to_be_refused_says_nothing_of_rounds_for_a_blocked_old_session(self):
-        # Blocked old session and 敏感词脱敏 on while the new Harness cannot redact: the turn is refused, so no
-        # card line may say the old rounds go to the new model.
-        old = self.leave_claude()
-        block_policy_session(self.source, 'claude', old, 'ev-1')
-        write_topic(self.source, {**self.topic(), 'redaction': True})
-        app, ctx = self.route('src')
-        backend = InstructedBackend(sid=str(uuid.uuid4()))
-        job = BridgeReplyJob(job_id=2, user_text='go on', chat_id='chat', message_id='om_go', timeout=0)
-        notes = []
-        with mock.patch.object(self.app.apps['claude'].backend, 'handoff_summary', create=True) as summary, \
-                mock.patch.object(app.harness, 'backend', backend), \
-                mock.patch.object(app.runs, '_bridge_note', side_effect=lambda ctx, job, key, text: notes.append(text)):
-            result = app.runs.generate_reply_for_worker(ctx, job, None, None)
-        summary.assert_not_called()
-        self.assertEqual(backend.prompts, [])
-        self.assertIn('不支持脱敏', result.failure_detail)
-        self.assertEqual(notes, [])
-        self.assertTrue(any('switch summary skipped' in line and 'turn refused' in line for line in self.logs))
-
     def test_a_summary_file_that_is_not_utf8_is_made_again(self):
         self.leave_claude()
         kept = self.source.history_path.parent / 'handoff' / f"summary-r{self.topic()['binding_revision']}.md"
@@ -1702,7 +1592,7 @@ class HarnessSwitchTests(UnifiedCase):
         """``handed_over`` without removing a saved summary first."""
         calls = []
 
-        def summary(ctx, session_id, prompt, *, redact, cancel=None, run_id=''):
+        def summary(ctx, session_id, prompt, *, cancel=None, run_id=''):
             calls.append(session_id)
             return '摘要', '完成'
         app, ctx = self.route('src')

@@ -36,8 +36,6 @@ from dataclasses import dataclass, field
 #     not complete failed, once, for the Bridge's log (app/runs.py log_backend_failure); never shown on a card.
 #   policy_tolerated: event (backends/claude/policy.py policy_signal), where, text: a subagent's first refusal, let
 #     through (docs/policy-stop.md); the Bridge shows ``text`` in 执行过程 and records it (app/policy_guard.py tolerate).
-#   redaction: terms, hits, requests; once per turn of a redacted topic, before trace_finished: the number of
-#     listed terms, the replacements made in this turn's requests and the requests relayed (core/redaction.py).
 
 # A progress_note title: the Bridge's own record of waiting out a busy model gateway ("<display name> 繁忙记录",
 # core/gateways.py busy_notes), a line of its own in 执行过程 rather than an operation (cards/trace_view.py).
@@ -116,8 +114,7 @@ def queue_note(queue, since):
 # turn; question, answer and input events keep their failure semantics.
 PROGRESS_EVENT_KINDS = frozenset({
     "tool", "progress_note", "agent_state", "answer_snapshot", "first_token", "token_usage", "subtask_usage",
-    "trace_finished", "question_resolved", "model_reasoning", "model_output", "model_request", "redaction",
-    "backend_failure",
+    "trace_finished", "question_resolved", "model_reasoning", "model_output", "model_request", "backend_failure",
 })
 
 

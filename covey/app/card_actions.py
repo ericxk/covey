@@ -5,10 +5,10 @@ clicks that way), so a new button kind is added here first, with the BridgeApp c
 that takes it (``handler``: app/app.py dispatches a topic's click by it). Launch forms,
 pickers, the workspace manager, 换配置 (app/harness_switch.py) and 回退
 (app/rewind.py) are matched before this table and are not in it. The 代答设置 card's kinds, the
-重新发送 card's, the 代发草稿 card's, the 批量换配置 card's, 群管理's, the 脱敏 tab's (the retired 敏感词看板's 换口令 too), the 管家 settings card's, the 设置 card's tabs, 手上的事's
+重新发送 card's, the 代发草稿 card's, the 批量换配置 card's, 群管理's, the 管家 settings card's, the 设置 card's tabs, 手上的事's
 这些都不用回答了, 飞书应用待补's, the welcome card's, a group's menu card and the shared session's control are here but never reach a task, so
 they name no handler: the Bridge handles them before topic routing (app/proxy_panel.py, app/proxy_resend.py,
-app/owner_send.py, app/batch_switch.py, app/group_manager.py, app/redaction_panel.py, app/butler_panel.py, app/settings_hub.py, app/memory_panel.py,
+app/owner_send.py, app/batch_switch.py, app/group_manager.py, app/butler_panel.py, app/settings_hub.py, app/memory_panel.py,
 app/overview.py, app/digest.py, app/app_setup.py, app/welcome.py, app/group_menu.py, app/collab_cards.py, app/web_login.py). The enabled extensions' kinds (core/extensions.py CARD_KINDS) are
 added below, bot_only, their features claiming the clicks.
 """
@@ -146,21 +146,6 @@ ACTIONS = {
     "bridge_group_members": CardAction("设置群成员只读"),
     # The confirmation card the owner's first @ in a group sends to his private chat: 启用 / 先不启用 (app/group_manager.py).
     "bridge_group_confirm": CardAction("确认是否启用群"),
-    # The 设置 card's 脱敏 tab (cards/redaction_panel.py KINDS).
-    "bridge_dashboard_rotate": CardAction("换口令"),  # Retired with the web dashboard: a click says it went.
-    "bridge_redaction_page": CardAction("切换脱敏页面"),  # Retired: a click draws the card again.
-    "bridge_redaction_list": CardAction("翻脱敏词表的页"),
-    "bridge_redaction_open": CardAction("展开脱敏的试一下或上游地址"),
-    "bridge_redaction_find": CardAction("查找敏感词"),
-    "bridge_redaction_add": CardAction("加入敏感词"),
-    "bridge_redaction_remove": CardAction("批量删除敏感词"),
-    "bridge_redaction_term": CardAction("修改或删除敏感词"),
-    "bridge_redaction_edit": CardAction("修改敏感词"),  # Retired as well.
-    "bridge_redaction_undo": CardAction("撤销删除敏感词"),
-    "bridge_redaction_switch": CardAction("切换脱敏开关"),
-    "bridge_redaction_upstream": CardAction("设置上游地址"),
-    "bridge_redaction_probe": CardAction("探测上游地址"),
-    "bridge_redaction_preview": CardAction("试一下脱敏"),
     # The 管家 settings card (cards/butler_panel.py KINDS).
     "bridge_main_enable": CardAction("开关管家"),
     "bridge_main_mode": CardAction("选择私聊模式"),
@@ -170,14 +155,12 @@ ACTIONS = {
     "bridge_main_model": CardAction("选择管家模型"),
     "bridge_main_effort": CardAction("选择管家思考预算"),
     "bridge_main_provider": CardAction("选择管家供应商"),
-    "bridge_main_redaction": CardAction("选择管家脱敏"),
     "bridge_main_compact": CardAction("选择压缩阈值"),
     "bridge_main_topic_harness": CardAction("选择新话题 Harness"),
     "bridge_main_topic_provider": CardAction("选择新话题供应商"),
     "bridge_main_topic_model": CardAction("选择新话题模型"),
     "bridge_main_topic_effort": CardAction("选择新话题思考预算"),
     "bridge_main_topic_run_mode": CardAction("选择新话题运行方式（已下线）"),
-    "bridge_main_topic_redaction": CardAction("选择新话题脱敏"),
     "bridge_main_topic_workspace": CardAction("选择新话题工作区（已下线）"),
     "bridge_main_subagents": CardAction("选择子 Agent 模型"),
     "bridge_main_assist_harness": CardAction("选择辅助模型"),
@@ -276,6 +259,16 @@ REVIEW_KINDS = ("bridge_review_open", "bridge_main_review_harness", "bridge_main
                 "bridge_main_review_effort")
 REVIEW_RETIRED = "独立复核已下线，这次点击没有开话题，也没有改设置；想换个模型看看一轮的改动，跟管家说一声。"
 MOVED_CARDS.update({(kind, kind): REVIEW_RETIRED for kind in REVIEW_KINDS})
+# 敏感词脱敏 was taken out (T947, docs/legacy.md): the 设置 card's 脱敏 tab and its buttons (the retired 敏感词看板's 换口令
+# too), the 脱敏 rows of its 配置 and 新话题 pages, and the 脱敏 row of a launch card and of a 换配置 card (matched before this
+# table once, app/model_picker.py and app/harness_switch.py). A click on an older card changes nothing.
+REDACTION_KINDS = ("bridge_dashboard_rotate", "bridge_redaction_page", "bridge_redaction_list", "bridge_redaction_open",
+                   "bridge_redaction_find", "bridge_redaction_add", "bridge_redaction_remove", "bridge_redaction_term",
+                   "bridge_redaction_edit", "bridge_redaction_undo", "bridge_redaction_switch", "bridge_redaction_upstream",
+                   "bridge_redaction_probe", "bridge_redaction_preview", "bridge_main_redaction", "bridge_main_topic_redaction",
+                   "bridge_launch_redaction", "bridge_switch_redaction")
+REDACTION_RETIRED = "敏感词脱敏已下线，这次点击没有改任何设置。"
+MOVED_CARDS.update({(kind, kind): REDACTION_RETIRED for kind in REDACTION_KINDS})
 
 
 def moved_card_text(event) -> str:

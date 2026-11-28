@@ -107,7 +107,6 @@ class Entry:
     verified_at: float = 0.0  # A fact's; 0 not verified.
     superseded_by: str = ""
     aliases: tuple = ()  # The refs it had before (principle:p…, knowledge:k…, candidate:c…).
-    redacted: bool = False
     at: float = 0.0
     edited_at: float = 0.0
 
@@ -177,13 +176,13 @@ def _topic_write(path, rows) -> None:
     write_json(path, {"schema_version": project_memory.SCHEMA, "entries": rows}, ensure_ascii=False, indent=1)
 
 
-def topic_add(state_dir, topic_id, text, *, source="owner", redacted=False, now=None, kind="constraint") -> tuple:
+def topic_add(state_dir, topic_id, text, *, source="owner", now=None, kind="constraint") -> tuple:
     """(the line, whether it is new): ``text`` as a line of the topic's memory.json in the format every release reads
     (core/topic_memory.py add). The same text still there is the one returned; past ``TOPIC_MAX`` live lines the oldest becomes
     a tombstone (its words kept, logged as a void the 记录 shows and an undo puts back; T908 M3b), never deleted."""
     stamp = time.time() if now is None else now
     wanted = {"id": secrets.token_hex(3), "text": project_memory.clean(text), "kind": project_memory.kind_of(kind),
-              "source": str(source)[:30], "at": stamp, "deleted": 0, **({"redacted": True} if redacted else {})}
+              "source": str(source)[:30], "at": stamp, "deleted": 0}
     if not wanted["text"]:
         raise ValueError("text 不能为空")
     path = topic_memory_path(state_dir, topic_id)
@@ -632,7 +631,7 @@ def _origin(row: dict, at: float) -> dict:
     return origin
 
 
-def _make(ref, kind, scope, owner_key, text, status, said, by, *, row, extra, code, at, aliases=(), redacted=False) -> Entry:
+def _make(ref, kind, scope, owner_key, text, status, said, by, *, row, extra, code, at, aliases=()) -> Entry:
     """An Entry of an old line with its sidecar fields (``extra``) laid over what its old store says."""
     kind = extra.get("kind") if extra.get("kind") in KINDS else kind
     said = extra.get("said") if extra.get("said") in SAID else said
@@ -646,7 +645,7 @@ def _make(ref, kind, scope, owner_key, text, status, said, by, *, row, extra, co
                  by=extra.get("by") if extra.get("by") in BY else by, origin=_origin(row, at), why=clean(extra.get("why"), TEXT_CHARS),
                  repos=_strings(extra.get("repos")), device=clean(extra.get("device"), 64),
                  verified_at=_number(extra.get("verified_at")), superseded_by=str(extra.get("superseded_by") or row.get("superseded_by") or ""),
-                 aliases=tuple(dict.fromkeys((*aliases, *_refs(extra.get("aliases"))))), redacted=bool(redacted),
+                 aliases=tuple(dict.fromkeys((*aliases, *_refs(extra.get("aliases"))))),
                  at=at, edited_at=_number(extra.get("edited_at")))
 
 
@@ -664,7 +663,7 @@ def _global_entry(row) -> Entry:
                  origin=dict(row.get("origin") or {}), why=clean(row.get("why"), TEXT_CHARS), repos=_strings(row.get("repos")),
                  device=clean(row.get("device"), 64), verified_at=_number(row.get("verified_at")),
                  superseded_by=str(row.get("superseded_by") or ""), aliases=_refs(row.get("aliases")),
-                 redacted=bool(row.get("redacted")), at=_number(row.get("at")), edited_at=_number(row.get("edited_at")))
+                 at=_number(row.get("at")), edited_at=_number(row.get("edited_at")))
 
 
 def _global(state_dir) -> list:
@@ -706,7 +705,7 @@ def _decision_entry(row, scope, owner_key) -> Entry:
                  text=text, status=row.get("status") if row.get("status") in STATUSES else "active",
                  said=row.get("said") if row.get("said") in SAID else "owner", by=row.get("by") if row.get("by") in BY else "owner",
                  origin=origin, why=clean(row.get("why"), TEXT_CHARS), superseded_by=str(row.get("superseded_by") or ""),
-                 redacted=bool(row.get("redacted")), at=_number(row.get("at")), edited_at=_number(row.get("edited_at")))
+                 at=_number(row.get("at")), edited_at=_number(row.get("edited_at")))
 
 
 def _project(state_dir, pid) -> list:
@@ -733,7 +732,7 @@ def _project(state_dir, pid) -> list:
     for ref, kind, row, side, said, status in made:
         by = "owner" if said == "owner" and row.get("source") != "lead" else "lead"
         out.append(_make(ref, kind, "project", pid, row["text"], status, said, by, row=row, extra=side, code=given.get(ref),
-                         at=_number(row.get("at")), redacted=row.get("redacted")))
+                         at=_number(row.get("at"))))
     for key, row in decisions.items():
         entry = _decision_entry({**row, "id": key}, "project", pid)
         out.append(entry if entry.code else replace(entry, code=given.get(entry.ref, "")))
@@ -752,7 +751,7 @@ def _topic(state_dir, tid) -> list:
         kind, said, status = kind3_of(row, None, source=TOPIC)
         ref = f"topic:{tid}:{row['id']}"
         out.append(_make(ref, kind, "topic", tid, row["text"], status, said, "owner" if said == "owner" else "bridge", row=row,
-                         extra=extra.get(row["id"], {}), code=given.get(ref), at=_number(row.get("at")), redacted=row.get("redacted")))
+                         extra=extra.get(row["id"], {}), code=given.get(ref), at=_number(row.get("at"))))
     for key, row in decisions.items():
         entry = _decision_entry({**row, "id": key}, "topic", tid)
         out.append(entry if entry.code else replace(entry, code=given.get(entry.ref, "")))
@@ -899,7 +898,7 @@ def add(state_dir, **fields) -> Entry:
 
 def put(state_dir, *, kind: str, scope: str, owner_key: str = "", text: str, title: str = "", why: str = "",
         said: str = "owner", by: str = "owner", origin: dict | None = None, repos=(), device: str = "",
-        verified_at: float = 0.0, redacted: bool = False, status: str = "active", aliases=(), who: str = "",
+        verified_at: float = 0.0, status: str = "active", aliases=(), who: str = "",
         because: dict | None = None, token: str = "", log: bool = True, now: float | None = None) -> tuple[Entry, str]:
     """(the entry, what was done: ``NEW``, ``CONFIRMED`` or ``SAME``): a new entry (a decision goes through
     ``add_decision``). 全局 into memory/global.json; a project's or a topic's into its memory.json, the store every release
@@ -930,8 +929,7 @@ def put(state_dir, *, kind: str, scope: str, owner_key: str = "", text: str, tit
             else:
                 taken = {str(r.get("id")) for r in rows if isinstance(r, dict)}
                 gid = next(gid for gid in ("g" + secrets.token_hex(3) for _ in iter(int, 1)) if gid not in taken)
-                row = {"id": gid, "text": text, "at": stamp, "origin": {"at": stamp, **dict(origin or {})}, "status": "active",
-                       **({"redacted": True} if redacted else {})}
+                row = {"id": gid, "text": text, "at": stamp, "origin": {"at": stamp, **dict(origin or {})}, "status": "active"}
                 row.update({k: v for k, v in extra.items() if v is not None})
                 rows.append(row)
                 ref = f"global:{gid}"
@@ -948,7 +946,7 @@ def put(state_dir, *, kind: str, scope: str, owner_key: str = "", text: str, tit
     elif scope == "project":
         source = "owner" if said == "owner" else "lead"
         try:
-            row, new = project_memory.add(state_dir, owner_key, text, _legacy_kind(kind), source, now=stamp, redacted=redacted,
+            row, new = project_memory.add(state_dir, owner_key, text, _legacy_kind(kind), source, now=stamp,
                                           origin=_legacy_origin(origin))
         except KeyError:
             raise ValueError("专项不存在") from None
@@ -959,7 +957,7 @@ def put(state_dir, *, kind: str, scope: str, owner_key: str = "", text: str, tit
         assign(state_dir, [(ref, kind)], aliases={a: ref for a in _refs(aliases)})
         entry = find(state_dir, ref)
     else:
-        row, new = topic_add(state_dir, owner_key, text, source="owner" if said == "owner" else "lead", redacted=redacted,
+        row, new = topic_add(state_dir, owner_key, text, source="owner" if said == "owner" else "lead",
                              now=stamp, kind=_legacy_kind(kind))
         if not new:
             return _same(state_dir, f"topic:{owner_key}:{row['id']}", said, who or by, because, token, stamp, log)
@@ -995,7 +993,7 @@ def _legacy_origin(origin) -> dict:
 def add_decision(state_dir, *, scope: str, owner_key: str, question: str = "", answer: str = "", text: str = "",
                  title: str = "", question_ref: str = "", topic_key: str = "", chosen: str = "", category: str = "",
                  polarity: str = "", said: str = "owner", by: str = "owner", origin: dict | None = None, status: str = "active",
-                 redacted: bool = False, who: str = "", because: dict | None = None, token: str = "", log: bool = True,
+                 who: str = "", because: dict | None = None, token: str = "", log: bool = True,
                  now: float | None = None) -> Entry:
     """A decision appended to the project's or the topic's decisions.jsonl: the question and the answer (``text`` when given,
     else ``question→answer``), ≤ DECISION_CHARS. The same ``question_ref`` (a question record's token and the question's
@@ -1016,7 +1014,7 @@ def add_decision(state_dir, *, scope: str, owner_key: str, question: str = "", a
                    "q": clean(question, DECISION_CHARS), "a": clean(answer, DECISION_CHARS), "question_ref": clean(question_ref, 40),
                    "topic_key": clean(topic_key, 80), "chosen": clean(chosen, 200), "category": clean(category, 20),
                    "polarity": clean(polarity, 10), "status": status, "said": said, "by": by,
-                   "origin": {"at": stamp, **dict(origin or {})}, **({"redacted": True} if redacted else {})}
+                   "origin": {"at": stamp, **dict(origin or {})}}
             _append_line(path, {key: value for key, value in row.items() if value not in ("", None)})
             found[entry_id] = row
         else:
@@ -1221,7 +1219,7 @@ def move(state_dir, key: str, *, scope: str, owner_key: str = "", base: str = ""
         return old
     new = add(state_dir, kind=old.kind, scope=scope, owner_key=owner_key, text=old.text, title=old.title, why=old.why,
               said=old.said, by=old.by, origin=old.origin, repos=old.repos, device=old.device, verified_at=old.verified_at,
-              redacted=old.redacted, aliases=(*old.aliases, old.ref), log=False, now=stamp)
+              aliases=(*old.aliases, old.ref), log=False, now=stamp)
     archived = _update(state_dir, old, {"status": "archived", "superseded_by": new.ref}, stamp)
     if old.code and old.ref in new.aliases:  # Made now (not one that said the same there already): it keeps the code.
         try:
@@ -1261,8 +1259,6 @@ def _keep_code(state_dir, old: Entry, new: Entry) -> None:
 def promote(state_dir, key: str, *, scope: str, owner_key: str = "", repos=None, who: str = "owner", because=None,
             token: str = "", now=None) -> Entry:
     """升级: ``move`` to a wider scope (a topic's line to its project or to 全局), ``repos`` set on the way."""
-    if scope == "global" and (_need(state_dir, key)).redacted:
-        raise ValueError("脱敏话题里的记忆不能升到全局")
     new = move(state_dir, key, scope=scope, owner_key=owner_key, who=who, because=because, token=token, now=now)
     if repos is not None:
         new = change(state_dir, new.ref, action="edit", who=who, token=token, now=now, repos=repos, log=False)

@@ -1,6 +1,6 @@
 """A new topic carries the 话题要点 of its workspace's last topics (app/workspace_gists.py, COVEY_WORKSPACE_GISTS; T604 #30):
 off at 0 (the rules as before; unset is 3); on, only a new session's rules, only the owner's own turn in an ordinary topic, only topics
-of the same chat and workspace, a redacting topic's gist only for a redacting one, the newest first."""
+of the same chat and workspace, the newest first."""
 from __future__ import annotations
 
 import os
@@ -29,10 +29,9 @@ class WorkspaceGistsTests(unittest.TestCase):
         self.jobs = 0
         self.enterContext(mock.patch.dict(os.environ, {"COVEY_WORKSPACE_GISTS": "2"}))
 
-    def topic(self, topic, number, essence, *, workspace="covey", chat=CHAT, redaction=False, gist=True):
+    def topic(self, topic, number, essence, *, workspace="covey", chat=CHAT, gist=True):
         """A topic with a job of ``workspace`` in ``chat`` (each newer than the one before) and, with ``gist``, its gist."""
-        write_json(topic_file(self.state, topic), {"topic_number": number, "origin": {"title": f"标题{number}"},
-                                                    **({"redaction": True} if redaction else {})})
+        write_json(topic_file(self.state, topic), {"topic_number": number, "origin": {"title": f"标题{number}"}})
         self.jobs += 1
         upsert_job_record(self.state, f"job-{self.jobs}", job_id=self.jobs, topic_id=topic, chat_id=chat,
                           workspace_name=workspace, status="done")
@@ -71,12 +70,6 @@ class WorkspaceGistsTests(unittest.TestCase):
         self.assertEqual(self.block(workspace=""), "")
         with mock.patch.dict(os.environ, {"COVEY_WORKSPACE_GISTS": "0"}):
             self.assertEqual(self.block(), "")
-
-    def test_a_redacting_topics_gist_goes_only_to_a_redacting_topic(self):
-        self.topic("a" * 16, 1, "脱敏话题的事", redaction=True)
-        self.assertEqual(self.block(), "")
-        write_json(topic_file(self.state, HERE), {"redaction": True})
-        self.assertIn("脱敏话题的事", self.block())
 
     def declared(self, topic, repos, *, home=True, project=None):
         """Rewrite ``topic``'s topic.json (its jobs stay) as one that started in the home with ``repos`` (names to paths)."""

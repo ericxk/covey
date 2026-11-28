@@ -15,7 +15,6 @@ import subprocess
 import time
 import uuid
 
-from covey.backends.claude import redaction
 from covey.backends.claude.argv import stream_argv, subagents_dir, turn_env
 from covey.backends.claude.compaction import compact_before_turn
 from covey.backends.claude.completion import ClaudeReplyState, result_failure
@@ -188,8 +187,8 @@ class _Uncounted:
 
 def compact_only(backend, request, env):
     """``compact_before_turn`` with no turn after it (the butler's idle compaction, app/idle_compaction.py): the
-    claude process the turn would start (its argv, environment and, in ``request.context``, the term relay of a
-    redacted topic), its step and events dropped. Whether the session was compacted; ``request.inputs.cancel_event``
+    claude process the turn would start (its argv, environment and, in ``request.context``, the relay an extension's
+    hook gave it), its step and events dropped. Whether the session was compacted; ``request.inputs.cancel_event``
     stops it (JobCancelled), as the task's deadline does."""
     ctx, child = request.context, turn_env(request.context, env)
 
@@ -304,9 +303,6 @@ def run_stream(backend, request, env):
     if diagnosis is not None:
         emit("backend_failure", diagnosis)
     settle_subtasks(adapter, ctx, state.session_id, env)
-    redacted = redaction.turn_event(ctx)
-    if redacted is not None:
-        emit("redaction", redacted)
     emit("trace_finished", {})
     flush_events()
     return result

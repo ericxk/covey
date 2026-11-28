@@ -23,7 +23,6 @@ from covey.core import butler, collab, projects, turn_source
 from covey.core.harness import backend_capabilities
 from covey.core.jobs import never_started, topic_job_records
 from covey.core.look import owner_stopped
-from covey.core.redaction import topic_redaction
 from covey.core.state import read_object
 from covey.core.statuses import ENDED, RUNNING
 from covey.core.topics import label_title, retired_topic, topic_file, topic_label
@@ -43,7 +42,6 @@ PROXY = "{label} 是代答话题，不参与协作"
 RETIRED = "{label} 已经下线"
 DEVICE = "对方话题在设备上，首版不支持只读咨询"
 HARNESS = "{label} 用的 {title} 还不能只读咨询（首版只有通过真实拒写验收的 Harness）"
-REDACTION = "一方开了敏感词脱敏、另一方没开：开了脱敏的内容不能送到没开的一端"
 OTHER_PROJECT = "{label} 在别的专项里：跨专项只在主人这次亲自点名时才问"
 NOT_PARTICIPANT = "{label} 不能当协助方"
 WAITING_OWNER = "对方在等主人回答问题，没有接手（不替主人回答、不动那道题）"
@@ -182,12 +180,6 @@ def helper_refusal(topics, state, chat, integrator, helper_key, *, owner_named) 
     if app is None or not (caps.collab and caps.read_only):
         return HARNESS.format(label=shown, title=app.harness.spec.title if app is not None else
                               (_harness_of(state, helper_key) or "Harness"))
-    try:
-        mine, theirs = topic_redaction(state, integrator.key), topic_redaction(state, helper_key)
-    except ValueError as exc:
-        return str(exc)
-    if mine != theirs:
-        return REDACTION
     if (who.project or integrator.project) and who.project != integrator.project and not owner_named:
         return OTHER_PROJECT.format(label=shown)
     return ""

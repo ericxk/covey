@@ -117,14 +117,14 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     # its own. EARLY match the event (a form button's name or the value's kind); PANELS, the value
     # once it passed the closed set of kinds (app/card_actions.py ACTIONS).
     EARLY = ('workspace_manager', 'launch_model_picker', 'directory_picker', 'harness_switch', 'rewind')
-    PANELS = ('proxy.panel', 'proxy.resend', 'proxy.owner_send', 'group_manager', 'redaction_panel', 'nodes.panel',
+    PANELS = ('proxy.panel', 'proxy.resend', 'proxy.owner_send', 'group_manager', 'nodes.panel',
               'butler_panel', 'settings_hub', 'settings_hub.memory', 'overview', 'digest', 'app_setup', 'welcome',
               'group_menu', 'project_tidy', 'collab.cards', 'web_login', 'fold_close', 'batch_switch')
 
     # What only the Bridge uses, built by _build_parts: at once in the Bridge (the default), on first use in a
     # task runner (``task_runner=True``), which rarely meets any of it.
     PARTS = ('directory_picker', 'launch_model_picker', 'workspace_manager', 'harness_switch', 'rewind', 'proxy',
-             'weekly_usage', 'group_manager', 'redaction_panel', 'butler_panel',
+             'weekly_usage', 'group_manager', 'butler_panel',
              'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'storage_alerts', 'digest', 'memory_tidy',
              'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects', 'project_tidy',
              'project_loop', 'devices', 'nodes', 'web_sync', 'web_login', 'source_watch', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards',
@@ -202,7 +202,6 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.model_picker import LaunchModelPicker
         from covey.app.overview import Overview
         from covey.app.proxy import Proxy
-        from covey.app.redaction_panel import RedactionPanel, detect_upstream
         from covey.app.rewind import RewindCards
         from covey.app.settings_hub import SettingsHub
         from covey.app.source_watch import SourceWatch
@@ -225,18 +224,15 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.proxy = Proxy(self.topics)
             self.weekly_usage = WeeklyUsage(self.runtime, self.messenger, self.voice, self.titles)
             self.group_manager = GroupManager(self.runtime, self.messenger, self.voice)
-            # The 设置 card's 脱敏 tab (app/redaction_panel.py): the term list on the card; 探测 asks the Claude Harness.
-            self.redaction_panel = RedactionPanel(self.runtime, self.messenger, self.voice,
-                                                  lambda harness=self.claude: detect_upstream(harness))
             # The butler's settings card (docs/butler.md 设置卡): the 设置 card's 管家 tab.
             self.butler_panel = ButlerPanel(self.topics)
-            # The bot menu's 设置 (app/settings_hub.py): 管家, 工作区, 脱敏, 群聊, 记忆, 设备, 能做什么 on one card, a tab row on top.
+            # The bot menu's 设置 (app/settings_hub.py): 配置, 仓库, 群聊, 记忆, 设备, 诊断 on one card, a tab row on top.
             # 节点 (app/nodes.py): the gateway the nodes dial, the hub's own node, their alerts and the 设置 card's 设备
             # tab; no thread and no tab unless COVEY_NODE_LISTEN is set.
             self.nodes = Nodes(self.runtime, self.messenger, self.voice)
             self.settings_hub = SettingsHub(self.runtime, self.messenger, self.voice, self.butler_panel,
                                             self.proxy.panel, self.group_manager, self.workspace_manager,
-                                            self.redaction_panel, nodes=self.nodes.panel, topics=self.topics)
+                                            nodes=self.nodes.panel, topics=self.topics)
             # 手上的事 (app/overview.py): the card pinned in the owner's private chat, when COVEY_PINNED_OVERVIEW=1.
             self.overview = Overview(self.runtime, self.messenger, self.voice, self.titles)
             # The butler's tools (app/butler_tools.py), unless COVEY_BUTLER=0: the state directory and

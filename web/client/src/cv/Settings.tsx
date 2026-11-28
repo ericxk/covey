@@ -15,7 +15,6 @@ import type {
   SettingsNodesPage,
   SettingsProxyContact,
   SettingsProxyPage,
-  SettingsRedactionPage,
   SettingsRepoItem,
   SettingsReposPage,
   SettingsRow,
@@ -35,7 +34,6 @@ import { Head } from './Shell';
 import { ago } from './topicText';
 import { useTick } from './ui';
 import { pickKind } from './launch';
-import { appendLines, dropLine, planTerms, type TermLine, type TermPlan } from './redactionTerms';
 import { opWords, plainReceipt } from './opWords';
 import { sendOp, type OpResult } from './sendOp';
 import * as RP from './reposPage';
@@ -271,8 +269,8 @@ const Grid: React.FC<{ rows: SettingsRow[]; layout: string[][]; ops: Ops; feishu
     </div>
   );
 };
-const TOPIC_LAYOUT: string[][] = [['t_harness', 't_provider', 't_model', 't_effort'], ['t_space', 't_run_mode', 't_redact']];
-const MAIN_LAYOUT: string[][] = [['harness', 'provider', 'model', 'effort'], ['space', 'redact', 'compact'], ['mode']];
+const TOPIC_LAYOUT: string[][] = [['t_harness', 't_provider', 't_model', 't_effort'], ['t_space', 't_run_mode']];
+const MAIN_LAYOUT: string[][] = [['harness', 'provider', 'model', 'effort'], ['space', 'compact'], ['mode']];
 /** v36 专项负责人：新建的专项，负责人用的 Harness、模型、思考预算（开了专项才有这一段） */
 const LEAD_LAYOUT: string[][] = [['l_harness', 'l_provider', 'l_model', 'l_effort']];
 const MORE_LAYOUT: string[][] = [['subagent']];
@@ -761,174 +759,6 @@ const ReposTab: React.FC<{ p: SettingsReposPage; ops: Ops; feishu: string }> = (
   );
 };
 
-const Switch: React.FC<{ on: boolean; busy: boolean; label: string; onClick: () => void }> = ({ on, busy, label, onClick }) => (
-  <button type="button" role="switch" aria-checked={on} aria-label={label} className={`st-sw${on ? ' on' : ''}`} disabled={busy} onClick={onClick}><i /></button>
-);
-
-const RedactionTab: React.FC<{ p: SettingsRedactionPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
-  const now: number = useTick(60000);
-  return (
-    <>
-      <Top summary={p.summary} feishu={feishu} />
-      {Array.isArray(p.terms) ? <TermsEditor p={p} ops={ops} /> : null}
-      <h3 className="st-h">开着脱敏的话题</h3>
-      <div className="st-list">
-        {p.topics.length ? p.topics.map((t) => (
-          <div key={t.number} className="st-r st-tr st-tp">
-            <span className="st-no">T{t.number}</span>
-            <span className="st-tt">{t.title}</span>
-            <span className="st-when">{t.hits} 次{t.last ? ` · ${ago(t.last, now)}` : ''}</span>
-          </div>
-        )) : <div className="st-r st-tr"><span className="st-faint">现在没有话题开着脱敏</span></div>}
-      </div>
-      {p.records ? (
-        <>
-          <h3 className="st-h">记录</h3>
-          <div className="st-list">
-            {p.records.length ? p.records.map((r, i: number) => (
-              <div key={`${r.time}-${i}`} className="st-r st-tr st-tp">
-                <span className="st-when st-rt">{ago(r.time, now)}</span>
-                <span className="st-no">{r.number ? `T${r.number}` : ''}</span>
-                <span className="st-tt">{r.model}</span>
-                <span className="st-when">请求 {r.requests} 次 · 替换 {r.replaced} 处</span>
-              </div>
-            )) : <div className="st-r st-tr"><span className="st-faint">还没有记录</span></div>}
-          </div>
-        </>
-      ) : null}
-      <h3 className="st-h">开关</h3>
-      <div className="st-list">
-        {p.switches.map((w) => {
-          const s: Phase | undefined = ops.st[`redaction:${w.name}`];
-          return (
-            <div key={w.name} className="st-r st-sw-r">
-              <div className="st-c">
-                <div className="st-l2">{w.label}</div>
-                <div className="st-hint2">{w.hint}</div>
-                <Receipt s={s} />
-              </div>
-              {w.editable ? (
-                <Switch on={w.on} busy={s?.phase === 'saving'} label={w.label} onClick={() => void ops.run(`redaction:${w.name}`, { what: 'redaction', name: w.name, on: !w.on })} />
-              ) : (
-                <span className="st-val">{w.on ? '开' : '关'}</span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </>
-  );
-};
-
-/* ---------- 脱敏词表（v14，T567）：列表看和点删，“批量编辑”切成一行一个词的文本框；两边改的是同一份草稿，一次保存 ---------- */
-const CHIPS = 12;
-const Chips: React.FC<{ words: string[]; cls: string }> = ({ words, cls }) => (
-  <>
-    {words.slice(0, CHIPS).map((w: string, i: number) => <span key={`${i}-${w}`} className={`st-chip ${cls}`}>{w}</span>)}
-    {words.length > CHIPS ? <span className="st-faint"> 等 {words.length} 个</span> : null}
-  </>
-);
-
-const LineRow: React.FC<{ l: TermLine; busy: boolean; onDrop: () => void }> = ({ l, busy, onDrop }) => (
-  <div className={`st-term ${l.state}`}>
-    <span className="st-tw">{l.text}</span>
-    {l.state === 'add' ? <span className="st-tk add">新加</span> : null}
-    {l.state === 'dup' ? <span className="st-tk">和第 {l.dupOf} 行重复，保存时合并</span> : null}
-    {l.state === 'bad' ? <span className="st-tk bad">{l.why}</span> : null}
-    <button type="button" className="st-x" aria-label="删掉这个词" disabled={busy} onClick={onDrop}>✕</button>
-  </div>
-);
-
-const TermsEditor: React.FC<{ p: SettingsRedactionPage; ops: Ops }> = ({ p, ops }) => {
-  const base: string = p.terms.join('\n');
-  const [draft, setDraft] = useState<string | null>(null);
-  const [mode, setMode] = useState<'list' | 'text'>('list');
-  const [adding, setAdding] = useState<string>('');
-  const [find, setFind] = useState<string>('');
-  const s: Phase | undefined = ops.st['redaction:terms'];
-  const busy: boolean = s?.phase === 'saving';
-  const text: string = draft ?? base;
-  const plan: TermPlan = planTerms(text, p.terms, p.ignore_case, p.max_terms, p.max_length);
-  // 保存成功后快照带回新词表，再以它为准（先照草稿画，不闪回旧的）
-  useEffect(() => {
-    if (s?.phase === 'done') setDraft(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [base]);
-  const edit = (t: string): void => setDraft(t === base ? null : t);
-  const save = (): void => void ops.run('redaction:terms', { what: 'terms', add: plan.add, remove: plan.remove });
-  const q: string = find.trim().toLowerCase();
-  const shown: TermLine[] = q ? plan.lines.filter((l: TermLine) => l.text.toLowerCase().includes(q)) : plan.lines;
-  const problems: TermLine[] = plan.lines.filter((l: TermLine) => l.state === 'bad');
-  return (
-    <>
-      <div className="st-hrow">
-        <h3 className="st-h">词表</h3>
-        <div className="st-opts st-mode" role="radiogroup" aria-label="编辑方式">
-          <button type="button" role="radio" aria-checked={mode === 'list'} className={`st-opt${mode === 'list' ? ' on' : ''}`} onClick={() => setMode('list')}>列表</button>
-          <button type="button" role="radio" aria-checked={mode === 'text'} className={`st-opt${mode === 'text' ? ' on' : ''}`} onClick={() => setMode('text')}>批量编辑</button>
-        </div>
-      </div>
-      <p className="st-note st-lead">一行一个词，词里可以有空格；{p.ignore_case ? '不区分大小写开着，Foo 和 foo 算一个词' : '区分大小写'}。替身词自动生成。</p>
-      <div className="st-list">
-        {mode === 'list' ? (
-          <>
-            <div className="st-addr">
-              <textarea className="st-ta st-ta-add" rows={1} value={adding} disabled={busy} placeholder="加词：一行一个，可以粘贴多行" aria-label="加词"
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setAdding(e.target.value)} />
-              <button type="button" className="btn" disabled={busy || !adding.trim()} onClick={() => { edit(appendLines(text, adding)); setAdding(''); }}>加入</button>
-            </div>
-            {plan.lines.length > 8 ? (
-              <div className="st-addr st-find">
-                <input className="st-in-t" value={find} placeholder="找词" aria-label="找词" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFind(e.target.value)} />
-              </div>
-            ) : null}
-            {shown.map((l: TermLine) => <LineRow key={`${l.line}-${l.text}`} l={l} busy={busy} onDrop={() => edit(dropLine(text, l.line))} />)}
-            {!plan.lines.length ? <div className="st-term"><span className="st-faint">词表是空的，上面加第一个词</span></div> : null}
-            {q && !shown.length ? <div className="st-term"><span className="st-faint">没有找到</span></div> : null}
-            {plan.remove.map((t: string) => (
-              <div key={`gone-${t}`} className="st-term gone">
-                <span className="st-tw">{t}</span>
-                <span className="st-tk bad">要删</span>
-                <button type="button" className="st-link" disabled={busy} onClick={() => edit(appendLines(text, t))}>撤回</button>
-              </div>
-            ))}
-          </>
-        ) : (
-          <div className="st-tbox">
-            <textarea className="st-ta" value={text} disabled={busy} spellCheck={false} aria-label="词表，一行一个词"
-              rows={Math.min(Math.max(text.split('\n').length + 1, 8), 22)}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => edit(e.target.value)} />
-            {problems.length ? (
-              <div className="st-probs">{problems.slice(0, 8).map((l: TermLine) => <div key={l.line}>第 {l.line} 行：{l.why}</div>)}
-                {problems.length > 8 ? <div>还有 {problems.length - 8} 行</div> : null}</div>
-            ) : null}
-          </div>
-        )}
-        {plan.changed || plan.dups || plan.bad ? (
-          <div className="st-diff">
-            <b>这次：</b>
-            {plan.add.length ? <><span className="st-plus">加 {plan.add.length} 个</span><Chips words={plan.add} cls="add" /></> : null}
-            {plan.add.length && plan.remove.length ? <span className="st-sep">｜</span> : null}
-            {plan.remove.length ? <><span className="st-minus">删 {plan.remove.length} 个</span><Chips words={plan.remove} cls="del" /></> : null}
-            {!plan.changed ? <span className="st-faint">词表没有变化</span> : null}
-            {plan.dups ? <><span className="st-sep">｜</span><span className="st-faint">合并重复 {plan.dups} 行</span></> : null}
-          </div>
-        ) : null}
-        {plan.changed || draft !== null ? (
-          <div className="st-bar">
-            <span className={`st-why${plan.bad || plan.over ? ' bad' : ''}`}>
-              {plan.bad ? `有 ${plan.bad} 行要先改好才能保存` : plan.over ? `最多 ${p.max_terms} 个词，现在 ${plan.total} 个` : `保存后 ${plan.total} 个词，下一轮起生效`}
-            </span>
-            <button type="button" className="btn st-quiet" disabled={busy} onClick={() => { setDraft(null); setAdding(''); }}>还原</button>
-            <button type="button" className="btn pri" disabled={busy || !plan.canSave} onClick={save}>{busy ? '保存中…' : '保存'}</button>
-          </div>
-        ) : null}
-      </div>
-      <Receipt s={s} />
-    </>
-  );
-};
-
 const GroupRow: React.FC<{ g: SettingsGroupItem; ops: Ops }> = ({ g, ops }) => {
   const [ask, setAsk] = useState<boolean>(false);
   const s: Phase | undefined = ops.st[`group:${g.key}`];
@@ -1325,7 +1155,6 @@ const Body: React.FC<{ data: SettingsData; tab: string; ops: Ops }> = ({ data, t
     case 'main': return <MainTab p={page as SettingsMainPage} ops={ops} feishu={f} />;
     case 'repos': return <ReposTab p={page as SettingsReposPage} ops={ops} feishu={f} />;
     case 'workspace': return <WorkspaceTab p={page as SettingsWorkspacePage} ops={ops} feishu={f} />;
-    case 'redaction': return <RedactionTab p={page as SettingsRedactionPage} ops={ops} feishu={f} />;
     case 'groups': return <GroupsTab p={page as SettingsGroupsPage} ops={ops} feishu={f} />;
     case 'nodes': return <NodesTab p={page as SettingsNodesPage} ops={ops} feishu={f} />;
     case 'proxy': return <ProxyTab p={page as SettingsProxyPage} ops={ops} feishu={f} />;

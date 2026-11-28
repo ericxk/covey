@@ -969,8 +969,7 @@ def project_answer(env, request):
     except ValueError as exc:
         return reply(False, str(exc))
     try:
-        found = triage_flow.grounds(env, record, request.args.get("evidence"), asked=triage_flow.held_words(env, ctx.topic_id),
-                                    topic=ctx.topic_id)
+        found = triage_flow.grounds(env, record, request.args.get("evidence"), asked=triage_flow.held_words(env, ctx.topic_id))
     except ValueError as exc:
         return reply(False, f"没有替主人答：{exc}", refused="evidence")
     try:

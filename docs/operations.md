@@ -173,7 +173,7 @@ Bridge 自己停了、或者和飞书断了，它自己说不了话。所以由�
 │  ├─ repos.json、home.json        仓库地图（`core/repomap.py`）、主目录的设置（`core/home.py`）
 │  ├─ repos.md                     从仓库地图画出来给每轮看的那份（接管已有主目录时放这里，不写进主目录）
 │  ├─ main-thread.json             私聊模式和管家设置，子 Agent 的模型 `subagents`（`COVEY_BUTLER=0` 时设置卡没有它，默认 `light`，要跟主模型手写 `"same"`）
-│  └─ redaction/                   脱敏词表、看板口令、每轮替换数
+│  └─ redaction/                   已下线的敏感词脱敏留下的词表等，不再读写、不进备份，原样留着（[已下线的功能](legacy.md)）
 ├─ 可选功能
 │  ├─ main-thread/                 管家的工具请求、开过的话题、回带记录（目录名和上面的 main-thread.json 沿用旧名，不改：新旧版本混跑时互相认得）
 │  ├─ proxy/                       代答：settings.json、contacts/、style.md、owner-context.md、batches/、send-as-user/、web/、shots/
@@ -195,6 +195,7 @@ Bridge 自己停了、或者和飞书断了，它自己说不了话。所以由�
 └─ 后端
    ├─ backend-health/              各后端最近一次任务的结果和模型目录查询结果，doctor 从这里读
    ├─ launch-models/、native-models/   模型目录缓存、扩展的实测档位
+   ├─ claude-upstream.json         `claude --gateway-status` 报的上游地址，缓存 10 分钟（`backends/claude/upstream.py`，扩展在 Claude Code 前面放本机中继时用）
    ├─ <网关名>/、<扩展>-sessions/   后端自己的会话和运行文件（<网关名>/relay.log 是模型网关的繁忙记录）
    ├─ pi-sessions/                 已下线的 Pi 留下的会话（老部署才有），不再读写，可以删
    ├─ stuck-check/、track-judge/、memory-candidates/、memory-learn/、memory-tidy/、memory-harvest/   小模型一次调用的工作目录：同时做几件事的判断、记忆自己长（stuck-check/、memory-candidates/、memory-tidy/、memory-harvest/ 旧版用过，现在不写）
@@ -431,7 +432,7 @@ Bridge 的 maintenance 后台线程每小时检查一次（`core/maintenance.py`
 
 维护不删除工作区目录或用户产物。
 
-**备份包含**话题（历史、Session 指针、收到的附件）、任务记录、排队任务、执行过程、检查点、问题、暂存的补充与投递记录、已验证结果和产物投递记录、启动卡和工作区管理卡状态、启动卡预选、`model-usage.json`、群记录、模型设置、后端观测，主人的原则 `principles.json`、知识条目 `knowledge/`、记忆 `memory/`、仓库地图 `repos.json` 和主目录设置 `home.json`、管家设置 `main-thread.json`、脱敏词表 `redaction/config.json`、专项 `projects/`（不含资料库复制的文件）、手上的事和话题看板的记录（`pinned-overview.json`、`pinned-topics.json`、`board-priority.json`、`topic-seen.json`、`status-cards/`）、`digest.json`、私聊顶层告警的记录 `top-notices.json`、欢迎卡的记录 `welcome.json`、记忆的候选和记忆自己长的记录（`memory-candidates.json`、`memory-usage.json`、`memory-tidy.json`、`memory-harvest.json`）、网页工作台的操作记录 `web/`、`owner-chat.json`、`migrations.json`，以及 `workspace-config.json`、`session_index.jsonl`、`bot-identity.json`，还有代答的 `proxy/settings.json`、`proxy/contacts/`、`proxy/style.md`、`proxy/owner-context.md`（清单是 `core/backup.py` 的 `BACKUP_DIRS`、`BACKUP_FILES`）。
+**备份包含**话题（历史、Session 指针、收到的附件）、任务记录、排队任务、执行过程、检查点、问题、暂存的补充与投递记录、已验证结果和产物投递记录、启动卡和工作区管理卡状态、启动卡预选、`model-usage.json`、群记录、模型设置、后端观测，主人的原则 `principles.json`、知识条目 `knowledge/`、记忆 `memory/`、仓库地图 `repos.json` 和主目录设置 `home.json`、管家设置 `main-thread.json`、专项 `projects/`（不含资料库复制的文件）、手上的事和话题看板的记录（`pinned-overview.json`、`pinned-topics.json`、`board-priority.json`、`topic-seen.json`、`status-cards/`）、`digest.json`、私聊顶层告警的记录 `top-notices.json`、欢迎卡的记录 `welcome.json`、记忆的候选和记忆自己长的记录（`memory-candidates.json`、`memory-usage.json`、`memory-tidy.json`、`memory-harvest.json`）、网页工作台的操作记录 `web/`、`owner-chat.json`、`migrations.json`，以及 `workspace-config.json`、`session_index.jsonl`、`bot-identity.json`，还有代答的 `proxy/settings.json`、`proxy/contacts/`、`proxy/style.md`、`proxy/owner-context.md`（清单是 `core/backup.py` 的 `BACKUP_DIRS`、`BACKUP_FILES`）。
 
 开了 `COVEY_WEB_SELFHOST=1`（并且 `COVEY_WEB=1`、`COVEY_WEB_CONFIG` 指向本机回环）时，每日备份还多一个成员 `selfhost-web/pglite.tar.gz`：向网页进程要的数据库导出（PGlite 的 `dumpDataDir`，几 MB，几秒；超过 256 MiB 不收），这一项做得成做不成都记在 `maintenance-status.json` 的 `web_backup`（`at`，`bytes` 或 `skipped`/`error` 的原因），不影响状态目录的备份；外部 Postgres 用 `pg_dump` 备份，不在这里。没开自托管时备份内容和状态文件和原来一样。网页的开放接口密钥文件和 TLS 私钥不进备份。状态目录的恢复（`restore_backup`）不碰 `selfhost-web/`；网页数据库用 `python3 -B -m covey.service.web_selfhost --restore-db <备份包或 pglite.tar.gz>` 恢复，见[网页工作台 · 备份与恢复](web.md#备份与恢复)。
 

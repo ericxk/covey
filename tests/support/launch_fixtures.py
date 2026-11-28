@@ -1,13 +1,11 @@
 """Launch-card fixtures shared by test_launch_models, test_harness_switch and others: a MASO model catalog as
-the Router serves it, and a Harness that reports the redaction capability."""
+the Router serves it."""
 from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from unittest import mock
 
 from covey.app.launch_models import refresh_catalog
-from covey.core.harness import HarnessCapabilities
 
 
 def maso_provider(model, effort='', client='AzureResponsesAPI'):
@@ -58,11 +56,3 @@ def write_maso_catalog(state_dir, *, families=True):
             row.pop('family', None)
         path.write_text(json.dumps(data))
     return catalog
-
-
-def redacting(case, name='claude'):
-    """Harness ``name`` reports capability ``redaction``, as Claude's does (core/redaction.py)."""
-    backend = case.app.apps[name].backend
-    patcher = mock.patch.object(backend, 'capabilities', lambda ctx: HarnessCapabilities(redaction=True), create=True)
-    patcher.start()
-    case.addCleanup(patcher.stop)

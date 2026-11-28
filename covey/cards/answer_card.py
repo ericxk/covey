@@ -5,9 +5,9 @@ CHANGE_ID: only a turn that changed code, core/checkpoint.py shows_change), then
 a line of 改动 after them when the turn changed code, each label grey. Each is one line that wraps on its own: its
 parts apart by a grey "｜" (SEPARATOR),
 each part never broken inside at a phone's width or in a topic's side panel (``unbroken``; the "E" sample
-split "脱 / 敏关", "缓存 / 命中"), so a line wraps only after a separator:
+split "缓存 / 命中"), so a line wraps only after a separator:
 
-- 输入: Harness ｜ 供应商 ｜ 模型 ｜ 思考 <思考预算> ｜ 脱敏开/关 ｜ 工作区 (``input_parts``, ``input_lines``);
+- 输入: Harness ｜ 供应商 ｜ 模型 ｜ 思考 <思考预算> ｜ 工作区 (``input_parts``, ``input_lines``);
 - 输出: 用时 ｜ token/s ｜ token (the cache included, as the task card's tile) ｜ 缓存命中 ｜ 重启 (the Bridge restarts the
   turn's own process lived through, ``restart_part``) (``output_parts``, ``output_lines``);
 
@@ -38,19 +38,18 @@ FACTS_ID = "answer_facts"
 CHANGE_ID = "answer_change"
 WORKSPACE_CHARS = 24
 BUDGET_WORD, OLD_BUDGET_WORD = "思考", "推理"
+OLD_REDACTION = ("脱敏开", "脱敏关")  # The 输入 part an older release saved before the workspace (input_lines).
 
 
-def input_parts(harness="", provider="", model="", effort="", redaction=None, workspace=""):
-    """The 输入 line's six parts, in the owner's order, none left out: Harness · 供应商 · 模型 ·
-    思考 <budget> · 脱敏开/关 · 工作区; one not known reads "—" (the model 默认模型, the budget 思考 默认). The budget is
-    the 思考预算 (推理深度统一叫思考预算; it read 推理 <budget> before, BUDGET_WORD). A Harness
-    that cannot redact (``redaction`` None) reads 脱敏关: it does not."""
+def input_parts(harness="", provider="", model="", effort="", workspace=""):
+    """The 输入 line's five parts, in the owner's order, none left out: Harness · 供应商 · 模型 ·
+    思考 <budget> · 工作区; one not known reads "—" (the model 默认模型, the budget 思考 默认). The budget is
+    the 思考预算 (推理深度统一叫思考预算; it read 推理 <budget> before, BUDGET_WORD)."""
     workspace = str(workspace or "")
     if len(workspace) > WORKSPACE_CHARS:
         workspace = workspace[:WORKSPACE_CHARS - 1] + "…"
-    flag = "脱敏开" if redaction else "脱敏关"
     effort = BUDGET_WORD + " " + (str(effort or "").strip() or "默认")
-    return [str(part or "").strip() or "—" for part in (harness, provider, model or "默认模型", effort, flag, workspace)]
+    return [str(part or "").strip() or "—" for part in (harness, provider, model or "默认模型", effort, workspace)]
 
 
 def output_parts(snapshot=None, took=None):
@@ -163,14 +162,16 @@ def output_lines(parts, lines=ENDED_LINES) -> list:
 
 
 def input_lines(parts) -> list:
-    """The parts of 输入 (``input_parts``: Harness ｜ 供应商 ｜ 模型 ｜ 思考 ｜ 脱敏 ｜ 工作区) as one line
+    """The parts of 输入 (``input_parts``: Harness ｜ 供应商 ｜ 模型 ｜ 思考 ｜ 工作区) as one line
     (``joined``), the workspace's hyphens no-break ones (U+2011: "demo-" / "app" in a topic's side
-    panel). A part saved by an older release (a job's ``input_parts``, a relay's record) says 推理 <budget>: shown as
-    思考 <budget>."""
+    panel). Parts saved by an older release (a job's ``input_parts``, a relay's record) may say 推理 <budget>: shown as
+    思考 <budget>; and they had 脱敏开/关 before the workspace (OLD_REDACTION, 敏感词脱敏 taken out in T947): left out."""
     parts = [BUDGET_WORD + part[len(OLD_BUDGET_WORD):] if part.startswith(OLD_BUDGET_WORD + " ") else part
              for part in (str(part) for part in parts or ())]
-    if len(parts) >= 6:
-        parts[5:] = [part.replace("-", "\u2011") for part in parts[5:]]
+    if len(parts) >= 6 and parts[4] in OLD_REDACTION:
+        del parts[4]
+    if len(parts) >= 5:
+        parts[4:] = [part.replace("-", "\u2011") for part in parts[4:]]
     return joined(parts)
 
 
@@ -327,7 +328,7 @@ OVER_WORDS = {"管这个专项": "这个专项放不下了，只带标题", "管
 
 def memory_element(notes, topic_id="", job_id="", url=None):
     """The grey lines at the bottom of a turn's answer card (COVEY_MEMORY=1, app/memory_collect.py): one per note of the job
-    record's ``memory_notes`` and ``lead_notes`` ({kind, text, scope, entry_id, title?, code?, redacted?, entry_kind?, review?,
+    record's ``memory_notes`` and ``lead_notes`` ({kind, text, scope, entry_id, title?, code?, entry_kind?, review?,
     by?}), "记下了：<title, else text> · 管这个专项" (a 资料, ``entry_kind`` note, says ``NOTE_WORDS`` after its words; a line of
     the lead's says ``LEAD_LINE``) and a 不对 button that takes it back (``MEMORY_WRONG_KIND``), then with the web page on a 改
     button that opens that entry on the web page's 记忆 (``url`` + ``?code=<the note's short code>``; ``url`` default: the page's

@@ -35,12 +35,10 @@ from covey.app import app as bridge_app
 from covey.app.card_actions import ACTIONS, MOVED_CARDS, card_object
 from covey.app.harness_switch import KINDS as SWITCH_KINDS
 from covey.app.harnesses import components
-from covey.cards.redaction_panel import ROTATE as ROTATE_KIND
 from covey.cards.directory import DIRECTORY_FORM_PREFIX
 from covey.cards.group_manager import KINDS as GROUP_KINDS
 from covey.app.group_menu import KIND as GROUP_MENU_KIND
 from covey.cards.butler_panel import KINDS as BUTLER_PANEL_KINDS
-from covey.cards.redaction_panel import KINDS as REDACTION_KINDS
 from covey.cards.node_panel import KINDS as NODE_PANEL_KINDS
 from covey.cards.memory_panel import KINDS as MEMORY_PANEL_KINDS
 from covey.cards.digest import MEMORY_KIND
@@ -87,7 +85,7 @@ class CardActionTableTest(unittest.TestCase):
     def test_every_topic_kind_names_one_component_method(self):
         # The reverse: BridgeApp hands a topic's click to the method its kind names (card_handler), which takes
         # (ctx, event). The owner's cards the Bridge takes before topic routing name none (app/unified.py).
-        before_routing = PROXY_PANEL_KINDS | GROUP_KINDS | BUTLER_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST, ROTATE_KIND}
+        before_routing = PROXY_PANEL_KINDS | GROUP_KINDS | BUTLER_PANEL_KINDS | SETTINGS_KINDS | {PROXY_RESEND, PROXY_SUGGEST}
         before_routing |= set(extensions.card_kinds())  # An enabled extension's cards (its features claim them).
         before_routing |= {OVERVIEW_DISMISS, OVERVIEW_UNDO}  # 手上的事's 这些都不用回答了 and its 撤销 (app/overview.py).
         before_routing |= BOARD_KINDS  # The 看板's 刷新 and 记为看过 (app/digest.py).
@@ -97,7 +95,6 @@ class CardActionTableTest(unittest.TestCase):
         before_routing |= WEB_LOGIN_KINDS  # 网页登录确认 (app/web_login.py).
         before_routing |= {WELCOME_KIND}  # 发这句 on the welcome card (app/welcome.py).
         before_routing |= {GROUP_MENU_KIND}  # A personal group's menu card (app/group_menu.py).
-        before_routing |= REDACTION_KINDS  # The 设置 card's 脱敏 tab (app/redaction_panel.py).
         before_routing |= NODE_PANEL_KINDS  # The 设置 card's 设备 tab (app/node_panel.py).
         before_routing |= MEMORY_PANEL_KINDS  # The 设置 card's 记忆 tab (app/memory_panel.py).
         before_routing |= set(TIDY_KINDS)  # 整理专项's cards (app/project_tidy.py).
@@ -123,7 +120,7 @@ class CardActionTableTest(unittest.TestCase):
 
 # The kinds the launch card's choices carry (app/model_picker.py), matched before the closed set.
 LAUNCH_KINDS = {launch_config.HARNESS_ACTION, launch_config.PROVIDER_ACTION, launch_config.MODEL_ACTION,
-                launch_config.BUDGET_ACTION, launch_config.WORK_MODE_ACTION, launch_config.REDACTION_ACTION,
+                launch_config.BUDGET_ACTION, launch_config.WORK_MODE_ACTION,
                 launch_config.WORKSPACE_ACTION, launch_config.MODE_ACTION, launch_config.PAGE_ACTION,
                 launch_config.DEVICE_ACTION}
 # Form buttons carry no kind: their name's prefix says whose they are. 开始任务 goes on to its topic's
@@ -1104,44 +1101,20 @@ class AssistExitTest(unittest.TestCase):
             with self.subTest(feature=feature):
                 self.assertIn("assist", (PACKAGE / rel).read_text())
 
-    # WAVE12 W2-D 包 D: every question says whether it carries a redacting topic's words (``redacted``, a keyword without a
-    # default), and one that does is refused at the exit. Read as the AST of the package and of the extensions a release
-    # carries (``gated_sources``), through any alias of the module or of the function.
+    # Every background question goes out through ``assist.ask`` (read as the AST of the package and of the extensions a
+    # release carries, ``gated_sources``, through any alias of the module or of the function). The old ``redacted`` keyword
+    # (a redacting topic's words never went out, WAVE12 W2-D 包 D) is gone with 敏感词脱敏 (T947).
     ASK = {"covey.app.assist": {"ask"}}
 
-    @classmethod
-    def unsaid_redacted(cls, sources):
-        return [f"{rel}:{node.lineno}" for rel, source in sources for _, _, node in module_calls(source, cls.ASK)
-                if not any(keyword.arg == "redacted" for keyword in node.keywords)]
-
-    def test_every_question_says_whether_it_is_a_redacting_topics_and_the_exit_needs_it(self):
+    def test_the_callers_of_the_exit_are_seen_and_it_takes_no_redacted(self):
         from covey.app import assist
-        self.assertEqual(self.unsaid_redacted(gated_sources()), [],
-                         "assist.ask 要显式带 redacted=（脱敏话题的内容不外发，WAVE12 W2-D 包 D）")
         callers = {rel for rel, source in gated_sources() if module_calls(source, self.ASK)}
         self.assertLessEqual({"covey/app/project_sorter.py", "covey/app/memory_learn.py"}, callers)  # The scan sees them.
-        parameter = inspect.signature(assist.ask).parameters["redacted"]
-        self.assertEqual((parameter.kind, parameter.default), (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.empty))
+        self.assertNotIn("redacted", inspect.signature(assist.ask).parameters)
+        self.assertNotIn("redacted", inspect.signature(assist.judge).parameters)
         from covey.core import assist as records
-        self.assertIn("redacted", records.NOT_ASKED)
-        self.assertIn("redacted", records.WORDS)
-
-    def test_a_question_without_redacted_is_caught_through_any_alias(self):
-        sources = [("covey/app/a.py", textwrap.dedent('''
-            from covey.app import assist
-            from covey.app import assist as helper
-            from covey.app.assist import ask as put
-            import covey.app.assist as exit_
-
-            def f(kw):
-                assist.ask("tidy", "s", "d", topics=1, limit=1, cwd=1, redacted=False)
-                assist.ask("tidy", "s", "d", topics=1, limit=1, cwd=1, **kw)
-                helper.ask("tidy", "s", "d", topics=1, limit=1, cwd=1)
-                put("tidy", "s", "d", topics=1, limit=1, cwd=1)
-                exit_.ask("tidy", "s", "d", topics=1, limit=1, cwd=1, redacted=True)
-                other.ask("tidy")
-        '''))]
-        self.assertEqual(self.unsaid_redacted(sources), ["covey/app/a.py:9", "covey/app/a.py:10", "covey/app/a.py:11"])
+        self.assertNotIn("redacted", records.NOT_ASKED)
+        self.assertNotIn("redacted", records.WORDS)
 
 
 # WAVE12 C11 gates G6 and G9 (W1-0 sets them up with every caller of today listed; W1-D and W1-B take the lists down). A

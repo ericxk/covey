@@ -52,7 +52,6 @@ from covey.core.harness import backend_capabilities
 from covey.core.jobs import job_key, job_path, read_job_record
 from covey.core.locks import LOCK
 from covey.core.butler import is_butler_topic, butler_topic_id, mcp_config
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.state import read_object, write_json
 from covey.core.session_state import capture_session_state, compare_and_set_session
 from covey.core.status_line import step_text
@@ -261,7 +260,7 @@ class Butler:
         return contract.traits(butler_topic_id(chat), chat).hold_seconds
 
     def keep_topic(self, ctx, app, chat) -> str:
-        """The topic.json as the settings say: created on the first message. A new model, budget or 脱敏 applies to
+        """The topic.json as the settings say: created on the first message. A new model or budget applies to
         the next turn. Another Harness (``app``, the settings') applies once nothing runs, on a new session (Claude
         Code finds a session by its directory; another Harness has a session of its own; the topic's history goes with
         the new session's first message). Where it runs is set once: a new butler starts in the home
@@ -282,18 +281,13 @@ class Butler:
                 "harness_id": app.spec.name, "binding_revision": 1, "workspace_locked": True, "harness_locked": True,
                 "model_settings_snapshot": True, "workspace_name": name, "workdir": workdir}),
                     "model": model, "effort": effort}
-            # 脱敏 from the next turn, as 换配置 turns a topic's (app/binding.py set_redaction).
-            if settings.redaction:
-                data[REDACTION_KEY] = True
-            else:
-                data.pop(REDACTION_KEY, None)
             return data
         return self.write_topic(ctx, app, topic_id, name, workdir, build)
 
     def keep_track_topic(self, ctx, app, chat, slot) -> str:
         """The topic.json of track ``slot`` (1..SLOTS, core/butler_tracks.py), created or brought up to date: slot 0's
         (``keep_topic`` first, so it is current) with the settings as they are, ``track: slot`` and its own id. The
-        track has no setting of its own: a new model, effort, workspace or 脱敏 of the butler reaches it here,
+        track has no setting of its own: a new model, effort, workspace of the butler reaches it here,
         a new workspace once nothing runs in it (``write_topic``). Its topic id."""
         if type(slot) is not int or not 1 <= slot <= butler_tracks.SLOTS:
             raise ValueError(f"track slot {slot!r} is not 1..{butler_tracks.SLOTS}")

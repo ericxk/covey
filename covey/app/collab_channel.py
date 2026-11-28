@@ -25,7 +25,6 @@ from covey.core.harness import backend_capabilities
 from covey.core.history_storage import recent_history
 from covey.core.jobs import topic_job_records, upsert_job_record
 from covey.core.locks import LOCK
-from covey.core.redaction import topic_redaction
 from covey.core.session_state import capture_session_state, compare_and_set_session, read_session_id
 from covey.core.state import read_json, read_object, write_json
 from covey.core.statuses import RUNNING
@@ -34,8 +33,7 @@ from covey.core.topics import read_topic, topic_file
 
 FIELD = "collab_channel"  # A channel's topic.json: {collab, helper, integrator, opened_at}.
 # The helper's binding the channel takes (app/forks.py takes the same of a fork's source).
-BINDING = ("harness_id", "model", "effort", "model_settings_snapshot", "work_mode", "workspace_name", "workdir",
-           "redaction")
+BINDING = ("harness_id", "model", "effort", "model_settings_snapshot", "work_mode", "workspace_name", "workdir")
 EVIDENCE = "collab_evidence"  # The ask's turn's record: what its answer stands on.
 RECORD_ONLY = "collab_record_only"  # A channel's turn's option: it starts from the helper's record, not its session.
 SNAPSHOT_CHARS = 6000  # Of the butler's snapshot or a lead's pack given to a consult of it.
@@ -71,8 +69,6 @@ def open_channel(state, chat, record, helper, root, *, refresh=False) -> str:
                 "harness_locked": True,
                 FIELD: {"collab": record["id"], "helper": helper, "integrator": (record.get("integrator") or {}).get("key", ""),
                         "opened_at": time.time()}}
-        if "redaction" not in source:
-            data.pop("redaction", None)
         write_json(path, data, ensure_ascii=False, indent=2)
     return channel
 
@@ -192,7 +188,7 @@ def read_only_view(ctx, chat, helper, role, *, log=lambda _: None) -> str:
             record = projects.read_record(state, found.id) if found is not None else {}
             if not record:
                 return ""
-            text = project_lead.read_only_pack(state, record, redacted=topic_redaction(state, helper))
+            text = project_lead.read_only_pack(state, record)
             return cut(text, SNAPSHOT_CHARS)
     except Exception as exc:  # noqa: BLE001 - the ask goes without it
         log(f"collab read-only view unavailable role={role}: {type(exc).__name__}")

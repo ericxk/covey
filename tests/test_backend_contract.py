@@ -468,9 +468,9 @@ class HarnessContractTests(unittest.TestCase):
             self.assertEqual(len(events), 2)
         claude = ClaudeBackend().capabilities(SimpleNamespace(model="claude/opus"))
         self.assertEqual((claude.image_bytes, claude.image_frame), (MAX_IMAGE_BYTES, 8 * 1024 * 1024 - 4096))
-        # Claude Code's own models take questions, steering, forks and redaction.
-        self.assertTrue(claude.questions and claude.steering and claude.native_fork
-                        and claude.redaction)
+        # Claude Code's own models take questions, steering and forks.
+        self.assertTrue(claude.questions and claude.steering and claude.native_fork)
+        self.assertFalse(hasattr(claude, "redaction"))  # 敏感词脱敏 was taken out (T947).
 
     def test_quoted_and_forwarded_images_use_native_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:

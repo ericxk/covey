@@ -68,7 +68,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 - **长活有人负责到底。** 跨几天、要几个话题配合的事交给专项：一个负责人话题拆活、派话题、跟进、汇报。话题里的选择题先由它过一遍，专项停住了发卡问你继续、收尾还是停。话题多了，整理专项会提议“建个专项？”，你点了才建。
 - **记得住你说的，也分得清是谁说的。** 你说过的长期要求、让它“记一下”的事、专项里定下的约定，合成一块记忆跟着每一轮走。每条写明管哪儿、是你说的还是它总结的；记错了，在答案卡上点「不对」。
 - **换模型不用重开。** 一个机器人接 Claude Code、Codex、Antigravity 和 DeepSeek Harness（dsh）；管家和专项负责人能跑在前三个里的任一个上，不绑死某一家。话题聊到一半可以换 Harness、模型或工作区，接着聊。
-- **就在飞书里，也敢放进公司。** 不用另装 App：手机、电脑、网页上的飞书都能用，扫一次码就装好。机器人只服务你一个人；群要你在私聊里确认才启用，还能设成群成员只读。敏感词在请求离开本机前换成替身词（Claude 的模型）；遇到官方拒绝就停下，不硬试。
+- **就在飞书里，也敢放进公司。** 不用另装 App：手机、电脑、网页上的飞书都能用，扫一次码就装好。机器人只服务你一个人；群要你在私聊里确认才启用，还能设成群成员只读。遇到官方拒绝就停下，不硬试。
 
 ### 和别的做法不一样在哪
 
@@ -87,7 +87,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 </table>
 
 <details>
-<summary>还有 5 张：停住了、换配置、看板、启动卡、脱敏</summary>
+<summary>还有 4 张：停住了、换配置、看板、启动卡</summary>
 
 <table>
 <tr>
@@ -96,11 +96,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 </tr>
 <tr>
 <td width="50%"><img src="docs/media/screenshots/09-board.png" width="100%" alt="看板：要你处理几件事，等你、停住了、有结果、专项"><br><sub>看板：要你处理几件事、先看哪件</sub></td>
-<td width="50%"><img src="docs/media/screenshots/04-launch-card.png" width="100%" alt="启动卡：选模型、思考预算、脱敏、工作区和运行方式"><br><sub>启动卡：没有管家时，每个新话题先选模型和工作区</sub></td>
-</tr>
-<tr>
-<td width="50%"><img src="docs/media/screenshots/05-settings-redaction.png" width="100%" alt="设置卡的脱敏页：填词即可，替身词自动生成"><br><sub>设置卡的「脱敏」页：填词即可，替身词自动生成</sub></td>
-<td width="50%"></td>
+<td width="50%"><img src="docs/media/screenshots/04-launch-card.png" width="100%" alt="启动卡：选模型、思考预算、工作区和运行方式"><br><sub>启动卡：没有管家时，每个新话题先选模型和工作区</sub></td>
 </tr>
 </table>
 

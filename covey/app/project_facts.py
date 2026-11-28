@@ -166,7 +166,7 @@ def memory_listing(state_dir, record) -> tuple:
     projects/<id>/memory.json and what an older release kept in the record; a deleted entry and the style line are not rows."""
     live = project_memory.live(state_dir, record, style=False)
     used = memory_usage.last_used(state_dir) if memory.learning() else None
-    found = [item for item in memory.items(project=live, project_id=str(record.get("id") or ""), redacted=True, used=used)
+    found = [item for item in memory.items(project=live, project_id=str(record.get("id") or ""), used=used)
              if item.get("layer") != memory.HISTORY]
     texts = {row["id"]: row["text"] for row in live}
     found.sort(key=lambda item: (-memory.seen(item), item["ref"]))

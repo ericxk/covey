@@ -28,7 +28,7 @@ from covey.core import extensions, knowledge, memory, nodes, project_proposals, 
 from covey.core import butler_settings, butler_tracks
 
 OWNER_ONLY = '⚠️ 仅机器人主人可以看这一页。'
-CLAUDE = "claude"  # The Harness redaction and 回退 need (the butler and the small model's judgments run on others too).
+CLAUDE = "claude"  # The Harness 回退 needs (the butler and the small model's judgments run on others too).
 WORK, SAFE, SEE = "work", "safe", "see"
 GROUPS = ((WORK, "交给它办事"), (SAFE, "不断、不丢"), (SEE, "看得全、记得住"))
 
@@ -138,12 +138,6 @@ def _steer(probe):
     return False, "设回 COVEY_TOPIC_STEER=1（现在排成下一轮）", deliveries.TOPIC_STEER
 
 
-def _redaction(probe):
-    if CLAUDE in probe.apps:
-        return True, "词表在「脱敏」，话题开了才替换", ""
-    return False, "要 Claude Code：这台机器没启用它", ""
-
-
 def _nodes(probe):
     if nodes.enabled():
         return True, "", nodes.LISTEN_ENV
@@ -228,7 +222,6 @@ FEATURES = (
     ("限流后自动继续", SAFE, "碰上限流或临时故障，到点自动接着做，任务卡上写着几点继续", _retry),
     ("撤回和编辑跟着变", SAFE, "撤回一条消息，它开的任务跟着停；编辑了，任务收到改后的话", _source_watch),
     ("在跑时补一句", SAFE, "任务在跑时在话题里补一句，直接送进去，不另开一轮", _steer),
-    ("敏感词脱敏", SAFE, "发给模型服务前换掉词表里的词，只支持 Claude 的模型", _redaction),
     ("设备与机器状况", SAFE, "设备连进来报机器状况，内存紧、盘满、失联会告警", _nodes),
     ("看板", SEE, "菜单「看板」随时看等你、停住了、在做的事", _always),
     ("早晚汇总", SEE, "到点在私聊发一张汇总卡", _digest),

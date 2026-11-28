@@ -472,8 +472,6 @@ class AfterTurnTest(Case):
         job = self.turn()
         record = find_job_record(self.state, job.message_id)
         self.assertEqual(memory_learn.reason_to_skip(self.runtime, self.ctx, job, record, {}), "")
-        with mock.patch("covey.app.memory_learn.topic_redaction", return_value=True):
-            self.assertEqual(memory_learn.reason_to_skip(self.runtime, self.ctx, job, record, {}), "redacted")
 
     def test_a_turn_is_handed_to_the_learner_once(self):
         job = self.turn()

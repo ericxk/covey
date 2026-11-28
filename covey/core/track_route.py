@@ -17,8 +17,7 @@ order, and answers a ``Decision(action, target, why)``; the first rule that matc
 7. no quote, only attachments or a link (``bare``): ``merge`` into the newest track;
 8. no quote, the newest track's last owner message is less than CORRECTION_SECONDS old and the text starts with a
    CORRECTION_PREFIXES word: ``merge`` into the newest track;
-9. the rest: ``ask_judge`` (app/track_judge.py asks a small model); with ``judge`` false (switch off, the topic
-   redacts, no model) it is ``new``.
+9. the rest: ``ask_judge`` (app/track_judge.py asks a small model); with ``judge`` false (switch off, no model) it is ``new``.
 
 Who a quote points at is the caller's work (app/butler_tracks.py reads the topic aliases and the supplement delivery
 records); this module reads no file and calls no interface. A quote it cannot place (``unknown``) skips rules 3 to 8:
@@ -105,7 +104,7 @@ class Quote:
 class Message:
     """What the caller assembles for ``route``. ``live`` is the family's tasks that have not ended, in any order;
     ``now`` epoch seconds; ``bare`` the message is only a forward, images, files or a link (core/butler.py
-    bare_message); ``judge`` whether a small model may be asked (the judge switch, no redaction, a model to call)."""
+    bare_message); ``judge`` whether a small model may be asked (the judge switch, a model to call)."""
 
     text: str
     live: tuple[LiveJob, ...] = ()

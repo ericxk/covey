@@ -1,13 +1,15 @@
 """The 设置 card: the bot menu's 设置 (event key MENU_KEY) puts the butler's settings on one page, 配置
-(app/butler_panel.py), the home and the repository map, read only (app/workspace_manager.py), the redaction term
-list (app/redaction_panel.py), the 群聊 (app/group_manager.py), with COVEY_MEMORY=1 the 记忆 (app/memory_panel.py), with
+(app/butler_panel.py), the home and the repository map, read only (app/workspace_manager.py), the 群聊
+(app/group_manager.py), with COVEY_MEMORY=1 the 记忆 (app/memory_panel.py), with
 nodes the 设备 (app/node_panel.py) and the 诊断 (app/doctor_panel.py, service/doctor.py's
 report, read-only, with the 能做什么 part of app/about_panel.py under it) panels on one card in the owner's private chat, a tab row on top (cards/settings_hub.py: 配置 ·
-仓库 · 脱敏 · 群聊 · 记忆 · 设备 · 诊断).
+仓库 · 群聊 · 记忆 · 设备 · 诊断).
 代答 is the bot menu's own item again; a record an older card left on its tab is still drawn
 there (app/proxy_panel.py). A tab turns the same card to the other panel in place: no new message, no recall. The page 其他 is
 retired: an older card's tab click on it, or a record still on it, lands on 仓库 (cards/settings_hub.py
 RETIRED), as the older 工作区 tab does; the buttons of both are answered 已下线 (app/butler_panel.py, app/workspace_manager.py).
+The 脱敏 tab went with 敏感词脱敏 (T947): an older card's tab click on it, or a record still on it, lands on 配置; its
+buttons are answered 已下线 (app/card_actions.py MOVED_CARDS).
 
 One record owns the card: <state>/settings-cards/<token>.json (app/menu_panel.py HUB_FOLDER), with its card_id,
 message_id and sequence, the tab it shows (``tab``) and that tab's view (``view``, ``hub`` in it: the panel draws the
@@ -54,7 +56,7 @@ from covey.app.menu_panel import FOLDED, HUB_FOLDER, HUB_LOCK, MOVED, OPEN, Menu
 from covey.app.proxy_panel import EXPIRED
 from covey.cards.butler_panel import BUTLER_PART
 from covey.cards.settings_hub import (CONFIG, DOCTOR, GROUPS, KINDS, LABELS, BUTLER_PAGES, MEMORY, NODES, PROXY,
-                                      REDACTION, REPOS, WORKSPACE, folded_hub, successor)
+                                      REPOS, WORKSPACE, folded_hub, successor)
 from covey.core import butler
 from covey.core.state import read_json
 
@@ -68,21 +70,19 @@ TURNS = 8  # The last tab clicks' event_ids the record keeps.
 
 
 class SettingsHub:
-    def __init__(self, runtime, messenger, voice, main, proxy, groups, workspaces, redaction, nodes=None, doctor=None, *,
-                 topics):
-        """``main``, ``workspaces``, ``redaction``, ``proxy``, ``groups``: the ButlerPanel (its two pages),
-        WorkspaceManager (the 仓库 tab, also under the retired 工作区 key for the web page), RedactionPanel, ProxyPanel and GroupManager
+    def __init__(self, runtime, messenger, voice, main, proxy, groups, workspaces, nodes=None, doctor=None, *, topics):
+        """``main``, ``workspaces``, ``proxy``, ``groups``: the ButlerPanel (its two pages),
+        WorkspaceManager (the 仓库 tab, also under the retired 工作区 key for the web page), ProxyPanel and GroupManager
         the tabs show; ``doctor`` the 诊断 tab's (a DoctorPanel of its own by default). A butler button on a card whose
         record is still on the retired 工作区 tab redraws it through the WorkspaceManager (ButlerPanel.pages). ``topics``: the Bridge's Topics, whose Harnesses the 能做什么 part of 诊断 names. The
         记忆 tab (``memory``, its clicks app/unified.py PANELS's) and 能做什么 part are made here."""
         self.runtime, self.messenger, self.voice = runtime, messenger, voice
         self.memory = MemoryPanel(runtime, messenger, voice)
         self.about = AboutPanel(runtime, messenger, voice, topics)
-        self.panels = {**dict.fromkeys(BUTLER_PAGES, main), REPOS: workspaces, WORKSPACE: workspaces, REDACTION: redaction, PROXY: proxy,
+        self.panels = {**dict.fromkeys(BUTLER_PAGES, main), REPOS: workspaces, WORKSPACE: workspaces, PROXY: proxy,
                        GROUPS: groups, MEMORY: self.memory, **({NODES: nodes} if nodes is not None else {}),
                        DOCTOR: doctor or DoctorPanel(runtime, messenger, voice, about=self.about)}
         main.pages[REPOS] = workspaces.tab_card
-        self.redaction = redaction
         self.recalls = Panels(runtime, messenger)
         self.menu = MenuPanel(self, KIND, HUB_FOLDER, HUB_LOCK)
 

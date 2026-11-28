@@ -30,7 +30,7 @@ class ProposalCards:
     def choices(self, ctx, chat, topics) -> list:
         """What the proposal card's topic select offers: ``topics`` ticked, then the recent others (CHOICES in all)."""
         state, now = Path(ctx.state_dir), time.time()
-        others = [topic for topic in facts.recent_topics(state, chat, now) if topic not in topics and not sorter.hidden(state, topic)]
+        others = [topic for topic in facts.recent_topics(state, chat, now) if topic not in topics]
         found = []
         for topic in [*topics, *others][:CHOICES]:
             label, title = label_title(state, topic)
@@ -260,8 +260,8 @@ class ProposalCards:
         """The 话题要点 of each of ``topics`` that has none, so its proposal card says what each is about (one read a topic;
         one that cannot be read keeps its title on the card)."""
         state, now = Path(ctx.state_dir), time.time()
-        missing = [topic for topic in topics if not sorter.hidden(state, topic)
-                   and sorter.needs_gist(state, topic, sorter.material(state, chat, topic, now).last_job)]
+        missing = [topic for topic in topics
+                   if sorter.needs_gist(state, topic, sorter.material(state, chat, topic, now).last_job)]
         if not missing:
             return
         from covey.app import assist

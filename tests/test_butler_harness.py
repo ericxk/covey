@@ -22,7 +22,6 @@ from covey.backends.codex import appserver
 from covey.backends.codex.bridge import CodexBackend
 from covey.core import butler_settings
 from covey.core.harness import (CONSULT, LEAD, LOOK, LOOK_ROOTS, READ, TOOL_LIMIT, HarnessCapabilities, backend_capabilities)
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 
 BRIDGE_TOOLS = {"mcpServers": {"bridge": {"command": "python3", "args": ["mcp.py"], "env": {"K": "v"}}}}
 
@@ -84,10 +83,10 @@ class ChoiceTest(Case):
         self.assertIs(butler_harness.drawn(named, {"codex": app("codex")}), named)
 
     def test_what_its_topic_json_will_say_before_its_first_message(self):
-        butler_settings.update(self.state, harness="codex", model="gpt-x", effort="low", redaction=True)
+        butler_settings.update(self.state, harness="codex", model="gpt-x", effort="low")
         data = butler_harness.unwritten_topic(self.state, {"codex": app("codex", workdir=str(self.root / "work"))})
         self.assertEqual(data, {"harness_id": "codex", "model": "gpt-x", "effort": "low", "workspace_name": "work",
-                                "workdir": str((self.root / "work").resolve()), REDACTION_KEY: True})
+                                "workdir": str((self.root / "work").resolve())})
         self.assertEqual(butler_harness.unwritten_topic(self.state, {"dsh": app("dsh", tools=False)}), {})
 
     def test_a_model_saved_with_no_harness_named_is_claude_codes_and_a_fallback_runs_its_own_default(self):

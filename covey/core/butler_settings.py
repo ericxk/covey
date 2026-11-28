@@ -6,7 +6,8 @@ core/butler.py ``agent_mode``, the one rule every process (task runners, the MCP
 A topic the butler opens always starts at once (its only wait is a worktree's launch card). The settings 直接开工
 (``start``) and 记住的工作区 (``trusted``) that decided it are retired (docs/legacy.md): a file that still has them
 loads, they are not read and not written back. 独立复核 is retired too (docs/legacy.md): its model (``review``) is not
-read, and a write keeps what the file has (``KEPT``) so an older release goes on reading it.
+read, and a write keeps what the file has (``KEPT``) so an older release goes on reading it. So is 敏感词脱敏: ``redaction``
+and ``topic_defaults.redaction`` are not read, and a write keeps them as the file has them (``KEPT``, ``KEPT_TOPIC``).
 """
 from __future__ import annotations
 
@@ -35,7 +36,6 @@ class TopicDefaults:
     model: str = ""
     effort: str = ""
     run_mode: str = "direct"
-    redaction: bool = False
     workspace: str = ""  # "" the butler picks one; else always this workspace.
 
 
@@ -43,8 +43,7 @@ class TopicDefaults:
 class LeadModel:
     """What a new project's lead (core/projects.py, COVEY_PROJECTS=1) runs on, set on the 设置 card's 配置, 专项负责人: ""
     harness follows the butler (its Harness, model and budget as they are when the project is made); else this Harness's
-    ``model`` with ``effort`` while it can run a lead (enabled, takes the Bridge's tools, and redacts where the butler
-    does), the butler's otherwise (app/lead_harness.py). A lead that is there keeps its own: 换配置 on the 专项卡 changes it."""
+    ``model`` with ``effort`` while it can run a lead (enabled, takes the Bridge's tools), the butler's otherwise (app/lead_harness.py). A lead that is there keeps its own: 换配置 on the 专项卡 changes it."""
     harness: str = ""
     model: str = ""
     effort: str = ""
@@ -76,9 +75,6 @@ class Settings:
     harness: str = ""
     model: str = ""
     effort: str = ""
-    # Its own turns through the term relay (core/redaction.py), from the next one: app/butler.py keep_topic
-    # writes it into its topic.json, which the relay reads. Each request goes through whole, so the session goes on.
-    redaction: bool = False
     workspace: str = ""  # Where the butler runs; "" the default workspace.
     compact_tokens: int = COMPACT_TOKENS  # Its context is compacted between turns past this; 0 never.
     topic_defaults: TopicDefaults = TopicDefaults()
@@ -125,13 +121,13 @@ def from_json(data) -> Settings:
     harness, model, effort = _choice(data)
     return Settings(
         enabled=contract.agent_mode(data),
-        harness=harness, model=model, effort=effort, redaction=data.get("redaction") is True,
+        harness=harness, model=model, effort=effort,
         workspace=_text(data.get("workspace")),
         compact_tokens=compact if type(compact) is int and compact >= 0 else base.compact_tokens,
         topic_defaults=TopicDefaults(
             **dict(zip(("harness", "model", "effort"), _choice(topic))),
             run_mode=run_mode if run_mode in RUN_MODES else "direct",
-            redaction=topic.get("redaction") is True, workspace=_text(topic.get("workspace"))),
+            workspace=_text(topic.get("workspace"))),
         workspace_notes=tuple((str(k), str(v)) for k, v in notes.items() if isinstance(v, str))
         if isinstance(notes, dict) else (),
         subagents=data["subagents"] if data.get("subagents") in SUBAGENTS else base.subagents,
@@ -183,15 +179,24 @@ def _for_write(state_dir) -> dict:
 
 
 # Keys of retired settings no Settings field reads, written back as the file has them so an older release goes on
-# reading what it wrote: desk_topics (front-desk topics) and review (独立复核's model).
-KEPT = ("desk_topics", "review")
+# reading what it wrote: desk_topics (front-desk topics), review (独立复核's model) and redaction (敏感词脱敏 of the butler).
+KEPT = ("desk_topics", "review", "redaction")
+KEPT_TOPIC = ("redaction",)  # The same inside topic_defaults (敏感词脱敏 of the topics it opens).
+
+
+def _topic_kept(out: dict, data: dict) -> dict:
+    """``out`` with the KEPT_TOPIC keys of ``data``'s topic_defaults put back into its own (rewritten whole)."""
+    old = data.get("topic_defaults")
+    if isinstance(old, dict) and isinstance(out.get("topic_defaults"), dict):
+        out = {**out, "topic_defaults": {**{key: old[key] for key in KEPT_TOPIC if key in old}, **out["topic_defaults"]}}
+    return out
 
 
 def _write(state_dir, settings: Settings, data: dict) -> None:
     """``settings`` written, under the caller's lock, with the KEPT keys as the file has them (``data``, read by
     ``_for_write``; not Settings fields): an older release goes on reading what it wrote."""
     kept = {key: value for key, value in data.items() if key in KEPT}
-    write_json(path(state_dir), {**kept, **to_json(settings)}, ensure_ascii=False, indent=1)
+    write_json(path(state_dir), _topic_kept({**kept, **to_json(settings)}, data), ensure_ascii=False, indent=1)
 
 
 # Called after every write of the settings with (state directory, the settings before, after), outside the lock: what
@@ -237,17 +242,6 @@ def update(state_dir, **changes) -> Settings:
     return settings
 
 
-def merge_topic_defaults(state_dir, **fields) -> None:
-    """``fields`` of topic_defaults written as they are, the rest of the file left as it is (no field it lacks, the mode
-    least of all: ``settle_mode`` writes that), for a migration (core/migrate.py redaction-default)."""
-    with resource_lock("main-thread-settings", str(path(state_dir))):
-        data = _for_write(state_dir)
-        topic = data.get("topic_defaults") if isinstance(data.get("topic_defaults"), dict) else {}
-        write_json(path(state_dir), {**data, "topic_defaults": {**topic, **fields}}, ensure_ascii=False, indent=1)
-    contract.forget_mode()
-    _told(state_dir, None, None)
-
-
 def preset_harness(state_dir, harness) -> bool:
     """The butler's Harness written into a settings file that names none yet, the rest of the file left as it is (no mode:
     ``settle_mode`` writes that at the Bridge's first start, 管家 for a new deployment): what ./install does for a new service
@@ -280,7 +274,7 @@ def settle_mode(state_dir):
         if data.get("mode") in contract.MODES:
             return None
         settings = dataclasses.replace(from_json(data), enabled=_fresh(state_dir) or contract.agent_mode(data))
-        write_json(path(state_dir), {**data, **to_json(settings)}, ensure_ascii=False, indent=1)
+        write_json(path(state_dir), _topic_kept({**data, **to_json(settings)}, data), ensure_ascii=False, indent=1)
     contract.forget_mode()
     _told(state_dir, None, None)
     return contract.AGENT if settings.enabled else contract.TOPICS

@@ -58,27 +58,6 @@ class CacheAccountingTests(unittest.TestCase):
    self.assertIsNone(task_details_panel(job,usage),usage)
   self.assertEqual(task_details_text(NS(job_id=3,model='test',timeout=600),None),'超时：600s')
   self.assertIsNone(task_details_panel(NS(job_id=3,model='test',timeout=600),None))  # On no card (2026-11-22).
- def test_a_redacted_turn_says_how_many_replacements_without_the_terms(self):
-  import json
-  from covey.app.interaction import Interaction
-  queued=[]
-  app=NS(cards=NS(queue_trace=lambda *a:queued.append(a)))
-  job=make_job(message_id='job',timings={})
-  Interaction._dispatch_structured_event(app,NS(state_dir=Path('/nonexistent')),job,'redaction',
-      {'terms':3,'hits':1234,'requests':2},None)
-  self.assertEqual(len(queued),1)  # Through the process record, as token usage goes.
-  snapshot=json.loads(json.dumps(job.tool_trace.snapshot()))
-  self.assertEqual(snapshot['redaction'],{'terms':3,'hits':1234,'requests':2})
-  def details(usage):return task_details_text(NS(job_id=3,model='test',timeout=0),usage)
-  restored=ToolTrace.restore(snapshot).snapshot()
-  self.assertIn('敏感词脱敏：本轮替换 1,234 处（词表 3 个词）',details(restored))  # 脱敏开 is the box's.
-  empty=task_trace();empty.accept('redaction',{'terms':0,'hits':0,'requests':1})
-  self.assertIn('敏感词脱敏：词表为空，未替换',details(empty.snapshot()))
-  # Not a redacted turn, or counts that are not counts: no line, and nothing kept.
-  for bad in ({},{'terms':2,'hits':-1,'requests':1},{'terms':'2','hits':1,'requests':1},{'terms':True,'hits':1,'requests':1}):
-   t=task_trace();self.assertFalse(t.accept('redaction',bad))
-   self.assertNotIn('redaction',t.snapshot());self.assertNotIn('敏感词',details(t.snapshot()))
-  self.assertNotIn('敏感词',details(None))
  def test_trace_refresh_uses_separate_queue_and_terminal_is_immediate(self):
   from support.world import build_claude_app
   app=build_claude_app()
@@ -93,7 +72,7 @@ class CacheAccountingTests(unittest.TestCase):
   app=build_claude_app()
   progress=NS(card_id='card',element_id='answer',sequence=1,update_failures=0)
   job=make_job(job_id=3,model='test',timeout=0,message_id='message',progress=progress)
-  panel=build_collapsible_markdown_panel('task_details','任务详情',task_details_text(job,{'redaction':{'terms':3,'hits':1,'requests':1}}),
+  panel=build_collapsible_markdown_panel('task_details','任务详情','超时：600s',
                                          'task_details_text')  # A card sent before 2026-11-22 has one.
   with FakeCardKit({}) as lark:
    self.assertTrue(app.cards.set_task_element(NS(profile='test'),job,panel))

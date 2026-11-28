@@ -284,7 +284,7 @@ class StatusLineTest(unittest.TestCase):
 
 
 class AnswerCardTest(unittest.TestCase):
-    inputs = ("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", "脱敏关", "repo")
+    inputs = ("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", "repo")
     outputs = ("用时 1分", "**69** token/s")
 
     change = {"commit": "951327a0c1d2e3f4a5b6 a6bc148d38ce8c230e96e", "deployed": "第 331 代，" + "部" * 300,

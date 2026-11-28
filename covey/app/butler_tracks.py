@@ -36,7 +36,6 @@ from covey.core.deliveries import delivery_path, read_delivery
 from covey.core.harness import backend_capabilities
 from covey.core.history_storage import recent_history
 from covey.core.jobs import JOB_STOP_ACTION_KIND
-from covey.core.redaction import topic_redaction
 from covey.core.session_state import capture_session_state, compare_and_set_session, read_session_id
 from covey.core.state import epoch_seconds, read_object
 from covey.core.store import directory_store
@@ -188,13 +187,8 @@ class Tracks:
                     return route.Decision(route.MERGE, held[0], "bare", target.live.job_id)
         if decision.action != route.ASK_JUDGE:
             return decision
-        redacted = False
-        try:
-            redacted = topic_redaction(ctx.state_dir, core.root_topic_id(chat))
-        except ValueError:
-            redacted = True
         # The 辅助模型's Harness (app/assist.py): one try, a new track on any failure.
-        verdict = assist.judge(message, topics=self.main.topics, redacted=redacted, log=self.runtime.log)
+        verdict = assist.judge(message, topics=self.main.topics, log=self.runtime.log)
         if verdict.route == "merge" and verdict.target is not None:
             fresh = self.entries(ctx, chat, now)  # The model took a while: the task may have ended meanwhile.
             target = self.newest_of(fresh, verdict.target)

@@ -3,7 +3,7 @@
 launch_selection is app/launch.py build_launch_card's order of preference (the binding, the chat's last launch,
 its latest selection, then what the 设置 card's 新话题 page names, the card's own draft, then what the menu still
 offers; a budget the 新话题 page names comes before the chat's usual one); switch_selection is
-app/harness_switch.py HarnessSwitch.open's (the topic's binding, what a redacting topic may keep, the chat's
+app/harness_switch.py HarnessSwitch.open's (the topic's binding, the chat's
 usual budgets). The callers read the catalog, the chat's selections, the saved launch and the workspace list,
 and write the form record and the card from the result. The two stay apart: the cards differ on purpose, and
 their clicks (launch.py, harness_switch.py) are reduced separately.
@@ -16,7 +16,6 @@ from covey.app import model_usage
 from covey.core.menu_choice import (NATIVE, default_entry, effort_options, explicit, find_choice, harness_of,
                                     named_budget, preset_choice, work_modes)
 from covey.core.defaults import RECOMMENDED
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 
 
 class LaunchSelection(NamedTuple):
@@ -148,7 +147,6 @@ class SwitchSelection(NamedTuple):
     selected: str  # The preselected menu entry.
     effort: str  # Its budget option.
     usual: dict  # Menu entry → the budget option the chat usually gives it, where it has one.
-    redacting: bool
     workspace: str
     names: list  # The workspace select's options, the topic's first when the config no longer lists it.
 
@@ -160,15 +158,12 @@ def switch_selection(choices, usage, topic, names):
     # A topic bound to a budget preset shows its model, with that preset's budget.
     key, budget = preset_choice(choices, topic["harness_id"], model) or (
         topic["harness_id"] + ":" + model, topic.get("effort") or "")
-    redacting = topic.get(REDACTION_KEY) is True
     # The topic's model first, then the ones the chat chose most lately (app/model_usage.py); a model
     # chosen here starts from the budget the chat usually gives it.
     choices = model_usage.ranked(choices, usage, key)
     usual = {name: model_usage.usual_effort(usage, name, dict(effort_options(entry)[0])) for name, entry in choices.items()}
     usual = {name: named_budget(choices[name], value) for name, value in usual.items() if value}
-    # A redacting topic preselects a model that keeps redacting (switch_topic refuses any other).
-    offered = [name for name, entry in choices.items() if entry.get("redaction") or not redacting]
-    selected = key if key in offered else next(iter(offered), next(iter(choices)))
+    selected = key if key in choices else next(iter(choices))
     options, default_effort = effort_options(choices[selected])
     effort = budget if selected == key and budget in dict(options) else usual.get(selected) or default_effort
     # By the level it runs (docs/ui.md 13 U5); the topic's own budget as it is bound.
@@ -176,4 +171,4 @@ def switch_selection(choices, usage, topic, names):
         effort = named_budget(choices[selected], effort)
     workspace = topic.get("workspace_name") or str(topic.get("workdir") or "")
     names = names if workspace in names else [workspace, *names]
-    return SwitchSelection(choices, key, selected, effort, usual, redacting, workspace, names)
+    return SwitchSelection(choices, key, selected, effort, usual, workspace, names)

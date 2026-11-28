@@ -68,7 +68,7 @@
 | `current_question` | 卡上的问题 |
 | `action_row` | 按钮行：补充（`primary`，`steer_action`；排队卡上写“现在补给 #N”，任务开始后改回“补充”）、停止（`danger`） |
 
-- “输入”六段：Harness ｜ 供应商 ｜ 模型 ｜ 思考 ｜ 脱敏 ｜ 工作区（`input_lines`），来自建卡时存的 `job.input_parts`（`answer_cards.inputs`，同答案卡；`CARD_FACTS` 带它，替换卡不丢）。
+- “输入”五段：Harness ｜ 供应商 ｜ 模型 ｜ 思考 ｜ 工作区（`input_lines`），来自建卡时存的 `job.input_parts`（`answer_cards.inputs`，同答案卡；`CARD_FACTS` 带它，替换卡不丢）。
 - “输出”运行中写 开始 ｜ 已运行 ｜ token ｜ token/s ｜ 上下文（`running_figures`、`with_ran`，顺序 `RUNNING_LINES`），结束后写 用时 ｜ token/s ｜ token ｜ 缓存命中（`output_parts`、`output_lines`），还没有数字时是“—”。没开始处理就结束的（排队中取消）照结束写，也是“—”。
 - 段间是灰色的“｜”（`SEPARATOR`），段内不断行（`unbroken`），窄屏只在“｜”后折行。
 - 话题里各卡的按钮都用 `cards/elements.py` 的 `button_look`（带边框、`small`、宽度跟着文字）；菜单面板用 `text_button`。停止按钮不带 `confirm`（见[卡片的客户端限制](#卡片的客户端限制)）。
@@ -167,14 +167,13 @@
 | 控制器 | 管什么 | 按钮名或 kind | outcome |
 |---|---|---|---|
 | `WorkspaceManager` | 工作区管理卡、启动卡的“添加或管理工作区”、管理卡打开的目录浏览页 | `bridge_wsm_<token>:<revision>:dir-<动作>` | `workspace_manager` |
-| `LaunchModelPicker` | 启动卡的模型、预算、工作模式、脱敏、工作区、运行方式 | 值带 `option`；脱敏 `bridge_launch_redaction` | `launch_option` |
+| `LaunchModelPicker` | 启动卡的模型、预算、工作模式、工作区、运行方式 | 值带 `option` | `launch_option` |
 | `DirectoryPicker` | 选择其他目录和目录浏览页（`app/directory_picker.py`） | `bridge_dir_<token>:<revision>:<动作>` | `directory` |
 | `HarnessSwitch` | 任务卡的换配置和更换卡 | `bridge_switch_` 开头 | `harness_switch` |
 | `RewindCards` | 结束任务卡的回退和回退卡（`app/rewind.py`），不转给任务进程 | `bridge_rewind_` 开头 | `rewind` |
 
 - 启动卡和换配置卡没有下拉框：清单每行是一个 `collapsible_panel`（`element_id` `set_<项>_<token 前 4 位>`：客户端按 ID 记住开合，换 ID 才能让选完的一行收起），每个选项是一个 `interactive_container`，值带 `option`，`app/card_routing.py` 把它当作事件的 `option`。每个选择都整卡重画。
 - 旧卡兼容：整卡换成选项页的 `bridge_launch_page`、`bridge_switch_page`（值带 `page`）重画成那一行展开，`page` 为空即全部收起；更早的下拉框回调照旧。
-- 脱敏只在所选模型的 Harness 有 capability `redaction` 时出现，只记进表单记录 `selected_redaction`。
 - 都继承 `CardActionQueue`（`app/card_queue.py`）：各自一个有界队列，第一次点击时起 worker。队列满时丢弃这次点击并记 `busy`。
 - 表单内容要变时整卡原位替换，经 `app/launch.py` 的 `rebuild_launch_card`：卡锁内先登记新表单（新 token）再 PUT 整卡；只换卡面用 `app/form_cards.py` 的 `replace_form_card`。CardKit 确认后旧表单记 `replaced`（`replaced_by` 指向新表单），旧卡上点“开始任务”按新表单启动；未确认时新表单记 `unpublished`，永不启动。
 - 两卡式或 schema 3 之前的启动卡（`retired_form`）不再启动任务，点了只回复一句，什么都不改。
@@ -187,8 +186,7 @@
 | 重新发送卡 | `bridge_proxy_resend` | `ProxyResend.click`，见[重新发送卡](proxy.md#重新发送卡) |
 | 群管理卡 | `bridge_group_*` | `GroupManager.click`；启用、停用经 `Access.switch`，在卡锁之外，然后整卡重画；已启用的群的“设为只读”“取消只读”（`bridge_group_members`，带 `chat`、`mode`）经 `Access.set_member_mode` |
 | 启用确认卡（主人第一次在群里 @ 时发到私聊，`GroupManager.ask`） | `bridge_group_confirm`（带 `chat`、`on`、`name`） | `GroupManager.confirm`：群还在等主人的话时经 `Access.switch` 启用或停用（`group_confirm_on`、`group_confirm_off`），已经定过的什么都不改（`group_confirm_decided`），没有群记录 `group_unknown`；卡没有记录，应答后（`after_ack`）用 `patch_card` 整卡换成结果，换不了就在私聊里说一句 |
-| 旧的敏感词看板链接卡（网页看板已经去掉） | `bridge_dashboard_rotate` | `RedactionPanel.click`：链接卡上在卡下回一句“网页看板已经去掉了…”（`dashboard_gone`）；设置卡「脱敏」标签上整卡重画、带同一句提示 |
-| 设置卡「脱敏」标签 | `bridge_redaction_*`（带 `token`、`revision`；`_page`、`_edit` 和 `_term` 的 `op: edit` 是标签改版前的旧按钮，点了整卡按新布局重画并说“这个按钮已更新”） | `RedactionPanel.click`：`redaction_tab`；同一事件再投递 `duplicate`。改词表在卡锁之外（`edit_terms`、`put_back`、`update_config`；`_add` 和 `_remove` 是同一个填词表单的两个提交按钮），在卡锁里记下结果就回执，整卡重画在回执之后（`after_ack`，连点只画最后一次）；「探测」在自己的后台线程里，跑完再画 |
+| 已下线功能的旧按钮（敏感词脱敏的 `bridge_redaction_*`、`bridge_dashboard_rotate`、`bridge_main_redaction`、`bridge_main_topic_redaction`，独立复核等） | `MOVED_CARDS` 里的 kind | `card_actions` 只回一句已下线（敏感词脱敏是“敏感词脱敏已下线，这次点击没有改任何设置。”），不改设置；见[已下线的功能](legacy.md#已下线的功能) |
 | 设置卡 | `bridge_settings_tab`（带 `tab`、`from`、`token`） | `SettingsHub.click`：`settings_tab`、`settings_fold`、`settings_unfold` |
 | 设置卡「记忆」标签（`COVEY_MEMORY` 没关） | `bridge_memory_open`（带 `scope`：`review` 或 `rules`、`page`：翻页）、`bridge_memory_pin`（现在是待审核的“采纳”：`key` 是 `review:…`、`op` 是 `accept`；沿用原 kind，不新增）、`bridge_memory_delete`（待审核的“不要”：`op` 是 `reject`；没网页时规矩的“收起”：`key` 是条目、`op` 是 `ask`、`confirm`、`cancel`）；`bridge_memory_workspace`、`bridge_memory_to_global` 和带 `on` 的 `bridge_memory_pin` 只接旧卡片的点击，回“这个选项已下线”、不改任何东西；都带 `token`、`revision` | `MemoryPanel.click`：`memory_tab`；同一事件再投递 `duplicate`。采纳、不要走 `web_memory.review_decide`，收起走 `memstore.archive`，都在卡锁之外，整卡重画在应答之后（`after_ack`） |
 | 早晚汇总的“你反复说的”（已下线） | `bridge_digest_remember`（带 `id`、`op`） | `ACTIONS` 里是 `handler=RETIRED`：点旧卡只回一句“已下线，候选都在设置卡「记忆」页签或网页记忆中心的待审核里”，不记任何东西 |
@@ -240,11 +238,11 @@
 
 ### 设置卡配置页的格子版式
 
-配置页一段里的各项排成格子（`cards/butler_panel.py` 的 `tile_lines`、`cards/launch_config.py` 的 `setting_line`），顺序不变：新话题 Harness、供应商、模型、思考预算 / 工作区、运行方式、脱敏；管家 Harness、供应商、模型、思考预算 / 工作区、脱敏、压缩阈值、私聊顶层的消息；专项负责人四项；更多是子 Agent。每段里 `FOLDED` 的几项（且是平常的值）不排在格子里，排在段末“更多：…”折叠里，顺序同上。（网页设置页读的 `lines` 仍是原来的三行分法，没变。）
+配置页一段里的各项排成格子（`cards/butler_panel.py` 的 `tile_lines`、`cards/launch_config.py` 的 `setting_line`），顺序不变：新话题 Harness、供应商、模型、思考预算 / 工作区、运行方式；管家 Harness、供应商、模型、思考预算 / 工作区、压缩阈值、私聊顶层的消息；专项负责人四项；更多是子 Agent。每段里 `FOLDED` 的几项（且是平常的值）不排在格子里，排在段末“更多：…”折叠里，顺序同上。（网页设置页读的 `lines` 仍是原来的三行分法，没变。）
 
 - 每项还是原来的折叠行 `setting_row`（`cell=True`：灰色标签后面跟当前值，同一行，格子只有一行高），点开列选项，点一个选项照旧记下并整卡重画，现在是一个带细边框（`TILE_BORDER`，灰色、圆角 8px）的格子，下拉箭头都在格子右缘；去掉了原来整块灰底。不用下拉框（`select`）的原因不变：iOS 飞书的 select 是全屏选择器，取消按钮在状态栏下面（见 `cards/launch_config.py` 的模块说明）。
 - 两格一行，`column_set` 的 `flex_mode` 取 `LINE_FLEX`（`stretch`），两个等宽（`weighted`）的 `column`：卡片宽时左右并排，窄（话题侧栏约 250–300px，手机）时自动上下叠成单列，所以不会把“Claude 自带”折成“Claude 自 / 带”。选的值很长的项（显示宽度超过 `WIDE`，如工作区、子 Agent）单独一行占满；落单的一项占半行（另一半放空的 `column`），格子不错位。`bisect`（任何宽度都两列，窄屏会断词）和 `flow` + `auto`（宽度参差）都试过，不用。
-- 没展开的段是一个整块可点、带边框的容器（`closed_section`）：标题和蓝字“展开”同一行，下面一行灰字摘要（`summary`：只列值、不带标签、不带供应商，惯常的选择——默认工作区、原目录、脱敏关、压缩 20 万、交给管家——不列）。容器和展开的段共用同一个按钮 kind（`SECTION`），旧卡上的“展开”按钮照旧能点。
+- 没展开的段是一个整块可点、带边框的容器（`closed_section`）：标题和蓝字“展开”同一行，下面一行灰字摘要（`summary`：只列值、不带标签、不带供应商，惯常的选择——默认工作区、原目录、压缩 20 万、交给管家——不列）。容器和展开的段共用同一个按钮 kind（`SECTION`），旧卡上的“展开”按钮照旧能点。
 - 元素数比原来少（新话题段约少 12 个节点），仍按 `CARD_NODES` 的预算由 `fits` 裁选项。
 - 卡片 JSON 变了，要真机验收（手机、话题侧栏、深色）：格子换行、点开的选项宽度、点开后其余格的位置。
 

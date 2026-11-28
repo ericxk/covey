@@ -13,7 +13,6 @@ from support.fake_lark import FakeCardKit
 from support.world import UnifiedCase
 
 from support import requires_extension
-from support.launch_fixtures import redacting
 from covey.app import butler_model_choice, butler_topics
 from covey.app.butler_env import ButlerEnv
 from covey.core import butler_opened, butler_settings, devices
@@ -241,10 +240,8 @@ class TopicStartTest(ButlerTopicsCase):
 
     def test_the_settings_defaults_fill_what_the_call_leaves_out(self):
         self.settings(topic_defaults=butler_settings.TopicDefaults(harness="codex", model="codex-model",
-                                                                        effort="low", redaction=True))
-        # Codex cannot redact: the default is not dropped quietly, the owner is asked first (RedactionAskTest).
-        self.assertFalse(self.start("asked")["ok"])
-        topic = load_topic(self.ctx.state_dir, self.start(redaction=False)["data"]["topic_id"])
+                                                                        effort="low"))
+        topic = load_topic(self.ctx.state_dir, self.start()["data"]["topic_id"])
         self.assertEqual((topic["harness_id"], topic["model"], topic["effort"]), ("codex", "codex-model", "low"))
         self.assertNotIn("redaction", topic)
 
@@ -309,56 +306,26 @@ class TopicStartTest(ButlerTopicsCase):
         self.app.messenger.create_and_send_card.assert_not_called()
 
 
-class RedactionAskTest(ButlerTopicsCase):
-    """敏感词脱敏 the 新话题 page turns on, on a Harness that cannot redact (T647 P0-8, the owner: 先问): topic_start opens
-    nothing and says what to ask the owner; redaction=false, once he agreed, opens it without; Claude keeps it; the call's
-    redaction=true on one that cannot is refused too."""
+class RedactionRetiredTest(ButlerTopicsCase):
+    """敏感词脱敏 is retired (T947): topic_start has no ``redaction`` argument; a model that still passes one is ignored (nothing
+    is refused, nothing is written), on any Harness."""
 
-    def setUp(self):
-        super().setUp()
-        redacting(self)
-        self.settings(topic_defaults=butler_settings.TopicDefaults(redaction=True))
+    def test_a_call_that_still_names_redaction_opens_the_topic_as_any(self):
+        for n, (harness, redaction) in enumerate((("codex", True), ("codex", False), ("claude", True), ("claude", "on"))):
+            with self.subTest(harness=harness, redaction=redaction):
+                answer = self.start(f"r{n}", harness=harness, redaction=redaction)
+                self.assertTrue(answer["ok"], answer)
+                topic = load_topic(self.ctx.state_dir, answer["data"]["topic_id"])
+                self.assertEqual(topic["harness_id"], harness)
+                self.assertNotIn("redaction", topic)
 
-    def opened(self, answer):
-        self.assertTrue(answer["ok"], answer)
-        return load_topic(self.ctx.state_dir, answer["data"]["topic_id"])
-
-    def test_the_default_on_a_harness_that_cannot_redact_asks_first_and_opens_nothing(self):
-        answer = self.start("r1", harness="codex")
-        self.assertFalse(answer["ok"])
-        text = answer["text"]
-        self.assertTrue(text.startswith("没有开话题：新话题默认开着敏感词脱敏，"), text)
-        self.assertIn("不能脱敏，开了会把原文发给模型服务。先问主人", text)
-        self.assertIn("harness 填 claude", text)
-        self.assertIn("redaction=false", text)
-        self.app.messenger.create_and_send_card.assert_not_called()
-        self.assertEqual(self.app.runtime.jobs.queue.qsize(), 0)
-        self.assertFalse(butler_opened.record_path(self.ctx.state_dir, SimpleNamespace(id="r1")).exists())
-
-    def test_redaction_false_after_the_owner_agreed_opens_it_without(self):
-        topic = self.opened(self.start("r1", harness="codex", redaction=False))
-        self.assertEqual(topic["harness_id"], "codex")
-        self.assertNotIn("redaction", topic)
-
-    def test_a_harness_that_can_redact_keeps_the_default_and_false_turns_it_off(self):
-        self.assertIs(self.opened(self.start("r1", harness="claude"))["redaction"], True)
-        self.assertNotIn("redaction", self.opened(self.start("r2", harness="claude", redaction=False)))
-
-    def test_redaction_true_is_the_calls_own_and_refused_where_it_cannot_be_kept(self):
-        self.settings(topic_defaults=butler_settings.TopicDefaults())
-        refused = self.start("r1", harness="codex", redaction=True)
-        self.assertFalse(refused["ok"])
-        self.assertIn("不能脱敏。要脱敏就换能脱敏的", refused["text"])
-        self.assertNotIn("先问主人", refused["text"])
-        self.assertIs(self.opened(self.start("r2", harness="claude", redaction=True))["redaction"], True)
-        self.assertNotIn("redaction", self.opened(self.start("r3", harness="codex")))  # The default off: as before.
-
-    def test_the_tools_say_it(self):
-        from covey.core.butler_tool_specs import PROJECT_TOOLS, REDACTION_ARG, TOOLS
+    def test_the_tools_no_longer_say_it(self):
+        from covey.core.butler_tool_specs import PROJECT_TOOLS, TOOLS
         for tools, name in ((TOOLS, "topic_start"), (PROJECT_TOOLS, "project_topic_start")):
             tool = next(tool for tool in tools if tool["name"] == name)
-            self.assertIs(tool["input_schema"]["properties"]["redaction"], REDACTION_ARG)
-            self.assertNotIn("redaction", tool["input_schema"]["required"])
+            self.assertNotIn("redaction", tool["input_schema"]["properties"])
+        for tool in (*TOOLS, *PROJECT_TOOLS):
+            self.assertNotIn("redaction", tool["input_schema"]["properties"], tool["name"])
 
 
 DEVICES = {"schema": 1, "control_dir": "/dev/shm/covey-ssh-butler",
@@ -372,7 +339,7 @@ DEVICE_SPACES = {"gpu1-proj": "gpu1:/home/me/proj", "gone-proj": "gpu9:/srv/x", 
 class DeviceStartTest(ButlerTopicsCase):
     """topic_start on a workspace of a device (COVEY_DEVICES=1, docs/configuration.md 多设备): checked as 开始任务 checks it
     (listed, allowed in this chat, the Harness declared, the directory there) before anything is opened, bound to the
-    device's value, run in 原目录 and never redacting; refused by name, opening nothing, when the device cannot take it.
+    device's value, run in 原目录; refused by name, opening nothing, when the device cannot take it.
     Off, the same value is a path as before."""
 
     def setUp(self):
@@ -435,25 +402,13 @@ class DeviceStartTest(ButlerTopicsCase):
         self.nothing_opened(answer, "o2")
         self.assertEqual(answer["text"], "没有开话题：gpu1 上没有目录 /home/me/proj；换个工作区，或请主人确认这个目录。")
 
-    def test_redaction_is_asked_first_in_a_devices_words_and_false_opens_the_topic_without(self):
-        self.settings(topic_defaults=butler_settings.TopicDefaults(redaction=True))
-        here = self.start("h1", workspace="project", harness="claude")  # Claude here keeps it: a device is the reason.
-        self.assertIs(load_topic(self.ctx.state_dir, here["data"]["topic_id"])["redaction"], True)
-        self.app.messenger.create_and_send_card.reset_mock()
-        asked = self.start("r1", workspace="gpu1-proj", harness="claude")
-        self.nothing_opened(asked, "r1")
-        self.assertIn("设备上的话题不能脱敏", asked["text"])
-        self.assertIn("先问主人", asked["text"])
-        self.assertIn("redaction=false", asked["text"])
-        self.assertNotIn("harness 填", asked["text"])  # No Harness redacts there: none is offered.
-        refused = self.start("r2", workspace="gpu1-proj", harness="claude", redaction=True)
-        self.nothing_opened(refused, "r2")
-        self.assertIn("要脱敏就换个本机的工作区", refused["text"])
-        opened = self.start("r3", workspace="gpu1-proj", harness="claude", redaction=False)
-        self.assertTrue(opened["ok"], opened)
-        topic = load_topic(self.ctx.state_dir, opened["data"]["topic_id"])
-        self.assertEqual(topic["workdir"], "gpu1:/home/me/proj")
-        self.assertNotIn("redaction", topic)
+    def test_a_calls_redaction_does_not_hold_a_devices_topic_back(self):
+        for n, redaction in enumerate((True, False)):
+            opened = self.start(f"r{n}", workspace="gpu1-proj", harness="claude", redaction=redaction)
+            self.assertTrue(opened["ok"], opened)
+            topic = load_topic(self.ctx.state_dir, opened["data"]["topic_id"])
+            self.assertEqual(topic["workdir"], "gpu1:/home/me/proj")
+            self.assertNotIn("redaction", topic)
 
     def test_a_worktree_in_the_settings_no_longer_holds_a_devices_topic_back(self):
         """独立 worktree is gone as a run mode (docs/configuration.md 主目录与仓库地图): an older setting of it starts the topic at

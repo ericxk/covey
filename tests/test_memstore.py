@@ -228,9 +228,6 @@ class WriteTest(Case):
         self.assertEqual((old.status, old.superseded_by), ("archived", b.ref))
         with self.assertRaises(ValueError):
             memstore.supersede(self.state, b.ref, b.ref)
-        t = memstore.add(self.state, kind="rule", scope="topic", owner_key=TID, text="脱敏话题里的", redacted=True, now=NOW)
-        with self.assertRaises(ValueError):
-            memstore.promote(self.state, t.ref, scope="global")
         t2 = memstore.add(self.state, kind="note", scope="topic", owner_key=TID, text="构建要先装依赖", now=NOW)
         up = memstore.promote(self.state, t2.ref, scope="project", owner_key=PID, repos=["demo-repo"])
         self.assertEqual((up.scope, up.repos, up.code), ("project", ("demo-repo",), t2.code))

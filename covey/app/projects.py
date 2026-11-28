@@ -135,14 +135,14 @@ _busy: set = set()  # Project ids whose steps this process is working through ri
 _busy_lock = threading.Lock()
 
 
-def lead_wanted(env, args, plan, redacting):
+def lead_wanted(env, args, plan):
     """What topic_start with ``project`` true named for the project's lead: {harness, model, effort} as ``plan``
     (app/butler_topics.py plan_start) resolved them when the call named a ``harness`` or ``model``, {} when it named neither
     (the lead then takes the settings' 专项负责人, else the butler's: app/lead_harness.py binding). A str saying why not when
-    that Harness cannot run a lead here (``redacting``: the butler's 脱敏, which the lead keeps)."""
+    that Harness cannot run a lead here."""
     if not (arg_text(args.get("harness")) or arg_text(args.get("model"))):
         return {}
-    why = lead_harness.refusal(env.topics.apps, plan["harness"], redacting)
+    why = lead_harness.refusal(env.topics.apps, plan["harness"])
     if why:
         return (f"{why}；这次没开专项。harness、model 在开专项时是负责人用的：负责人照默认就不填；"
                 "主人要专项的话题用哪个模型，写进 prompt，负责人开话题时照办。")
@@ -308,7 +308,7 @@ class Projects:
     def step_lead(self, record) -> bool:
         """The lead's topic: topic.json with ``project`` {id, role lead}; its Harness, model and budget as app/lead_harness.py
         ``binding`` picks them (what the butler's call named for it, else the settings' 专项负责人, else the butler's own, from
-        the butler's topic.json or as its first message would write them), the butler's 脱敏; the workspace of the topic the
+        the butler's topic.json or as its first message would write them); the workspace of the topic the
         project grew from (else the one the direct start chose, the home, else the butler's), locked, and the repositories
         of both, read."""
         state, chat, pid = Path(self.env.state_dir), str(record["chat_id"]), record["id"]
@@ -592,7 +592,7 @@ class Projects:
             plan = butler_topics.plan_start(env, args, settings)
             if isinstance(plan, str):
                 return reply(False, plan)
-            lead = lead_wanted(env, args, plan, settings.redaction)
+            lead = lead_wanted(env, args, plan)
             if isinstance(lead, str):
                 return reply(False, lead)
             room = project_loop.make_room(state, env.runtime.log)

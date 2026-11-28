@@ -18,7 +18,6 @@
 
 - **接口地址和密钥**：网页应用开放接口的根地址（形如 `https://<域名>/app/<应用 id>/openapi`）和调用它的密钥。
 - **这台机器能访问那个地址**：Covey 不对外开端口，只主动去请求网页应用，所以机器上要能连上它（需要代理时和模型一样设在服务清单里）。
-- **脱敏词表的原词会进网页应用的库**：这是有意的取舍，为的是能在网页设置页上批量编辑词表（替身词不推；飞书卡上只显示首字和字数），所以网页应用要部署在只有你能访问的地方，做不到就别开网页工作台。
 
 步骤（一键部署和自托管已经做完第 1 步，从第 2 步开始）：
 
@@ -102,7 +101,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 ## 网页上能做什么
 
 - **看**：每个专项（目标、话题、记忆、资料库、报告）、每个话题（状态、每一轮的你说和它答、执行过程、计划、用量、失败原因、图片），管家和专项负责人的对话也各是一个话题。状态色、“要你处理”“停住了”的算法和飞书的看板一致；Covey 推了 `asks`（v34）时，看板、侧栏和手机标签栏上“要你处理”的数就用它，和飞书看板、「手上的事」同一个数。
-  - 管家、负责人和话题页的一轮画法一样：你说的话靠右、带浅色底（答题的那句是“问题 → 选择”的表），回答上面一行是谁和几点，再一颗“工具 N · 用时”点开看过程；回答下面一行是复制按钮和这一轮的输入（Harness、供应商、模型、思考、脱敏、工作区）、输出（用时、速度、token、缓存命中）；话题页没有单独的“第 N 轮”列表，上面只多一块总览。电脑上对话区左边有一列刻度，一句你说的话一条，鼠标停上去看那句和回答的开头，点一下跳到卡片上的那句（手抖挪过一两像素不换，按下松开不在同一条上也算数；鼠标在刻度上时来了新一轮，刻度也不整体挪），也能用上下键和回车；找话题里的话用左上角的搜索。
+  - 管家、负责人和话题页的一轮画法一样：你说的话靠右、带浅色底（答题的那句是“问题 → 选择”的表），回答上面一行是谁和几点，再一颗“工具 N · 用时”点开看过程；回答下面一行是复制按钮和这一轮的输入（Harness、供应商、模型、思考、工作区）、输出（用时、速度、token、缓存命中）；话题页没有单独的“第 N 轮”列表，上面只多一块总览。电脑上对话区左边有一列刻度，一句你说的话一条，鼠标停上去看那句和回答的开头，点一下跳到卡片上的那句（手抖挪过一两像素不换，按下松开不在同一条上也算数；鼠标在刻度上时来了新一轮，刻度也不整体挪），也能用上下键和回车；找话题里的话用左上角的搜索。
 - **大厅**：你、管家和各专项的负责人在一条时间线上，和飞书私聊顶层一样：管家的回答、负责人对你说的话、话题做完发到私聊的结论（收成一行，点开看全文）、等你回答的问题、专项建好和结束。顶上一排是成员：管家一直在，每个没结束的专项多一位负责人。
   - 不 @ 时这句话交给管家，由它判断自己答、开话题还是转给负责人；输入 @ 选一位负责人就直接交给它。你那句话下面写着最后交给了谁（“→ 管家 → T12”）；交错了就 @ 对的人再说一句。
   - 每条消息旁有“引用”，选中一段文字也能只引用这段：引用话题的结论就是对那个话题说，引用负责人的话就是对负责人说；再 @ 一位就交给 @ 的那位，引用的内容一起带上。话题不能 @。
@@ -114,12 +113,12 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
   - 按键和飞书聊天一样：Enter 发送，Shift+Enter（或 Ctrl / ⌘ + Enter）换行；点「放大」编辑时几种 Enter 都换行，点发送钮才发；手机上回车换行、点发送钮发。换行都另起一段，所以下一行行首打 `- `、`1. `、`# ` 照样变成列表、标题。
   - 能放大、续写列表、边写边渲染 Markdown（右下角 `</>` 看源码）。
   - 加号或粘贴、拖进来可以带图片和文件（每个不超过 20 MB，一句最多 9 个），和在飞书里发附件一样交给模型。
-- **换配置**：话题页输入框下面那行“工作区 · Harness · 模型”点开就是飞书的 🔁 换配置（Harness、模型、思考预算、工作模式、脱敏、工作区）。新 Covey 的面板上面是模型这几项，执行设备和仓库折成一行摘要（“执行设备 本机 · 仓库 covey（改）、web（读）”，右边“不变 / 已改”），点「调整仓库」才展开改仓库；执行设备只读，换配置换不了机器。从停住那一轮的「换个模型」打开时标题是“换个模型”。话题在做时不能换，先停止；要新建独立 worktree 的去飞书换配置卡上做。换完飞书话题里也有一条“已换配置”。
+- **换配置**：话题页输入框下面那行“工作区 · Harness · 模型”点开就是飞书的 🔁 换配置（Harness、模型、思考预算、工作模式、工作区）。新 Covey 的面板上面是模型这几项，执行设备和仓库折成一行摘要（“执行设备 本机 · 仓库 covey（改）、web（读）”，右边“不变 / 已改”），点「调整仓库」才展开改仓库；执行设备只读，换配置换不了机器。从停住那一轮的「换个模型」打开时标题是“换个模型”。话题在做时不能换，先停止；要新建独立 worktree 的去飞书换配置卡上做。换完飞书话题里也有一条“已换配置”。
 - **答题**：和飞书问题卡一样：点选项，或选项都不合适时自己写；某道题可以选“不回答此题”。底下只有“提交回答”和“不处理”：写了补充说明时没答的题算不回答，只写补充说明就是都不答（说问题不合适、给新要求、想先问一句都写在这里）；“不处理”先放下，话题下一轮前可撤销。管家自己的问题只能在飞书里答。
 - **停、重开、记为看过、不管了**：和飞书卡片上的同名按钮做同一件事。
 - **停住了的一轮**：原因和下一步和任务卡同一句话，按钮也和任务卡一样：检查并继续（结果没发出去时是“重新投递结果”，只重发保存的结果，不重跑模型；限流是“现在重试”）、看原因、拆小再试做的和飞书里点同名按钮一样；自动重试已经排好时写几点重试，只给“现在重试”和“停止自动重试”，不会和排好的那次一起跑；换个模型用网页自己的换配置（负责人的也是，v36；管家的配置只在飞书的设置卡上换）。
-- **开新话题**：选项和启动卡一样（模型、思考预算、工作模式、脱敏、工作区、运行方式），直接开工；要独立 worktree 的话题会在飞书里出一张填好的启动卡，点开始。
-- **设置**：设置卡的各页都能看，第一页和卡上一样是“配置”，分新话题、管家、专项负责人（开了专项才有）、辅助模型、更多几段；卡片一次只展开一段，网页各段都展开。能改的有新话题的每一行，管家的每一行（Harness、供应商、模型、思考预算、脱敏、工作区、压缩阈值）和私聊顶层的消息，专项负责人的模型，[辅助模型](configuration.md#辅助模型)（Harness，点名了再有供应商、模型、思考预算，和专项负责人一样；管家关着也能改；下面一行写现在实际用的 Harness、模型和思考预算，再下面直接展开“后台活最近一次”小表：功能、用了谁、结果、原因、耗时、时间，只有原因码，不写原话），子 Agent，常用路径（仓库、目录和设备上的路径）的用途、状态、写法和增删，脱敏的两个开关和词表的批量增删，群的停用与免@（只能改成关闭或只有你），设备名单的增删改、可写或只读、体检和装监控节点，代答的开关和白名单。其余只读，每页有“去飞书改”。
+- **开新话题**：选项和启动卡一样（模型、思考预算、工作模式、工作区、运行方式），直接开工；要独立 worktree 的话题会在飞书里出一张填好的启动卡，点开始。
+- **设置**：设置卡的各页都能看，第一页和卡上一样是“配置”，分新话题、管家、专项负责人（开了专项才有）、辅助模型、更多几段；卡片一次只展开一段，网页各段都展开。能改的有新话题的每一行，管家的每一行（Harness、供应商、模型、思考预算、工作区、压缩阈值）和私聊顶层的消息，专项负责人的模型，[辅助模型](configuration.md#辅助模型)（Harness，点名了再有供应商、模型、思考预算，和专项负责人一样；管家关着也能改；下面一行写现在实际用的 Harness、模型和思考预算，再下面直接展开“后台活最近一次”小表：功能、用了谁、结果、原因、耗时、时间，只有原因码，不写原话），子 Agent，常用路径（仓库、目录和设备上的路径）的用途、状态、写法和增删，群的停用与免@（只能改成关闭或只有你），设备名单的增删改、可写或只读、体检和装监控节点，代答的开关和白名单。其余只读，每页有“去飞书改”。
 - **记忆**（v37，默认开，[记忆](butler.md#记忆)没关时）：设置页的「记忆」一页是主人的主记忆：全局和每个工作区的原则、知识条目（`COVEY_KNOWLEDGE` 开着时）和待确认的候选（开了 `COVEY_MEMORY_LEARN` 时）。每组写着用了多少字、上限多少、下一轮带不带每一条（放不下的标出来），常驻的排在前面；能搜、能按全局或工作区筛，能看某个工作区下一轮实际带上的那一段。新建、改正文（数着字，⌘/Ctrl+S 保存）、标或取消常驻、删除或作废、候选的「记下」「不用」都在页上（办完在列表上方留一条回执，几秒后或点掉才消失；常驻只在那一行上写），和飞书设置卡「记忆」改的是同一份。专项和话题的记忆还在专项页、话题页的右栏。
 - **账号与额度**（v42，有额度来源时，`COVEY_QUOTA` 没关）：设置页的「账号与额度」一页，一张表：账号｜5 小时剩余｜周剩余，格里只有百分比、细条和重置时刻，写上海时间的几月几号几点几分（`11月27日 03:30`；表窄时时刻换到条下面一行）。剩余不到 20% 红色；用完写“用完”和恢复时刻（`11月27日 03:30 恢复`）；读不到写“—”、不画条；旧读数数字变灰。agy 的号展开，一行一个号，写这个号登录的 Google 邮箱（读不到才写 `agy-accounts.json` 里的名字），在用的号前一个蓝点，只画这个号近 7 天真跑过的模型池（Gemini、Claude/GPT 都跑过的，同一格上下两行）；网关和外接命令的来源折成一行平均值和“k/n 个能用”，有冷却或低额度的号时组名后一个红点，点开看每个号（外接命令的来源有号要重新登录或用完时直接展开），来源给了 `link` 才有“运维台↗”。有号要重新登录时表上方一行红条。右上角只有「刷新」：Covey 立刻重读所有来源、agy 查一遍每个号的 `/usage`（5 分钟冷却）。页面上没有暂停、只用这个号、查全部账号。某个来源整体见底（能用的号都用完或剩不到 20%）或有号要重新登录时，侧栏顶上多一行（收起成窄条时是一个带红点的小图标），点了到这一页。
 - **整理专项**：开了[整理专项](projects.md#整理专项)时，看板首屏“要你处理”下面有整理专项的建议。
@@ -193,7 +192,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 - **话题要点**：开了[整理专项](projects.md#整理专项)时带 `gist`：`{essence, goal, involves, related, changed, updated_at}`，没有要点就没有这个字段。网页把 `goal` 当“目标”显示。
 - **Covey 定时回看**（v34，v35 加字段，`app/web_collect.py` 的 `later_and_drafts`）：开了[到点回来看](usage.md#到点回来看)（`COVEY_REVISIT` 没关）、话题有一条预约时，普通话题带 `revisit`：`{at, what, set_at, running}`，`at` 是约定的时刻（秒），`what` 是到点要看什么（一行，最多 200 字），`set_at`（v35）是这条预约约下的时刻（秒，带小数，「取消」带着它，防止误删换过的新预约），`running`（v35）为 true 表示 Covey 已经排出回看那一轮、正在回看（这时取消不了），还没到点或已到点没排出去的是 false。只有普通话题有：话题归进了专项、成了专项负责人或管家的话题，旧的预约不再推（Covey 在话题归进专项时删掉它，存量的由 `revisits` 线程下一次看到时删）。取消了、回看那一轮结束了、开关关着时没有这个字段。
 - **等你确认的代发草稿**（v34，同上）：部署有代答发送器、没关 `COVEY_OWNER_SEND` 时，普通话题带 `owner_send`：等你在飞书草稿卡上确认的草稿（`core/owner_send.py` 的 drafted，和发不出去、要在卡上再点一次的 unsent），最新的在前，最多 5 条，每条 `{id, to, state, preview, created_at}`：`to` 是发给谁（最多 60 字），`state` 是 `waiting`（等你确认）或 `failed`（没发出去），`preview` 是正文开头（一行，最多 120 字）。没有这样的草稿就没有这个字段。网页只读，「去飞书确认」打开飞书（`settings.feishu`）；**网页没有发送代发的操作**，确认和发出只在飞书原卡上。
-- **当前配置**（v21）：普通话题带 `config`：`{model, effort, work_mode, workspace, run_mode, redaction}`，`model` 和 `settings.launch.models` 的 `key` 是同一套（绑的是预算预设的，换算成那个模型加预设的预算），`run_mode` 是 `direct` 或 `worktree`，`redaction` 是 `on`/`off`，`device` 是话题所在的设备（别名，本机是空串；旧 Covey 没有这个键，这时网页不写设备）（`app/web_switch.py` 的 `topic_config`，只读 topic.json）。网页的换配置面板从它开始选；`model` 不在目录里时要重选模型。专项负责人（`kind: lead`）也带（v36）：面板只列 `bridge_tools` 为 true 的模型，不画工作区和运行方式（照原样发回），换法同专项卡的「换配置」（[专项 · 负责人用哪个 Harness](projects.md#负责人用哪个-harness)）。管家不带。
+- **当前配置**（v21）：普通话题带 `config`：`{model, effort, work_mode, workspace, run_mode}`，`model` 和 `settings.launch.models` 的 `key` 是同一套（绑的是预算预设的，换算成那个模型加预设的预算），`run_mode` 是 `direct` 或 `worktree`，`device` 是话题所在的设备（别名，本机是空串；旧 Covey 没有这个键，这时网页不写设备）（`app/web_switch.py` 的 `topic_config`，只读 topic.json）。网页的换配置面板从它开始选；`model` 不在目录里时要重选模型。专项负责人（`kind: lead`）也带（v36）：面板只列 `bridge_tools` 为 true 的模型，不画工作区和运行方式（照原样发回），换法同专项卡的「换配置」（[专项 · 负责人用哪个 Harness](projects.md#负责人用哪个-harness)）。管家不带。
 - **从没开工的话题**：任务都没跑过、最后一个没开工就取消了（启动卡被停掉收起），推成“已停止”（`tone: cancelled`），全图归到折起来的做完组，不算空闲。
 - **等你点开始的话题**：最新的任务在等你在启动卡上点开始（启动卡还能用）时，话题是“等你”（`tone: waiting`，开了看板时 `board` 也是 waiting），`harness`、`model`、`model_name`、`workspace` 是启动卡上现在选的（点开始就用它们），不是话题等开始时先占着的绑定（回复告警卡这类消息开的话题先绑默认的 Harness 和工作区）；不带 `config`，配置由启动卡定，点了开始才能在网页上换。
 
@@ -227,7 +226,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
   - 在跑的一轮随每秒的推送更新：`seconds` 每 10 秒才变一次、`speed` 取整，没有实质变化时 `rev` 不变。已结束的轮：`usage`、`seconds`、`speed`、`context` 每轮都带，`steps`、`plan` 只带最近 20 轮的；结束超过 7 天的轮不再带 `steps`（执行过程，`app/web_collect.py` 的 `STEPS_SECONDS`；网页库里大半是旧轮次的执行过程），计划、用量、正文照旧。已推过的旧轮次在话题下次重建时（最迟 15–30 分钟）去掉 `steps` 再推一次。
   - 被 Bridge 重启打断、由自动重试接着做完的任务，它的 token 算进重试那一轮的 `usage`。
 - **发到了私聊**（v23）：普通话题的回答那一轮，结论发到了私聊顶层（[结论回到顶层](butler.md#结论回到顶层)，`main-thread/relays/` 里这个任务的记录是 `sent`；合成一条发的也算）时带 `relayed_at`（发出的时刻，秒）。网页的大厅把这些轮收成一行放进时间线；负责人、管家的轮不带。
-- **用的什么配置**（v27，`app/web_turns.py` 的 `ran_with`）：回答那一轮带 `ran_with`：`{harness, provider, model, effort, workspace, redaction}`，用启动卡上的叫法（Claude Code、自带、Opus 5.5），从这一轮的任务记录取；脱敏取话题现在的开关（任务记录不存）；菜单读不到时 `model` 是模型自己的名字、不带 `provider`。网页写在回答下面一行。
+- **用的什么配置**（v27，`app/web_turns.py` 的 `ran_with`）：回答那一轮带 `ran_with`：`{harness, provider, model, effort, workspace}`，用启动卡上的叫法（Claude Code、自带、Opus 5.5），从这一轮的任务记录取；菜单读不到时 `model` 是模型自己的名字、不带 `provider`。网页写在回答下面一行。
 - **产物**（v32，`app/web_turns.py` 的 `artifacts_of`）：回答那一轮带 `artifacts`，就是它答案卡上「产物」里列的文件（`app/artifact_policy.py` 的 `drive_paths`：配置和凭据路径不列），每个 `{name}` 只有文件名，不带本机路径。传到云空间以后加 `link`（https）和 `size`（字节）；传不上的加 `error`（原因）；还在传的（上传账本 `status` 是 uploading，或者账本还没写、这一轮的任务记录 10 分钟内动过）加 `uploading: true`。上传在这一轮结束以后才做完，任务记录不跟着变：推送按任务记住读过的结果，有在传的 15 秒后整份再读，链接随下一次全量（每分钟）推上去；传完的，话题再建时离上次读满 5 分钟才看一眼上传账本，账本变了（卡片上点了重新上传）才整份再读。卡片上的重新上传不改任务记录，话题别的输入也没变时，新链接最迟随它 15–30 分钟一次的兜底重建推上去。网页在回答正文下面画一颗能点开的“产物 N 个 · 第一个 等”，顺序同答案卡：正文 → 产物 → 输入/输出。没有产物的一轮仍是空数组。
 - **预计用时**：`estimate_seconds` 是这一轮第一次估出来的总用时（秒），写进任务记录后不改；专项报告的“预计 vs 实际用时”拿它比。没估出来过的轮次不带。
 - **完成标准和改动**（v34，`app/web_turns.py` 的 `checked`）：结束了的回答那一轮（不在跑、不在等你）从它的检查点读，和它答案卡上“完成标准”“改动”两段同一个读法：
@@ -282,18 +281,17 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 
 ### 设置条目
 
-另推几条 `settings` 条目。设置条目由取操作的线程（`web-inbox`，每秒一次）单独推：网页改了一项设置，回执之前就推（网页看到“已保存”时读到的已是新值）；`main-thread.json`、工作区列表或脱敏词表一改，下一秒就推；推的线程全量对时也推一次（内容没变 `rev` 不变就不发）。
+另推几条 `settings` 条目。设置条目由取操作的线程（`web-inbox`，每秒一次）单独推：网页改了一项设置，回执之前就推（网页看到“已保存”时读到的已是新值）；`main-thread.json`或工作区列表一改，下一秒就推；推的线程全量对时也推一次（内容没变 `rev` 不变就不发）。
 
-- **`settings`**（v7）：飞书设置卡的各页，同名同序：配置（v22；v21 及以前是新话题、管家两页 `topic`、`main`）、工作区（v43 起是「常用路径」`repos`）、脱敏、群聊、设备（设了 `COVEY_NODE_LISTEN`、开着多设备 `COVEY_DEVICES=1` 或有监控节点时有，v46）。`config` 是 `{summary, topic, main?, lead?, more, more_note, locked}`：`topic`（新话题：`title`、`rows`、`note`）、`main`（管家，`COVEY_BUTLER=0` 时没有：`title`、`on`、`rows`、`note`，私聊顶层的消息是 `rows` 的最后一行）（独立复核的 `review` 已下线，新版不再推，页面也不画）、`lead`（专项负责人，v36，专项开着才有：`title`、`rows`、`note`，行的 key 是 `l_harness`、`l_provider`、`l_model`、`l_effort`），`assist`（辅助模型，可选：`title`、`rows`（Harness 一行 kind `bridge_main_assist_harness`；点名了 Harness 再有 `a_provider`、`a_model`、`a_effort`，kind `bridge_main_assist_provider`、`bridge_main_assist_model`、`bridge_main_assist_effort`，没有这几行的是旧版本）、`note`、`words`（现在实际用哪个）、`recent`（后台活最近一次，每行 `feature`、`label`、`harness`、`name`、`model`、`ok`、`code`、`words`、`ms`、`at`、`manual`，读 `<state>/assist-state.json`；它一变 `stamps` 就变，设置条目随即重推）；旧网页不认这个字段就不画），`more` 是子 Agent 一行，`summary` 是卡片标题栏那句。每页的行和卡片用同一套函数画（`cards/butler_panel.py` 的 `topic_settings`、`butler_setting_list` 等）：标签、当前值、可选项，`editable` 说网页能不能改。另带 `feishu`（打开机器人的 applink）。代码在 `app/web_settings.py`、`app/web_panels.py`。
+- **`settings`**（v7）：飞书设置卡的各页，同名同序：配置（v22；v21 及以前是新话题、管家两页 `topic`、`main`）、工作区（v43 起是「常用路径」`repos`）、群聊、设备（设了 `COVEY_NODE_LISTEN`、开着多设备 `COVEY_DEVICES=1` 或有监控节点时有，v46）。`config` 是 `{summary, topic, main?, lead?, more, more_note, locked}`：`topic`（新话题：`title`、`rows`、`note`）、`main`（管家，`COVEY_BUTLER=0` 时没有：`title`、`on`、`rows`、`note`，私聊顶层的消息是 `rows` 的最后一行）（独立复核的 `review` 已下线，新版不再推，页面也不画）、`lead`（专项负责人，v36，专项开着才有：`title`、`rows`、`note`，行的 key 是 `l_harness`、`l_provider`、`l_model`、`l_effort`），`assist`（辅助模型，可选：`title`、`rows`（Harness 一行 kind `bridge_main_assist_harness`；点名了 Harness 再有 `a_provider`、`a_model`、`a_effort`，kind `bridge_main_assist_provider`、`bridge_main_assist_model`、`bridge_main_assist_effort`，没有这几行的是旧版本）、`note`、`words`（现在实际用哪个）、`recent`（后台活最近一次，每行 `feature`、`label`、`harness`、`name`、`model`、`ok`、`code`、`words`、`ms`、`at`、`manual`，读 `<state>/assist-state.json`；它一变 `stamps` 就变，设置条目随即重推）；旧网页不认这个字段就不画），`more` 是子 Agent 一行，`summary` 是卡片标题栏那句。每页的行和卡片用同一套函数画（`cards/butler_panel.py` 的 `topic_settings`、`butler_setting_list` 等）：标签、当前值、可选项，`editable` 说网页能不能改。另带 `feishu`（打开机器人的 applink）。代码在 `app/web_settings.py`、`app/web_panels.py`。
   - 工作区带标签、路径尾部、最近使用和用途；每条带 `removable`（默认的那个不能移除），另带 `missing`（目录确认不存在的有几个）（v15）。
-  - 脱敏带统计、开着脱敏的话题、两个开关和词表（v14：`terms` 按词表顺序的原词，另带 `ignore_case`、`max_terms`、`max_length` 给网页保存前检查；**替身词不推**；原词会进网页应用的库，为的是在网页上批量编辑）；`records` 是最近几轮替换了多少，只有数字（v15）。
   - 群用 chat id 的哈希当 key，带状态和免@；每个群带 `free_mode` 和 `free_choices`（v15）。群名照群聊卡的读法问飞书，同一个群 30 分钟问一次。
   - 设备每台带 `dot`（ok、tight、down、never，网页画色点）和去掉名字的那一行，另带 `joins`（网页发起的添加：安装中、失败及原因，30 分钟后不再列）和 `can_add`（v15）。v46 另带 `rows`（`devices.json` 和监控节点按别名并成的一行一台）、`adding`、`can_add_device`，见[数据约定 v46](#数据约定-v46常用路径与设备)。
   - 管家的“私聊顶层的消息”行带 `confirm`（改成“每条直接开一个话题”前网页要问的那句话）（v15）。
   - 部署有代答发送器时多一页 `proxy`（v15）：开关、网页登录、发不出去的原因、模型的几行、白名单（名字、私聊或群 @我、暂停没有、来自哪个群）。名字会进网页应用的库。
   - `ops`（v34）：这个 Covey 收的网页操作（`core/web_sync.py` 的 `KINDS`，就是下面操作表里的那些）。网页只在列着某个操作时才画它的按钮（专项的「收尾」「停止」、记忆的「不对」、定时回看的「取消」）；旧 Covey 不推 `ops`，这些按钮就不画，不会点了才回“不认识的操作”。
 - **`launch`**（v17）：`settings` 条目另带的启动卡选项，用启动卡同一套函数读（`app/web_launch.py` 的 `catalog`）。
-  - `models[]` 按启动卡的菜单顺序（和启动卡一样不列 Claude Code 的“Default (recommended)”，`core/menu_choice.py` 的 `offered_models`），每个带 `key`、`harness`、`harness_title`、`provider`、`provider_title`、`label`、`budgets[]`（各档按名字，和设置卡一样没有“推荐”“模型原生默认”，`app/web_launch.py` 用 `plain_budgets`；`default_budget`、`start_budget`、`preselect.effort` 是其中说得出名字的一档，开始任务和换配置的检查仍认启动卡的整张表，是它的超集）、`default_budget`、`start_budget`（选到这个模型时卡上预选哪一档）、`redaction`（能不能脱敏）、`bridge_tools`（v36：能不能当专项负责人，即它的 Harness 能接 Bridge 工具）、`work_modes` 和 `work_mode_texts`。
+  - `models[]` 按启动卡的菜单顺序（和启动卡一样不列 Claude Code 的“Default (recommended)”，`core/menu_choice.py` 的 `offered_models`），每个带 `key`、`harness`、`harness_title`、`provider`、`provider_title`、`label`、`budgets[]`（各档按名字，和设置卡一样没有“推荐”“模型原生默认”，`app/web_launch.py` 用 `plain_budgets`；`default_budget`、`start_budget`、`preselect.effort` 是其中说得出名字的一档，开始任务和换配置的检查仍认启动卡的整张表，是它的超集）、`default_budget`、`start_budget`（选到这个模型时卡上预选哪一档）、`bridge_tools`（v36：能不能当专项负责人，即它的 Harness 能接 Bridge 工具）、`work_modes` 和 `work_mode_texts`。
   - `workspaces[]`（最近用过的在前，设备上的带 `device` 和那台设备声明的 `harnesses`）、`run_modes[]`、`preselect`（现在开一张启动卡会预选的）。
   - 网页照卡的两条规则联动：换 Harness 或供应商时，当前模型在新范围里就不动，否则取这个顺序里的第一个；换模型时取它的 `start_budget`。
 - **key `tidy`**（v16，开了整理专项时）：网页的“整理专项 · 要你定 N 条”面板读它。
@@ -375,12 +373,12 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 - 有一个取不到（过期、没传完、比说的大、超过 20 MB）整条 `say` 回 failed，写明哪个、为什么，不发半截。
 - 这一轮推回网页时，图片照 v19 的 `images` 显示，正文里的附件块是“附件：图片 N 张”。开新话题（`launch`）也能带，见下（v25）。
 
-**`switch`**（v21）：`topic_key`，`payload` 同 `launch` 去掉 `text`（`model`、`effort`、`work_mode`、`workspace`、`run_mode`、`redaction`）。
+**`switch`**（v21）：`topic_key`，`payload` 同 `launch` 去掉 `text`（`model`、`effort`、`work_mode`、`workspace`、`run_mode`）。
 
 - 只认主人；管家回 failed（“管家的配置在设置的「配置」里改”）。换配置换不了机器：带了 `device` 且不是话题现在的设备时回 failed（`DEVICE_FIXED`），不带或空串不算改。模型这几项的校验同 `launch`；工作区或运行方式和现在一样就不动，不一样时同换配置卡的检查（设备、声明的 Harness）。
 - `topic_key` 是专项负责人时（v36，`app/web_switch.py`）：模型要能当负责人（`bridge_tools`），否则 failed；工作区和运行方式必须是现在的，否则 failed“负责人的工作区和运行方式不能换”；负责人有一轮在排队或在做时 failed“负责人还有一轮在排队或在做，等它做完再换配置”。换成了：回复专项卡出一条“🔁 已换配置 · 专项「名」的负责人”，回执以“负责人下一轮起由新会话接着做”结尾。
 - 同换配置卡的“确认更换”（`app/binding.py` 的 `switch_topic`）：有任务在排队或在做、什么都没变时回 failed；要新建独立 worktree 的回 failed“新建独立 worktree 要在飞书的换配置卡上做”（建 worktree 要几十秒，收操作的线程不等）。
-- 换成了：飞书话题里出一条和换配置卡一样的“🔁 已换配置”，模型选择记进这个私聊的用量；回执“已换配置：<旧> → <新>；工作区 a → b，下一句话起由新会话接着做”，只改脱敏是“已打开脱敏，会话不变”。
+- 换成了：飞书话题里出一条和换配置卡一样的“🔁 已换配置”，模型选择记进这个私聊的用量；回执“已换配置：<旧> → <新>；工作区 a → b，下一句话起由新会话接着做”。
 
 **`recover`**（v33，`app/web_ops.py` 的 `recover`）：`topic_key`，`payload` 是 `{job_id, action}`，`job_id` 是那一轮的任务（一轮条目的 `job_id`），`action` 取 continue、retry、diagnose、split、stop_auto_retry。和飞书任务卡上点同名按钮是同一个调用，在自动重试用的同一个话题上下文里执行（话题、管家、负责人都行）：
 
@@ -403,7 +401,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 
 **`stop`**：停这个话题在跑的任务，同卡片上的停止。话题在等你答题时，那道题一并收掉（原因 `web_stop`，卡上写“你在网页上停了这个话题”，看板上是“已停止”而不是“停住了”）；只有还没点开始的启动卡时把启动卡收掉；什么都没有时回 failed。
 
-**`launch`**：`payload` 带 `text`（第一行当标题）、`model`（`launch.models` 的 `key`）、`effort`、`work_mode`、`redaction`（`on`/`off`）、`workspace`、`run_mode`。
+**`launch`**：`payload` 带 `text`（第一行当标题）、`model`（`launch.models` 的 `key`）、`effort`、`work_mode`、`workspace`、`run_mode`。
 
 - 只认主人；校验同启动卡的“开始任务”，不过回 failed 写原因。
 - 开法同管家直接开工的话题：私聊顶层一张话题卡，第一轮就是你写的话；这次选择记成这个私聊的“上次开始任务”，下一张启动卡和网页的预选都跟着变。之后每一轮的结论、等你回答的问题和停住也和管家开的话题一样回到私聊顶层（[结论回到顶层](butler.md#结论回到顶层)）。
@@ -413,11 +411,9 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 
 **`settings`**：只认主人（`app/access.py` 的 `is_owner`），写设置走和卡片同一处，回执也是卡片那句。`payload.what`：
 
-- `row`：`kind` 是卡片那一行的 kind、`option` 是选项值。也收管家的脱敏和“私聊顶层的消息”（`kind` 为 MODE；改成“每条直接开一个话题”要带 `confirm: true`）。
+- `row`：`kind` 是卡片那一行的 kind、`option` 是选项值。也收管家的“私聊顶层的消息”（`kind` 为 MODE；改成“每条直接开一个话题”要带 `confirm: true`）。
 - `untrust`（`key`）：已下线（v24），回 failed“记住的工作区已下线：管家开的话题一律直接开工”。
 - `note`（`workspace`、`note`）：工作区用途，空串清掉。
-- `redaction`（`name`、`on`）：脱敏的“不区分大小写”“回复还原”。
-- `terms`（`add`、`remove` 是原词列表）：一次先删后加；删的按“不区分大小写”开关比、不在的跳过，加的已在词表里跳过；有一个加不进（太短、太长、控制字符、`=>`、超 1000 个）就一个都不存。回执只说个数，不写原词（回执存在网页的发件箱里）。
 - `group`（`group`、`on`）：群的停用与启用。
 - `free`（`group`、`mode`）：免@ 只能改成 `""`（关闭）或 `owner`（只有你），代答群不能免@。“你和选中的人”“群里所有人”留在飞书改。
 - `workspace_add`（`path`，绝对路径或“设备别名:路径”，查目录最多 5 秒）、`workspace_remove`（`workspace`，只是不再登记，目录和已开的话题不动；默认的那个不能移除）、`workspace_prune`（移除目录确认不存在的）。目录浏览不做。
@@ -548,7 +544,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
   - `part`：一轮带它的那一段，`rule`、`decision`、`reference`（待核对参考）；历史记录和风格行是 `null`。
   - `asserted_by`、`recorded_by`、`level`，含义同[来源](architecture.md#参与者交付与来源)；`said_by`（你说的、它总结的）和 `by`（`owner` 或 `lead`）只作来源标签。
   - `applies`：适用范围和条件（一句话，没写是空串）；`valid`：`active`、`done`、`superseded`（另带 `superseded_by`）、`void`。
-  - `ref`：`project:<专项 id>:<条目 id>`，和一轮的 `memory_ids` 对得上；`carried`：成员话题的下一轮会不会带它（脱敏的话题只带开了脱敏的话题记下的）；`redacted`：这条在开了脱敏的话题里记下。
+  - `ref`：`project:<专项 id>:<条目 id>`，和一轮的 `memory_ids` 对得上；`carried`：成员话题的下一轮会不会带它。
   - `origin`：`at`（记下的时刻），知道的另带 `message_id`（那条消息）或 `question`（那道题的记录）和它的 `item`、`index`，`topic` 和它的 `topic_number`，`job`，主人的原话 `quote`。
   - 话题记忆还没有推。
 
@@ -599,3 +595,5 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 | v44 | `/sync/upsert`、`/sync/images/have` 响应的 `limits`（请求体、一张图的上限，图片附件存哪，内存读数）；`/api/uploads` 响应的 `part_bytes`；`/openapi/sync/blobs/backfill`（手动回迁）；图片和附件的字节放平台的文件存储（`images.thumb_path`、`full_path`，`upload_parts.path`、`bytes`，见[数据约定 v44](#数据约定-v44上限文件存储与连接保护)）。推送的条目没有变化 |
 | v45 | 记忆一页式（[数据约定 v45](#数据约定-v45记忆一页式)）：`memory:index` 去掉 `health`、`imports`、`scopes[].rules`，不再推 `memory:previews`、`memory:import:<页>`；条目去掉 `carried_next`，决定补问的话题的 T 号；记录不列问题卡回答的自动写入；`memory_edit` 去掉 `import`、`ignore`；一轮的 `notes` 多推 `superseded`、`pending` |
 | v46 | 常用路径与设备（[数据约定 v46](#数据约定-v46常用路径与设备)）：设置页 `repos` 每条的 `kind`、`device` 和页上的 `devices`，`repos_add` 的 `device`；`nodes` 的 `rows`、`adding`、`can_add_device`、`error`；`device_add`、`device_set`、`device_remove`、`device_check` 设置操作，都可选 |
+
+敏感词脱敏下线后版本不升：上表里 v14（`terms`）、v15（脱敏记录）、v36（负责人换配置的脱敏）提到的脱敏字段，以及 `config`、`ran_with`、`launch.models`、`switch`、`launch` 里的 `redaction`，新版 Covey 不再推、不再要求；网页两头都容忍旧数据里还带着它们，`settings` 的 `redaction`、`terms` 两种改动回“敏感词脱敏已下线”被拒。

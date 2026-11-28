@@ -534,12 +534,6 @@ class PickedTest(Case):
         self.assertNotIn(a.text, tail)
         self.assertIn(PICKED_HEAD.format(who="负责人"), tail)
 
-    def test_a_redacted_pick_is_carried_only_while_the_topic_has_redaction_on(self):
-        hidden = memstore.add(self.state, kind="note", scope="global", text="内部域名在配置里", said="owner", by="owner",
-                              redacted=True)
-        self.pick(T1, [hidden])
-        self.assertNotIn("内部域名在配置里", self.tail(T1))
-
     def test_the_preview_of_the_page_counts_the_picked(self):
         deploy = self.note("Covey 的专项话题改完、检查过就直接部署到主人本机现网")
         bare = memory_turn.preview(self.state, T1)

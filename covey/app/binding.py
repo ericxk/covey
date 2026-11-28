@@ -1,4 +1,4 @@
-"""A topic's binding (Harness, model, budget, work mode, place and 敏感词脱敏) and what may change it.
+"""A topic's binding (Harness, model, budget, work mode and place) and what may change it.
 
 switch_topic rebinds a topic under topic_lock, then LOCK: 🔁 换配置 (app/harness_switch.py) and 代答's
 model setting (app/proxy.py) call it. busy_reason says why a topic cannot change now (also for ↩️ 回退),
@@ -15,10 +15,8 @@ from covey.cards.switch_form import UNCHANGED
 from covey.cards.topic_actions import SWITCH_OPEN
 from covey.core import projects
 from covey.core.checkpoint import release_user_wait
-from covey.core.harness import backend_capabilities
 from covey.core.jobs import upsert_job_record
 from covey.core.statuses import RUNNING
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.state import read_json, write_json
 from covey.core.session_state import capture_session_state, compare_and_set_session
 from covey.core.store import directory_store, transition_question
@@ -29,7 +27,6 @@ from covey.core.workspaces import touch_workspace, worktree_root
 BUSY = frozenset(RUNNING | {"waiting_workspace"})
 # Card actions that start a job; refused on cards from before the latest switch.
 JOB_STARTING = frozenset({"bridge_job_retry", "bridge_steer_requeue", SWITCH_OPEN})
-REDACTION_ONLY = "敏感词脱敏开着时只能换到能脱敏的模型（Claude）；要换别的 Harness，先在卡上把脱敏关掉"
 STALE_CARD = "话题已换过配置，这张卡属于更换前的任务；请在最新的任务卡上操作，或直接在话题里发消息。"
 
 
@@ -129,11 +126,10 @@ def run_mode_of(workdir):
         return "direct"
 
 
-def switch_topic(topics, ctx, chat, form, name, model, effort, work_mode="", *, place=None, redaction=None):
+def switch_topic(topics, ctx, chat, form, name, model, effort, work_mode="", *, place=None):
     """Rebind the topic to `name`/`model`/`effort` in `work_mode` ("" the default) and, with ``place``
     ({workspace, workdir, run_mode, branch}), in another directory; returns (outgoing, incoming) bindings.
-    A new work mode or place alone is a switch too: like any, it starts a fresh session. ``redaction``
-    (True/False, None to keep it) alone only sets the topic's 敏感词脱敏, the session going on: returns None."""
+    A new work mode or place alone is a switch too: like any, it starts a fresh session."""
     topic = read_topic(ctx)
     old_app, new_app = topics.apps[topic["harness_id"]], topics.apps[name]
     topic_dir = ctx.history_path.parent
@@ -148,22 +144,9 @@ def switch_topic(topics, ctx, chat, form, name, model, effort, work_mode="", *, 
         reason = busy_reason(topics, ctx, chat)
         if reason:
             raise ValueError(reason)
-        redacting = topic.get(REDACTION_KEY) is True
-        redaction = redacting if redaction is None else redaction
-        rebind = (place is not None or (name, model, effort, work_mode) != (
-            topic["harness_id"], topic.get("model", ""), topic.get("effort", ""), topic.get("work_mode", "")))
-        if not rebind and redaction == redacting:
+        if not (place is not None or (name, model, effort, work_mode) != (
+                topic["harness_id"], topic.get("model", ""), topic.get("effort", ""), topic.get("work_mode", ""))):
             raise ValueError(UNCHANGED)
-        # A Harness that cannot redact would send the terms out.
-        if redaction and not backend_capabilities(new_app.backend, new_app.harness.context).redaction:
-            raise ValueError(REDACTION_ONLY)
-        if not rebind:
-            # Only 敏感词脱敏: each request of a turn goes through the relay whole, the earlier rounds too, so
-            # the session goes on; turned on, it covers the turns from here (the earlier ones went out as they were).
-            set_redaction(topic, redaction)
-            write_json(topic_dir / "topic.json", topic, ensure_ascii=False, indent=2)
-            topics.runtime.log(f"redaction {'on' if redaction else 'off'} topic={ctx.topic_id[:12]} by a switch")
-            return None
         if (old_app.sessions.read_session_id(topic_dir / old_app.spec.session_filename) or "") != old_sid:
             raise ValueError("会话状态正在变化，请稍后重试")
         here = {"workspace": topic.get("workspace_name", ""), "workdir": str(topic.get("workdir") or ""),
@@ -171,8 +154,7 @@ def switch_topic(topics, ctx, chat, form, name, model, effort, work_mode="", *, 
         outgoing = {"harness_id": topic["harness_id"], "title": old_app.spec.title, "model": topic.get("model", ""),
                     "effort": topic.get("effort", ""), "work_mode": topic.get("work_mode", ""), "session_id": old_sid,
                     "transcript": str(transcript) if transcript else "",
-                    # Whether its turns went through the term relay: so does the handoff summary (app/switch_handoff.py).
-                    "redaction": redacting, **here}
+                    **here}
         marker = read_marker(ctx)
         if old_sid and marker is not None and marker.get("session_id") == old_sid:
             # A ↩️ 回退 the next turn was to take: the session's tip still has the dropped round, so no summary
@@ -192,7 +174,6 @@ def switch_topic(topics, ctx, chat, form, name, model, effort, work_mode="", *, 
             topic["work_mode"] = work_mode
         else:
             topic.pop("work_mode", None)
-        set_redaction(topic, redaction)
         topic.setdefault("switches", []).append({"at": time.time(), "revision": revision, "job_id": form.get("job_id"),
                                                  "from": outgoing, "to": incoming})
         write_json(topic_dir / "topic.json", topic, ensure_ascii=False, indent=2)
@@ -202,13 +183,6 @@ def switch_topic(topics, ctx, chat, form, name, model, effort, work_mode="", *, 
                        + (f" run_mode={place['run_mode']}" if place else ""))
     retire_open_questions(topics, old_app, ctx, chat)
     return outgoing, incoming
-
-
-def set_redaction(topic, on):
-    if on:
-        topic[REDACTION_KEY] = True
-    else:
-        topic.pop(REDACTION_KEY, None)
 
 
 # The questions retire_open_questions cancels: the open ones, and those the owner set aside (不处理, T604 #15), which the next

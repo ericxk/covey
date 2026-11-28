@@ -1,5 +1,5 @@
 """派活时挑带 (app/memory_picks.py, T923 DESIGN §3, §10.4): what the butler or a project's lead names in ``memory`` is checked
-code by code (in force, a 资料, of 全局 or the lead's own project, the redaction mark only for a topic with redaction on, at
+code by code (in force, a 资料, of 全局 or the lead's own project, at
 most 5 and 800 characters with what the topic carries already), each refused one said with why; the ones taken are kept in
 the topic's ``memory_carried`` once each and read back as they are now."""
 from __future__ import annotations
@@ -55,12 +55,6 @@ class CheckTest(Case):
         mine = self.note("网关的预检脚本在 scripts/check.sh", scope="project", owner_key=PID)
         taken, refused = self.check([mine.code])
         self.assertEqual((taken, len(refused)), ([], 1))
-
-    def test_a_redacted_note_only_goes_to_a_topic_with_redaction_on(self):
-        hidden = self.note("内部域名在配置里", redacted=True)
-        self.assertEqual(self.check([hidden.code])[0], [])
-        self.assertIn("脱敏", self.check([hidden.code])[1][0])
-        self.assertEqual([e.code for e in self.check([hidden.code], redacted=True)[0]], [hidden.code])
 
     def test_at_most_five_and_800_characters_with_what_the_topic_carries_already(self):
         made = [self.note(f"第 {i} 条：" + "字" * 100) for i in range(7)]

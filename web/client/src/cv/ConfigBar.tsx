@@ -17,13 +17,12 @@ import './launch.css';
 import './composer.css';
 
 const FIELD_WORD: Record<string, string> = {
-  model: '模型', effort: '思考预算', work_mode: '工作模式', workspace: '工作区', run_mode: '运行方式', redaction: '脱敏', device: '执行设备', repos: '仓库',
+  model: '模型', effort: '思考预算', work_mode: '工作模式', workspace: '工作区', run_mode: '运行方式', device: '执行设备', repos: '仓库',
 };
 type Phase = 'idle' | 'sending' | 'failed';
 
-/** 负责人改了配置以后怎样（Covey 只改脱敏时会话不变，别的都开新会话、重读专项的状态） */
-const leadNext = (changed: string[]): string =>
-  changed.every((k: string) => k === 'redaction') ? '从负责人下一轮起生效，会话不变' : '从负责人下一轮起按新配置做（开新会话，重新读一遍专项的状态）';
+/** 负责人改了配置以后怎样（都开新会话、重读专项的状态） */
+const leadNext = (): string => '从负责人下一轮起按新配置做（开新会话，重新读一遍专项的状态）';
 
 /**
  * 话题页输入框下沿的配置栏（截图红框那行，T616）：“工作区 covey · Claude Code · Opus”。
@@ -139,7 +138,6 @@ export const ConfigBar: React.FC<{ topic: SnapshotTopic | undefined; workspace: 
     data,
     sel: cur,
     edit: (f) => setSel(f(data, cur)),
-    setRedaction: (v: 'on' | 'off') => setSel({ ...cur, redaction: v }),
     ...(lead ? { fixedPlace: true } : {}),
     // 执行设备只读：话题所在的（config.device，'' 本机；旧 Covey 没推这个键就不写），仓库这块改过没有，负责人的仓库只读显示
     switching: {
@@ -194,7 +192,7 @@ export const ConfigBar: React.FC<{ topic: SnapshotTopic | undefined; workspace: 
         ) : blocked ? (
           <span className={busy ? 'warn' : 'bad'}>{blocked}</span>
         ) : changed.length ? (
-          <span>改了{changed.map((k: string) => FIELD_WORD[k] ?? k).join('、')}：{lead ? leadNext(changed) : `从下一句话起按新配置做（${isRepoMode(all) ? '模型变了会开新会话' : '模型、工作区变了会开新会话'}，带上最近几轮）`}</span>
+          <span>改了{changed.map((k: string) => FIELD_WORD[k] ?? k).join('、')}：{lead ? leadNext() : `从下一句话起按新配置做（${isRepoMode(all) ? '模型变了会开新会话' : '模型、工作区变了会开新会话'}，带上最近几轮）`}</span>
         ) : (
           <span>{lead ? '这是负责人现在的配置，改哪项点哪项' : forModel ? '只改模型这几项就行，执行设备和仓库不展开就不会动' : '这是话题现在的配置，改哪项点哪项'}</span>
         )}

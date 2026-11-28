@@ -64,7 +64,7 @@ export interface SwitchPlace {
 /** 面板只用到的那几样：开新话题的 LaunchBox 是，话题页换配置（v20）也拼得出。
  *  fixedPlace（v36，负责人的换配置）：不画工作区、运行方式两行，选择里照带原值（负责人留在它读的地方），仓库只读。
  *  switching（T879，话题页换配置）：模型几项在上；执行设备只读（换配置换不了机器），设备和仓库默认折成一行摘要 */
-export type PanelBox = Pick<LaunchBox, 'data' | 'sel' | 'edit' | 'setRedaction'> & { fixedPlace?: boolean; switching?: SwitchPlace };
+export type PanelBox = Pick<LaunchBox, 'data' | 'sel' | 'edit'> & { fixedPlace?: boolean; switching?: SwitchPlace };
 
 const REPO_WORD: Record<RepoMode, string> = { none: '不用', read: '只读', write: '可写' };
 
@@ -134,7 +134,7 @@ export const LaunchPanel: React.FC<{ box: PanelBox; className?: string; foot?: R
       </div>
     </div>
   );
-  // 模型那一组：Harness、供应商、模型、思考预算，模型有的话再加工作模式、脱敏（换个模型只要改这一组）
+  // 模型那一组：Harness、供应商、模型、思考预算，模型有的话再加工作模式（换个模型只要改这一组）
   const modelRows = (
     <div className="st-gr cfg">
       {row('Harness', <Pick label="Harness" options={harnessOptions(data)} value={m?.harness ?? ''} onPick={(v: string) => box.edit((d, s) => pickHarness(d, s, v))} />)}
@@ -142,12 +142,6 @@ export const LaunchPanel: React.FC<{ box: PanelBox; className?: string; foot?: R
       {row('模型', <Pick label="模型" options={modelOptions(data, m?.harness ?? '', m?.provider ?? '')} value={sel.model} onPick={(v: string) => box.edit((d, s) => pickModel(d, s, v))} />)}
       {row('思考预算', <Pick label="思考预算" options={m?.budgets ?? []} value={sel.effort} onPick={(v: string) => box.edit((_d, s) => ({ ...s, effort: v }))} />)}
       {modes.length ? row('工作模式', <Pick label="工作模式" options={modes} value={sel.work_mode} onPick={(v: string) => box.edit((_d, s) => ({ ...s, work_mode: v }))} />) : null}
-      {m?.redaction
-        ? row(
-            '脱敏',
-            <Pick label="敏感词脱敏" options={[{ value: 'off', text: '不脱敏' }, { value: 'on', text: '脱敏' }]} value={sel.redaction} onPick={(v: string) => box.setRedaction(v as 'on' | 'off')} />,
-          )
-        : null}
     </div>
   );
   if (folded && switching) {

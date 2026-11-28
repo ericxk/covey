@@ -22,8 +22,6 @@
 .cv .st-r:first-child{border-top:0}
 .cv .st-r.st-tr{display:flex;align-items:center;gap:10px;grid-template-columns:none}
 .cv .st-l{font-size:13.5px;color:var(--t1);padding-top:5px}
-.cv .st-l2{font-size:13.5px;color:var(--t1)}
-.cv .st-hint2{font-size:12px;color:var(--t3);line-height:1.5;margin-top:1px}
 .cv .st-c{min-width:0}
 .cv .st-ro{display:flex;align-items:baseline;gap:12px;padding-top:5px;min-width:0;flex-wrap:wrap}
 .cv .st-val{font-size:13.5px;color:var(--t1)}
@@ -113,62 +111,14 @@
 .cv .st-prune .st-why{padding-top:0}
 .cv .st-free{margin-top:2px}
 .cv .st-opt.sm{min-height:26px;padding:2px 10px;font-size:12.5px}
-.cv .st-rt{min-width:64px;margin-left:0}
-.cv .st-tp .st-rt{flex:none}
 
-/* 脱敏 */
-.cv .st-tp{padding:10px 16px}
-.cv .st-no{font:12px var(--mono);color:var(--t3);flex:none;min-width:34px}
-.cv .st-tt{flex:1;min-width:0;font-size:13.5px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cv .st-tp .st-when{margin-left:0;flex:none}
-.cv .st-sw-r{display:flex;align-items:center;justify-content:space-between;gap:16px}
-.cv .st-sw{position:relative;flex:none;width:38px;height:22px;border-radius:11px;border:1px solid var(--line2);background:var(--s3);cursor:pointer;transition:background .15s var(--ease)}
-.cv .st-sw i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--t3);transition:transform .15s var(--ease),background .15s}
-.cv .st-sw.on{background:var(--a1);border-color:var(--a1)}
-.cv .st-sw.on i{transform:translateX(16px);background:#fff}
-.cv .st-sw:disabled{opacity:.55;cursor:default}
-
-/* 脱敏词表（v14）：列表和批量编辑共用一份草稿；新加用“有结果”绿，要删和不合规用“停住了”红 */
-.cv .st-hrow{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:22px 0 4px}
-.cv .st-hrow .st-h{margin:0}
-.cv .st-mode .st-opt{min-height:28px;padding:3px 12px}
-.cv .st-lead{margin:0 2px 8px}
 .cv .st-addr{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;border-top:1px solid var(--line)}
 .cv .st-addr:first-child{border-top:0}
 .cv .st-addr .btn{flex:none;height:32px}
-.cv .st-ta{display:block;width:100%;min-height:32px;padding:6px 10px;border-radius:8px;border:1px solid var(--line2);background:var(--s3);color:var(--t1);font:13px/1.65 var(--mono);resize:vertical;outline:0;white-space:pre;overflow-x:auto}
-.cv .st-ta:focus{border-color:var(--a1)}
-.cv .st-ta:disabled{opacity:.6}
-.cv .st-ta-add{flex:1;min-width:0;font-family:inherit;white-space:pre-wrap;resize:none;field-sizing:content;max-height:160px}
-.cv .st-find .st-in-t{height:32px}
-.cv .st-term{display:flex;align-items:center;gap:10px;min-height:40px;padding:6px 8px 6px 16px;border-top:1px solid var(--line)}
-.cv .st-tw{flex:1;min-width:0;font-size:13.5px;color:var(--t1);overflow-wrap:anywhere;white-space:pre-wrap}
-.cv .st-tk{flex:none;font-size:12px;color:var(--t3)}
-.cv .st-tk.add{color:var(--done)}
-.cv .st-tk.bad{color:var(--fail)}
-.cv .st-term.add{background:color-mix(in srgb,var(--done) 9%,transparent)}
-.cv .st-term.bad{background:color-mix(in srgb,var(--fail) 8%,transparent)}
-.cv .st-term.dup .st-tw{color:var(--t3)}
-.cv .st-term.gone .st-tw{color:var(--fail);text-decoration:line-through}
-.cv .st-term.gone{background:color-mix(in srgb,var(--fail) 6%,transparent);padding-right:16px}
-.cv .st-x{flex:none;width:32px;height:32px;border:0;border-radius:8px;background:none;color:var(--t3);font-size:12px;cursor:pointer}
-.cv .st-x:hover:not(:disabled){color:var(--fail);background:var(--s3)}
-.cv .st-x:disabled{opacity:.4;cursor:default}
-.cv .st-tbox{padding:12px 16px}
-.cv .st-probs{margin-top:8px;font-size:12px;line-height:1.6;color:var(--fail)}
-.cv .st-diff{padding:10px 16px;border-top:1px solid var(--line);font-size:13px;line-height:1.9;color:var(--t2)}
-.cv .st-diff b{color:var(--t1);font-weight:600}
-.cv .st-plus{color:var(--done);margin-right:4px}
-.cv .st-minus{color:var(--fail);margin-right:4px}
-.cv .st-sep{color:var(--t3);margin:0 6px}
-.cv .st-chip{display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;border-radius:6px;padding:0 6px;margin:0 4px 0 0;font-size:12.5px;line-height:20px}
-.cv .st-chip.add{background:color-mix(in srgb,var(--done) 14%,transparent);color:var(--done)}
-.cv .st-chip.del{background:color-mix(in srgb,var(--fail) 12%,transparent);color:var(--fail);text-decoration:line-through}
 .cv .st-bar{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--line);background:var(--s2)}
 .cv .st-why{flex:1;min-width:0;font-size:12.5px;color:var(--t3)}
 .cv .st-why.bad{color:var(--fail)}
 .cv .st-bar .st-quiet{margin-left:auto}
-.cv .st-diff .st-faint,.cv .st-plus,.cv .st-minus{white-space:nowrap}
 
 .cv .st-empty{display:flex;flex-direction:column;align-items:center;gap:12px;padding:36px 16px;border:1px solid var(--line);border-radius:12px;background:var(--s1);text-align:center;color:var(--t2);font-size:13.5px}
 
@@ -176,17 +126,14 @@
   .cv .st-in{padding:10px 12px 96px}
   .cv .st-r{grid-template-columns:1fr;gap:4px}
   .cv .st-l{padding-top:0;font-size:12.5px;color:var(--t3)}
-  .cv .st-r.st-tr,.cv .st-r.st-sw-r{grid-template-columns:none}
+  .cv .st-r.st-tr{grid-template-columns:none}
   .cv .st-ro{padding-top:0}
   .cv .st-opt{min-height:40px;padding:6px 14px}
   .cv .st-sel{height:40px;width:100%}
   .cv .st-top .btn,.cv .st-ws .btn,.cv .st-edit .btn{height:40px}
   .cv .st-in-t{height:40px}
-  .cv .st-addr .btn,.cv .st-bar .btn,.cv .st-find .st-in-t{height:40px}
-  .cv .st-x{width:40px;height:40px}
-  .cv .st-mode .st-opt{min-height:36px}
-  .cv .st-addr,.cv .st-diff,.cv .st-bar,.cv .st-tbox{padding-left:12px;padding-right:12px}
-  .cv .st-term{padding-left:12px}
+  .cv .st-addr .btn,.cv .st-bar .btn{height:40px}
+  .cv .st-addr,.cv .st-bar{padding-left:12px;padding-right:12px}
   .cv .st-why{flex-basis:100%}
   .cv .st-bar{flex-wrap:wrap}
   .cv .st-link{min-height:32px}
@@ -196,9 +143,6 @@
   .cv .st-opt.sm{min-height:36px}
   .cv .st-ask .btn{height:36px}
   .cv .st-addr .st-in-t{min-width:0}
-  .cv .st-sw{width:46px;height:28px;border-radius:14px}
-  .cv .st-sw i{width:20px;height:20px}
-  .cv .st-sw.on i{transform:translateX(18px)}
 }
 
 /* 配置页（T619 紧凑版）：一组一块，每项一个 34px 高的小格，标签在格内左侧、控件贴右，不再标签在上控件在下。

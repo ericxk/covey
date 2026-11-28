@@ -592,9 +592,9 @@ class IgnoredEnvTests(UnifiedCase):
 class TaskRunnerPartsTests(UnifiedCase):
     """A task runner builds the Bridge without the parts only the Bridge uses (UnifiedBridgeApp.PARTS), built on first use."""
 
-    # What a runner's start must not import: the bot menu, the settings and other panels (脱敏 too), 代答,
+    # What a runner's start must not import: the bot menu, the settings and other panels, 代答,
     # the digest, the maintenance and service parts of the Bridge's main().
-    BRIDGE_ONLY = ('covey.app.bot_menu', 'covey.app.proxy', 'covey.app.redaction_panel', 'covey.app.digest',
+    BRIDGE_ONLY = ('covey.app.bot_menu', 'covey.app.proxy', 'covey.app.digest',
                    'covey.app.settings_hub', 'covey.app.overview', 'covey.app.group_manager', 'covey.app.group_menu',
                    'covey.app.group_boards', 'covey.app.weekly_usage', 'covey.app.workspace_manager',
                    'covey.app.butler_tools', 'covey.app.app_setup', 'covey.app.topic_seen', 'covey.app.health',

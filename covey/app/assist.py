@@ -29,10 +29,6 @@ lane for 6 hours, and every refusal counts toward the lane's gate of the day. A 
 past a break, a cooling or the gate, once a lane a minute (core/assist.py TRY_SECONDS), and its answer clears the break.
 A change of the setting clears the breaks and the coolings.
 
-What goes out is never a redacting topic's (core/redaction.py): every caller says whether its words are one's (``ask``'s
-``redacted``, a keyword it must give, tests/test_structure.py AssistExitTest), and one that is is refused before anything
-starts (``Failed("redacted")``).
-
 Before a process starts the call is checked again against the settings read now (``allowed``): a Harness the owner no
 longer allows is refused with a log line ``assist refused harness=… feature=…``. No process is kept between calls: each
 question starts its own (app/track_judge.py).
@@ -378,23 +374,16 @@ def failed_of(route_) -> Failed:
     return exc
 
 
-def ask(feature, system, data, *, topics, limit, cwd, redacted: bool, manual=False, state=None,
+def ask(feature, system, data, *, topics, limit, cwd, manual=False, state=None,
         log: Callable[[str], None] | None = None) -> str:
     """One question of ``feature`` (FEATURES), its raw answer as Claude Code's JSON envelope (app/track_judge.py
-    ``answer_text`` reads it); Failed with the reason otherwise (``via``: the Harness it concerns, ``model``). ``redacted``:
-    whether ``system`` or ``data`` carries a redacting topic's words; such a question never goes (``Failed("redacted")``,
-    nothing started). ``manual``: the owner asked for it (✨ 整理, the butler's projects_tidy): a break, a cooling or the
+    ``answer_text`` reads it); Failed with the reason otherwise (``via``: the Harness it concerns, ``model``). ``manual``: the owner asked for it (✨ 整理, the butler's projects_tidy): a break, a cooling or the
     day's gate does not stop it, once a lane a minute. Asked again each call: a loop over topics never keeps a backend
     across calls."""
     if feature not in FEATURES:
         raise ValueError(f"unknown assist feature {feature!r}")
     state = state_of(topics, state)
     log = log or (getattr(getattr(topics, "runtime", None), "log", None) or print)
-    if redacted is not False:  # Only a plain False lets it go: a caller that is not sure sends nothing.
-        log(f"assist refused feature={feature} reason=redacted")
-        exc = Failed("redacted")
-        exc.via, exc.model = "", ""
-        raise exc
     kept = FEATURES[feature].row or feature  # The recent row (and a batch feature's cooling) it is kept under.
     found = route(topics, feature, manual=manual, state=state)
     if found.first is None:
@@ -443,17 +432,17 @@ def ask(feature, system, data, *, topics, limit, cwd, redacted: bool, manual=Fal
     raise failed_of(found)  # Not reached: the last try raises.
 
 
-def judge(message, *, topics, redacted=False, question="", log=print, environ=None, state=None):
+def judge(message, *, topics, question="", log=print, environ=None, state=None):
     """分流's verdict on ``message`` (app/track_judge.py ``judge``) through the route of TRACK: one Harness, one try (it is on
     the owner's message's path); with none (不用模型, the named one unusable) a ``new`` Verdict whose ``why`` says why.
     COVEY_TRACK_JUDGE=off or cmd: is the deployment's and comes first, as before."""
     state = state_of(topics, state)
     mode = track_judge.mode(environ)
     if mode != CLAUDE:
-        return track_judge.judge(message, question=question, redacted=redacted, log=log, environ=environ)
+        return track_judge.judge(message, question=question, log=log, environ=environ)
     found = route(topics, TRACK, state=state)
     if found.first is None:
-        verdict = track_judge.judge(message, question=question, redacted=redacted, log=log, environ=environ,
+        verdict = track_judge.judge(message, question=question, log=log, environ=environ,
                                     unrouted=found.why)
         if verdict.why == found.why and state is not None:
             records.settle(state, feature=TRACK, harness=found.about, code=found.why)
@@ -461,10 +450,10 @@ def judge(message, *, topics, redacted=False, question="", log=print, environ=No
     choice = found.first
     if not allowed(topics, TRACK, choice.name, state=state):
         log(f"assist refused harness={choice.name} feature={TRACK}")
-        return track_judge.judge(message, question=question, redacted=redacted, log=log, environ=environ,
+        return track_judge.judge(message, question=question, log=log, environ=environ,
                                  unrouted="not_allowed")
     model = claude_model(choice)
-    verdict = track_judge.judge(message, question=question, redacted=redacted, backend=choice.backend, ctx=choice.ctx,
+    verdict = track_judge.judge(message, question=question, backend=choice.backend, ctx=choice.ctx,
                                 log=log, environ=environ, follow=choice.follow, model=model,
                                 effort=effort_of(choice, model))
     if verdict.why not in track_judge.NOT_CALLED and state is not None:

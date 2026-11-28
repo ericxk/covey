@@ -168,7 +168,7 @@ class ReportTests(unittest.TestCase):
         self.write("job-diffs/x/diff.json", {"files": [{"path": "a", "diff_text": "+a"}]})
         self.write("job-diffs/y/diff.json", {"files": [{"path": "a"}]})
         self.write("switch-forms/old.json", {"token": "old", "selected_model": "claude:opus"})
-        self.write("switch-forms/new.json", {"token": "new", "selected_workspace": "w", "selected_redaction": "off"})
+        self.write("switch-forms/new.json", {"token": "new", "selected_workspace": "w"})
         _, rows = self.run_report()
         counts = {name: (row["verdict"], row["count"]) for name, row in rows.items()}
         self.assertEqual(counts["retired-harness"], ("还要留", 3))

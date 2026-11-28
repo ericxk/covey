@@ -1,4 +1,4 @@
-"""网页工作台的设置页 (docs/web.md, COVEY_WEB=1; data contract v7 ``settings``, v14 its ``terms``): the 设置 card's tabs as one item the page
+"""网页工作台的设置页 (docs/web.md, COVEY_WEB=1; data contract v7 ``settings``): the 设置 card's tabs as one item the page
 draws (``snapshot``), and the few changes the page may make (``change``, app/web_ops.py's ``settings``), both through the code the card
 itself draws and writes with. Nothing here is a second copy of a rule.
 
@@ -6,15 +6,13 @@ itself draws and writes with. Nothing here is a second copy of a rule.
   管家 unless COVEY_BUTLER=0, 专项负责人 with COVEY_PROJECTS=1 (v36 ``lead``), and 更多, all open: the
   page has no card's size), 常用路径 (v43 ``repos``, the card's 仓库: the home, the repository map, the worktrees; v46 a plain directory's
   ``kind`` and a device's path, the devices a path may be added on; the old 工作区 page ``workspace`` is still pushed, for a page that
-  draws it, but is no tab), 脱敏, 群聊, 设备 with COVEY_NODE_LISTEN, with devices on or with a node (v46 ``devices_page``: devices.json
+  draws it, but is no tab), 群聊, 设备 with COVEY_NODE_LISTEN, with devices on or with a node (v46 ``devices_page``: devices.json
   and the nodes as one row a machine, app/web_panels.py); not 记忆, 能做什么 and 诊断, the card's alone: CARD_ONLY, each with the rows the card draws (cards/butler_panel.py ``topic_settings``, ``butler_setting_list``, ``mode_setting``, ``subagent_setting``: label, kind, the chosen option and every option offered), the workspaces with their tags and 用途
-  (cards/workspace_manager.py ``list_entries``, ``tag_words``) on the old 工作区 page, 脱敏's figures, the topics it is on in, its two switches (app/redaction_panel.py
-  ``facts``) and its terms as they are (the page edits the list, so the terms go into the page's database;
-  never a stand-in), the groups with their state and 免@
+  (cards/workspace_manager.py ``list_entries``, ``tag_words``) on the old 工作区 page, the groups with their state and 免@
   (cards/group_manager.py ``state_words``, ``free_words``; a group is named by a hash of its chat id) and the nodes' lines (app/node_panel.py
   ``facts``). ``editable`` says which rows the page may change (EDITABLE); every other row says 去飞书改 (``feishu``: the bot's applink).
 - What the page may change: every row of 新话题; 管家's 供应商, 模型, 思考预算 and
-  压缩阈值 (its 脱敏 and 私聊顶层的消息 are read only); a workspace's 用途; 脱敏's two switches and terms; a group's 停用 / 启用 (its 免@ is read only).
+  压缩阈值 (its 私聊顶层的消息 is read only); a workspace's 用途; a group's 停用 / 启用 (its 免@ is read only).
   Data contract v46: a device of devices.json added (checked first), changed, removed or checked (``device_add``, ``device_set``,
   ``device_remove``, ``device_check``: app/web_panels.py), and a path added on a device (``repos_add``'s ``device``).
   Data contract v43: a repository's 用途, 状态 and 写法 (``repos_set``), one added by its path (``repos_add``) or taken out of the map
@@ -23,11 +21,11 @@ itself draws and writes with. Nothing here is a second copy of a rule.
   (a directory with ``.git`` is added to it). The map is repos.json (core/repomap.py); before it exists the page shows the old workspace
   list as a read-only view, and the first change makes the file (``edit_repos``). The 新话题 and 管家 rows have no 工作区 or 运行方式
   row any more (cards/butler_panel.py OFFLINE_KINDS).
-  Data contract v15: the butler's 脱敏 and 私聊顶层的消息 (每条直接开一个话题 with
+  Data contract v15: the butler's 私聊顶层的消息 (每条直接开一个话题 with
   ``confirm``), 免@ set to 关闭 or 只有你 (``free``), a workspace added by its path, removed, the missing ones removed, and the 设备 and 代答
   pages (app/web_panels.py); 本周用量 as the card counts it (``usage``, the item key USAGE_KEY).
-  脱敏's terms, many at once: ``terms`` (``add`` and ``remove``, the terms as written) in one ``update_config``, its receipt counts and
-  never names a term (it is kept in the page's outbox).
+  敏感词脱敏 is retired: the page no longer draws it, and a change of its two switches (``redaction``) or its terms (``terms``) from a
+  page drawn before is refused, REDACTION_RETIRED.
   A row's change is the card's own (app/butler_panel.py ButlerPanel ``changes`` then core/butler_settings.py ``update``), so both write the one
   main-thread.json and the card and the page show the same; the page's receipt is the card's (``SAVED``). Only the owner: app/access.py
   ``is_owner`` of the owner the Bridge knows (the page's own check is its login).
@@ -49,8 +47,7 @@ from covey.app import butler_panel as panel_rules
 from covey.app.menu_panel import hub_tabs
 from covey.cards import butler_panel as cards
 from covey.cards.group_manager import FREE_CHOICES, KIND_WORDS, PROXY_BLOCKED, free_limit, free_mode, free_words, name_of, ordered, state_words
-from covey.cards.redaction_panel import SWITCH_ROWS, TOPICS
-from covey.cards.settings_hub import (ABOUT, CONFIG, DOCTOR, GROUPS, LABELS, MEMORY, NODES, PROXY, REDACTION, REPOS, TOPIC,
+from covey.cards.settings_hub import (ABOUT, CONFIG, DOCTOR, GROUPS, LABELS, MEMORY, NODES, PROXY, REPOS, TOPIC,
                                       WORKSPACE)
 from covey.cards.workspace_manager import list_entries, tag_words, tail
 from covey.app import quota_watch, self_upgrade, web_launch, web_panels
@@ -70,11 +67,11 @@ COARSE_SECONDS = 60  # WebSettings.stamps: a file that changes as the bot works 
 NAMES_SECONDS = 1800  # A group's name, as Feishu gave it, is asked again after this long.
 NOTE_LENGTH = cards.NOTE_LENGTH
 EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MODEL, cards.TOPIC_EFFORT,
-                      cards.TOPIC_REDACTION, cards.SUBAGENTS,
-                      cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION,
+                      cards.SUBAGENTS,
+                      cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT,
                       cards.MODE, cards.LEAD_HARNESS, cards.LEAD_PROVIDER, cards.LEAD_MODEL, cards.LEAD_EFFORT, cards.ASSIST,
                       cards.ASSIST_PROVIDER, cards.ASSIST_MODEL, cards.ASSIST_EFFORT})
-BUTLER_KINDS = frozenset({cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION})
+BUTLER_KINDS = frozenset({cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT})
 CHANGES = ("row", "untrust", "note", "redaction", "terms", "group", "free", "workspace_add", "workspace_remove", "workspace_prune",
            "node_add", "node_remove", "refresh", "proxy", "repos_set", "repos_add", "repos_remove",
            "worktrees_prune", "device_add", "device_set", "device_remove", "device_check")  # payload["what"].
@@ -86,8 +83,9 @@ APPLINK = "https://applink.feishu.cn/client/bot/open?appId="
 OWNER_ONLY = "只有机器人主人能改设置"
 GONE = "这个选项已不可用，页面会按最新设置重画"
 READ_ONLY = "这一项网页上只读，请到飞书设置卡上改"
-TERMS_SHAPE = "词表改动的格式不对，页面会按最新词表重画"
-TERMS_UNREADABLE = "词表读不出来，请到飞书设置卡上看"
+# 敏感词脱敏 is retired: what a page drawn before it was taken out asks for is refused with this (the rows' kinds as the cards had them).
+REDACTION_RETIRED = "敏感词脱敏已下线，这次没有改任何设置"
+REDACTION_KINDS = frozenset({"bridge_main_redaction", "bridge_main_topic_redaction"})
 
 
 def devices_page(state_dir=None) -> bool:
@@ -572,8 +570,6 @@ class WebSettings:
         registry (read again only when its mtime moved)."""
         from covey.app.web_panels import checks_path, joins_path
         from covey.core import devices, nodes, proxy as proxy_records
-        from covey.core.redaction import config_path as terms_path
-        from covey.core.redaction import stats_path as turns_path
         from covey.core.workspaces import config_path
         state = Path(ctx.state_dir)
         return {
@@ -583,7 +579,6 @@ class WebSettings:
                      state / "launch-defaults", state / "launch-models", state / "model-settings", state / "model-usage.json"],
             REPOS: [repomap.path(state), config_path(state), state / "jobs" / ".index",  # The topics that run in a repository.
                     devices.config_path()],  # The devices a path may be added on.
-            REDACTION: [terms_path(state), turns_path(state)],
             GROUPS: [state / "groups"],
             NODES: [nodes.nodes_dir(state) / "registry.json", joins_path(state), *self.node_files(state),
                     devices.config_path(), checks_path(state), *self.device_files(state)],
@@ -621,7 +616,7 @@ class WebSettings:
         path ``sources`` lists, for every tab, so a change of a group, a node, the 代答 or the 新话题 choices moves it as the butler's
         own settings do. A path's stamp is (mtime_ns, size), 0 for one that is not there; never raises. Three files change all the
         time while the bot works, and one stamp each per COARSE_SECONDS keeps them from pushing the item every second: the jobs'
-        index (a repository's running topics), the redaction turns and a node's latest sample (``coarse``)."""
+        index (a repository's running topics) and a node's latest sample (``coarse``)."""
         out = []
         for path in self.sources(SimpleNamespace(state_dir=Path(self.env.state_dir))):
             try:
@@ -634,7 +629,7 @@ class WebSettings:
 
     @staticmethod
     def coarse(path) -> bool:
-        return path.name in ("turns.jsonl", "latest.json") or path.parts[-2:] == ("jobs", ".index")
+        return path.name == "latest.json" or path.parts[-2:] == ("jobs", ".index")
 
     # -- the snapshot ------------------------------------------------------------------------------------------------------------
 
@@ -651,7 +646,7 @@ class WebSettings:
         # for what is done (收尾、停止 of a project, 不对 on a memory line) and an older Covey's page stays as it was.
         data = {"tabs": [{"key": tab, "label": labels[tab]} for tab in tabs], "feishu": self.feishu(), "ops": page_ops()}
         build = {CONFIG: lambda: self.config(ctx, settings, choices, chat),
-                 REPOS: lambda: self.repos(ctx, now), REDACTION: lambda: self.redaction(ctx),
+                 REPOS: lambda: self.repos(ctx, now),
                  GROUPS: lambda: self.groups(ctx, now), NODES: lambda: self.nodes(ctx),
                  PROXY_TAB: lambda: web_panels.proxy_tab(ctx, self.proxy_panel(), row, LIMIT)}
         try:  # 开新话题's choices for the page's chat box (data contract v17), not a tab.
@@ -751,15 +746,14 @@ class WebSettings:
     def butler(self, ctx, settings, choices) -> dict:
         """配置's 管家, its rows as the card's section has them: off (纯话题), the mode's row alone; else its own (Harness first,
         压缩阈值 where it counts) and the mode last. The page may change them all; 每条直接开一个话题 only after it asked
-        ``mode_confirm`` (the card's 确定改). ``note``: MODE_OFF, or REDACT_FIRST when it counts."""
+        ``mode_confirm`` (the card's 确定改). ``note``: MODE_OFF when it is off."""
         mode = cards.mode_setting(settings)
         confirm = lambda rows: [{**each, "confirm": {MODE_TOPICS: cards.MODE_CONFIRM}} if each["key"] == mode.key else each
                                 for each in rows]
         if not settings.enabled:
             return {"on": False, "rows": confirm(rows_of([mode])), "note": cards.MODE_OFF}
         own = cards.butler_setting_list(settings, choices, LIMIT, panel_rules.workspace_names(ctx.state_dir))
-        return {"on": True, **({"note": cards.REDACT_FIRST} if cards.redact_first(settings, choices) else {}),
-                "rows": confirm(rows_of(own + [mode]))}
+        return {"on": True, "rows": confirm(rows_of(own + [mode]))}
 
     def nodes(self, ctx) -> dict:
         """设备: app/web_panels.py ``nodes_tab`` (the card's panel only with COVEY_NODE_LISTEN: adding a node needs its gateway)."""
@@ -809,31 +803,6 @@ class WebSettings:
         except devices.DeviceConfigError:
             return []
         return [{"alias": alias, "title": device.title, "access": device.access} for alias, device in sorted(found.items())]
-
-    def redaction(self, ctx) -> dict:
-        """脱敏: the figures, the topics it is on in and the two switches, as the tab's ``facts`` read them, and the terms in the list's
-        order (``terms``, oldest first; no stand-in) with what the page checks a line against before it saves."""
-        from covey.app.redaction_panel import facts
-        from covey.core.redaction import MAX_LENGTH, MAX_TERMS, load_config as terms_config
-        data = facts(ctx.state_dir, b"web")
-        if data.get("error"):
-            return {"error": data["error"]}
-        try:
-            terms = [row["term"] for row in terms_config(ctx.state_dir)["terms"]]
-        except ValueError:
-            return {"error": TERMS_UNREADABLE}
-        return {"summary": f"{data['count']} 个词 · 近 7 天替换 {data['week']} 次 · {len(data['topics'])} 个话题开着",
-                "count": data["count"], "week": data["week"],
-                # The card's first TOPICS, newest first; ``last`` in epoch seconds (the card's own words are its time of day).
-                "topics": [{"number": t.get("number"), "title": t.get("title", ""), "hits": t.get("hits", 0), "last": t.get("at")}
-                           for t in data["topics"][:TOPICS]],
-                "switches": [{"name": name, "label": label, "hint": hint, "on": data["config"].get(name) is True, "editable": True}
-                             for name, (label, hint) in SWITCH_ROWS.items()],
-                # 记录: the relays' latest turns as the card's 记录 fold lists them (figures only).
-                "records": [{"time": t.get("time", ""), "number": t.get("number"), "model": t.get("model", ""),
-                             "requests": t.get("requests", 0), "replaced": t.get("replaced", 0)} for t in data.get("turns") or ()],
-                "terms": terms, "ignore_case": data["config"].get("ignore_case") is True, "max_terms": MAX_TERMS,
-                "max_length": MAX_LENGTH}
 
     def groups(self, ctx, now) -> dict:
         """群聊: every group the card lists, active first, its state and 免@; 停用 / 启用 the page may do."""
@@ -896,6 +865,8 @@ class WebSettings:
         kind, option = str(payload.get("kind") or ""), payload.get("option")
         if kind in cards.OFFLINE_KINDS:
             raise ValueError(cards.OFFLINE_NOTICE)
+        if kind in REDACTION_KINDS:  # 敏感词脱敏's rows on a page drawn before it was taken out.
+            raise ValueError(REDACTION_RETIRED)
         if kind in REVIEW_KINDS:  # 独立复核's rows on a page drawn before it was taken out (app/card_actions.py).
             raise ValueError(REVIEW_RETIRED)
         if kind not in EDITABLE:
@@ -928,48 +899,12 @@ class WebSettings:
         return panel_rules.SAVED[WORKSPACE]
 
     def change_redaction(self, ctx, payload) -> str:
-        """不区分大小写 or 回复还原, by the tab's own switch (RedactionPanel ``switch``)."""
-        from covey.core.redaction import Refused
-        name, on = payload.get("name"), payload.get("on")
-        if name not in SWITCH_ROWS or not isinstance(on, bool):
-            raise ValueError("没有这个开关")
-        try:
-            notice = self.hub.redaction.switch(ctx, {"name": name, "on": on}).get("notice") or ""
-        except Refused as exc:
-            raise ValueError(str(exc)) from None
-        return notice.lstrip("✓ ").strip() or "已保存。"
+        """敏感词脱敏's two switches, from a page drawn before it was retired: refused."""
+        raise ValueError(REDACTION_RETIRED)
 
     def change_terms(self, ctx, payload) -> str:
-        """Terms added and removed at once (``add``, ``remove``: lists of terms as written), in one save (core/redaction.py
-        ``edit_terms``, ``whole``): the removed go first (a term written again in another case is a remove and an add), a term not in
-        the list is passed over, as is an added one already there; an added term the list cannot take saves nothing. The receipt
-        counts."""
-        from covey.core.redaction import Refused, edit_terms
-        add, remove = payload.get("add"), payload.get("remove")
-        if not isinstance(add, list) or not isinstance(remove, list) or not all(isinstance(t, str) for t in add + remove):
-            raise ValueError(TERMS_SHAPE)
-        add = [t.strip() for t in add if t.strip()]
-        remove = [t.strip() for t in remove if t.strip()]
-        if not add and not remove:
-            return "没有变化"
-
-        try:
-            edit = edit_terms(ctx.state_dir, add=add, remove=remove, whole=True)
-        except Refused as exc:
-            wrong = {}
-            for number, why in exc.skipped:
-                wrong.setdefault(why, []).append(number)
-            raise ValueError("没有保存：" + "；".join(f"新加的第 {'、'.join(map(str, n[:5]))}{' 等' if len(n) > 5 else ''} 个词{why}"
-                                                for why, n in wrong.items()) if wrong else str(exc)) from None
-        except ValueError:  # Its words may quote a term, and the receipt is kept in the page's outbox.
-            raise ValueError(TERMS_UNREADABLE) from None
-        except OSError:
-            raise ValueError("没有保存：词表写不进去") from None
-        added, removed, there, missing = len(edit.added), len(edit.removed), len(edit.already), len(edit.missing)
-        done = "、".join(f"{verb} {n} 个" for verb, n in (("加", added), ("删", removed)) if n)
-        passed = "，".join(words for words, n in ((f"{there} 个已在词表里", there), (f"{missing} 个已经不在词表里", missing)) if n)
-        words = (f"已保存：{done}" if done else "没有变化") + (f"（{passed}）" if passed else "")
-        return words + ("。下一轮起生效。" if done else "。")
+        """敏感词脱敏's terms, from a page drawn before it was retired: refused."""
+        raise ValueError(REDACTION_RETIRED)
 
     def change_group(self, ctx, payload) -> str:
         """停用 / 启用 of one group (GroupManager ``switch``, the card's)."""

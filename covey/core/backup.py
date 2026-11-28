@@ -63,8 +63,8 @@ BACKUP_DIRS = {
 
 
 # model-usage.json: the chats' recent model selections, so the model selects keep their order after a restore.
-# principles.json, main-thread.json and redaction/config.json are the owner's: his principles (and so his memory's,
-# core/memory.py), the butler's settings and the sensitive terms. owner-chat.json names the private chat the menu,
+# principles.json and main-thread.json are the owner's: his principles (and so his memory's, core/memory.py) and the
+# butler's settings. owner-chat.json names the private chat the menu,
 # 手上的事 and the digests go to; migrations.json the migrations the records backed up with it have had (core/migrate.py).
 # The pinned board's records (pinned-overview.json, pinned-topics.json, board-priority.json, topic-seen.json) and
 # digest.json: what is pinned and sent is known from them alone, so a restore pins and sends nothing twice; so is the
@@ -78,7 +78,7 @@ BACKUP_DIRS = {
 # by the 仓库 page.
 BACKUP_FILES = {"workspace-config.json", "session_index.jsonl", "bot-identity.json", "launch-defaults.json",
                 "model-usage.json", "proxy/settings.json", "proxy/style.md", "proxy/owner-context.md",
-                "principles.json", "main-thread.json", "redaction/config.json", "owner-chat.json", "migrations.json",
+                "principles.json", "main-thread.json", "owner-chat.json", "migrations.json",
                 "pinned-overview.json", "pinned-topics.json", "board-priority.json", "topic-seen.json", "digest.json",
                 "welcome.json", "memory-candidates.json", "top-notices.json", "memory-usage.json", "memory-tidy.json",
                 "memory-harvest.json", "repos.json", "home.json"}
@@ -92,9 +92,11 @@ BACKUP_SKIP = {"projects": frozenset({"library"})}
 # What a backup leaves out of a state directory, and why. With BACKUP_DIRS and BACKUP_FILES it decides every entry
 # docs/operations.md's 状态目录 lists (tests/test_maintenance.py BackupListTest): an entry added there, or a new name
 # the code puts under a state directory, says here or there whether a backup holds it. A directory backed up in
-# part (proxy/, redaction/) is decided by its parts in the two lists.
+# part (proxy/) is decided by its parts in the two lists.
 NOT_BACKED_UP = {
     "bridge.pid": "the running Bridge's process number",
+    "redaction": "what the retired 敏感词脱敏 left (T947): its term list and records, no longer read or written",
+    "claude-upstream.json": "a cache of where the claude command's --gateway-status says requests go, for 10 minutes",
     "bridge.log*": "logs",
     "bridge-console.log*": "logs",
     "maintenance-status.json": "what the last maintenance of this directory did",

@@ -1,5 +1,5 @@
 """What the launch card preselects and offers (app/preselection.py, app/model_usage.py, app/launch_models.py): model
-order, MASO models, the redaction choice, budgets and a topic's model settings. Split from test_launch."""
+order, MASO models, budgets and a topic's model settings. Split from test_launch."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ from unittest import mock
 
 from support import make_job
 from support.fake_lark import FakeCardKit
-from support.cards import (current_token, page_options, selects, settings_rows, walk_elements)
+from support.cards import (current_token, page_options, selects, settings_rows)
 from support.git import commit_all, init_git_repo
 from support import requires_extension
-from support.launch_fixtures import MASO_MENU, redacting, write_maso_catalog
+from support.launch_fixtures import MASO_MENU, write_maso_catalog
 from support.processes import leftover_check
 from support.world import TopicFixture, UnifiedCase
 
@@ -27,11 +27,10 @@ from covey.app.launch_submit import submit_launch_form
 from covey.cards.launch_config import SUBMIT_PREFIX
 from covey.app.launch_models import available_models, harness_rank, run_choice
 from test_launch import InChat
-from covey.cards.launch_config import (BUDGET_ACTION, MODEL_ACTION, REDACTION_ACTION, WORK_MODE_ACTION, launch_form_card)
+from covey.cards.launch_config import (BUDGET_ACTION, MODEL_ACTION, WORK_MODE_ACTION, launch_form_card)
 from covey.core.menu_choice import AUTO_EFFORT_LABEL, effort_options, model_tiers, parse_budget, tier_pick
 from covey.cards.launch_receipt import build_receipt_card
 from covey.core.defaults import recommended_effort
-from covey.core.redaction import save_config as save_redaction_config
 from covey.core.jobs import find_job_record
 from covey.core.model_settings import settings
 from covey.core.roster import NAMES
@@ -462,14 +461,10 @@ class MasoLaunchTests(InChat, UnifiedCase):
 
 
 class RedactionLaunchTests(InChat, UnifiedCase):
-    """The launch card's 敏感词脱敏 select: only for a model whose Harness can redact, off unless the config
-    says new topics start on, kept across a rebuilt card, and written once into topic.json at 开始任务."""
-
-    LABELS = ['关', '开']  # The settings list's label says 脱敏.
+    """敏感词脱敏 is retired (T947): the launch card has no 脱敏 row, and an older card's or form's ``redaction`` is ignored."""
 
     def setUp(self):
         super().setUp()
-        redacting(self)
         self.picker = self.app.launch_model_picker
         self.picker.started = True
 
@@ -501,21 +496,6 @@ class RedactionLaunchTests(InChat, UnifiedCase):
                                                          'action_name': SUBMIT_PREFIX + token, 'form_value': {'path': ''}})
         return self.app.runtime.jobs.queue.get_nowait()
 
-    def test_the_select_shows_only_for_a_model_that_can_redact_and_starts_from_the_new_topic_page(self):
-        card, token, _ = self.card('claude')
-        row = settings_rows(card)['redaction']
-        self.assertEqual((row['current'], [text for _, text in row['options']]), ('off', self.LABELS))
-        self.assertEqual({(tap['kind'], tap['token']) for tap in row['taps'].values()}, {(REDACTION_ACTION, token)})
-        self.assertNotIn('redaction', selects(self.card('codex', 'codex:codex-model')[0]))
-        # T546: the 新话题 page's 脱敏 row; the 脱敏 tab's old 新话题默认开 is not read any more.
-        save_redaction_config(self.ctx.state_dir, {'default_on': True})
-        card, token, _ = self.card('old-switch')
-        self.assertEqual(selects(card)['redaction']['initial_option'], 'off')
-        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(redaction=True))
-        card, token, _ = self.card('default-on')
-        self.assertEqual(selects(card)['redaction']['initial_option'], 'on')
-        self.assertEqual(self.launch_form(token)['selected_redaction'], 'on')
-
     def test_the_new_topic_pages_run_mode_no_longer_reaches_the_card(self):
         # The home start (docs/configuration.md): no 工作区 or 运行方式 row, whatever the 新话题 page keeps; the topic starts in the home.
         butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(run_mode='worktree'))
@@ -524,49 +504,6 @@ class RedactionLaunchTests(InChat, UnifiedCase):
         self.assertNotIn('workspace', settings_rows(card))
         self.assertNotIn('run_mode', self.launch_form(token)['form_defaults'])
 
-    def test_the_choice_survives_a_model_change_and_starts_the_topic_redacted(self):
-        card, token, _ = self.card('task')
-        for option in ('maybe', ''):  # Not an option: dropped.
-            self.click(token, REDACTION_ACTION, option)
-        self.click(token, REDACTION_ACTION, 'on')
-        self.assertEqual(self.launch_form(token)['selected_redaction'], 'on')
-        card, token = self.rebuild(token, 'codex:codex-model')
-        self.assertNotIn('redaction', selects(card))  # Gone with a model that cannot redact, still recorded.
-        self.click(token, REDACTION_ACTION, 'off')  # No select on this card: a click is dropped.
-        self.assertEqual(self.launch_form(token)['selected_redaction'], 'on')
-        card, token = self.rebuild(token, 'claude:claude-model')
-        self.assertEqual(selects(card)['redaction']['initial_option'], 'on')
-        job = self.start(token)
-        self.assertEqual(job.harness_id, 'claude')
-        self.assertIs(read_topic(self.target)['redaction'], True)
-        receipt = json.dumps(build_receipt_card(self.launch_form(current_token(self.ctx.state_dir, token))['selection']), ensure_ascii=False)
-        self.assertIn('敏感词脱敏：开', receipt)
-
-    def test_off_or_without_the_select_the_topic_does_not_redact(self):
-        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(redaction=True))
-        for mid, model, record, shown in (('off', 'claude:claude-model', {'selected_redaction': 'off'}, '敏感词脱敏：关'),
-                                          # 'on' recorded, the card said it is lost and asked (T647 P0-8): its 不脱敏开始.
-                                          ('codex', 'codex:codex-model', {}, '敏感词脱敏：关'),
-                                          ('off-codex', 'codex:codex-model', {'selected_redaction': 'off'}, ''),
-                                          ('old', 'claude:claude-model', None, '敏感词脱敏：关')):  # A card from before the select.
-            with self.subTest(mid):
-                _, token, path = self.card(mid, model)
-                saved = self.launch_form(token)
-                if record is None:
-                    saved.pop('selected_redaction')
-                else:
-                    saved.update(record)
-                path.write_text(json.dumps(saved))
-                self.start(token)
-                self.assertNotIn('redaction', read_topic(self.target))
-                receipt = json.dumps(build_receipt_card(self.launch_form(current_token(self.ctx.state_dir, token))['selection']),
-                                     ensure_ascii=False)
-                # A model that can redact says 关 (2026-11-04 16:45); one that cannot says nothing of it.
-                if shown:
-                    self.assertIn(shown, receipt)
-                else:
-                    self.assertNotIn('敏感词脱敏', receipt)
-
     def submit(self, token):
         """开始任务 on the form ``token``; the cards CardKit was sent meanwhile."""
         with FakeCardKit() as lark:
@@ -574,58 +511,36 @@ class RedactionLaunchTests(InChat, UnifiedCase):
                                                          'action_name': SUBMIT_PREFIX + token, 'form_value': {'path': ''}})
         return lark
 
-    def test_a_model_that_cannot_redact_says_so_and_starts_only_from_its_question(self):
-        # T647 P0-8 (the owner: 先问): 脱敏 on, Codex chosen: the card says the topic will not redact and 开始任务 is
-        # 不脱敏开始, confirmed once more in the client, as 换配置 confirms turning it off.
-        from covey.cards.launch_config import UNREDACTED_START, UNREDACTED_TITLE
-        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(redaction=True))
-        card, token, _ = self.card('codex', 'codex:codex-model')
-        words = json.dumps(card, ensure_ascii=False)
-        self.assertIn('**这个话题不会脱敏**：所选模型不能脱敏，开始后原文会发给模型服务。', words)
-        submit = next(e for e in walk_elements(card['body']['elements'])
-                      if str(e.get('name', '')).startswith(SUBMIT_PREFIX))
-        self.assertEqual(submit['text']['content'], UNREDACTED_START)
-        self.assertEqual(submit['confirm']['title']['content'], UNREDACTED_TITLE)
-        self.assertEqual(self.launch_form(token)['redaction_asked'], 'codex:codex-model')
-        claude, claude_token, _ = self.card('claude')
-        button = next(e for e in walk_elements(claude['body']['elements'])
-                      if str(e.get('name', '')).startswith(SUBMIT_PREFIX))
-        self.assertEqual((button['text']['content'], 'confirm' in button), ('开始任务', False))
-        self.assertNotIn('这个话题不会脱敏', json.dumps(claude, ensure_ascii=False))
-        self.assertNotIn('redaction_asked', self.launch_form(claude_token))
+    def test_the_card_has_no_redaction_row_and_an_older_forms_choice_is_ignored(self):
+        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(workspace=''))
+        for mid, model in (('claude', 'claude:claude-model'), ('codex', 'codex:codex-model')):
+            with self.subTest(mid):
+                card, token, path = self.card(mid, model)
+                self.assertNotIn('redaction', settings_rows(card))
+                self.assertNotIn('脱敏', json.dumps(card, ensure_ascii=False))
+                saved = self.launch_form(token)
+                self.assertNotIn('selected_redaction', saved)
+                # A card drawn before (it recorded the choice, and for a model that cannot redact the question): started as any.
+                saved.update(selected_redaction='on', redaction_asked=model)
+                path.write_text(json.dumps(saved))
+                self.start(token)
+                self.assertNotIn('redaction', read_topic(self.target))
+                form = self.launch_form(current_token(self.ctx.state_dir, token))
+                self.assertNotIn('redaction', form['selection'])
+                self.assertNotIn('敏感词脱敏', json.dumps(build_receipt_card(form['selection']), ensure_ascii=False))
 
-    def test_a_card_that_never_asked_starts_nothing_and_is_drawn_again_with_the_question(self):
-        butler_settings.update(self.ctx.state_dir, topic_defaults=butler_settings.TopicDefaults(redaction=True))
-        _, token, path = self.card('old-codex', 'codex:codex-model')
-        saved = self.launch_form(token)
-        saved.pop('redaction_asked')  # A card drawn before T647 P0-8: it showed nothing of 脱敏.
-        path.write_text(json.dumps(saved))
-        lark = self.submit(token)
-        self.assertTrue(self.app.runtime.jobs.queue.empty())
-        self.assertNotIn('model', read_topic(self.target))  # Not bound: nothing started.
-        drawn = json.dumps(lark.last.card, ensure_ascii=False)
-        self.assertIn('不脱敏开始', drawn)
-        self.assertIn('这个话题不会脱敏', drawn)
-        fresh = current_token(self.ctx.state_dir, token)
-        self.assertNotEqual(fresh, token)
-        self.assertEqual(self.launch_form(fresh)['redaction_asked'], 'codex:codex-model')
-        self.submit(fresh)  # Its 不脱敏开始: started without 脱敏.
-        self.assertEqual(self.app.runtime.jobs.queue.get_nowait().harness_id, 'codex')
-        self.assertNotIn('redaction', read_topic(self.target))
-
-    def test_a_worktree_launch_keeps_the_choice_in_its_pending_plan(self):
+    def test_a_worktree_launch_keeps_its_place_in_its_pending_plan(self):
         init_git_repo(self.work)
         (self.work / 'README').write_text('x')
         commit_all(self.work, 'init')
         _, token, path = self.card('tree')
-        self.click(token, REDACTION_ACTION, 'on')
         # A card that names a workspace is an older card's (a butler's worktree launch): only it can ask for a worktree.
         self.click(token, 'bridge_launch_workspace', load_config(self.ctx.state_dir, self.work)['default'])
         self.click(token, 'bridge_launch_mode', 'worktree')
         with FakeCardKit(), mock.patch('covey.app.launch_submit.run_in_background'):
             submit_launch_form(self.child, self.target, {'chat_id': self.chat, 'message_id': 'mid',
                                                          'action_name': SUBMIT_PREFIX + token, 'form_value': {'path': ''}})
-        self.assertIs(self.launch_form(current_token(self.ctx.state_dir, token))['pending']['redaction'], True)
+        self.assertEqual(self.launch_form(current_token(self.ctx.state_dir, token))['pending']['run_mode'], 'worktree')
 
 
 class BudgetTests(unittest.TestCase):

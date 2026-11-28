@@ -158,8 +158,7 @@ def usage_lines(snapshot):
 
 
 def task_details_text(job, usage=None) -> str:
-    """What 任务详情 says, "" for nothing: a task's work mode, a timeout when one is set, how many terms
-    redaction replaced this turn, a turn with subtasks their tokens (``usage_lines``) and the TTFT the backend
+    """What 任务详情 says, "" for nothing: a task's work mode, a timeout when one is set, a turn with subtasks their tokens (``usage_lines``) and the TTFT the backend
     gave (``ttft_line``). ``usage`` is the process snapshot: a running turn's figures so far, an ended one's.
 
     No 任务编号 (the title has #N and T…), no 模型 line, no
@@ -168,11 +167,6 @@ def task_details_text(job, usage=None) -> str:
     mode = work_mode_tag(getattr(job, "work_mode", ""))
     lines = ([f"工作模式：{mode}"] if mode else []) + (
         [f"超时：{job.timeout}s"] if getattr(job, "timeout", 0) > 0 else [])
-    redaction = (usage or {}).get("redaction")
-    if isinstance(redaction, dict):
-        # Counts only (core/trace.py keeps no more): the terms never show on a card. The box says 脱敏开.
-        lines.append("敏感词脱敏：" + (f"本轮替换 {redaction.get('hits', 0):,} 处（词表 {redaction['terms']:,} 个词）"
-                                  if redaction.get("terms") else "词表为空，未替换"))
     if usage is not None and "subtask_usage" in usage:
         lines += usage_lines(usage)
     if usage is not None:

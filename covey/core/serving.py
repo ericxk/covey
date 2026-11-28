@@ -1,5 +1,5 @@
 """The thread a local HTTP server serves on: each turn's relay or gateway
-(Claude redaction, Acme) starts its own here, and so do the tests' fake upstreams.
+(an extension's Claude Code relay, Acme) starts its own here, and so do the tests' fake upstreams.
 
 ``serve_forever`` looks for a ``shutdown`` request once per poll, and ``shutdown`` blocks until it
 does: with the standard half-second poll every stop waited up to 0.5 s. ``POLL_INTERVAL`` is 0.05 s;

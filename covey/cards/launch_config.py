@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from covey.cards.elements import CARD_BYTES, CARD_NODES, fits, fold, grey, md, note, panel_header, plain, styled_panel
+from covey.cards.elements import CARD_BYTES, CARD_NODES, fits, fold, grey, md, note, panel_header, styled_panel
 from covey.core.defaults import WORK_MODES
 from covey.core.menu_choice import (budget_options, effort_text, explicit, model_provider, model_tiers, models_of,
                                     offered_models, named_budget, plain_budgets, tiers, work_modes)
@@ -33,17 +33,6 @@ WORKSPACE_ACTION = 'bridge_launch_workspace'
 MODE_ACTION = 'bridge_launch_mode'
 DEVICE_ACTION = 'bridge_launch_device'  # The 执行设备 row (COVEY_DEVICES=1 with devices): an alias, '' for 本机.
 WORK_MODE_ACTION = 'bridge_launch_work_mode'
-REDACTION_ACTION = 'bridge_launch_redaction'
-REDACTION_LABELS = {'off': '关', 'on': '开'}
-# 敏感词脱敏 on (the 新话题 page's default, or the card's choice) with a model that cannot redact (T647 P0-8, the owner: 先问):
-# the card says so above its buttons and 开始任务 becomes UNREDACTED_START, confirmed once more in the client, as
-# 换配置's 确认更换 is when it turns 脱敏 off (cards/switch_form.py OFF_TITLE). app/launch_submit.py starts such a topic only
-# from a card that asked (its record's ``redaction_asked``).
-UNREDACTED_START = '不脱敏开始'
-UNREDACTED_NOTE = '**这个话题不会脱敏**：所选模型不能脱敏，开始后原文会发给模型服务。'
-UNREDACTED_WAY = '要脱敏，换 {} 的模型。'
-UNREDACTED_TITLE = '不脱敏开始？'
-UNREDACTED_TEXT = '所选模型不能脱敏：这个话题的每一轮都会把原文发给模型服务。'
 # The last workspace-menu entry opens the workspace manager instead of choosing one.
 MANAGE_OPTION = '__bridge_manage_workspaces__'
 SUBMIT_PREFIX = 'bridge_launch_'
@@ -53,7 +42,7 @@ DEFAULT = '默认'  # An empty choice of tier_rows' rows without a ``follows`` t
 # A row's tap on a card sent with options pages (an older release, before the fold rows): its ``page``, or
 # "" from a page's ‹ 返回. Now a redraw with that row open, or none open; the rows open in the client.
 PAGE_ACTION = 'bridge_launch_page'
-PAGES = frozenset({'', 'harness', 'provider', 'model', 'effort', 'work_mode', 'redaction', 'workspace', 'run_mode', 'device'})
+PAGES = frozenset({'', 'harness', 'provider', 'model', 'effort', 'work_mode', 'workspace', 'run_mode', 'device'})
 LOCAL = '本机'  # The 执行设备 row's own option (its value is '').
 HOME_ADJUST_TITLE = '调整模型和预算'
 
@@ -71,24 +60,6 @@ class Setting(NamedTuple):
     @property
     def text(self):
         return dict(self.options).get(self.current, '未选')
-
-
-def unredacted(choice, redaction) -> bool:
-    """Whether 开始任务 would start without the 脱敏 the card has on (``redaction`` 'on'): its model ``choice`` cannot redact."""
-    return redaction == 'on' and bool(choice) and not choice.get('redaction')
-
-
-def unredacted_note(choices):
-    """UNREDACTED_NOTE, with the Harnesses of ``choices`` that can redact named as the way to keep it."""
-    able = list(dict.fromkeys(entry.get('title') or entry.get('harness') or '' for entry in choices.values()
-                              if entry.get('redaction')))
-    able = [title for title in able if title]
-    return UNREDACTED_NOTE + (UNREDACTED_WAY.format('、'.join(able)) if able else '')
-
-
-def redaction_setting(key, kind, current):
-    """A 脱敏 row: ``current`` 'on' (开) or 'off' (关)."""
-    return Setting(key, '脱敏', kind, current, list(REDACTION_LABELS.items()))
 
 
 def run_mode_setting(key, kind, current):
@@ -317,7 +288,7 @@ def device_setting(key, kind, current, options):
 
 
 def launch_form_card(token, *, model, choices, effort, workspace=None, names=(), run_mode='direct', topic_tag='', notice='',
-                     work_mode='', redaction='off', expanded=False, page='', devices=None, device='', device_options=()):
+                     work_mode='', expanded=False, page='', devices=None, device='', device_options=()):
     """The launch card under the panels' title bar: the summary (summary_block), the settings list folded under
     ADJUST_TITLE (``expanded`` after a choice on it; ``page``, a row drawn open), then 其他目录… and 开始任务 in the
     form. Its token routes every callback to the record build_launch_card saved. ``devices``: the title of the device
@@ -331,7 +302,6 @@ def launch_form_card(token, *, model, choices, effort, workspace=None, names=(),
     legacy = workspace is not None
     title = '开始任务'
     choice = choices.get(model, {})
-    lost = unredacted(choice, redaction)  # 脱敏 on, a model that cannot: said, and asked once more.
     mode = work_modes(choice, work_mode)[1]
     total = model_count(choices, model) if choice else 0
 
@@ -339,8 +309,6 @@ def launch_form_card(token, *, model, choices, effort, workspace=None, names=(),
         settings = model_settings(choices, model, kinds=(HARNESS_ACTION, PROVIDER_ACTION, MODEL_ACTION, BUDGET_ACTION,
                                                          WORK_MODE_ACTION), revision=1, effort=effort, work_mode=mode,
                                   limit=limit) if choice else []
-        if choice.get('redaction'):
-            settings.append(redaction_setting('redaction', REDACTION_ACTION, 'on' if redaction == 'on' else 'off'))
         if legacy:
             settings += [workspace_setting('workspace', WORKSPACE_ACTION, workspace, names,
                                            last=[(MANAGE_OPTION, '⚙️ 添加或管理工作区…')],
@@ -350,8 +318,6 @@ def launch_form_card(token, *, model, choices, effort, workspace=None, names=(),
             settings.append(device_setting('device', DEVICE_ACTION, device, device_options))
         rows = cut_rows(settings, [setting_row(setting, token=token, open_key=page) for setting in settings], total)
         facts = [f'思考预算 {effort_text(choice, effort)}', *(['工作模式 {}（{}）'.format(*WORK_MODES[mode])] if mode else []),
-                 *([f"敏感词脱敏 {REDACTION_LABELS.get(redaction, '关')}"] if choice.get('redaction') else []),
-                 *(['不脱敏'] if lost else []),
                  *([f'工作区 {workspace}' + (f' · 设备 {devices[workspace]}' if workspace in devices else ''),
                     RUN_MODES['direct'] + '运行' if run_mode == 'direct' else RUN_MODES['worktree']] if legacy else
                    [f'执行设备 {dict(device_options).get(device, device)}'] if device else [])]
@@ -361,15 +327,12 @@ def launch_form_card(token, *, model, choices, effort, workspace=None, names=(),
         buttons = [{'tag': 'button', 'name': prefix + token, 'form_action_type': 'submit', 'type': style, 'width': 'fill',
                     'text': {'tag': 'plain_text', 'content': label}}
                    for prefix, label, style in [*([(PICKER_PREFIX, '其他目录…', 'default')] if legacy else []),
-                                                (SUBMIT_PREFIX, UNREDACTED_START if lost else title, 'primary_filled')]]
-        if lost:
-            buttons[-1]['confirm'] = {'title': plain(UNREDACTED_TITLE), 'text': plain(UNREDACTED_TEXT)}
+                                                (SUBMIT_PREFIX, title, 'primary_filled')]]
         head = panel_header('launch', title, f'话题 {topic_tag}' if topic_tag else '')
         return styled_panel(head, [
             *([md(notice)] if notice else []),
             summary,
             adjust,
-            *([md(unredacted_note(choices))] if lost else []),
             # The form holds the buttons only: each choice is recorded as made, and a directory not in the
             # list is pasted into 其他目录…'s browser (the path input went).
             {'tag': 'form', 'name': 'launch_form', 'elements': [

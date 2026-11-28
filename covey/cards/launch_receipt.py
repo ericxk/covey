@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from covey.cards.elements import markdown_panel, md, note, panel_header, redaction_tags, styled_panel
+from covey.cards.elements import markdown_panel, md, note, panel_header, styled_panel
 from covey.core.workspaces import RUN_MODES
 from covey.core.text import safe_text
 from covey.core.defaults import DEFAULT_WORK_MODE, WORK_MODES, work_mode_tag
@@ -17,9 +17,9 @@ def build_receipt_card(selection):
     name = safe_text(Path(str(selection['workdir'])).name or '/', 100)
     direct = selection.get('run_mode', 'direct') == 'direct'
     branch = '' if direct else ' · 分支 ' + safe_text(str(selection.get('branch') or ''), 120)
-    # What the topic runs in the title bar, the run mode and 敏感词脱敏 as its tags; the workspace's name, its
-    # full path one tap away. A model that can redact says 开 or 关 (redaction_tags); a receipt from before says 开 only.
-    tags = [(RUN_MODES['direct'], 'neutral') if direct else (RUN_MODES['worktree'], 'wathet')] + redaction_tags(selection.get('redaction'))
+    # What the topic runs in the title bar, the run mode as its tag; the workspace's name, its full path one tap away.
+    # A receipt from before may carry a ``redaction``: not drawn (敏感词脱敏 is retired).
+    tags = [(RUN_MODES['direct'], 'neutral') if direct else (RUN_MODES['worktree'], 'wathet')]
     head = panel_header('submitted', '已提交', ' · '.join(filter(None, [f'话题 {topic}' if topic else '', model, effort])),
                         tags, color='green')
     return styled_panel(head, [

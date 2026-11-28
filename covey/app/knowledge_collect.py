@@ -8,7 +8,7 @@ It writes only when all of these hold, else it drops the list and logs ``knowled
 the turn ended normally (done, or waiting for the owner's answer); it is the owner's own turn (app/access.py
 owner_turn); the owner's words (user_text) hold a trigger word (core/memory.py CUES, the one set); it is not a turn the
 butler or a lead handed on (its message id, core/butler_opened.py handed_on: the butler records with its own tool); the
-topic is not a 代答 topic and has no redaction (a setting that cannot be read counts as on). The entries are ``by=topic``
+topic is not a 代答 topic. The entries are ``by=topic``
 with the turn as their source; the same turn (job key) never writes twice (core/knowledge.py collected). Never raises: a
 failure is a log line and the turn's other ending steps go on.
 
@@ -30,7 +30,6 @@ from covey.core import memory as core_memory
 from covey.core.jobs import find_job_record
 from covey.core.butler import is_butler_topic
 from covey.core.butler_opened import handed_on
-from covey.core.redaction import topic_redaction
 from covey.core.topics import proxy_topic, topic_file
 from covey.core.state import read_object
 
@@ -53,11 +52,8 @@ def reason_to_ignore(runtime, ctx, job, record) -> str:
         return "handed-on"
     if is_butler_topic(topic_id, str(record.get("chat_id") or getattr(job, "chat_id", ""))):
         return "main-thread"
-    try:
-        if proxy_topic(ctx) or topic_redaction(ctx.state_dir, topic_id):
-            return "proxy-or-redaction"
-    except ValueError:
-        return "redaction-unreadable"
+    if proxy_topic(ctx):
+        return "proxy"
     return ""
 
 

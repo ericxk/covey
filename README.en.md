@@ -90,7 +90,7 @@ Once several agents run at the same time, the bottleneck is rarely the model. It
 </table>
 
 <details>
-<summary>Five more: stopped, switch config, the board, launch card, redaction</summary>
+<summary>Four more: stopped, switch config, the board, launch card</summary>
 
 <table>
 <tr>
@@ -99,11 +99,7 @@ Once several agents run at the same time, the bottleneck is rarely the model. It
 </tr>
 <tr>
 <td width="50%"><img src="docs/media/screenshots/09-board.png" width="100%" alt="The board: how many things need you, waiting, stopped, results, projects"><br><sub>The board: what needs you, and what to look at first</sub></td>
-<td width="50%"><img src="docs/media/screenshots/04-launch-card.png" width="100%" alt="Launch card: model, thinking budget, redaction, workspace and run mode"><br><sub>Launch card: without a butler, each new topic picks its model and workspace first</sub></td>
-</tr>
-<tr>
-<td width="50%"><img src="docs/media/screenshots/05-settings-redaction.png" width="100%" alt="The redaction tab of the settings card: type the terms, stand-ins are generated"><br><sub>Settings, redaction tab: type the terms, stand-ins are generated</sub></td>
-<td width="50%"></td>
+<td width="50%"><img src="docs/media/screenshots/04-launch-card.png" width="100%" alt="Launch card: model, thinking budget, workspace and run mode"><br><sub>Launch card: without a butler, each new topic picks its model and workspace first</sub></td>
 </tr>
 </table>
 

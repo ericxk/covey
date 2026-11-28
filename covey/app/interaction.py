@@ -98,7 +98,7 @@ def _resolve_live_question(cards, questions, ctx, job, data):
 
 def _record_turn_metric(cards, ctx, job, kind, data):
     """Time to first token, or the turn's token usage (the main task's, or its subtasks'): kept on the
-    job record and the process panel; a redacted turn's counts on the process panel only."""
+    job record and the process panel."""
     trace = job_trace(job)
     if not trace.accept(kind, data):
         return
@@ -110,8 +110,6 @@ def _record_turn_metric(cards, ctx, job, kind, data):
         # The main task's fields keep their scope (parent_turn); this one adds the subtasks.
         upsert_job_record(ctx.state_dir, job.message_id, subtask_usage=trace.subtask_usage)
         cards.queue_trace(ctx, job, False)
-    elif kind == "redaction":
-        cards.queue_trace(ctx, job, False)  # The process record keeps it for 任务详情.
     else:
         upsert_job_record(ctx.state_dir, job.message_id, output_tokens=trace.output_tokens,
             input_tokens=getattr(trace, "input_tokens", None), input_tokens_scope="parent_turn",
@@ -261,7 +259,7 @@ class Interaction:
         if kind == "question_resolved":
             _resolve_live_question(self.cards, self.questions, ctx, job, data)
             return
-        if kind in {"first_token", "token_usage", "subtask_usage", "redaction"}:
+        if kind in {"first_token", "token_usage", "subtask_usage"}:
             _record_turn_metric(self.cards, ctx, job, kind, data)
             return
         if kind == "policy_tolerated":

@@ -63,8 +63,8 @@
 | 主人的原则 | `core/principles.py`（`entries`、`delete`）、`app/prompts.py` 的 `principles_block`、`Runs.principles`/`Runs.owner_turn`（`app/runs.py`）、`app/butler_tools.py` | [butler.md](docs/butler.md) |
 | 知识条目与历史搜索 | `core/knowledge.py`、`app/knowledge_turn.py`、`app/knowledge_collect.py`、`app/butler_knowledge.py`、`app/prompts.py` 的 `knowledge_block`/`knowledge_rules`、`app/digest.py` 的 `knowledge_view` | [butler.md](docs/butler.md#知识库)、[配置](docs/configuration.md#知识条目与历史搜索) |
 | 记忆（默认开，`COVEY_MEMORY=0` 关） | `core/memory.py`（读口：条目、编号、范围上限）、`core/topic_memory.py`（话题的记忆）、`app/memory_turn.py`（每轮的块、`memory_ids`、纠正规则）、`app/memory_collect.py`（一轮结束后记下 `memory`、作废 `memory_void`，“不对”点击 `undo`）、`app/prompts.py` 的 `memory_block`、`cards/answer_card.py` 的 `memory_element`、`app/answer_cards.py` 的 `put_memory`、设置卡「记忆」`app/memory_panel.py`（一行计数、处理待审核、去网页）、网页「记忆」`app/web_memory.py`（v45 各键与 15 个动作，推送 `app/web_sync.py` 的 `push_memory_center`）；待审核 `core/memory_review.py`（14 天过期由 `core/memstore.py` 的 `upkeep` 每天关）；整理记忆 `app/memory_tidy.py`（每天按规则只收资料和决定，规矩一条不收；晚间汇总上能撤销，`cards/digest.py` 的 `memory_elements`），“用过”只认 `memory_used`、`show`、问前查重命中（`core/memory_usage.py`） | [butler.md](docs/butler.md#记忆)、[配置](docs/configuration.md#记忆) |
-| 记忆自己长（`COVEY_MEMORY_LEARN`，默认开、`0` 关，要 `COVEY_MEMORY` 开着）：每轮之后读主人的话、查记忆 | `app/memory_learn.py`（`after_turn`：用到的编号、读原话记下）、`core/memory_search.py`（`bin/covey_memory.py search`）；Harness 自己的记忆在代答和脱敏里关掉：`backends/claude/argv.py` 的 `turn_env`、`backends/codex/appserver.py` 的 `keep_out_of_memories` | [butler.md](docs/butler.md#记忆自己长)、[配置](docs/configuration.md#记忆) |
-| 敏感词脱敏 | `core/redaction.py`、`core/redactor.py`、`backends/claude/redaction.py`、`app/redaction_panel.py`（设置卡「脱敏」标签） | [敏感词脱敏](docs/architecture.md#敏感词脱敏) |
+| 记忆自己长（`COVEY_MEMORY_LEARN`，默认开、`0` 关，要 `COVEY_MEMORY` 开着）：每轮之后读主人的话、查记忆 | `app/memory_learn.py`（`after_turn`：用到的编号、读原话记下）、`core/memory_search.py`（`bin/covey_memory.py search`）；Harness 自己的记忆在代答里关掉：`backends/claude/argv.py` 的 `turn_env`、`backends/codex/appserver.py` 的 `keep_out_of_memories` | [butler.md](docs/butler.md#记忆自己长)、[配置](docs/configuration.md#记忆) |
+| 已下线功能的旧卡片（点了只回一句已下线，如敏感词脱敏、独立复核） | `app/card_actions.py` 的 `MOVED_CARDS`、`app/card_routing.py` 的 `moved_card` | [已下线的功能](docs/legacy.md) |
 | 官方拒绝与停止 | `app/policy_guard.py`、`core/model_policy.py`、`backends/claude/policy.py`；cyber/bio 拒绝换旧模型重试一次 `app/policy_retry.py` | [policy-stop.md](docs/policy-stop.md) |
 | 任务进程与 `runs/` 协议 | `app/detached.py`、`app/runner_spawn.py`、`app/runner_ipc.py`、`app/runner.py`、`core/run_dir.py` | [排队与任务进程](docs/architecture.md#排队与任务进程)、[跨版本检查](docs/testing.md#任务进程协议与跨版本检查) |
 | 记录、状态与锁 | `core/jobs.py`、`core/statuses.py`、`core/store.py`、`core/locks.py` | [状态与并发](docs/architecture.md#状态与并发) |
@@ -99,7 +99,7 @@
 | `app/auto_upgrade.py` | 定时自动升级: with COVEY_AUTO_UPGRADE=HH:MM and an upgrader set up, the Bridge upgrades itself and the web page … |
 | `app/availability.py` | Separate local backend readiness from recently observed model access |
 | `app/batch_switch.py` | 批量换配置 (T786): the butler or a project's lead proposes switching several topics to another Harness, model or … |
-| `app/binding.py` | A topic's binding (Harness, model, budget, work mode, place and 敏感词脱敏) and what may change it |
+| `app/binding.py` | A topic's binding (Harness, model, budget, work mode and place) and what may change it |
 | `app/bot_menu.py` | The bot's custom menu (机器人自定义菜单): the owner's commands, since typed ones misfired |
 | `app/butler.py` | The butler's session, only in the private chat mode 管家 |
 | `app/butler_asks.py` | 话题转交管家: what the owner asks of a topic that only the butler can do (open a project, put this topic into one … |
@@ -146,7 +146,7 @@
 | `app/group_boards.py` | 手上的事, the pinned board and 早晚汇总 in each personal group |
 | `app/group_manager.py` | The 群聊 card: the owner turns groups on and off in the private chat |
 | `app/group_menu.py` | The menu card of a personal group |
-| `app/harness_switch.py` | Change a topic's Harness, provider, model, workspace, run mode or 敏感词脱敏 mid-conversation (🔁 换配置) |
+| `app/harness_switch.py` | Change a topic's Harness, provider, model, workspace or run mode mid-conversation (🔁 换配置) |
 | `app/harnesses.py` | The Harnesses of one Bridge, one object each |
 | `app/health.py` | Read-only, bounded local health snapshots |
 | `app/held_notes.py` | A message sent while several questions wait for answers is kept, not refused |
@@ -219,7 +219,6 @@
 | `app/quota_watch.py` | 账号与额度 at the Bridge: one thread that keeps the quota snapshots current, unless COVEY_QUOTA=0 |
 | `app/record_cards.py` | Writes to a job's card from its record once its own writer has ended (finished, or the job is in another … |
 | `app/recovery_cards.py` | The card of a task that did not end as it should (interrupted, failed, or its result not delivered) and the … |
-| `app/redaction_panel.py` | The 设置 card's 脱敏 tab |
 | `app/redelivery.py` | Sending a recorded task's saved result or question again, without running the model (检查并继续 on a task whose … |
 | `app/relay_send.py` | Sending what goes back to the butler's top level |
 | `app/relay_stops.py` | 停住了 at the private chat's top level (app/butler_relay.py relays a topic turn the butler started or handed on … |
@@ -334,7 +333,6 @@
 | `cards/proxy_resend.py` | The 重新发送 card: in a contact's 代答 topic, a reply that never went out (Enter never pressed, every try), with … |
 | `cards/question_cards.py` | The question form, its standalone card, the feedback card and the answer notices |
 | `cards/recovery.py` | The buttons that rerun a stopped task, and the card of one whose task card cannot take them any more … |
-| `cards/redaction_panel.py` | The 设置 card's 脱敏 tab, one layer |
 | `cards/relay_card.py` | The card a topic turn's outcome takes back to the butler's top level |
 | `cards/review.py` | Shared history and chat-card rendering helpers |
 | `cards/rewind.py` | The ↩️ 回退 button and card |
@@ -470,9 +468,6 @@
 | `core/quota_hold.py` | A model gateway's spent daily quota, held until it resets so that new requests on it fail here at once |
 | `core/quota_sources.py` | 额度来源: who gives the snapshots core/quota.py keeps, and reading one |
 | `core/recovery.py` | What a failed, interrupted or stopped task's record allows next, decided in one place |
-| `core/redaction.py` | Sensitive-term redaction: the owner's term list, which topics use it and what each turn replaced |
-| `core/redaction_views.py` | What the 设置 card's 脱敏 tab shows of the relays' records |
-| `core/redactor.py` | Matching for sensitive-term redaction: terms to stand-ins in requests, stand-ins back in replies |
 | `core/reply_state.py` | The verified reply and the outcome of one turn of Codex or dsh |
 | `core/repomap.py` | The repo map: the git repositories and plain directories this deployment works in, on this machine or on a … |
 | `core/result.py` | Validated root reply identity, separate from execution and continuation rights |
@@ -601,7 +596,6 @@
 | `backends/claude/models.py` | Public model metadata from the Claude initialization response, never account data |
 | `backends/claude/policy.py` | Explicit upstream safety signals only |
 | `backends/claude/process.py` | The Claude CLI's process and its JSONL transport |
-| `backends/claude/redaction.py` | The loopback relay that redacts one Claude Code turn of a topic that chose redaction |
 | `backends/claude/rewind.py` | ↩️ 回退 on Claude Code: drop the last turn of a session and put back the files it changed |
 | `backends/claude/runtime.py` | One turn of the Claude CLI over its JSONL transport, following the official Agent SDK protocol (run_stream) |
 | `backends/claude/sessions.py` | Claude Code session store for the Lark bridge |
@@ -609,6 +603,7 @@
 | `backends/claude/subagents.py` | Claude Code's subagents on lighter models than the turn's (main-thread.json `subagents`, under 更多 on the 设置 … |
 | `backends/claude/tool_guard.py` | Claude Code's PreToolUse hooks that Covey writes into a turn's --settings (`hooks`), run as … |
 | `backends/claude/transcript.py` | One row of a Claude Code session transcript (a JSONL file), read the way every reader of it does |
+| `backends/claude/upstream.py` | Where a Claude Code turn's requests go, and the parts a loopback relay in front of it is made of |
 | `backends/claude/usage.py` | Current-invocation root and subagent usage and arrival-time latency, without model text |
 
 ### backends/codex

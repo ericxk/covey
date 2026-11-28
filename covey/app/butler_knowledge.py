@@ -365,10 +365,9 @@ def memory_search(env, args, *, lead=""):
             states[row["ref"]] = row.get("status") or (found.status if found else "active")
     else:
         scope, owner = ("project", project) if project else ("topic", topic) if topic else ("", "")
-        if lead:  # The topic it names, else its project; never a line kept back from what is sent out (redacted).
+        if lead:  # The topic it names, else its project.
             scope, owner = ("topic", topic) if topic else ("project", lead)
         found = memstore.entries(env.state_dir, scope=scope, owner_key=owner, **({"kinds": kinds} if kinds else {}))
-        found = [entry for entry in found if not (lead and getattr(entry, "redacted", False))]
         found = sorted(found, key=lambda entry: entry.at, reverse=True)[:limit]
         rows = [{"ref": e.ref, "code": e.code, "kind": e.kind, "scope": e.scope, "title": e.title, "text": e.text,
                  "sim": 0.0} for e in found]

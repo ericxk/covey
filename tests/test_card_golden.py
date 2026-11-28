@@ -25,7 +25,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # support, also when run as tests.test_card_golden
 
-from support.cards import TOPIC, redaction_facts, sample_job, status_block, stream_runtime  # noqa: E402
+from support.cards import TOPIC, sample_job, status_block, stream_runtime  # noqa: E402
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "cards.json"
 PACKED = GOLDEN.with_name("cards.json.xz")  # The public export packs the golden file (scripts/export_core.py).
@@ -52,7 +52,7 @@ CHOICES = {
                           "display_name": "GPT-6-Astra", "label": "Codex · GPT-6-Astra",
                           "levels": ["low", "high", "xhigh", "max"]},
     "claude:opus": {"harness": "claude", "title": "Claude", "provider": "anthropic", "provider_title": "Claude 自带",
-                    "display_name": "Opus 5.5", "redaction": True, "label": "Claude · Opus 5.5",
+                    "display_name": "Opus 5.5", "label": "Claude · Opus 5.5",
                     "levels": ["high", "xhigh", "max"]},
     "maso:preset": {"harness": "maso", "title": "MASO", "provider": "maso", "provider_title": "MASO",
                     "display_name": "Preset", "label": "MASO · Preset", "levels": ["high"],
@@ -107,8 +107,6 @@ def task_cards():
         "figure_cells": figure_cells(snapshot, 100),
         "usage_lines": usage_lines(snapshot),
         "task_details": task_details_panel(sample_job(), snapshot),
-        "task_details_redacting": task_details_panel(sample_job(), {**snapshot, "redaction": {
-            "terms": 1, "hits": 2, "requests": 3}}),
         # A running turn's progress (core/progress.py, cards/streaming.py progress_lines): 阶段, 步骤, 最近动静 at a time
         # of day and the estimate with when it was made; and one that may be stuck.
         "task_details_progress": task_details_panel(sample_job(turn_progress={
@@ -230,8 +228,7 @@ def trace_panels():
                                         name=("bash", "read", "edit", "web_search")[i % 4], detail=f"/absolute/work/f{i}.py"))
                           for i in range(2, 9)],
                         ("tool", tool(9, "running")), usage,
-                        ("first_token", {"ttft_seconds": 1.25, "ttft_source": "stream"}),
-                        ("redaction", {"terms": 3, "hits": 5, "requests": 2}))),
+                        ("first_token", {"ttft_seconds": 1.25, "ttft_source": "stream"}))),
         ("finished", finish()),
     ])
     shots("stopped", task_trace(), [
@@ -336,9 +333,7 @@ def launch_cards():
         # A card that names a workspace: a butler's worktree launch, a card sent before the home start.
         "codex_legacy": legacy("codex:gpt-6-astra"),
         "codex_legacy_notice": legacy("codex:gpt-6-astra", notice="⚠️ 提示", run_mode="original"),
-        "claude_redacting": form("claude:opus", redaction="on"),
-        # 脱敏 on and a model that cannot (T647 P0-8): said above the buttons, 不脱敏开始 confirmed in the client.
-        "codex_unredacted": form("codex:gpt-6-astra", redaction="on"),
+        "claude": form("claude:opus"),
         "maso_expanded": form("maso:preset", expanded=True, work_mode="adaptive"),
         "receipt": build_receipt_card({"model_label": "Codex · GPT-6-Astra", "effort": "xhigh",
                                        "workdir": str(WORK), "topic": "T70", "run_mode": "worktree",
@@ -748,8 +743,8 @@ def switch_cards():
     form = {**old, "models": {key: CHOICES[key] for key in ("codex:gpt-6-astra", "claude:opus",
                                                             "dsh:ali-deepseek-v4.1-flash")},
             "current": {"label": "Codex · GPT-6-Astra", "effort": "xhigh", "key": "codex:gpt-6-astra",
-                        "budget": "xhigh", "workspace": "project", "run_mode": "worktree", "redaction": False},
-            "no_place": True, "selected_redaction": "off"}
+                        "budget": "xhigh", "workspace": "project", "run_mode": "worktree"},
+            "no_place": True}
     # A card sent before the home start: the workspace and run mode rows, and the topic's place in its first line.
     legacy = {key: value for key, value in form.items() if key != "no_place"}
     legacy.update(workspaces=["project", "notes"], selected_workspace="project", selected_run_mode="worktree")
@@ -761,8 +756,7 @@ def switch_cards():
         "card_legacy_changed": build_switch_card({**legacy, "selected_model": "dsh:ali-deepseek-v4.1-flash",
                                                   "selected_effort": "low", "selected_run_mode": "original"}),
         "card_old_record": build_switch_card(old),
-        "card_redacting": build_switch_card({**form, "selected_model": "claude:opus", "selected_redaction": "off",
-                                             "current": {**form["current"], "redaction": True}}),
+        "card_claude": build_switch_card({**form, "selected_model": "claude:opus"}),
         "card_refused": build_switch_card({**form, "notice": "**⚠️ 还没有换（20:08）**：本话题还有任务在排队或执行"}),
         # T669: opened from a relay card at the private chat's top level: there, its subtitle naming the topic and where a
         # reply goes (app/harness_switch.py).
@@ -940,7 +934,7 @@ def answer_tail_cards():
 
     files = markdown_panel(ARTIFACTS_ID, "产物 2 个 · REPORT.md 等", "- [REPORT.md](https://example.invalid/a) · 12 KB\n"
                            "- [本轮改动.diff](https://example.invalid/b) · 3 KB", quiet=True)
-    inputs = input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", True, "demo-app")
+    inputs = input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", "demo-app")
     outputs = output_parts({"input_tokens": 750_000, "output_tokens": 10_000, "cache_read_tokens": 690_000,
                             "measured_output_tokens": 8_200, "generation_seconds": 200}, 760)
     text = "**结论**：按钮已经改好。\n\n- 去掉了侧聊\n- 旧卡点了回一句"
@@ -1014,7 +1008,7 @@ def answer_tail_cards():
             # A line of 管全局 (the 升为全局 button is gone: moving to a larger scope is the web page's).
             "answer_card_memory_global": answer_card(text, "✅ T439 · 结论", [*tail(files, inputs, outputs), memory_element([
                 {"kind": "remembered", "text": "回答先给结论", "scope": "管全局", "entry_id": "p1a2b3c"},
-                {"kind": "remembered", "text": "项目代号用简称", "scope": "管这个话题", "entry_id": "0a1b2d", "redacted": True}],
+                {"kind": "remembered", "text": "项目代号用简称", "scope": "管这个话题", "entry_id": "0a1b2d"}],
                 "tf0001", 439, url="")]),
             # The two kinds of 待审核 on the card (T908 M3b): a rule held here that may be 全局 (one line, 采纳 and 不对), one that
             # grants (待审核, 采纳 and 不对), and the lead's rule of its turn (负责人记下了, 不对).
@@ -1269,9 +1263,9 @@ def status_cards_samples():
 CLAUDE_OWN = {"provider": "anthropic", "provider_title": "Claude 自带"}
 BUTLER_CHOICES = {"claude:claude-opus-5-5": {"harness": "claude", "model": "claude-opus-5-5", "title": "Claude Code",
                                           "display_name": "Opus 5.5", "levels": ["low", "high", "xhigh", "max"],
-                                          "redaction": True, **CLAUDE_OWN},
+                                          **CLAUDE_OWN},
                "claude:claude-sonnet-5-5": {"harness": "claude", "model": "claude-sonnet-5-5", "title": "Claude Code",
-                                            "display_name": "Sonnet 5.5", "levels": ["low", "high"], "redaction": True,
+                                            "display_name": "Sonnet 5.5", "levels": ["low", "high"],
                                             **CLAUDE_OWN},
                "codex:gpt-6": {"harness": "codex", "model": "gpt-6", "title": "Codex", "display_name": "GPT-6",
                                "levels": ["low", "medium", "high", "xhigh"], "provider": "openai",
@@ -1288,7 +1282,7 @@ def butler_panels():
     from covey.core.butler_settings import Settings, TopicDefaults
 
     names = ["bridge", "docs", "scratch"]
-    changed = Settings(enabled=False, model="claude-opus-5-5", effort="high", compact_tokens=300_000, redaction=True,
+    changed = Settings(enabled=False, model="claude-opus-5-5", effort="high", compact_tokens=300_000,
                        topic_defaults=TopicDefaults(harness="codex", model="gpt-6", effort="xhigh", run_mode="worktree",
                                                     workspace="bridge"),
                        workspace_notes=(("bridge", "Harness Bridge 本体"), ("docs", "文档")))
@@ -1329,19 +1323,18 @@ def doctor_trouble():
 def settings_cards():
     """The 设置 card on each tab (cards/settings_hub.py): the panel's card with the tab row on top; the butler's
     two pages, 新话题 and 管家 (its question before 每条直接开一个话题, and in the mode 纯话题; no 工作区 or 运行方式 row, v43), 仓库
-    (the home and the repositories, read only: with the web page's link, without it, and with none), 脱敏 and 诊断. 代答 is an older card's
+    (the home and the repositories, read only: with the web page's link, without it, and with none) and 诊断. 代答 is an older card's
     tab; a record on the retired 工作区 or 其他 folds as 仓库."""
     from covey.app.doctor_panel import summarize
     from covey.cards.doctor_card import doctor_card
     from covey.cards.group_manager import group_manager_card
     from covey.cards.butler_panel import butler_panel_card
     from covey.cards.proxy_panel import proxy_panel_card
-    from covey.cards.redaction_panel import redaction_card
     from covey.cards.settings_hub import folded_hub, tab_row
     from covey.cards.workspace_manager import repos_card
     from covey.core.butler_settings import AssistChoice, LeadModel, Settings
 
-    tabs = ["config", "repos", "redaction", "groups"]
+    tabs = ["config", "repos", "groups"]
     ASSIST_ROW = {"options": [("auto", "自动（跟随管家）"), ("claude", "Claude Code"), ("codex", "Codex"),
                               ("none", "不用模型（只按规则）")],
                   "current": "auto", "words": "现在：跟随管家，Claude Code · 当前登录账号的模型，分流、整理专项、记忆自己长都用它。"}
@@ -1401,27 +1394,6 @@ def settings_cards():
         "repos_empty": repos_card("c" * 24, view, home="/absolute/home", items=[], top=row("repos")),
         "repos_notice": repos_card("c" * 24, {**view, "notice": "⚠️ 只有机器人主人能改设置。"}, home="/absolute/home", items=repos[:1],
                                    top=row("repos")),
-        # 脱敏 (cards/redaction_panel.py): no term, only its first character and length.
-        "redaction": redaction_card("c" * 24, {**view, "notice": "已删除「机··（4 字）」。", "undo": True},
-                                    redaction_facts(), top=row("redaction")),
-        "redaction_found": redaction_card("c" * 24, {**view, "found": ["b" * 12]}, redaction_facts(),
-                                          top=row("redaction")),
-        "redaction_pages": redaction_card("c" * 24, {**view, "at": 1}, redaction_facts(rows=12), top=row("redaction")),
-        # The 开关 fold's probe, the upstream box and a try-out open (no form may sit in a fold).
-        "redaction_folds": redaction_card(
-            "c" * 24, {**view, "open": ["try", "upstream"], "probe": {"upstream": "https://api.example.com",
-                                                                     "source": "默认"},
-                       "preview": {"redacted": "我们的 RXFAKE000 上线了\n第二行", "count": 1, "terms": 1,
-                                   "restore": True, "same": True}},
-            redaction_facts(upstream="https://gw.example.com/v1"), top=row("redaction")),
-        "redaction_probing": redaction_card("c" * 24, {**view, "probing": FROZEN}, redaction_facts(),
-                                            top=row("redaction")),
-        # A view of the 2026-11-13 layout (page, edit): its card is drawn in the new one.
-        "redaction_old_view": redaction_card("c" * 24, {**view, "page": "records", "edit": "b" * 12},
-                                             redaction_facts(), top=row("redaction")),
-        "redaction_idle": redaction_card("c" * 24, view, redaction_facts(rows=0), top=row("redaction")),
-        "redaction_unreadable": redaction_card("c" * 24, view, {**redaction_facts(), "error": "词表文件读不了或有错。"},
-                                               top=row("redaction")),
         "proxy": proxy_panel_card("c" * 24, view, settings=settings, contacts=[person], batches=[], choices=CHOICES,
                                   current=("codex:gpt-6-astra", "xhigh"), top=row("proxy")),
         "groups": group_manager_card("c" * 24, {**view, "page": 0}, groups, {"oc_fake_group0": "群0"},
@@ -1460,7 +1432,7 @@ def settings_cards():
     }
 
 
-FULL_TABS = ["config", "repos", "redaction", "groups", "memory", "nodes", "doctor"]
+FULL_TABS = ["config", "repos", "groups", "memory", "nodes", "doctor"]
 
 
 def memory_tab_cards():
@@ -1516,7 +1488,7 @@ def about_tab_cards():
            "新话题带上最近话题的要点": "设 COVEY_WORKSPACE_GISTS=3（话题要点要整理专项开着才会写）",
            "网页工作台": "要一个配套的网页应用，再设 COVEY_WEB=1 和 COVEY_WEB_CONFIG", "历史搜索": "设 COVEY_HISTORY_CMD=搜索命令的绝对路径",
            "设备与机器状况": "设 COVEY_NODE_LISTEN=设备能连进来的监听地址"}
-    details = {"敏感词脱敏": ("词表在「脱敏」，话题开了才替换", ""), "管家": ("", "COVEY_BUTLER"), "专项": ("", "COVEY_PROJECTS"),
+    details = {"管家": ("", "COVEY_BUTLER"), "专项": ("", "COVEY_PROJECTS"),
                "看板": ("", "COVEY_BOARD"), "记忆": ("", "COVEY_MEMORY、COVEY_KNOWLEDGE"),
                "负责人自己往下推": ("", "COVEY_PROJECT_AUTOWAKE 等四个"), "限流后自动继续": ("", "COVEY_AUTO_RETRY_LONG")}
     features = [{"name": name, "group": group, "good": good, "on": name not in off,
@@ -2004,7 +1976,7 @@ def node_cards_samples():
              "line": machine_lines("训练机（gpu1）", {"heard": FROZEN - 2220}, latest, online=False)[0], "grey": "最后：CPU 12% · 内存 41%"}]
     data = {"address": "[2001:db8::1]:10603", "rows": rows}
     view = {"token": "d" * 24, "revision": 3, "hub": True}
-    row = [tab_row("nodes", "d" * 24, ["repos", "nodes", "redaction"])]
+    row = [tab_row("nodes", "d" * 24, ["repos", "nodes", "groups"])]
     return {
         "alert_mem": alert_card(mem, "本机", tasks),
         "alert_oom_text": alert_text({"rule": "oom", "kind": "once", "at": FROZEN, "count": 2, "pct": 97.0, "top": top},
@@ -2043,7 +2015,7 @@ def paged_cards():
         "\n\n```py\n" + "".join(f"print({n})\n" for n in range(40)) + "```")
     files = {"tag": "collapsible_panel", "element_id": "answer_artifacts", "expanded": False,
              "header": {"title": {"tag": "markdown", "content": "产物 1 个 · REPORT.md"}}, "elements": []}
-    inputs = input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", None, "covey")
+    inputs = input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", "covey")
     outputs = output_parts({"usage": {"input_tokens": 120000, "cache_read_input_tokens": 90000, "output_tokens": 3000}}, 100)
     block = ask_block("看板改成彩色块，字大一点", at="12:31", url="https://applink.feishu.cn/t/439", who="T439 改看板的颜色",
                       doing="done")

@@ -3,6 +3,7 @@ settings file (core/butler_settings.py), the tool channel (core/butler_requests.
 (core/butler_tool_specs.py)."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import tempfile
@@ -59,14 +60,13 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(loaded.compact_tokens, settings.COMPACT_TOKENS)
         self.assertFalse(hasattr(loaded, "start") or hasattr(loaded, "trusted"))
         self.assertEqual(loaded.topic_defaults.run_mode, "direct")
-        self.assertFalse(loaded.topic_defaults.redaction)
         self.assertEqual(loaded.workspace_notes, (("a", "用途"),))
         self.assertEqual(loaded.note("a"), "用途")
 
     def test_round_trip_and_update(self):
         with tempfile.TemporaryDirectory() as tmp:
             first = settings.Settings(enabled=False, compact_tokens=0,
-                                      topic_defaults=settings.TopicDefaults(workspace="ws", redaction=True),
+                                      topic_defaults=settings.TopicDefaults(workspace="ws"),
                                       workspace_notes=(("ws", "Bridge 仓库"),))
             settings.save(tmp, first)
             self.assertEqual(settings.load(tmp), first)
@@ -96,6 +96,25 @@ class SettingsTest(unittest.TestCase):
             settings.save(tmp, settings.load(tmp))
             written = json.loads((Path(tmp) / settings.FILE).read_text())
             self.assertEqual((written["review"], written["effort"]), (review, "high"))
+
+    def test_the_retired_redaction_fields_are_read_past_and_kept_for_an_older_release(self):
+        # 敏感词脱敏 was taken out (T947): main-thread.json's ``redaction`` and ``topic_defaults.redaction`` load, no field reads
+        # them, and every kind of save keeps them as the file has them (topic_defaults is written whole, its other keys from the settings).
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {butler.ENV: "1"}):
+            (Path(tmp) / settings.FILE).write_text(json.dumps(
+                {"redaction": True, "model": "m", "topic_defaults": {"redaction": True, "workspace": "ws"}}))
+            loaded = settings.load(tmp)
+            self.assertEqual(loaded, settings.Settings(model="m", topic_defaults=settings.TopicDefaults(workspace="ws")))
+            self.assertFalse(hasattr(loaded, "redaction") or hasattr(loaded.topic_defaults, "redaction"))
+            settings.update(tmp, effort="high")
+            settings.save(tmp, dataclasses.replace(settings.load(tmp), topic_defaults=settings.TopicDefaults(model="x")))
+            written = json.loads((Path(tmp) / settings.FILE).read_text())
+            self.assertEqual((written["redaction"], written["effort"]), (True, "high"))
+            self.assertEqual(written["topic_defaults"], {"redaction": True, "harness": "", "model": "x", "effort": "",
+                                                         "run_mode": "direct", "workspace": ""})
+            (Path(tmp) / settings.FILE).write_text(json.dumps({"topic_defaults": {"redaction": True}}))
+            self.assertIsNotNone(settings.settle_mode(tmp))  # Writes the mode; topic_defaults is rewritten whole.
+            self.assertEqual(json.loads((Path(tmp) / settings.FILE).read_text())["topic_defaults"]["redaction"], True)
 
     def test_a_retired_harness_chosen_before_reads_as_none_chosen(self):
         # Pi was retired (T766): the butler, its topics and a lead chosen on it follow what is enabled again.

@@ -8,8 +8,7 @@ model to put ``memory`` into its checkpoint (app/memory_collect.py, which almost
 - The owner's words: of a turn that ended well, his own (app/access.py
   owner_turn), whose words are his: by the turn's source (core/turn_source.py) and, with none, by the message id and the way the
   text begins (``not_owner_reason``: never a revisit, a Bridge wake-up or note, a hand-on, a review, a
-  协作 turn, a 管家 or lead's hand-on), in an ordinary topic, the butler's or a project's lead's (not a 代答 topic, not one with
-  redaction on or whose setting cannot be read: nothing of it is sent to a model), whose words (app/memory_turn.py owner_words:
+  协作 turn, a 管家 or lead's hand-on), in an ordinary topic, the butler's or a project's lead's (not a 代答 topic), whose words (app/memory_turn.py owner_words:
   never a question's own) hold one of the trigger words (core/memory.py ``CUES``, the checkpoint's too: only "from now on" and
   "note this" words), and that app/memory_collect.py took nothing from. An answer to a question card
   goes with the card's words and options (``asked``), which are never his; it is read when its answer holds a cue or the
@@ -51,7 +50,6 @@ from covey.core import memory, memstore, project_memory, projects, topic_memory,
 from covey.core.butler_opened import handed_on
 from covey.core.checkpoint import read_checkpoint
 from covey.core.jobs import find_job_record, upsert_job_record
-from covey.core.redaction import topic_redaction
 from covey.core.state import read_object
 from covey.core.text import cut
 from covey.core.topics import label_title, proxy_topic
@@ -113,16 +111,8 @@ def _checkpoint(record) -> dict:
         return {}
 
 
-def _redacted(state_dir, topic_id) -> bool:
-    try:
-        return bool(topic_redaction(state_dir, topic_id))
-    except ValueError:
-        return True
-
-
 def reason_to_skip(runtime, ctx, job, record, checkpoint) -> str:
     """Why the owner's words of the turn are not read; '' when they are."""
-    topic_id = str(record.get("topic_id") or getattr(job, "topic_id", "") or "")
     chat = str(record.get("chat_id") or getattr(job, "chat_id", "") or "")
     if record.get("status") not in memory_collect.ENDED_WELL:
         return "not-finished"
@@ -138,8 +128,6 @@ def reason_to_skip(runtime, ctx, job, record, checkpoint) -> str:
         return "not-owner"
     if proxy_topic(ctx):
         return "proxy"
-    if _redacted(ctx.state_dir, topic_id):
-        return "redacted"
     said = memory_turn.owner_words(record, ctx.state_dir)
     asked = asked_card(ctx.state_dir, record)
     if len("".join(said.split())) < (2 if asked else 4):
@@ -362,8 +350,7 @@ def refusal(text, quote) -> str:
 def _remember(ctx, record, item, text, quote, *, access, log):
     """The notes of one line he asked to be remembered: written the one way the owner's words are (app/memory_collect.py take:
     its kind, its scope's three answers, 待审核 for 全局 and for a rule that grants)."""
-    marked = _redacted(ctx.state_dir, str(record.get("topic_id") or ""))
-    return memory_collect.take(ctx, record, text, marked, quote, kind=str(item.get("kind") or "rule"),
+    return memory_collect.take(ctx, record, text, quote, kind=str(item.get("kind") or "rule"),
                                scope=str(item.get("scope") or ""), access=access, source="learn", log=log)
 
 
@@ -385,14 +372,13 @@ def _supersede(ctx, record, item, said, log, access=None):
     if not old or kind not in ("principle", "global", "project", "topic"):
         return []
     clash = f"（和 {n}：{cut(old, 30)} 矛盾，那条没动）"
-    marked = _redacted(ctx.state_dir, str(record.get("topic_id") or ""))
     if kind in ("principle", "global"):
         if not new:
             return []
         return [{**note, "text": note["text"] + clash} if note["kind"] == "pending" or note.get("review") else note
-                for note in memory_collect.take(ctx, record, new, marked, quote, scope="global", access=access, source="learn",
+                for note in memory_collect.take(ctx, record, new, quote, scope="global", access=access, source="learn",
                                                 log=log)]
-    notes = memory_collect.take(ctx, record, new, marked, quote, access=access, source="learn", log=log) if new else []
+    notes = memory_collect.take(ctx, record, new, quote, access=access, source="learn", log=log) if new else []
     made = next((note for note in notes if note["kind"] == "remembered"), None)  # A new line that grants only waits (pending).
     because = f"{n}：{cut(old, 40)}（因为你这轮说“{cut(quote, 30)}”）"
     was = memstore.find(ctx.state_dir, ref)
@@ -446,9 +432,8 @@ def learn(runtime, messenger, ctx, record, topics, *, ask=None) -> list:
     as ``ask(SYSTEM, data, topics=…, limit=…, cwd=…)``."""
     state, key, job = ctx.state_dir, str(record["key"]), record.get("job_id")
     if ask is None:
-        def ask(system, data, **kw):  # A topic that redacts was skipped (``reason_to_skip``); asked again right before it goes.
-            return assist.ask(assist.LEARN, system, data, state=state,
-                              redacted=_redacted(state, str(record.get("topic_id") or "")), **kw)
+        def ask(system, data, **kw):
+            return assist.ask(assist.LEARN, system, data, state=state, **kw)
     try:
         said = memory_turn.owner_words(record, state)
         data = json.dumps(payload(ctx, record, said), ensure_ascii=False)

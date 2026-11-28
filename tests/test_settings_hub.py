@@ -1,5 +1,5 @@
 """The 设置 card (app/settings_hub.py, cards/settings_hub.py): the bot menu's one card for the butler's two pages
-(新话题, 管家), 仓库, 脱敏 and 群聊, a tab row on top (配置 · 仓库 · 脱敏 · 群聊 · ..., T546), held by one record;
+(新话题, 管家), 仓库 and 群聊, a tab row on top (配置 · 仓库 · 群聊 · ..., T546; 脱敏 went with 敏感词脱敏, T947), held by one record;
 a tab turns the same record's card to another panel in place, the panels' own buttons keep the row and act only on
 their tab, a card sent under the scheme before (a record each panel) is taken over or finds nothing, 代答 is no tab
 but a record an older card left on it is still drawn there, and the standalone 代答 and 群聊 cards stay as they were."""
@@ -29,7 +29,7 @@ from covey.core.groups import group_path
 from covey.core.state import read_json, write_json
 
 MEMBER = 'ou_member0012345678'
-LABELS = ['配置', '仓库', '脱敏', '群聊', '诊断']  # 记忆 only with COVEY_MEMORY=1, 设备 with nodes.
+LABELS = ['配置', '仓库', '群聊', '诊断']  # 记忆 only with COVEY_MEMORY=1, 设备 with nodes.
 
 
 def row_of(current):
@@ -298,7 +298,7 @@ class SettingsHubTests(HubCase):
         turn = next(v for _, v in values(self.card(), PAGE) if v['page'] == 1)
         self.assertEqual(self.press(turn, 'ev-p1'), 'group_manager')
         self.assertIn('第 2/2 页', json.dumps(self.card(), ensure_ascii=False))
-        self.assertEqual(self.tabs()[3], ('群聊', 'primary_filled'))
+        self.assertEqual(self.tabs()[2], ('群聊', 'primary_filled'))
         # An older card on 代答 keeps its row too (代答 added after the tabs).
         self.press({'kind': TAB, 'tab': 'proxy', 'from': 'groups', 'token': self.hub.token('dm', 'ev-menu')}, 'ev-t2')
         refresh = values(self.card(), proxy_card.REFRESH)[0][1]
@@ -387,7 +387,7 @@ class SettingsHubTests(HubCase):
 
     @requires_extension()
     def test_with_the_tab_row_a_full_card_keeps_within_the_budget(self):
-        tabs = ['config', 'workspace', 'redaction', 'groups']
+        tabs = ['config', 'workspace', 'groups']
         choices = {f'codex:m{i}': {'harness': 'codex', 'model': f'm{i}', 'title': 'Codex', 'display_name': f'M{i}',
                                    'levels': ['low', 'high', 'xhigh']} for i in range(40)}
         choices.update({f'claude:c{i}': {'harness': 'claude', 'model': f'c{i}', 'title': 'Claude Code',
@@ -433,11 +433,12 @@ class SixTabsTests(HubCase):
     def test_the_old_keys_say_where_their_pages_went_and_open_no_card(self):
         # T898: 仓库, 脱敏 and 群聊 are off the app's menu (core/app_manifest.py STALE_MENU_KEYS); a client's cached copy of one
         # is answered with one line (app/bot_menu.py), not a card.
-        for event_id, key, name, tab in (('ev-w', 'manage_workspaces', '仓库', '仓库'),
-                                         ('ev-r', 'redaction_dashboard', '脱敏', '敏感词脱敏'), ('ev-g', 'manage_groups', '群聊', '群聊')):
+        for event_id, key, name, tab in (('ev-w', 'manage_workspaces', '仓库', '仓库'), ('ev-g', 'manage_groups', '群聊', '群聊')):
             self.open(event_id, key)
             text = self.app.messenger.send_text.call_args.args[2]
             self.assertIn(f'「{name}」已移到「设置」卡的「{tab}」页签', text)
+        self.open('ev-r', 'redaction_dashboard')  # 敏感词脱敏 went with its tab (T947).
+        self.assertEqual(self.app.messenger.send_text.call_args.args[2], '敏感词脱敏已下线，菜单里的「脱敏」没有用了。')
         self.assertFalse(self.puts)  # No 设置 card was sent.
         self.assertFalse((self.state / 'workspace-managers').exists())
         self.assertFalse((self.state / 'dashboard-links').exists())
@@ -534,25 +535,20 @@ class SixTabsTests(HubCase):
         self.assertTrue(values(self.card(), butler_card.HARNESS))  # The butler's section is the one the last click opened: no 工作区 row.
         self.assertNotIn('默认工作区', json.dumps(self.card(), ensure_ascii=False))
 
-    def test_an_older_cards_rotate_on_the_redaction_tab_says_the_page_went(self):
-        # The web dashboard's 换口令 (taken out 2026-11-19, T569), on a card drawn before: the same card redrawn with a
-        # notice, a deployment's old COVEY_DASHBOARD changing nothing.
-        from covey.app.redaction_panel import PAGE_GONE
-        self.enterContext(mock.patch.dict(os.environ, {'COVEY_DASHBOARD': '127.0.0.1:10601'}))
+    def test_an_older_cards_redaction_tab_lands_on_config(self):
+        # 敏感词脱敏 was taken out (T947): its tab is gone, and a card drawn before turns to 配置 on it (its buttons only
+        # get one line under the card, tests/test_redaction_retired.py).
         self.open()
-        self.press(self.tab('脱敏'), 'ev-t1')
-        self.assertEqual(values(self.card(), 'bridge_dashboard_rotate'), [])
-        self.assertNotIn('网页看板', json.dumps(self.card(), ensure_ascii=False))
-        rotate = {'kind': 'bridge_dashboard_rotate', 'token': self.hub.token('dm', 'ev-menu')}
-        self.assertEqual(self.press(rotate, 'ev-x1'), 'redaction_tab')
-        self.assertEqual(self.press(rotate, 'ev-x1'), 'duplicate')
-        self.assertEqual((self.puts[-1][0], self.title(), self.app.messenger.create_and_send_card.call_count),
-                         ('hubcard', '敏感词脱敏', 1))
-        self.assertIn(PAGE_GONE, json.dumps(self.card(), ensure_ascii=False))
-        self.assertFalse((self.state / 'redaction' / 'dashboard-token').exists())
-        self.assertEqual(self.press(rotate, 'ev-x2', operator=MEMBER), 'not_owner')
-        self.press(self.tab('群聊'), 'ev-t2')  # Turned away, the button from the card drawn before finds nothing.
-        self.assertEqual(self.press(rotate, 'ev-x3'), 'redaction_unknown')
+        self.assertNotIn('脱敏', [label for label, _ in self.tabs()])
+        self.press(self.tab('群聊'), 'ev-t1')
+        token = self.hub.token('dm', 'ev-menu')
+        self.assertEqual(self.press({'kind': TAB, 'tab': 'redaction', 'from': 'groups', 'token': token}, 'ev-t2'),
+                         'settings_tab')
+        self.assertEqual((self.title(), self.hub_record()['tab']), ('配置', 'config'))
+        path = self.hub.path(self.ctx, token)
+        write_json(path, {**read_json(path), 'tab': 'redaction'})  # A record still on it.
+        self.assertEqual(self.press({'kind': TAB, 'tab': 'groups', 'from': 'redaction', 'token': token}, 'ev-t3'),
+                         'settings_tab')
         self.assertEqual(self.title(), '群聊')
 
     def test_an_older_card_on_the_retired_other_page_still_acts(self):

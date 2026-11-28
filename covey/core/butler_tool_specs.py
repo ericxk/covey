@@ -38,11 +38,6 @@ EFFORT_ARG = "主人点名思考预算时必须填（如“用高预算”“max
 # that names a Harness, model or budget says on what (app/config_basis.py checks it). Short: agy's room (backends/agy/home.py).
 BASIS_ARG = {"type": "string",
              "description": "填 harness/model/effort 时必填：主人原话里的一段或原则、记忆编号；原则只管它说的那类事，会核对"}
-# 敏感词脱敏 of the new topic (app/butler_topics.py plan_start): the settings' default unless given; a topic that would redact on
-# a Harness that cannot is refused with what to ask the owner (T647 P0-8).
-REDACTION_ARG = {"type": "boolean",
-                 "description": "这个话题脱不脱敏，不填用设置里新话题的默认。新话题默认脱敏、所选 Harness 又不能脱敏时，"
-                                "这次调用会被拒绝并写明原因：先问主人，主人明确同意这个话题不脱敏后，才带 false 再调一次"}
 DONE = "结论由 Bridge 发给主人，你不用等、也不用转述。"
 # 派活门槛, what goes to a topic, said in one wording per mode: DISPATCH_OWN in topic_start's description (START_OWN) and in
 # app/prompts.py SHARED_RULES; with the butler's rules on (COVEY_BUTLER_RULES, unless 0) DISPATCH_BUTLER in START_BUTLER and
@@ -174,8 +169,7 @@ TOOLS = (
          "harness": {"type": "string", "description": HARNESS_ARG},
          "model": {"type": "string", "description": MODEL_ARG},
          "effort": {"type": "string", "description": EFFORT_ARG},
-         "basis": BASIS_ARG,
-         "redaction": REDACTION_ARG}}},
+         "basis": BASIS_ARG}}},
     {"name": "topic_send",
      "description": "把主人的话追加给一个已有话题（同一件事，几天前的也算）：它正在跑就作为补充，已经停了就开它的下一轮。"
                     "text 写这次交给它的内容，用主人的说法；主人原话和附件 Bridge 会附上。是哪个话题照管家规则判断，"
@@ -321,7 +315,6 @@ PROJECT_TOOLS = (
          "model": {"type": "string", "description": MODEL_ARG},
          "effort": {"type": "string", "description": EFFORT_ARG},
          "basis": BASIS_ARG,
-         "redaction": REDACTION_ARG,
          "approval": APPROVAL_ARG}}},
     {"name": "project_topic_send",
      "description": "给一个已有话题加话：它正在跑就作为补充，已经停了就开它的下一轮。text 写要它补做或改的事。"

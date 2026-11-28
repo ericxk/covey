@@ -21,8 +21,7 @@ question goes to the project's lead before the owner, and the owner sees it only
 - With 协作 on (COVEY_COLLAB=1), or whenever the lead names them, an answer stands on grounds the Bridge checks (``grounds``,
   docs/projects.md 分流的依据; by id or short code, the decisions of decisions.jsonl too): entries of the project's memory that the owner said and that still hold, or the owner's own
   messages in the project; the lead's notes (负责人记的) never alone, a line voided, done, superseded or only for that once
-  never; a line the owner wrote on the web page's 记一条 is his (its origin the page's operation, app/web_memory.py); one from
-  a topic with redaction on is left out when the answered topic has it off. The grounds go into the answer's note and its
+  never; a line the owner wrote on the web page's 记一条 is his (its origin the page's operation, app/web_memory.py). The grounds go into the answer's note and its
   分流记录 row, said as 你定的·规矩, 你定的·决定, 负责人记的·资料 (``ground_tag``).
 
 Rules 1 and 4 (AGENTS.md): a record is changed under its own lock (``update_question``) and nothing is sent from under it; the
@@ -537,7 +536,6 @@ NOT_OWNER = ("这些依据都不是主人说的：待核对参考是你整理的
              "用 project_escalate 转给主人，写清你推荐哪个、为什么。")
 OTHER_QUESTION = ("这条“当前决定”答的是另一道题（和这次问的不是同一件事），不能单独作为替主人答这道题的依据。"
                   "用 project_escalate 转给主人，写清你推荐哪个、为什么。")
-HIDDEN = "{refs} 来自开了脱敏的话题，被答的话题没开脱敏，不能写进它的回答"  # A ground the answered topic may not read (T908 M5).
 WHO_SAID = {turn_source.LEVEL_OWNER: "你定的", turn_source.LEVEL_AGENT: "负责人记的"}  # The 补充说明's words (T908 M5).
 
 
@@ -614,17 +612,7 @@ def other_question(env, row, asked) -> bool:
     return float(similarity) < question_dedup.MUTUAL_DUP
 
 
-def hidden_from(state_dir, topic) -> bool:
-    """Whether a ground from ``topic`` is hidden from a topic with redaction off: its own redaction is on, or cannot be read."""
-    from covey.core.redaction import topic_redaction
-
-    try:
-        return bool(topic_redaction(Path(state_dir), str(topic or "")))
-    except ValueError:
-        return True
-
-
-def grounds(env, project, evidence, asked="", topic="") -> list:
+def grounds(env, project, evidence, asked="") -> list:
     """The grounds the lead gave for answering in the owner's place (project_answer's ``evidence``), each checked here and
     never taken from what the model says of it: [{ref, kind (memory or message), level, layer, part, text}]. An entry id is a
     line of the project's memory (core/project_memory.py entries; its level and layer core/memory.py describe's); msg:<message
@@ -632,10 +620,7 @@ def grounds(env, project, evidence, asked="", topic="") -> list:
     answer is not sent: none given, one that is not there (made up), a style line, one voided, done, superseded or only for
     that once (``ONCE``), or none of the owner's words among them (the lead's notes, 待核对参考, and the owner's older lines
     without an origin are never the ground alone). ``asked``: the held question's words: a decision of another question
-    (``other_question``) is kept as a ground but never the owner's word for this one. ``topic``: the topic whose question is
-    answered: with its redaction off, a line from a topic with it on, or the owner's message in one (``hidden_from``), is
-    left out of the grounds (its words would go into that topic's answer), and with nothing else given that is why (T908
-    M5). Nothing else is judged otherwise than before."""
+    (``other_question``) is kept as a ground but never the owner's word for this one."""
     given = evidence if isinstance(evidence, list) else SPLIT.split(evidence) if isinstance(evidence, str) else []
     given = list(dict.fromkeys(ground_id(item) for item in given if ground_id(item)))
     if not given:
@@ -643,8 +628,7 @@ def grounds(env, project, evidence, asked="", topic="") -> list:
     if len(given) > GROUNDS_MAX:
         raise ValueError(f"依据最多 {GROUNDS_MAX} 条，这次写了 {len(given)} 条：只留真正依据的那几条。")
     rows = ground_rows(env.state_dir, project)
-    found, problems, hidden = [], [], []
-    shown_all = bool(topic) and project_context_marked(env.state_dir, topic)
+    found, problems = [], []
     for ref in given:
         ref, code = coded(env.state_dir, project, ref, rows)
         if not ref:
@@ -656,9 +640,6 @@ def grounds(env, project, evidence, asked="", topic="") -> list:
             if not record:
                 problems.append(f"{ref} 不是主人在这个专项里说的话（消息 id 抄状态包“主人在专项里说过的话”里的）")
                 continue
-            if not shown_all and hidden_from(env.state_dir, record.get("topic_id")):
-                hidden.append(MSG + message)
-                continue
             found.append({"ref": MSG + message, "kind": "message", "level": turn_source.LEVEL_OWNER, "layer": "", "part": "",
                           "text": cut(record.get("user_text"), 200)})
             continue
@@ -668,9 +649,6 @@ def grounds(env, project, evidence, asked="", topic="") -> list:
             continue
         code = code or str(row.get("code") or "")
         facts = core_memory.describe(row)
-        if row.get("redacted") and not shown_all:
-            hidden.append(code or ref)
-            continue
         if row.get("kind") == "style":
             problems.append(f"{ref} 是汇报风格，不是答题的依据")
         elif row.get("deleted") or facts["valid"] == "void":
@@ -687,18 +665,9 @@ def grounds(env, project, evidence, asked="", topic="") -> list:
                           **({"code": code} if code else {}), **({"other": True} if other else {})})
     if problems:
         raise ValueError("；".join(problems) + "。" + ESCALATE)
-    if hidden and not found:
-        raise ValueError(HIDDEN.format(refs="、".join(hidden)) + "。" + ESCALATE)
     if not any(item["level"] == turn_source.LEVEL_OWNER for item in found):
         raise ValueError(OTHER_QUESTION if any(item.get("other") for item in found) else NOT_OWNER)
     return found
-
-
-def project_context_marked(state_dir, topic) -> bool:
-    """Whether ``topic`` reads the lines from topics with redaction on (app/project_context.py marked)."""
-    from covey.app.project_context import marked
-
-    return marked(Path(state_dir), topic)
 
 
 def memstore_kind(row) -> str:

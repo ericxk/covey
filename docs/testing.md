@@ -105,7 +105,7 @@ git diff --stat tests/golden/cards.json
 
 ### 卡片示意图
 
-README（中英文）和[使用说明](usage.md#第一次使用)里的卡片图（`docs/media/screenshots/` 的 `01` 到 `09`：私聊、任务卡、答案卡、启动卡、设置卡的脱敏页、问题卡、停住了、换配置、看板）由 `scripts/card_sketches.py` 画：用真实的卡片构造函数和一组演示数据（话题 T7「给 demo-app 加登录页」）拼出卡片 JSON，再用脚本自带的小渲染器画成 HTML，无头 Chromium 截图。不连飞书、不用任何账号，图里没有水印。卡片样式变了（`tests/golden/cards.json` 有大的 diff，或 [UI 规范](ui.md)换了样子）时重渲一次：
+README（中英文）和[使用说明](usage.md#第一次使用)里的卡片图（`docs/media/screenshots/` 的 `01` 到 `09`：私聊、任务卡、答案卡、启动卡、问题卡、停住了、换配置、看板）由 `scripts/card_sketches.py` 画：用真实的卡片构造函数和一组演示数据（话题 T7「给 demo-app 加登录页」）拼出卡片 JSON，再用脚本自带的小渲染器画成 HTML，无头 Chromium 截图。不连飞书、不用任何账号，图里没有水印。卡片样式变了（`tests/golden/cards.json` 有大的 diff，或 [UI 规范](ui.md)换了样子）时重渲一次：
 
 ```bash
 python3 -B scripts/card_sketches.py --out /absolute/sketches                    # 只出 HTML，先在浏览器里看
@@ -166,7 +166,7 @@ python3 -B scripts/brand_assets.py demo --out /absolute/covey/docs/media --work 
 | `backend_drivers.py` | `test_backend_contract` 的后端驱动 |
 | `worker_seams.py` | 去掉 worker 一轮之外的附带工作 |
 | `clock.py`、`processes.py`、`git.py`、`cards.py`、`sessions.py` | 不真等的时钟；`leftover_check()`（有后台线程或子进程活过模块就失败）；git 夹具；卡片断言；直接写会话标识 |
-| `launch_fixtures.py` | 启动卡和换配置共用的模型目录、会脱敏的 Harness |
+| `launch_fixtures.py` | 启动卡和换配置共用的模型目录 |
 | `form_transitions.py` | 测试期检查表单记录的状态变化（见下） |
 | `memguard.py`、`proxy.py` | 内存看门狗的 `GuardCase`，代答的 `ProxyCase` |
 

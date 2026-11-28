@@ -582,14 +582,13 @@ def _asked_where(state_dir, entry, numbers) -> str:
     return " · ".join(part for part in parts if part)
 
 
-def store_decisions(state_dir, project_id, redacted=False) -> list:
+def store_decisions(state_dir, project_id) -> list:
     """The decisions the pack may carry: the project's in force, the newest first, a question once (app/memory_turn.py
     decisions_of)."""
     from covey.core import memstore
 
     seen, out = set(), []
-    found = [entry for entry in memstore.entries(state_dir, scope="project", owner_key=project_id, kinds=("decision",))
-             if redacted or not entry.redacted]
+    found = memstore.entries(state_dir, scope="project", owner_key=project_id, kinds=("decision",))
     for entry in sorted(found, key=lambda e: (-e.at, e.ref)):
         question = (str((entry.origin or {}).get("topic_key") or ""), entry.title)
         if question in seen:
@@ -659,13 +658,13 @@ def note_queries(state_dir, record, words="") -> list:
     return [query for query in dict.fromkeys(found) if query.strip()]
 
 
-def store_notes(state_dir, record, queries, redacted=False) -> list:
+def store_notes(state_dir, record, queries) -> list:
     """The project's 资料 ``queries`` find (core/memory_search.py, sim ≥ its DEFAULT_TAU), the best first."""
     from covey.core import memory_search, memstore
 
     if not queries:
         return []
-    context = {"topic": str(record.get("lead_topic_id") or ""), "project": record["id"], "owner": False, "redacted": redacted,
+    context = {"topic": str(record.get("lead_topic_id") or ""), "project": record["id"], "owner": False,
                "kinds": ("note",), "statuses": ("active",), "tau": memory_search.DEFAULT_TAU}
     found = []
     for item in memory_search.rank_many(memory_search.index(state_dir), queries, context):
@@ -677,32 +676,31 @@ def store_notes(state_dir, record, queries, redacted=False) -> list:
     return found
 
 
-def store_voided(state_dir, record, since, redacted=False) -> list:
+def store_voided(state_dir, record, since) -> list:
     """The lines of the project's memory voided after ``since`` (the lead's previous turn), as the pack says them."""
     if since is None:
         return []
     rows = project_memory.entries(state_dir, record)
     rows += project_context.decision_rows(state_dir, record["id"], rows)
     codes = memory_codes(state_dir, record["id"])
-    gone = [row for row in rows if row.get("deleted") and row.get("kind") != "style" and float(row["deleted"]) > since
-            and (redacted or not row.get("redacted"))]
+    gone = [row for row in rows if row.get("deleted") and row.get("kind") != "style" and float(row["deleted"]) > since]
     return [f"- 〔{codes.get(row['id']) or row.get('code') or row['id']}〕{cut(str(row.get('text') or ''), TEXT)}" for row in gone]
 
 
-def store_memory(state_dir, record, *, redacted=False, since=None, words="") -> tuple[list, list]:
+def store_memory(state_dir, record, *, since=None, words="") -> tuple[list, list]:
     """(the pack's memory, its 资料) with COVEY_MEMORY on: the module's ``RULE_ROOM`` part, each in its room (``store_rooms``).
     The memory: the project's 规矩 (the owner's first, the rest by title: app/memory_turn.py titles_of), the owner's
     decisions in force (``store_decisions``), what was voided since the previous turn (``store_voided``); ``since`` marks the
     lines written after it 新. The 资料: ``store_notes`` of ``note_queries``. Each [] with nothing to say."""
     from covey.app import memory_turn
 
-    found = sorted(memory_turn.scope_rules(state_dir, "project", record["id"], redacted), key=memory_turn._room_order)
+    found = sorted(memory_turn.scope_rules(state_dir, "project", record["id"]), key=memory_turn._room_order)
     (rules, over), (decisions, left), notes = store_rooms(
-        found, store_decisions(state_dir, record["id"], redacted),
-        store_notes(state_dir, record, note_queries(state_dir, record, words), redacted))
+        found, store_decisions(state_dir, record["id"]),
+        store_notes(state_dir, record, note_queries(state_dir, record, words)))
     rules, over = sorted(rules, key=memory_turn._rule_order), sorted(over, key=memory_turn._rule_order)
     titles, cut_off = memory_turn.titles_of(over)
-    voided = store_voided(state_dir, record, since, redacted)
+    voided = store_voided(state_dir, record, since)
     fresh = (lambda entry: since is not None and entry.at > since)
     lines = []
     if rules or titles or cut_off:
@@ -985,15 +983,14 @@ def digest(text) -> str:
     return version(text)
 
 
-def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redacted=False, sent=None, keep=None,
+def state_pack(state_dir, record, key, *, full, receipts=None, since=None, sent=None, keep=None,
                words="") -> str:
     """The pack at the head of the lead's turn ``key``. ``full``: the whole of it (a new session); else the parts that
     change between turns (members, memory, style, inbox, decisions), the goal being in the session already.
     ``receipts``: the inbox's items when the caller has taken them. The memory is the store's 规矩 and 决定 in the lead's own
     room and the 资料 the questions handed to it and ``words`` (the owner's words of the turn) find (``store_memory``, T908
     M5); with COVEY_MEMORY off core/memory.py project_view's, as a member topic reads it then. ``since`` the lead's previous
-    turn's start (a resumed session: what was voided since then is said),
-    ``redacted`` whether the lead's topic reads the lines from topics with redaction on; with the triage on, the owner's own
+    turn's start (a resumed session: what was voided since then is said); with the triage on, the owner's own
     words (``owner_word_lines``: grounds project_answer may name, W0-2). With 协作 on (COVEY_COLLAB=1) also
     the 简报 (``brief_block``: its background in a new session only), the 目标检查表 and the open 协作 gaps (``checklist_block``:
     a resumed session's items met in one line) and the inbox in groups (``inbox_block``), in a new session and a resumed one.
@@ -1038,12 +1035,12 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
         out.append("部署授权（主人在问题卡上同意的，派部署时用 approval 带上）：\n" + "\n".join(granted))
     notes = []
     if core_memory.enabled():  # The store's three kinds (T908 M5); off, the three parts every reader read before.
-        memory, notes = store_memory(state_dir, record, redacted=redacted, since=None if full else since, words=words)
+        memory, notes = store_memory(state_dir, record, since=None if full else since, words=words)
         head = STORE_HEAD
     else:
         rows = project_memory.entries(state_dir, record)
         view = core_memory.project_view(rows + project_context.decision_rows(state_dir, record["id"], rows), record["id"],
-                                        redacted=redacted, since=None if full else since)
+                                        since=None if full else since)
         memory = memory_lines(view, memory_codes(state_dir, record["id"]) if view["parts"] else None)
         head = LEAD_MEMORY_HEAD
     memory_version = digest("\n".join(memory))
@@ -1104,7 +1101,7 @@ def library_added(state_dir, project_id, since) -> str:
     if not projects.memory_enabled():
         return ""
     rows = [row for row in reversed(project_library.entries(state_dir, project_id))
-            if not row.get("redacted") and float(row.get("at") or 0) > float(since)]
+            if float(row.get("at") or 0) > float(since)]
     if not rows:
         return ""
     shown = rows if len(rows) <= LIBRARY_ADDED else rows[:LIBRARY_ADDED - 1]
@@ -1286,7 +1283,7 @@ def lead_turn(ctx, job, prompt, session_id, log, release, now=None):
     keep = {}
     job.pack_pending = None  # This turn's alone (``pack_settle``): never one an earlier try of the job left.
     try:
-        pack = state_pack(ctx.state_dir, record, key, full=whole, redacted=project_context.marked(ctx.state_dir, job.topic_id),
+        pack = state_pack(ctx.state_dir, record, key, full=whole,
                           since=board_read.previous_start(ctx.state_dir, job.topic_id, job.job_id) if session_id else None,
                           sent=pack_sent(ctx.state_dir, record["id"], job, session_id) if at_system and not whole else None,
                           keep=keep, words=turn_words(ctx, job))
@@ -1379,7 +1376,7 @@ def peek_receipts(state_dir, project_id, limit=INBOX_ROWS) -> Taken:
     return chosen([item for _, item in _waiting(state_dir, project_id, "")], limit)
 
 
-def read_only_pack(state_dir, record, *, redacted=False) -> str:
+def read_only_pack(state_dir, record) -> str:
     """The lead's state pack (``state_pack``, whole) as a 协作 consult of the lead reads it: its receipts peeked
     (``peek_receipts``), never taken, so the lead's next turn reads them all the same."""
-    return state_pack(state_dir, record, "", full=True, receipts=peek_receipts(state_dir, record["id"]), redacted=redacted)
+    return state_pack(state_dir, record, "", full=True, receipts=peek_receipts(state_dir, record["id"]))

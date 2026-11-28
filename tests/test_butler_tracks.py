@@ -297,7 +297,7 @@ class TrackTopicFileTest(UnifiedCase):
         butler_settings.update(self.state, **changes)
 
     def test_it_copies_slot_0s_settings_and_adds_its_track(self):
-        self.settings(model="claude-opus-5-5", effort="high", redaction=True)
+        self.settings(model="claude-opus-5-5", effort="high")
         topic = self.keep(2)
         self.assertEqual(topic, track_topic_id(CHAT, 2))
         data, root = self.read(topic), self.read(butler_topic_id(CHAT))
@@ -309,8 +309,7 @@ class TrackTopicFileTest(UnifiedCase):
                          {k: v for k, v in root.items() if k != "topic_id"})
         for key in ("model", "effort", "workdir", "workspace_name", "harness_id", "chat_id", "binding_revision"):
             self.assertEqual(data[key], root[key], key)
-        self.assertEqual((data["model"], data["effort"], data["redaction"], data["main_thread"]),
-                         ("claude-opus-5-5", "high", True, True))
+        self.assertEqual((data["model"], data["effort"], data["main_thread"]), ("claude-opus-5-5", "high", True))
         self.assertEqual((data["root_id"], data["thread_id"]), ("", ""))
         self.assertNotIn("topic_number", data)
 
@@ -336,12 +335,6 @@ class TrackTopicFileTest(UnifiedCase):
         self.settings(model="claude-opus-5-5", effort="max")
         self.keep(1)
         self.assertEqual((self.read(topic)["model"], self.read(topic)["effort"]), ("claude-opus-5-5", "max"))
-        self.settings(redaction=True)
-        self.keep(1)
-        self.assertIs(self.read(topic)["redaction"], True)
-        self.settings(redaction=False)
-        self.keep(1)
-        self.assertNotIn("redaction", self.read(topic))
 
     def test_another_workspace_in_the_settings_never_moves_a_slot_that_runs(self):
         """主目录启动: the butler keeps its directory once it has run (app/butler.py keep_topic), and so does each track,

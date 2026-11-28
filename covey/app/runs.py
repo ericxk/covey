@@ -43,7 +43,6 @@ from covey.core import principles as owner_principles
 from covey.core.butler import is_butler_topic, is_lead, traits
 from covey.core.metrics import mark
 from covey.core.proxy import brief_history, owner_turn_note
-from covey.core.redaction import topic_redaction
 from covey.core.result import ERROR_CODES, ExecutionOutcome
 from covey.core.saved_results import consume_paused_question_answer, observe_verified_reply
 from covey.core.session_guard import claim_native_session
@@ -214,7 +213,7 @@ class Runs:
 
     def backend_notes(self, ctx: BridgeContext) -> tuple[str, ...]:
         """The backend's own constraints of ``ctx``'s turn (core/harness.py ``prompt_notes``), in the rules and in each
-        resumed turn's reminder: one that changed after the session started (redaction turned on) reaches the next turn.
+        resumed turn's reminder: one that changed after the session started reaches the next turn.
         A backend whose notes fail gives none (a line in the log): the turn goes on with the rest of its rules (F2)."""
         try:
             return tuple(getattr(self.harness.backend, "prompt_notes", lambda ctx: ())(ctx) or ())
@@ -449,8 +448,8 @@ class Runs:
         return "" if state == "ok" else why + "，本轮没有启动。"
 
     def _refusal(self, ctx: BridgeContext, session_id: str | None, job: ReplyJob | None = None) -> RunResult | None:
-        """The failed result of a turn that may not start (its workdir is missing, or redaction is on where the
-        Harness cannot do it), or None when it may. A device's directory is the device's to answer
+        """The failed result of a turn that may not start (its workdir is missing, a member's read-only turn on a
+        Harness that cannot hold it, a spent quota), or None when it may. A device's directory is the device's to answer
         (``_device_refusal``); the hub's stand-in never exists."""
         if ctx.device:
             detail = self._device_refusal(ctx, job)
@@ -461,11 +460,6 @@ class Runs:
             # Every backend would fail to start here, each with a generic transport error.
             outcome = ExecutionOutcome("failed", "workdir_missing", cleanup_confirmed=True, protection_confirmed=True)
             return RunResult(outcome.summary(), session_id, True, None, outcome)
-        refused = self._redaction_refusal(ctx)
-        if refused:
-            # Never sent unredacted: a Harness without the relay does not start (core/redaction.py).
-            outcome = ExecutionOutcome("failed", "redaction_failed", cleanup_confirmed=True, protection_confirmed=True)
-            return RunResult(outcome.summary(refused), session_id, True, None, outcome, failure_detail=refused)
         refused = self._limit_refusal(ctx)
         if refused:
             # A member's turn of a read-only group never runs where it could do more (app/tool_limits.py READ).
@@ -528,21 +522,6 @@ class Runs:
         detail = quota_hold.failure_words(gateway, quota_hold.read(ctx.state_dir, gateway))
         return dataclasses.replace(result, text=detail if result.is_error else result.text, failure_detail=detail)
 
-    def _redaction_refusal(self, ctx: BridgeContext) -> str:
-        """Why the turn may not start for redaction, or '' when it may."""
-        try:
-            if not topic_redaction(ctx.state_dir, ctx.topic_id):
-                return ""
-        except ValueError as exc:
-            return str(exc).rstrip("。") + "。"
-        if backend_capabilities(self.harness.backend, ctx).redaction:
-            return ""
-        if ctx.device:  # The term relay runs on the hub; a Harness on a device would talk to its service itself.
-            return (f"本话题开着敏感词脱敏，设备 {ctx.device} 上的任务不支持脱敏，本轮没有发给模型服务。"
-                    "可在换配置里关掉脱敏，或把工作区换成本机目录。")
-        return (f"本话题开着敏感词脱敏，{self.harness.spec.title} 不支持脱敏，本轮没有发给模型服务。"
-                "可点任务卡上的“🔁 换配置”换到 Claude 的模型。")
-
     def _turn_message(self, ctx: BridgeContext, job: ReplyJob, session_id: str | None) -> tuple[BridgeContext, str]:
         """The message before the rules, and the context to run in (a fork's first run has its own)."""
         said = job.prompt_text or job.user_text  # The history's last row is these words (``earlier_history``).
@@ -559,12 +538,11 @@ class Runs:
             # A retry after a safety refusal (app/policy_retry.py) starts from its own snapshot, the refused round
             # taken out: a switch handoff would bring that round back, and the switch notice, again.
             return ctx, first_turn_message(user_text, earlier_history(history_snapshot, job.message_id, said))
-        # The old model's summary is not asked for a turn generate_reply refuses below (a missing workdir, 敏感词脱敏, a
-        # member's read-only turn on a Harness that cannot hold it).
+        # The old model's summary is not asked for a turn generate_reply refuses below (a missing workdir, a member's
+        # read-only turn on a Harness that cannot hold it).
         history_snapshot, handoff = self.switch.switch_handoff(
             ctx, history_snapshot, getattr(job, "cancel_event", None),
-            ready=lambda: ((bool(ctx.device) or Path(ctx.workdir).is_dir()) and not self._redaction_refusal(ctx)
-                           and not self._limit_refusal(ctx)),
+            ready=lambda: (bool(ctx.device) or Path(ctx.workdir).is_dir()) and not self._limit_refusal(ctx),
             note=lambda text: self._bridge_note(ctx, job, "bridge-handoff", text),
             show=lambda element: self._handoff_block(ctx, job, element))
         earlier = earlier_history(history_snapshot, job.message_id, said)
@@ -618,7 +596,7 @@ class Runs:
             remember = knowledge_turn.remembers(ctx, job, owner_turn=owner)
             memory_text = memory_turn.block(ctx, job, owner_turn=owner)
             memory_fix = memory_turn.fix_rule(ctx, job, owner)
-            # The backend's constraints of this turn (the redaction note once the topic turned it on), and the 主目录段 as
+            # The backend's constraints of this turn, and the 主目录段 as
             # the rules have it: a topic from the home keeps its repo map and the rules of working from it (T900 W0-4).
             where = home_section(ctx.workspace_name, ctx.workdir, ctx.device, ctx.remote_workdir,
                                  home=home_turn.static_block(ctx))

@@ -20,7 +20,7 @@ from support.world import UnifiedCase
 from covey.app import tool_limits
 from covey.app.access import MEMBERS_ENV, Access
 from covey.backends.claude import argv as claude_argv
-from covey.backends.claude import redaction, tool_guard
+from covey.backends.claude import tool_guard, upstream
 from covey.backends.claude.bridge import ClaudeBackend
 from covey.backends.codex import appserver
 from covey.cards.group_manager import ask_card, ask_text, group_manager_card
@@ -201,7 +201,7 @@ class ClaudeArgvTests(unittest.TestCase):
         hooks = {'PreToolUse': [{'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': '/abs/hook'}]}],
                  'SessionStart': [{'hooks': [{'type': 'command', 'command': '/abs/start'}]}]}
         for options in ({}, {TOOL_LIMIT: LOOK}, {TOOL_LIMIT: READ}):
-            argv = self.argv(**options, **{claude_argv.TURN_HOOKS: hooks, redaction.SETTINGS_ENV: {'A': 'b'}})
+            argv = self.argv(**options, **{claude_argv.TURN_HOOKS: hooks, upstream.SETTINGS_ENV: {'A': 'b'}})
             self.assertEqual(argv.count('--settings'), 1)
             self.assertEqual(json.loads(self.value(argv, '--settings')), {'env': {'A': 'b'}, 'hooks': hooks})
         settings = json.loads(self.value(self.argv(**{TOOL_LIMIT: PROXY, claude_argv.TURN_HOOKS: hooks}), '--settings'))
@@ -223,7 +223,7 @@ class ClaudeArgvTests(unittest.TestCase):
                 claude_argv.merge_hooks(bad)
 
     def test_a_proxy_turn_has_its_hook_beside_the_relay_in_one_settings(self):
-        argv = self.argv(**{TOOL_LIMIT: PROXY, TOOL_NOTES: '/abs/notes', redaction.SETTINGS_ENV: {'A': 'b'}})
+        argv = self.argv(**{TOOL_LIMIT: PROXY, TOOL_NOTES: '/abs/notes', upstream.SETTINGS_ENV: {'A': 'b'}})
         self.assertEqual(self.value(argv, '--tools'), 'Read,Grep,Glob,Bash,Edit,Write')
         self.assertIn('--strict-mcp-config', argv)
         self.assertEqual(argv.count('--settings'), 1)
@@ -240,7 +240,7 @@ class ClaudeArgvTests(unittest.TestCase):
         argv = self.argv()
         for flag in ('--tools', '--disallowedTools', '--strict-mcp-config', '--settings'):
             self.assertNotIn(flag, argv)
-        self.assertEqual(json.loads(self.value(self.argv(**{redaction.SETTINGS_ENV: {'A': 'b'}}), '--settings')),
+        self.assertEqual(json.loads(self.value(self.argv(**{upstream.SETTINGS_ENV: {'A': 'b'}}), '--settings')),
                          {'env': {'A': 'b'}})
         self.assertNotIn('--tools', self.argv(tools=('Read',)))  # A lead's list of old: LEAD holds it now (ArgvTest).
 

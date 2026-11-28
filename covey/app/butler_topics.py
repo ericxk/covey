@@ -49,13 +49,11 @@ from covey.core import criteria, devices, butler, butler_settings, dispatch_reco
 from covey.core.store import directory_store
 from covey.core.attachments import attachment_block
 from covey.core.card_sequence import file_card, reserve
-from covey.core.harness import backend_capabilities
 from covey.core.jobs import find_job_record
 from covey.core.statuses import RUNNING
 from covey.core.locks import LOCK, topic_lock
 from covey.core.butler_opened import done, once_a_turn, record_path, request_token, save
 from covey.core.butler import is_butler_topic, is_lead
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY, topic_redaction
 from covey.core.state import read_object, write_json
 from covey.core.history_storage import append_history
 from covey.core.steer import SteerRefused, SteerUncertain
@@ -202,29 +200,6 @@ def handed(env, request, ctx):
 
 # topic_start ---------------------------------------------------------------------------------------------------
 
-# 敏感词脱敏 on a Harness that cannot redact (T647 P0-8, the owner: 先问): topic_start opens nothing and says why, never a
-# topic that sends the terms out as they are without the owner's word (``redaction_refusal``).
-REDACTION_ASK = ("没有开话题：新话题默认开着敏感词脱敏，{name} 不能脱敏，开了会把原文发给模型服务。先问主人（不要替主人定）：{choice}"
-                 "（主人明确同意后，再调一次并带 redaction=false）。")
-ASK_CHOICE = "换能脱敏的 {titles}（harness 填 {names}），还是这个话题不脱敏"
-ASK_NONE = "这台机器没有能脱敏的 Harness，这个话题只能不脱敏"
-REDACTION_CANNOT = "没有开话题：{name} 不能脱敏。{way}不脱敏就去掉 redaction=true 再调一次。"
-CANNOT_WAY = "要脱敏就换能脱敏的 {titles}（harness 填 {names}）；"
-CANNOT_NONE = "这台机器也没有能脱敏的 Harness；"
-
-
-def redaction_refusal(env, name, title, asked) -> str:
-    """Why topic_start opens nothing for a topic that would redact on ``name`` (its title ``title``), which cannot: the
-    settings' default (``asked`` False: ask the owner first, REDACTION_ASK) or the call's redaction=true (REDACTION_CANNOT);
-    the Harnesses of this Bridge that can redact named as the way out."""
-    able = [(app_name, app.spec.title) for app_name, app in env.topics.apps.items()
-            if app_name != name and backend_capabilities(app.backend, app.harness.context).redaction]
-    names = {"titles": "、".join(t for _, t in able), "names": " 或 ".join(n for n, _ in able)}
-    if asked:
-        return REDACTION_CANNOT.format(name=title, way=CANNOT_WAY.format(**names) if able else CANNOT_NONE)
-    return REDACTION_ASK.format(name=title, choice=ASK_CHOICE.format(**names) if able else ASK_NONE)
-
-
 # A workspace on a device (``gpu1:/home/me/proj``, COVEY_DEVICES=1, docs/configuration.md 多设备): checked as the launch card
 # checks one (app/launch_submit.py) before anything is opened, so a device that cannot take the topic opens none
 # (``device_binding``). With the switch off such a workspace (only a device's is written ``alias:path``) opens nothing
@@ -241,11 +216,6 @@ DEVICE_HARNESS_NONE = "它声明的 Harness 本机器人都没有启用，换个
 DEVICE_DIRECTORY = "没有开话题：{why}；{way}"
 DEVICE_OFFLINE_WAY = "设备连上后再开，或换个工作区。"
 DEVICE_MISSING_WAY = "换个工作区，或请主人确认这个目录。"
-# 敏感词脱敏 is done on this machine (core/harness.py DEVICE_OFF; app/runs.py refuses a device's turn that would redact).
-DEVICE_REDACTION = ("没有开话题：工作区「{workspace}」在设备 {alias} 上，设备上的话题不能脱敏（敏感词只在 Bridge 本机替换），"
-                    "而新话题默认开着脱敏。先问主人（不要替主人定）：换个本机的工作区，还是这个话题不脱敏"
-                    "（主人明确同意后，再调一次并带 redaction=false）。")
-DEVICE_REDACTION_CANNOT = "没有开话题：设备 {alias} 上的话题不能脱敏。要脱敏就换个本机的工作区；不脱敏就去掉 redaction=true 再调一次。"
 
 
 def device_binding(env, workspace, value, harness, title):
@@ -328,18 +298,15 @@ def declared_repos(state_dir, value, *, workspace="", now=None) -> list:
     return list(found.values())
 
 
-def plan_start(env, args, settings, *, ask=False):
+def plan_start(env, args, settings):
     """What topic_start opens: the Harness, model and budget as ``resolve`` finds them; the home, where every new topic
     starts (docs/configuration.md 主目录与仓库地图, app/launch_submit.py home_binding: its ``workspace`` and ``workdir`` as
-    before, so an older release reads them), ``home_start`` and the ``repos`` it uses (``declared_repos``); the
-    settings' redaction, the call's ``redaction`` (true or false) in place of it. Every new topic starts at once in 原目录:
+    before, so an older release reads them), ``home_start`` and the ``repos`` it uses (``declared_repos``). Every new topic starts at once in 原目录:
     the run mode 独立 worktree is gone (a repository to change gets its worktree from ``covey repo use --write``). A str
-    saying why not. ``ask`` (topic_start's): a topic that would redact on a Harness that cannot is refused
-    (``redaction_refusal``) instead of opened without; a call that says redaction=false, after the owner agreed, opens it so.
+    saying why not. A call's ``redaction`` (an older butler's) is ignored.
 
     An older call's ``workspace`` (or the settings' new-topic workspace, which no card sets any more) that is on a device
-    (``device_binding``) still opens the topic there, in the device's directory, with ``device`` and ``device_title``; it
-    never redacts: a topic that would is refused as above, in a device's words. With 多设备 off, a workspace written
+    (``device_binding``) still opens the topic there, in the device's directory, with ``device`` and ``device_title``. With 多设备 off, a workspace written
     ``alias:path`` is refused (DEVICE_SWITCH_OFF). Any other ``workspace`` is one more repository read."""
     defaults = settings.topic_defaults
     found = resolve(env.topics, env.state_dir, env.chat(), defaults, args)
@@ -361,14 +328,6 @@ def plan_start(env, args, settings, *, ask=False):
         repos = declared_repos(env.state_dir, args.get("repos"), workspace=named if binding is None else "")
     except ValueError as exc:
         return f"没有开话题：{exc}"
-    asked = args.get("redaction") if isinstance(args.get("redaction"), bool) else None
-    wanted = defaults.redaction if asked is None else asked
-    redacts = backend_capabilities(app.backend, devices.with_binding(base, binding) if binding else base).redaction
-    if ask and wanted and not redacts:
-        if binding is not None:
-            words = DEVICE_REDACTION_CANNOT if asked is True else DEVICE_REDACTION
-            return words.format(workspace=legacy, alias=binding.device)
-        return redaction_refusal(env, found["harness"], app.spec.title, asked is True)
     if binding is None:
         from covey.app.launch_submit import home_binding
         workspace, home = home_binding(base)
@@ -377,7 +336,7 @@ def plan_start(env, args, settings, *, ask=False):
         workspace, workdir = legacy, binding.value
     plan = {"harness": found["harness"], "model": found["model"], "model_key": found["model_key"],
             "effort": found["effort"], "work_mode": getattr(base, "work_mode", "") or "", "workspace": workspace,
-            "workdir": workdir, "run_mode": "direct", "redaction": bool(wanted and redacts), "repos": repos}
+            "workdir": workdir, "run_mode": "direct", "repos": repos}
     if binding is None:
         plan["home_start"] = True
     else:
@@ -386,7 +345,7 @@ def plan_start(env, args, settings, *, ask=False):
 
 
 def config_line(env, plan):
-    """The topic card's configuration: Harness · 模型 · 思考预算 · 主目录 (· 仓库 …) (· 脱敏) (· 按「…」), or for a topic on a
+    """The topic card's configuration: Harness · 模型 · 思考预算 · 主目录 (· 仓库 …) (· 按「…」), or for a topic on a
     device (or an older plan) 工作区 (· 设备) · 运行方式 in place of 主目录 and its repositories; 设备 the title of the
     device a workspace there is on, as the launch card names it; 按「…」 what the call named its Harness, model or
     budget on (app/config_basis.py), when it named one."""
@@ -400,7 +359,7 @@ def config_line(env, plan):
         where = ["工作区 " + plan["workspace"], *(["设备 " + plan["device_title"]] if plan.get("device_title") else []),
                  RUN_MODES[plan["run_mode"]]]
     return (app.spec.title, model, "思考预算 " + (plan["effort"] or unnamed_budget(env, app, plan)),
-            *where, *(["脱敏"] if plan["redaction"] else []),
+            *where,
             *([config_basis.line(plan["basis"])] if plan.get("basis") else []))
 
 
@@ -414,8 +373,7 @@ def unnamed_budget(env, app, plan):
 def launch_draft(plan):
     """The launch card's prefill (app/preselection.py launch_selection's ``draft``)."""
     return {"model": plan["model_key"] or f"{plan['harness']}:{plan['model']}", "effort": plan["effort"],
-            "work_mode": plan["work_mode"], "workspace": plan["workspace"], "run_mode": plan["run_mode"],
-            "redaction": "on" if plan["redaction"] else "off"}
+            "work_mode": plan["work_mode"], "workspace": plan["workspace"], "run_mode": plan["run_mode"]}
 
 
 def topic_start(env, request):
@@ -454,7 +412,7 @@ def _start(env, request, chat, args, title, prompt, why):
             shown = config_basis.check(env.state_dir, request.job_key, args.get("basis"),
                                        project_id=lead[0] if lead else "")[0]
         settings = butler_settings.load(env.state_dir)
-        plan = plan_start(env, args, settings, ask=True)
+        plan = plan_start(env, args, settings)
         if isinstance(plan, str):
             return reply(False, plan)
         if shown:
@@ -497,17 +455,13 @@ def picker(lead) -> str:
 def carry(env, ctx, raw, lead, *, steered=False) -> str:
     """The call's ``memory`` ``raw`` (app/memory_picks.py check) added to the topic ``ctx``'s ``memory_carried``, under LOCK
     with no Feishu call; the words the answer adds ('' when it names none; ``steered``: the words go into a turn running
-    now, which has its message already). Read for the topic's own redaction and with what it carries already; a project's
+    now, which has its message already). Read with what it carries already; a project's
     lead may name its project's too."""
     if not memory_picks.codes_of(raw):
         return ""
     project = lead[0] if lead is not None else ""
-    try:
-        hidden = bool(topic_redaction(env.state_dir, ctx.topic_id))
-    except ValueError:
-        hidden = False  # Not known: what only a topic with redaction on may read is refused.
-    have = memory_picks.entries_of(env.state_dir, read_topic(ctx), project=project, redacted=hidden)
-    taken, refused = memory_picks.check(env.state_dir, raw, project=project, redacted=hidden, carried=have)
+    have = memory_picks.entries_of(env.state_dir, read_topic(ctx), project=project)
+    taken, refused = memory_picks.check(env.state_dir, raw, project=project, carried=have)
     if taken:
         with LOCK:
             data = read_topic(ctx)
@@ -594,9 +548,8 @@ def bind_topic(env, app, request, path, record, args, event, config, kind="main"
               "title": title, "at": record["at"], **said_in(env, request)}
     lead = lead_of(env, request)
     if not record.get("topic_id"):
-        # 派活时挑带 (app/memory_picks.py): checked before the lock, the topic's own redaction what the plan says.
-        taken, refused = memory_picks.check(env.state_dir, args.get("memory"), project=lead[0] if lead is not None else "",
-                                            redacted=bool(plan.get("redaction")))
+        # 派活时挑带 (app/memory_picks.py): checked before the lock.
+        taken, refused = memory_picks.check(env.state_dir, args.get("memory"), project=lead[0] if lead is not None else "")
         record["memory_said"] = memory_picks.said(taken, refused)
         with topic_lock(target), LOCK:
             data = read_topic(target)
@@ -617,8 +570,6 @@ def bind_topic(env, app, request, path, record, args, event, config, kind="main"
                             workspace_locked=True, harness_locked=True)
                 if plan["work_mode"]:
                     data["work_mode"] = plan["work_mode"]
-                if plan["redaction"]:
-                    data[REDACTION_KEY] = True
             else:
                 data["origin"]["launch"] = launch_draft(plan)
             write_json(target.history_path.parent / "topic.json", data, ensure_ascii=False, indent=2)

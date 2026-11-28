@@ -294,23 +294,14 @@ class RoutingTest(ButlerUnifiedCase):
             self.assertIsNone(self.app.butler.app_for(self.ctx, self.event('om_1'), True))
         self.assertIs(self.app.butler.app_for(self.ctx, self.event('om_1'), True), self.app.apps['codex'])
 
-    def test_its_redaction_setting_reaches_its_topic_and_the_relay_from_the_next_turn(self):
-        """T444 (the owner, 2026-11-08): 私聊默认 has 脱敏 as a topic's launch card does. The setting goes into the butler's
-         topic.json, which the term relay reads at each turn (backends/claude/redaction.py wanted); off, the key
-        is gone, as 换配置 leaves a topic's (app/binding.py set_redaction)."""
-        from covey.backends.claude import redaction as relay
-        turn = SimpleNamespace(state_dir=self.state, topic_id=BUTLER)
+    def test_an_old_redaction_flag_in_its_topic_json_is_left_alone(self):
+        """敏感词脱敏 is retired (T947): the butler's topic.json is no longer written with or without ``redaction``; a file
+        that still has it keeps it as it is (not read by anything)."""
         self.send('om_1')
         self.assertNotIn('redaction', self.topic())
-        self.assertFalse(relay.wanted(turn))
-        self.settings(redaction=True)
+        write_json(self.state / 'topics' / BUTLER / 'topic.json', {**self.topic(), 'redaction': True})
         self.app.butler.keep_topic(self.ctx, self.app.apps['claude'], CHAT)
         self.assertIs(self.topic()['redaction'], True)
-        self.assertTrue(relay.wanted(turn))
-        self.settings(redaction=False)
-        self.app.butler.keep_topic(self.ctx, self.app.apps['claude'], CHAT)
-        self.assertNotIn('redaction', self.topic())
-        self.assertFalse(relay.wanted(turn))
 
     def test_the_overview_does_not_list_it(self):
         self.send('om_1')

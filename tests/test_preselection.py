@@ -9,8 +9,7 @@ SOL = {'': 'gpt56_sol', 'high': 'gpt56_sol_reasoning_high', 'max': 'gpt56_sol_re
 # GPT top_minus_one/high/low/default (top_minus_one); Sol max/high/default (none: ''); Flash default only. The cards
 # list them by name (docs/ui.md 13 U5): what nobody chose preselects the level 推荐 names, xhigh for Opus, high for GPT.
 CHOICES = {
-    'claude:opus': {'harness': 'claude', 'model': 'opus', 'levels': ['high', 'xhigh', 'max'], 'recommended': 'xhigh',
-                    'redaction': True},
+    'claude:opus': {'harness': 'claude', 'model': 'opus', 'levels': ['high', 'xhigh', 'max'], 'recommended': 'xhigh'},
     'codex:gpt': {'harness': 'codex', 'model': 'gpt', 'levels': ['low', 'high'], 'recommended': 'high'},
     'maso:gpt56_sol': {'harness': 'maso', 'model': 'gpt56_sol', 'levels': ['high', 'max'], 'recommended': '',
                        'presets': SOL, 'work_modes': ['focus', 'adaptive']},
@@ -203,7 +202,7 @@ class SwitchSelectionTests(unittest.TestCase):
     def test_the_topics_binding(self):
         self.check([
             ('the topic model and budget', {}, [],
-             {'key': 'codex:gpt', 'selected': 'codex:gpt', 'effort': 'low', 'usual': {}, 'redacting': False,
+             {'key': 'codex:gpt', 'selected': 'codex:gpt', 'effort': 'low', 'usual': {},
               'workspace': 'project', 'names': NAMES, 'first': 'codex:gpt'}),
             ('a MASO preset is its model with that budget', {'harness_id': 'maso', 'model': 'gpt56_sol_reasoning_high', 'effort': 'high'},
              [], {'key': 'maso:gpt56_sol', 'selected': 'maso:gpt56_sol', 'effort': 'high', 'first': 'maso:gpt56_sol'}),
@@ -217,24 +216,16 @@ class SwitchSelectionTests(unittest.TestCase):
               'first': 'dsh:flash'}),
         ])
 
-    def test_redaction_and_the_workspace(self):
+    def test_the_workspace_and_an_old_redaction_flag(self):
         self.check([
-            ('a redacting topic preselects a model that redacts', {'redaction': True}, used(('claude:opus', 'max', '')),
-             {'key': 'codex:gpt', 'selected': 'claude:opus', 'effort': 'max', 'redacting': True, 'first': 'codex:gpt'}),
-            ('a redacting topic on a redacting model keeps it', {'harness_id': 'claude', 'model': 'opus', 'effort': 'high',
-                                                                 'redaction': True}, [],
-             {'selected': 'claude:opus', 'effort': 'high', 'redacting': True}),
-            ('only True is redacting', {'redaction': 'yes'}, [], {'selected': 'codex:gpt', 'redacting': False}),
+            # 敏感词脱敏 is retired (T947): topic.json's ``redaction`` no longer narrows the models the card preselects.
+            ('an old redaction flag is ignored', {'redaction': True}, used(('claude:opus', 'max', '')),
+             {'key': 'codex:gpt', 'selected': 'codex:gpt', 'effort': 'low', 'first': 'codex:gpt'}),
             ('a workspace off the list comes first', {'workspace_name': 'gone'}, [],
              {'workspace': 'gone', 'names': ['gone', *NAMES]}),
             ('without a name the workdir', {'workspace_name': '', 'workdir': '/absolute/worktrees/t1'}, [],
              {'workspace': '/absolute/worktrees/t1', 'names': ['/absolute/worktrees/t1', *NAMES]}),
         ])
-
-    def test_a_redacting_topic_when_no_model_redacts_keeps_its_own(self):
-        choices = {key: {k: v for k, v in entry.items() if k != 'redaction'} for key, entry in CHOICES.items()}
-        got = switch_selection(choices, [], {'harness_id': 'codex', 'model': 'gpt', 'redaction': True}, [])
-        self.assertEqual((got.selected, got.effort, got.workspace, got.names), ('codex:gpt', 'high', '', ['']))
 
 
 if __name__ == '__main__':

@@ -58,9 +58,9 @@ class LaunchTests(LaunchCase):
             resolve_selection(self.ctx.state_dir, self.work, str(directory))
         card, event = self.form('form')
         selections = card_selects(card)
-        # A Claude model first: it offers 敏感词脱敏 too. Harness and provider above the model (2026-11-03).
+        # Harness and provider above the model (2026-11-03).
         # No 工作区 or 运行方式: a topic starts in the home (no device on, so no 执行设备 row either).
-        self.assertEqual([e['name'] for e in selections], ['harness', 'provider', 'model', 'effort', 'redaction'])
+        self.assertEqual([e['name'] for e in selections], ['harness', 'provider', 'model', 'effort'])
         # Each row's options open under it (no select since 2026-11-04); a Harness each.
         self.assertEqual(len(page_options(card, 'harness')), len(self.app.apps))
         self.assertNotIn('工作区', json.dumps(card, ensure_ascii=False))
@@ -710,7 +710,7 @@ class TopicOnlyTests(LaunchCase):
         self.assertEqual(len(choices), len(self.app.apps))
         # Option lines record their choice; only the form's buttons submit.
         self.assertEqual(set(actions(card)), {'bridge_launch_harness', 'bridge_launch_provider', 'bridge_launch_model',
-                                              'bridge_launch_budget', 'bridge_launch_redaction'})
+                                              'bridge_launch_budget'})
         job = self.start('started')
         running = build_stream_card('progress', 'task', self.app.apps['codex'].cards.stream, job=job, include_stop_action=True)
         self.assertLessEqual(set(actions(running)), {'bridge_job_stop', 'bridge_steer', 'bridge_fork', 'bridge_switch_open'})

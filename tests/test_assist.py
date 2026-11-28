@@ -101,8 +101,7 @@ class Case(unittest.TestCase):
         if feature == assist.TRACK:
             return assist.judge(self.message(), topics=topics, log=self.logs.append)
         try:
-            return assist.ask(feature, "系统", "{}", topics=topics, limit=5, cwd=self.state / "judge", manual=manual,
-                              redacted=False)
+            return assist.ask(feature, "系统", "{}", topics=topics, limit=5, cwd=self.state / "judge", manual=manual)
         except Failed as exc:
             return exc
 
@@ -463,30 +462,6 @@ class ClaudeEnvelopeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class RedactedTest(Case):
-    """WAVE12 W2-D 包 D: a question that carries a redacting topic's words never goes, and every caller says whether it does."""
-
-    def test_a_redacted_question_is_refused_before_anything_starts(self):
-        topics = self.topics()
-        self.setting(SETTINGS["auto"])
-        for value in (True, None, 1):
-            with self.subTest(redacted=value):
-                with self.assertRaises(Failed) as caught:
-                    assist.ask(assist.TIDY, "系统", "{}", topics=topics, limit=5, cwd=self.state, redacted=value,
-                               log=self.logs.append)
-                self.assertEqual((caught.exception.reason, caught.exception.via), ("redacted", ""))
-        self.assertEqual(self.spawns.calls, [])
-        self.assertFalse(records.path(self.state).exists())  # Nothing kept: no call was made.
-        self.assertIn("assist refused feature=tidy reason=redacted", self.logs)
-        self.assertEqual(records.words("redacted"), "开了脱敏，内容不外发")
-        self.assertEqual(records.kind_of("redacted"), "not_asked")
-
-    def test_redacted_is_a_keyword_every_call_must_give(self):
-        with self.assertRaises(TypeError):
-            assist.ask(assist.TIDY, "系统", "{}", topics=self.topics(), limit=5, cwd=self.state)  # noqa - the point
-        self.assertEqual(self.spawns.calls, [])
 
 
 class LaneTest(Case):

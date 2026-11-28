@@ -2,8 +2,7 @@
 
 Harness, then provider, then model, each a short select whose choice redraws the card with the next
 one's options; the model's budget and, where it has them,
-its work mode; 敏感词脱敏 where the model can redact, and while it
-is on only such models. Each select records its choice and redraws the card; 确认更换 applies them together.
+its work mode. Each select records its choice and redraws the card; 确认更换 applies them together.
 
 The look: the topic's current choice in one grey line, then the settings
 list (cards/launch_config.py setting_row), a row whose choice differs from the topic's with its label blue
@@ -17,8 +16,8 @@ rows, names the project in its subtitle and says what the lead's next turn gets 
 """
 from __future__ import annotations
 
-from covey.cards.elements import callback_button, fold, grey, md, note, panel_header, plain, row, styled_panel
-from covey.cards.launch_config import (cut_rows, fitted, model_count, model_settings, redaction_setting, run_mode_setting,
+from covey.cards.elements import callback_button, fold, grey, md, note, panel_header, row, styled_panel
+from covey.cards.launch_config import (cut_rows, fitted, model_count, model_settings, run_mode_setting,
                                        setting_row, settings_block, workspace_setting)
 from covey.core.menu_choice import harness_of
 from covey.core.defaults import work_mode_tag
@@ -32,14 +31,13 @@ BUDGET = "bridge_switch_budget"
 WORK_MODE = "bridge_switch_work_mode"
 WORKSPACE = "bridge_switch_workspace"
 RUN_MODE = "bridge_switch_run_mode"
-REDACTION = "bridge_switch_redaction"
 CONFIRM = "bridge_switch_confirm"
 CANCEL = "bridge_switch_cancel"
 PAGE = "bridge_switch_page"  # A row's tap on a card sent with options pages (84caa8a): that row drawn open.
 # What a switch does, as its card says it: the handoff's details (the transcript file, HANDOFF_ROUNDS
 # rounds in plain text, app/switch_handoff.py) are the model's to know, not the card's.
 SWITCH_NOTE = ("换 Harness、模型或预算会开新会话，上下文不断：新会话拿到交接摘要和最近的问答，完整记录放在文件里，"
-               "需要时自己去读；交接了什么写在下一张任务卡上。旧会话没答的问题会取消。只改敏感词脱敏时会话不变。")
+               "需要时自己去读；交接了什么写在下一张任务卡上。旧会话没答的问题会取消。")
 SWITCH_GIST = "换了以后：开新会话接着做，上下文不断"  # SWITCH_NOTE's one line under the buttons, which opens on it.
 # A lead's card (``lead``): what the switch does to the lead, and its one line.
 LEAD_NOTE = ("换 Harness、模型或预算后，负责人下一轮开新会话：重新读一遍专项的状态（目标、话题、回执、记忆），最近几轮对话一起带上；"
@@ -50,25 +48,15 @@ NOTE_ID = "switch_note"
 HANDOFF_ID = "switch_handoff"  # The 交接 block of the first task card after a switch (``handoff_block``).
 HANDOFF_SUMMARY_CHARS = 6000  # Of the old model's summary the block opens on; its file keeps it whole.
 UNCHANGED = "先改一项再点确认更换"
-# A model that cannot redact, chosen on a redacting topic, turns 脱敏 off on the card (else
-# only Claude is listed, and the reason sits in small print at the bottom).
-AUTO_OFF_NOTE = "所选模型不能脱敏：确认更换后本话题关闭敏感词脱敏，之后各轮把原文发给模型服务。再选回 Claude 会重新打开。"
 # The subtitle's second half on a card at the private chat's top level (``top_level``, opened from a relay card there,
 # app/harness_switch.py): a top-level message is the butler's, a reply to this card the topic's.
 TOP_SUBTITLE = "确认后回复这张卡接着做"
-OFF_TITLE = "关闭敏感词脱敏？"
-OFF_TEXT = "关闭后，之后各轮会把原文发给模型服务；之前各轮不受影响。"
 
 
 def offered(form):
     """The models the card offers: all of them, each naming its Harness (a record from before the Harness select: its
-    route key's). One that cannot redact turns a chosen 脱敏 off (app/harness_switch.py, AUTO_OFF_NOTE); older
-    releases offered a redacting topic only those that redact."""
+    route key's)."""
     return {key: {"harness": key.partition(":")[0], **entry} for key, entry in form["models"].items()}
-
-
-def choice_redacts(form):
-    return bool(form["models"].get(form.get("selected_model"), {}).get("redaction"))
 
 
 def place(workspace, run_mode):
@@ -79,13 +67,12 @@ def current_line(form):
     current = form["current"]
     mode = work_mode_tag(current.get("work_mode"))
     return (f"当前：{current['label']} · 思考预算 {current.get('effort') or '模型默认'}" + (f" · {mode}" if mode else "")
-            + ("\n" if form.get("no_place") else
-               f"\n工作区 {place(current.get('workspace') or form.get('workspace') or '', current.get('run_mode') or 'direct')} · ")
-            + f"敏感词脱敏{'开' if current.get('redaction') else '关'}")
+            + ("" if form.get("no_place") else
+               f"\n工作区 {place(current.get('workspace') or form.get('workspace') or '', current.get('run_mode') or 'direct')}"))
 
 
 def changes(form):
-    """The settings-list labels whose choice differs from the topic's binding, place and redaction."""
+    """The settings-list labels whose choice differs from the topic's binding or place."""
     current, models = form["current"], form["models"]
     now, was = models.get(form.get("selected_model"), {}), models.get(current.get("key"), {})
     harness_now, harness_was = harness_of(form.get("selected_model") or "", now), harness_of(current.get("key") or "", was)
@@ -95,7 +82,6 @@ def changes(form):
         "模型": form.get("selected_model") != current.get("key"),
         "思考预算": form.get("selected_effort") != current.get("budget"),
         "工作模式": (form.get("selected_work_mode") or "") != (current.get("work_mode") or ""),
-        "脱敏": (form.get("selected_redaction") == "on") != bool(current.get("redaction")),
         # A card drawn since the home start has neither row (``no_place``): nothing of the place can differ.
         "工作区": not form.get("no_place") and form.get("selected_workspace") != current.get("workspace"),
         "运行方式": not form.get("no_place") and form.get("selected_run_mode") != current.get("run_mode"),
@@ -104,7 +90,7 @@ def changes(form):
 
 
 def unchanged(form):
-    """Nothing chosen differs from the topic's binding, place and redaction."""
+    """Nothing chosen differs from the topic's binding and place."""
     return not (changes(form) - {"Harness", "供应商"})  # Those two change with the model.
 
 
@@ -113,15 +99,12 @@ def switch_settings(form, limit=None):
     topic's own among them all the same."""
     model = form["selected_model"]
     choices = offered(form)
-    choice = form["models"].get(model, {})
     settings = []
     if choices and model in choices:
         settings += model_settings(choices, model, kinds=(HARNESS, PROVIDER, MODEL, BUDGET, WORK_MODE),
                                    revision=form["config_revision"], effort=form.get("selected_effort", ""),
                                    work_mode=form.get("selected_work_mode", ""), limit=limit,
                                    keep=(form["current"].get("key") or "",))
-    if choice.get("redaction"):
-        settings.append(redaction_setting("redaction", REDACTION, form.get("selected_redaction") or "off"))
     # compat(ecb0458): a record from before the workspace select names only the topic's workspace; retire when no
     # switch-forms record lacks selected_workspace (compat_report: switch-form-fields)
     workspace = form.get("selected_workspace") or form.get("workspace") or ""
@@ -159,8 +142,6 @@ def switch_card(form, settings, total):
     elements.append(settings_block(cut_rows(settings, [setting_row(setting, token=token, open_key=form.get("page") or "",
                                                                    changed=setting.label in changed, stamp=stamp)
                                                        for setting in settings], total)))
-    if form["current"].get("redaction") and form.get("selected_redaction") == "off" and not choice_redacts(form):
-        elements.append(note(AUTO_OFF_NOTE))
     if form.get("active_task"):
         elements.append(note(LEAD_BUSY if lead else "任务还在排队或执行时不能更换：先在任务卡上停止，停止完成后再确认。"))
     if form.get("notice"):
@@ -171,8 +152,6 @@ def switch_card(form, settings, total):
     # a click on an older card is still refused with UNCHANGED (app/binding.py).
     confirm = callback_button("确认更换", {"kind": CONFIRM, "token": token}, style="primary_filled", width="fill",
                               disabled=True if unchanged(form) else None)
-    if form["current"].get("redaction") and form.get("selected_redaction") == "off":
-        confirm["confirm"] = {"title": plain(OFF_TITLE), "text": plain(OFF_TEXT)}
     elements.append(row((confirm, 1), (callback_button("取消", {"kind": CANCEL, "token": token}, style="default",
                                                        width="fill"), 1)))
     # What a switch does, one grey line under the buttons that opens on it: its four lines sat between the choices and
@@ -180,7 +159,7 @@ def switch_card(form, settings, total):
     elements.append(fold(NOTE_ID, md(grey(LEAD_GIST if lead else SWITCH_GIST), size="notation"),
                          [md(LEAD_NOTE if lead else SWITCH_NOTE, size="notation")],
                          title_padding="0px 0px 0px 0px", icon_position="follow_text", spacing="4px"))
-    return styled_panel(panel_header("switch", "换配置", subtitle), elements, "换配置 · Harness、模型、预算、脱敏")
+    return styled_panel(panel_header("switch", "换配置", subtitle), elements, "换配置 · Harness、模型、预算")
 
 
 def handoff_block(before, after, *, summary="", rounds=0, kept=0, state="done", why=""):

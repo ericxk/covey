@@ -498,7 +498,6 @@
       "model": "demo-model",
       "effort": "high",
       "work_mode": "",
-      "redaction": "off",
       "repos": [
         {
           "name": "demo-repo",
@@ -514,7 +513,6 @@
       "model": "demo-model",
       "effort": "medium",
       "work_mode": "",
-      "redaction": "on",
       "repos": [
         {
           "name": "demo-repo",

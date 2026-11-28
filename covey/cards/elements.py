@@ -36,12 +36,12 @@ def panel_card(elements, summary, *, spacing=""):
     return card(elements, summary, default_width=True, padding="12px", spacing=spacing)
 
 
-# The bot menu's panels (用量, 工作区, 代答, 脱敏, 群聊): a white title bar with the
+# The bot menu's panels (用量, 工作区, 代答, 群聊): a white title bar with the
 # panel's blue line icon, a grey subtitle and up to three state tags; grey tiles for the figures; rows of
 # a line and text buttons as wide as their labels; small grey print last. Icons are Feishu's standard
 # icon tokens (open.feishu.cn 卡片图标库).
 PANEL_ICONS = {"usage": "insert-chart_outlined", "workspaces": "folder_outlined", "proxy": "chat_outlined",
-               "redaction": "safe_outlined", "groups": "group_outlined",
+               "groups": "group_outlined",
                # The launch card, the cards it becomes and the directory browser shown in its place.
                "launch": "start_outlined", "submitted": "yes_outlined", "preparing": "waiting_outlined",
                "directory": "folder_outlined",
@@ -212,12 +212,6 @@ def row(*cells, flex="stretch", align=None):
         columns.append(column)
     return {"tag": "column_set", **({"flex_mode": flex, "horizontal_spacing": "8px"} if flex else {}),
             "columns": columns}
-
-
-def redaction_tags(redaction):
-    """The 敏感词脱敏 tag of a title bar (panel_header's ``tags``): 开 or 关 for a topic whose model can redact
-    (``redaction`` True or False), none for another (None). With only 开 shown, an unshown 关 read as not knowing."""
-    return [("敏感词脱敏：开", "green")] if redaction is True else [("敏感词脱敏：关", "neutral")] if redaction is False else []
 
 
 # Folds: a collapsible_panel the client opens and closes itself, keeping it open or closed across a redraw of the

@@ -37,7 +37,6 @@ DEFAULT_SANDBOX = "danger-full-access"
 DEFAULT_CODEX_CMD = "codex"
 DEFAULT_CODEX_TIMEOUT = 0
 # A 交接摘要 not asked for: the old model would read the old session again without the term relay.
-NOT_REDACTED = "本话题开着敏感词脱敏，Codex 没法脱敏，没有发送"
 
 
 CODEX_SPEC = HarnessSpec(
@@ -174,14 +173,11 @@ class CodexBackend(BackendRuntime):
                 return run_appserver(dataclasses.replace(request, context=ctx), env)
         return run_appserver(request, env)
 
-    def handoff_summary(self, ctx, session_id, prompt, *, redact, cancel=None, run_id=""):
+    def handoff_summary(self, ctx, session_id, prompt, *, cancel=None, run_id=""):
         """(text, outcome) of a handoff summary on an ephemeral fork of ``session_id`` (backends/codex/handoff.py), for
-        the first run after 🔁 换配置 away from this thread (app/switch_handoff.py). ``redact``: the topic has 敏感词脱敏
-        on, or its old turns went through the term relay; Codex cannot redact, so nothing is sent then. A gateway
-        model's summary goes through a relay of its own, as a turn does. ``run_id``: unused (no relay counts here)."""
+        the first run after 🔁 换配置 away from this thread (app/switch_handoff.py). A gateway model's summary goes
+        through a relay of its own, as a turn does. ``run_id``: unused."""
         from covey.backends.codex.handoff import HandoffHome, summarize
-        if redact:
-            return "", NOT_REDACTED
         if device_of(ctx):
             return "", "原会话在设备上"
         if retired_provider(ctx.model):

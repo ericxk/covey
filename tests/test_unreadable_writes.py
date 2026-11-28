@@ -69,7 +69,7 @@ class Case(unittest.TestCase):
 
 
 class SettingsTest(Case):
-    """main-thread.json (core/butler_settings.py): all six writes."""
+    """main-thread.json (core/butler_settings.py): all its writes."""
 
     def setUp(self):
         super().setUp()
@@ -79,7 +79,6 @@ class SettingsTest(Case):
     def writes(self):
         return {"update": lambda: butler_settings.update(self.state, subagents="off"),
                 "save": lambda: butler_settings.save(self.state, butler_settings.Settings()),
-                "merge_topic_defaults": lambda: butler_settings.merge_topic_defaults(self.state, redaction=True),
                 "preset_harness": lambda: butler_settings.preset_harness(self.state, "agy"),
                 "settle_mode": lambda: butler_settings.settle_mode(self.state)}
 

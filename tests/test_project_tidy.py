@@ -925,7 +925,7 @@ class WhyUnreadTest(UpCase):
         self.assertEqual(sorter.why_failed(Failed("exit_nonzero", "code=1 Prompt is too long")), "too_long")
         self.assertEqual(sorter.why_failed(Failed("exit_nonzero", "code=1 boom")), "exit_nonzero")
         self.assertEqual(sorter.why_failed(Failed("timeout")), "timeout")
-        for reason in ("refused", "policy_refusal", "too_long", "exit_nonzero", "timeout", "model_error", "empty", "redacted"):
+        for reason in ("refused", "policy_refusal", "too_long", "exit_nonzero", "timeout", "model_error", "empty"):
             self.assertIn(reason, tidy_run.UNREADABLE_WORDS)
 
 

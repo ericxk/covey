@@ -21,7 +21,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from support.cards import (TOPIC, redaction_facts, remember_browse_card, sample_job, split_panel,
+from support.cards import (TOPIC, remember_browse_card, sample_job, split_panel,
                            stream_runtime, trace_panel)
 from covey.core import extensions
 from support.clock import FakeClock
@@ -55,8 +55,6 @@ from covey.cards.directory import directory_card
 from covey.cards.workspace_manager import manager_card
 from covey.cards.launch_receipt import build_preparing_card, build_receipt_card
 from covey.cards.proxy_panel import expired_card, proxy_panel_card
-from covey.cards.redaction_panel import redaction_card
-from covey.cards.settings_hub import LABELS, tab_row
 from covey.cards.proxy_resend import resend_card
 from covey.cards.question_cards import question_card, question_element, question_feedback_card
 from covey.cards.steer_receipts import receipt_card
@@ -113,7 +111,7 @@ def sample_cards(work=None):
 
     work = work or Path(tempfile.gettempdir())
     run = stream_runtime()
-    # A record from before the Harness, provider, workspace and 敏感词脱敏 selects still draws.
+    # A record from before the Harness, provider and workspace selects still draws.
     old_switch_form = {"token": "b" * 24, "topic": "T70", "workspace": "project",
                        "current": {"label": "Codex · GPT-6-Astra", "effort": "xhigh"},
                        "selected_model": "codex:gpt-6-astra", "selected_effort": "xhigh",
@@ -125,16 +123,16 @@ def sample_cards(work=None):
     route = {"codex:gpt-6-astra": {"harness": "codex", "title": "Codex", "provider": "openai",
                                    "provider_title": "Codex 自带", "display_name": "GPT-6-Astra"},
              "claude:opus": {"harness": "claude", "title": "Claude", "provider": "anthropic",
-                             "provider_title": "Claude 自带", "display_name": "Opus 5.5", "redaction": True,
+                             "provider_title": "Claude 自带", "display_name": "Opus 5.5",
                              "label": "Claude · Opus 5.5", "levels": ["high", "xhigh", "max"]},
              "dsh:ali-deepseek-v4.1-flash": {"harness": "dsh", "title": "DeepSeek Harness", "provider": "acme",
                                              "provider_title": "Acme", "display_name": "DeepSeek V4.1 Flash"}}
     switch_form = {**old_switch_form, "models": {key: {**old_switch_form["models"].get(key, {}), **entry}
                                                  for key, entry in route.items()},
                    "current": {"label": "Codex · GPT-6-Astra", "effort": "xhigh", "key": "codex:gpt-6-astra",
-                               "budget": "xhigh", "workspace": "project", "run_mode": "worktree", "redaction": False},
+                               "budget": "xhigh", "workspace": "project", "run_mode": "worktree"},
                    "workspaces": ["project", "DataLab", "demo-app"], "selected_workspace": "project",
-                   "selected_run_mode": "worktree", "selected_redaction": "off"}
+                   "selected_run_mode": "worktree"}
     rewind_form = {"token": "c" * 24, "topic": "T70", "job_id": 12, "user_text": "把 a.py 里的重试改成指数退避",
                    "workdir": str(work), "point": {"keep": "k", "checkpoint": True, "file_count": 2, "files": [
                        (str(work / "a.py"), "restore"), (str(work / "notes.md"), "delete")]}}
@@ -153,9 +151,6 @@ def sample_cards(work=None):
         "task_plain": build_stream_card("正在处理", "任务", run, job=sample_job()),
         "switch_card": build_switch_card(switch_form),
         "switch_card_old": build_switch_card(old_switch_form),
-        "switch_card_redacting": build_switch_card({**switch_form, "selected_model": "claude:opus",
-                                                    "selected_redaction": "off",
-                                                    "current": {**switch_form["current"], "redaction": True}}),
         "switch_card_refused": build_switch_card({**switch_form,
                                                   "notice": "**⚠️ 还没有换（20:08）**：本话题还有任务在排队或执行"}),
         "switch_closed": notice_card("**🔁 已换配置**", "已换配置"),
@@ -219,12 +214,6 @@ def sample_cards(work=None):
                  "source": {"chat_id": "oc_s", "name": "项目群"}} for i in range(5)],
             batches=[], choices=switch_form["models"], current=("codex:gpt-6-astra", "xhigh"), busy="⏳ 正在查找…"),
         "proxy_panel_expired": expired_card(),
-        "redaction_panel": redaction_card(
-            "f" * 24, {"revision": 2, "page": "records", "notice": "已删除「机··（4 字）」。", "undo": True, "at": 1,
-                       "edit": "b" * 12, "probing": 1.0, "open": ["try", "upstream"], "preview": {"redacted": "x", "count": 1, "terms": 1,
-                                                                   "restore": True, "same": False}},
-            redaction_facts(rows=20, upstream="https://gw.example.com"),
-            top=[tab_row("redaction", "f" * 24, list(LABELS))]),
         **{f"proxy_resend_{state}": resend_card({"state": state, "notice": "⚠️ 没有重新发送：代答已关闭。"}, {
             "id": "0" * 32, "reply": "收到 哥\n**这两条** 挺到位的", "reason": "网页端未登录", "messages": []}, "赵六")
            for state in ("failed", "again", "resending", "sent", "uncertain", "void", "dropped")},

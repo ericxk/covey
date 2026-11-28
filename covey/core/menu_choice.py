@@ -254,18 +254,11 @@ def model_provider(harness, model, choices):
     return next(iter(providers)) if len(providers) == 1 else ''
 
 
-def redacts(choices, harness):
-    """Whether a model of ``harness`` offers 敏感词脱敏 (app/launch_models.py: a Harness that can redact)."""
-    return any(entry.get('redaction') for key, entry in choices.items() if harness_of(key, entry) == harness)
-
-
-def butler_harnesses(choices, *, redacting=False):
+def butler_harnesses(choices):
     """{name: title} of the Harnesses on the menu that can run the butler (their entries say ``bridge_tools``,
-    app/launch_models.py), in menu order; with ``redacting``, only those that can redact too (the butler's 脱敏 is on:
-    a Harness without it is not offered until 脱敏 is off)."""
+    app/launch_models.py), in menu order."""
     return {name: title for name, title in tiers(choices, '')[0].items()
-            if any(entry.get('bridge_tools') and (entry.get('redaction') or not redacting)
-                   for key, entry in choices.items() if harness_of(key, entry) == name)}
+            if any(entry.get('bridge_tools') for key, entry in choices.items() if harness_of(key, entry) == name)}
 
 
 def models_of(choices, harness, provider=None):

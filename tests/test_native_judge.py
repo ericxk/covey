@@ -678,9 +678,6 @@ class RoutingTest(unittest.TestCase):
         self.assertEqual(Path(backend.calls[-1]["cwd"]), Path("/absolute/state/track-judge"))
         self.assertTrue(lines[-1].startswith("track judge route=merge target=1") and lines[-1].endswith("via=codex"))
         self.assertNotIn(QUESTION, "\n".join(lines))
-        verdict = track_judge.judge(Message(QUESTION, live, Quote(), now=NOW), redacted=True, backend=backend, ctx=ctx,
-                                    log=lines.append, environ={})
-        self.assertEqual((verdict.route, verdict.why, len(backend.calls)), ("new", "redacted", 1))  # Nothing sent.
 
     def test_a_native_failure_is_new_with_its_reason(self):
         codex = self.app("codex", ask_once=True, answer=AskFailed("timeout"))

@@ -273,15 +273,12 @@ class ReceiverTest(Case):
                 reason = checks.helper_refusal(self.app.topics, self.state, "chat", who, other, owner_named=True)
             self.assertIn("还不能只读咨询", reason)
 
-    def test_redaction_on_one_side_only_and_another_project_unnamed_are_not_taken(self):
+    def test_another_project_unnamed_is_not_taken(self):
         from covey.app import collab_checks as checks
 
         helper, integrator = self.topic("om_h"), self.topic("om_i")
         who = checks.participant(self.state, "chat", integrator)
         data = load_topic(self.state, helper)
-        write_json(topic_file(self.state, helper), {**data, "redaction": True}, ensure_ascii=False)
-        self.assertEqual(checks.helper_refusal(self.app.topics, self.state, "chat", who, helper, owner_named=True),
-                         checks.REDACTION)
         write_json(topic_file(self.state, helper), {**data, "project": {"id": "p1p1p1", "role": projects.MEMBER}},
                    ensure_ascii=False)
         self.assertIn("跨专项", checks.helper_refusal(self.app.topics, self.state, "chat", who, helper, owner_named=False))

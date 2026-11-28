@@ -6,9 +6,7 @@ backend reads their transcripts (backends/claude/subagent_report.py, Claude only
 last text to ``TEXT_CHARS``, keeps ``INLINE`` of them for the prompt (the unfinished and failed first) and writes the
 rest, whole, to ``subagents.md`` in the dead job's run directory. The result is ``recovery_context["subagents"]``
 (``{"items", "more", "files"}``; core/checkpoint.py ``subagents_note`` words it) and is carried on when the next turn dies
-too. A topic with 敏感词脱敏 gets the block like its history and its last reply: all of it is in the prompt, which goes
-through the turn's redaction relay (backends/claude/redaction.py) as every request does. Every failure here is no block,
-never a refused retry.
+too. Every failure here is no block, never a refused retry.
 """
 from __future__ import annotations
 

@@ -7,7 +7,7 @@ on its own 🔁 换配置 card.
   Harness, as app/butler_model_choice.py ``resolve`` finds it with the topic's binding as its defaults) and ``basis``, the
   owner's words it is on (app/config_basis.py ``check``: a call on no words of the owner's is refused). Each topic is planned
   (``plan``): one it cannot switch (not found, the butler's or a lead's own, a topic of another project for a lead, the same
-  configuration already, a Harness that cannot redact for a topic that does, one its device does not declare) is a row that
+  configuration already, one its device does not declare) is a row that
   says why and is never switched. The record is written first (<state>/batch-switch/<token>.json, the request's token: the
   same request again sends nothing), then the card goes out; the tool answers at once and nothing is switched yet.
 - ``claim`` (app/unified.py PANELS): 确认更换, 取消 and 再试没换的, the owner's only, once per event; the switching runs after the
@@ -38,10 +38,8 @@ from covey.app.card_lanes import after_ack
 from covey.cards import batch_switch as cards
 from covey.core import butler, butler_settings, devices, projects
 from covey.core.butler_opened import request_token
-from covey.core.harness import backend_capabilities
 from covey.core.locks import resource_lock
 from covey.core.process import is_owned, process_identity
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.state import Unreadable, claim_once, keyed_json_path, read_for_write, read_object, write_json
 from covey.core.topics import topic_label, topic_title
 from covey.feishu.messenger import unsent_outcome
@@ -88,9 +86,7 @@ def current(app, topic) -> dict:
 
 
 def refusal(topic, name, app) -> str:
-    """Why ``topic`` cannot run on Harness ``name`` (``app``) at all, '' when it can: 敏感词脱敏 kept, its device's Harnesses."""
-    if topic.get(REDACTION_KEY) is True and not backend_capabilities(app.backend, app.harness.context).redaction:
-        return f"这个话题开着敏感词脱敏，{app.spec.title} 不能脱敏"
+    """Why ``topic`` cannot run on Harness ``name`` (``app``) at all, '' when it can: its device's Harnesses."""
     where = str(topic.get("workdir") or "")
     if devices.is_device_value(where):
         refused = devices.undeclared_refusal(where.split(":", 1)[0], name, app.spec.title)

@@ -1499,9 +1499,8 @@ class StrandedCheckpointQuestionTest(HeldFixture):
 class SourceTableTest(ToolsCase):
     """T908 M5: whether project_answer stands on a ground, source by source, before M5 and after it. ``grounds`` judges as it
     did (the style line, voided, done, only for that once, none of the owner's with an origin, another question's decision
-    alone: each refused as before); M5 only adds the two rows the plan names: a line the owner wrote on the web page's 记一条
-    is his (its origin the page's operation), and a ground from a topic with redaction on is left out of a topic that has it
-    off. ``BEFORE`` is the table as 8b6b9134 judged it (``scripts/test_map.py prove --base`` runs this test there: only those
+    alone: each refused as before); M5 only adds the row the plan names: a line the owner wrote on the web page's 记一条
+    is his (its origin the page's operation). ``BEFORE`` is the table as 8b6b9134 judged it (``scripts/test_map.py prove --base`` runs this test there: only those
     rows fail), ``AFTER`` as it judges now; the test checks both that the rows judge as ``AFTER`` says and that ``BEFORE`` and
     ``AFTER`` differ in those rows alone."""
 
@@ -1510,13 +1509,10 @@ class SourceTableTest(ToolsCase):
         "主人原话": ("ok", "owner"), "问题卡回答": ("ok", "owner"), "网页写的": ("not_owner", ""), "网页改负责人记的": ("not_owner", ""),
         "管家写的": ("ok", "owner"), "负责人记的": ("not_owner", ""), "无出处的旧行": ("not_owner", ""), "风格行": ("style", ""),
         "只限当次": ("once", ""), "已办完": ("history", ""), "已作废": ("void", ""), "答别的题": ("other", ""),
-        "脱敏条目答没开脱敏的话题": ("ok", "owner"), "脱敏话题里的原话答没开脱敏的话题": ("ok", "owner"),
-        "脱敏条目答开了脱敏的话题": ("ok", "owner"),
     }
-    AFTER = {**BEFORE, "网页写的": ("ok", "owner"), "脱敏条目答没开脱敏的话题": ("hidden", ""),
-             "脱敏话题里的原话答没开脱敏的话题": ("hidden", "")}
-    ALLOWED = {"网页写的": "网页写的变成主人级", "脱敏条目答没开脱敏的话题": "脱敏被过滤", "脱敏话题里的原话答没开脱敏的话题": "脱敏被过滤"}
-    REASONS = (("hidden", "来自开了脱敏的话题"), ("style", "汇报风格"), ("void", "已作废"), ("history", "进了历史记录"),
+    AFTER = {**BEFORE, "网页写的": ("ok", "owner")}
+    ALLOWED = {"网页写的": "网页写的变成主人级"}
+    REASONS = (("style", "汇报风格"), ("void", "已作废"), ("history", "进了历史记录"),
                ("once", "只限当次"), ("other", "另一道题"), ("not_owner", "不是主人说的"), ("missing", "不在这个专项的记忆里"))
 
     def setUp(self):
@@ -1530,9 +1526,6 @@ class SourceTableTest(ToolsCase):
         self.topic = self.tool("project_topic_start", request_id="m1", title="导出旧账单", prompt="把旧库账单导出", workspace="project",
                                readonly=True, why="脚本在这个仓库")["data"]["topic_id"]
         self.label = "T" + str(json.loads((self.state / "topics" / self.topic / "topic.json").read_text())["topic_number"])
-        self.secret = self.tool("project_topic_start", request_id="m2", title="开了脱敏的话题", prompt="看密钥轮换", workspace="project",
-                                readonly=True, why="同一个仓库")["data"]["topic_id"]
-        self.redact(self.secret, True)
         app = self.env.topics.target(self.state, self.topic, CHAT)[0]
         mock.patch.object(app.questions, "submit_answer", side_effect=self.landed).start()
         self.paths = []
@@ -1542,12 +1535,6 @@ class SourceTableTest(ToolsCase):
         mock.patch.object(flow, "ground_rows", side_effect=lambda state, project: {
             key: {**row, **({"question": self.asked[key]} if key in self.asked else {})}
             for key, row in rows_of(state, project).items()}).start()
-
-    def redact(self, topic, on):
-        path = self.state / "topics" / topic / "topic.json"
-        data = json.loads(path.read_text())
-        data["redaction"] = on
-        path.write_text(json.dumps(data, ensure_ascii=False))
 
     def landed(self, ctx, chat, token, fields, event_id, *, by=None):
         path = self.state / "questions" / (token + ".json")
@@ -1571,15 +1558,13 @@ class SourceTableTest(ToolsCase):
         return entry["id"]
 
     def sources(self) -> dict:
-        """source -> (the evidence project_answer is given, whether the answered topic has redaction on)."""
+        """source -> (the evidence project_answer is given)."""
         from covey.app import web_memory
         from covey.core import memory_gate
 
         state = self.state
         write_job(state, "om_said1", topic_id=LEAD, chat_id=CHAT, job_id=9, message_id="om_said1", status="done",
                   user_text="这一批都用旧版")
-        write_job(state, "om_secret1", topic_id=self.secret, chat_id=CHAT, job_id=10, message_id="om_secret1", status="done",
-                  user_text="这一批都用旧版（脱敏话题里说的）")
         def page(payload, op_id):  # As app/web_ops.py memory_edit calls it (8b6b9134's took no op_id: ``BEFORE``'s run).
             more = {"op_id": op_id} if "op_id" in inspect.signature(web_memory.edit_v43).parameters else {}
             return web_memory.edit_v43(state, {"v": 43, **payload}, token=web_memory.token_of(op_id), **more)
@@ -1603,15 +1588,11 @@ class SourceTableTest(ToolsCase):
         project_memory.delete(state, PID, voided)
         other = self.owner_answer("4" * 16, text="主人答：部署到哪个机房？→北京")
         self.asked[other] = "部署到哪个机房？"
-        hidden, _ = project_memory.add(state, PID, "旧版库的账号在密钥轮换话题里定了", "constraint", "owner", redacted=True,
-                                       origin={"message_id": "om_secret1"})
         return {
-            "主人原话": (["msg:om_said1"], False), "问题卡回答": ([self.owner_answer("5" * 16)], False),
-            "网页写的": ([web.code], False), "网页改负责人记的": ([edited.code], False), "管家写的": ([butler.code], False),
-            "负责人记的": ([lead_note["id"]], False), "无出处的旧行": ([unsourced["id"]], False), "风格行": ([style["id"]], False),
-            "只限当次": ([once], False), "已办完": ([done], False), "已作废": ([voided], False), "答别的题": ([other], False),
-            "脱敏条目答没开脱敏的话题": ([hidden["id"]], False), "脱敏话题里的原话答没开脱敏的话题": (["msg:om_secret1"], False),
-            "脱敏条目答开了脱敏的话题": ([hidden["id"]], True),
+            "主人原话": ["msg:om_said1"], "问题卡回答": [self.owner_answer("5" * 16)],
+            "网页写的": [web.code], "网页改负责人记的": [edited.code], "管家写的": [butler.code],
+            "负责人记的": [lead_note["id"]], "无出处的旧行": [unsourced["id"]], "风格行": [style["id"]],
+            "只限当次": [once], "已办完": [done], "已作废": [voided], "答别的题": [other],
         }
 
     def reason(self, text) -> str:
@@ -1619,8 +1600,7 @@ class SourceTableTest(ToolsCase):
 
     def judged(self) -> dict:
         table = {}
-        for n, (source, (evidence, redacted)) in enumerate(self.sources().items()):
-            self.redact(self.topic, redacted)
+        for n, (source, evidence) in enumerate(self.sources().items()):
             path = self.hold(n)
             answer = self.tool("project_answer", thread=self.label, answers={"0": "旧版"}, evidence=evidence)
             if answer["ok"]:
@@ -1635,13 +1615,12 @@ class SourceTableTest(ToolsCase):
     def test_each_source_judges_as_the_table_says(self):
         self.assertEqual(self.judged(), self.AFTER)
 
-    def test_before_and_after_differ_in_the_two_rows_the_plan_names_alone(self):
+    def test_before_and_after_differ_in_the_row_the_plan_names_alone(self):
         self.assertEqual(set(self.BEFORE), set(self.AFTER))
         differ = {source for source in self.BEFORE if self.BEFORE[source] != self.AFTER[source]}
         self.assertEqual(differ, set(self.ALLOWED))
-        self.assertEqual(set(self.ALLOWED.values()), {"网页写的变成主人级", "脱敏被过滤"})
+        self.assertEqual(set(self.ALLOWED.values()), {"网页写的变成主人级"})
         self.assertEqual(self.AFTER["网页写的"], ("ok", "owner"))  # The page's line: the owner's now,
-        self.assertTrue(all(self.AFTER[source][0] == "hidden" for source in self.ALLOWED if self.ALLOWED[source] == "脱敏被过滤"))
         # and every refusal stays a refusal: nothing judges looser than before but the page's line.
         loosened = {source for source in self.BEFORE if self.BEFORE[source][0] != "ok" and self.AFTER[source][0] == "ok"}
         self.assertEqual(loosened, {"网页写的"})
@@ -1649,9 +1628,8 @@ class SourceTableTest(ToolsCase):
     def test_the_note_of_an_answer_says_none_of_the_old_three_parts(self):
         sources = self.sources()
         for n, source in enumerate(("问题卡回答", "管家写的", "网页写的")):
-            self.redact(self.topic, False)
             self.hold(40 + n)
-            evidence = sources[source][0] + sources["负责人记的"][0]
+            evidence = sources[source] + sources["负责人记的"]
             answer = self.tool("project_answer", thread=self.label, answers={"0": "旧版"}, evidence=evidence)
             self.assertTrue(answer["ok"], (source, answer))
         rows = [row["text"] for row in self.reload()["triage"]]

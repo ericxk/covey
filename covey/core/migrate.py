@@ -15,20 +15,12 @@ it stopped. Nobody sees a change: the records keep what older releases read.
   an older release, registered by an empty file <state>/main-thread/desk/<topic_id>) is frozen: its topic.json gets
   ``retired: "desk"`` (core/topics.py RETIRED_DESK), every field it had kept, and nothing goes into it from then on
   (core/topics.py retired_topic). The registry stays as it is; no current release adds to it.
-- redaction-default: the 脱敏 tab's 新话题默认开 (<state>/redaction/config.json ``default_on``) and the 新话题 page's 脱敏
-  row (main-thread.json ``topic_defaults.redaction``) were two defaults in older releases, the launch card's and
-  the butler's topics'. One is left, the row: a ``default_on`` true sets it on, once. config.json keeps its value for
-  an older release.
 - project-joined: a project's record says when each member topic came in (``joined``, core/projects.py add_member).
   An older record has none: a member gets the start of its first task the 专项卡 counted (``token_jobs``:
   the tasks that ended once it was in). With none counted, no task of it has ended since it came in: it gets the time of the
   migration, unless ``token_jobs`` is full (its oldest keys dropped), then the project's ``created_at``. The web page's
   专项报告 counts a member's turns from then, as the 专项卡 does; without it the turns of members from before they came in
   were counted too.
-- redaction-stand-in: a term list's rows held a ``stand_in`` (<state>/redaction/config.json) in older releases: the
-  owner's own stand-in, an older version's, or "" for the automatic one. Every term goes out as its automatic stand-in now
-  (core/redaction.py): the list is written again without them (``anywhere`` stays), once. An older release reads a row
-  without one as automatic.
 - memory_v2 (docs/operations.md 记忆的存储与迁移, ``RECURRING``): the global memory an older release keeps (principles.json,
   knowledge/) taken into memory/global.json and 待审核 (core/memstore.py sync_legacy), and each changed project's lines given
   their codes. A lead's line puts nothing in 待审核 any more: what an earlier run kept a rule stays one (负责人记的). The first run
@@ -57,7 +49,7 @@ import shutil
 import time
 from pathlib import Path
 
-from covey.core import butler_settings, memstore, projects, redaction
+from covey.core import memstore, projects
 from covey.core.jobs import find_job_record, read_job_record
 from covey.core.locks import LOCK, resource_lock
 from covey.core.state import epoch_seconds, read_object, write_json
@@ -66,9 +58,7 @@ from covey.core.trace_store import has_trace, save_embedded
 MIGRATIONS = "migrations.json"
 EMBEDDED_TRACE = "embedded-trace"
 DESK_RETIRE = "desk-retire"
-REDACTION_DEFAULT = "redaction-default"
 PROJECT_JOINED = "project-joined"
-REDACTION_STAND_IN = "redaction-stand-in"
 HOME_V1 = "home_v1"
 REPOS_V1 = "repos_v1"
 MEMORY_V2 = "memory_v2"
@@ -203,25 +193,6 @@ def migrate(state_dir: Path, log=None, *, workdir=None) -> dict:
     return summary
 
 
-def _redaction_default_left(state_dir: Path) -> int:
-    """1 when config.json's ``default_on`` is on and the 新话题 page's 脱敏 is not, else 0."""
-    try:
-        return int(redaction.default_on(state_dir) and not butler_settings.load(state_dir).topic_defaults.redaction)
-    except Exception:  # noqa: BLE001 - unreadable: nothing to carry over
-        return 0
-
-
-def merge_redaction_default(state_dir: Path) -> tuple[int, list[str]]:
-    """The 新话题 page's 脱敏 on where ``default_on`` was: (files written, [] or the file it could not write)."""
-    if not _redaction_default_left(state_dir):
-        return 0, []
-    try:
-        butler_settings.merge_topic_defaults(state_dir, redaction=True)
-    except Exception:  # noqa: BLE001 - tried again at the next start
-        return 0, [butler_settings.FILE]
-    return 1, []
-
-
 def _unjoined(state_dir: Path) -> list:
     """[(project record, its member topics with no ``joined`` time)] of the projects that have such a member."""
     found = []
@@ -261,24 +232,6 @@ def stamp_joined(state_dir: Path) -> tuple[int, list[str]]:
         except Exception:  # noqa: BLE001 - tried again at the next start
             failed.append(str(record.get("id")))
     return written, failed
-
-
-def _stand_ins_left(state_dir: Path) -> int:
-    """1 when config.json's rows still hold a ``stand_in``, else 0 (none, or a list that cannot be read: a redacted turn
-    then fails as it would)."""
-    rows = read_object(redaction.config_path(state_dir)).get("terms")
-    return int(isinstance(rows, list) and any(isinstance(row, dict) and "stand_in" in row for row in rows))
-
-
-def drop_stand_ins(state_dir: Path) -> tuple[int, list[str]]:
-    """config.json written again without its rows' ``stand_in``: (files written, [] or the file it could not write)."""
-    if not _stand_ins_left(state_dir):
-        return 0, []
-    try:
-        redaction.update_config(state_dir, lambda config: None)
-    except Exception:  # noqa: BLE001 - tried again at the next start
-        return 0, ["redaction/config.json"]
-    return 1, []
 
 
 def _memory_left(state_dir: Path) -> int:
@@ -386,8 +339,7 @@ def repos_v1(state_dir: Path, *, workdir) -> tuple[int, list[str]]:
 # write; what it would still do: records, reading only). A new step is one more row: of STEPS when it needs the state
 # directory alone, of HOME_STEPS (its ``run`` given ``workdir=``) when it needs the home too.
 STEPS = {EMBEDDED_TRACE: (embedded_traces, _unwritten), DESK_RETIRE: (retire_desk_topics, _desk_left),
-         REDACTION_DEFAULT: (merge_redaction_default, _redaction_default_left), PROJECT_JOINED: (stamp_joined, _joined_left),
-         REDACTION_STAND_IN: (drop_stand_ins, _stand_ins_left), MEMORY_V2: (memory_v2, _memory_left)}
+         PROJECT_JOINED: (stamp_joined, _joined_left), MEMORY_V2: (memory_v2, _memory_left)}
 HOME_STEPS = {HOME_V1: (home_v1, _home_left), REPOS_V1: (repos_v1, _repos_left)}
 # Steps that run again whenever what they would do is not nothing (``still``), done or not: what an older release wrote
 # after a rollback is taken again.

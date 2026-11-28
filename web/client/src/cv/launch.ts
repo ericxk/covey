@@ -19,9 +19,9 @@ export function pickKind(options: SettingsOption[]): 'one' | 'sel' {
   return options.length <= 1 ? 'one' : 'sel';
 }
 
-/** 规则 3：换了模型，思考预算取新模型的 start_budget；工作模式取第一个（没有就空）；不能脱敏的模型脱敏视为 off */
+/** 规则 3：换了模型，思考预算取新模型的 start_budget；工作模式取第一个（没有就空） */
 export function withModel(m: LaunchModel, sel: Sel): Sel {
-  return { ...sel, model: m.key, effort: m.start_budget, work_mode: m.work_modes[0] ?? '', redaction: m.redaction ? sel.redaction : 'off' };
+  return { ...sel, model: m.key, effort: m.start_budget, work_mode: m.work_modes[0] ?? '' };
 }
 
 /** 选项 = models 里出现过的值，按出现顺序 */
@@ -76,7 +76,7 @@ export function pickWorkspace(d: LaunchData, sel: Sel, name: string): Sel {
 export const pickDevice = (d: LaunchData, sel: Sel, name: string): Sel => applyDevice(d, sel, name, withModel);
 export const onDevice = (d: LaunchData, sel: Sel): boolean => !!workspaceOf(d, sel.workspace)?.device;
 
-/** 一行标签：Harness · 模型 · 思考 <预算> · 工作区 · 运行方式 · 脱敏/不脱敏（有工作模式加一个） */
+/** 一行标签：Harness · 模型 · 思考 <预算> · 工作区 · 运行方式 （有工作模式加一个） */
 export function summaryTags(d: LaunchData, sel: Sel): string[] {
   const m: LaunchModel | undefined = modelOf(d, sel.model);
   const out: string[] = [m?.harness_title ?? sel.model, m?.label ?? sel.model];
@@ -90,7 +90,6 @@ export function summaryTags(d: LaunchData, sel: Sel): string[] {
   } else {
     out.push(sel.workspace ?? '', (d.run_modes ?? []).find((r: SettingsOption) => r.value === sel.run_mode)?.text ?? sel.run_mode ?? '');
   }
-  out.push(m?.redaction && sel.redaction === 'on' ? '脱敏' : '不脱敏');
   return out;
 }
 
@@ -125,7 +124,6 @@ export interface LaunchBox {
   setMode: (m: 'butler' | 'new') => void;
   setOpen: (v: boolean) => void;
   edit: (f: (d: LaunchData, s: Sel) => Sel) => void;
-  setRedaction: (v: 'on' | 'off') => void;
   phase: Phase;
   message: string;
   /** 发出；done 时调用 onDone（清输入框）；之后等话题出现在快照里再跳过去 */
@@ -208,7 +206,6 @@ export function useLaunchBox(): LaunchBox | null {
     },
     setOpen: (v: boolean) => put({ open: v }),
     edit,
-    setRedaction: (v: 'on' | 'off') => put({ touched: { ...sel, redaction: v } }),
     phase,
     message,
     send,

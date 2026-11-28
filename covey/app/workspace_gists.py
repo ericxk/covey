@@ -6,7 +6,7 @@ of a session do not change under it.
 
 Who reads what: only the owner's own turn (``owner_turn``) in an ordinary topic (not the butler's, which has its own
 snapshot; not a 代答 topic); only topics of the same chat (a group's topic never reads the private chat's, nor the other
-way); a topic with redaction on (or whose setting cannot be read) is read only by one with it on. A topic without a gist
+way). A topic without a gist
 is skipped (gists are written while 整理专项 is on, COVEY_PROJECT_TIDY). The topics are the ones with a job of the
 workspace within DAYS, newest first; each gist is cut to its essence and goal. Nothing is written; nothing raises into
 the turn.
@@ -27,7 +27,6 @@ from covey.core import topic_gist
 from covey.core.butler import is_butler_topic
 from covey.core.collab import is_channel
 from covey.core.jobs import select_job_records
-from covey.core.redaction import topic_redaction
 from covey.core.state import epoch_seconds
 from covey.core import projects
 from covey.core.text import cut
@@ -52,16 +51,9 @@ def count(environ=None) -> int:
     return int(raw) if raw.isdigit() and 1 <= int(raw) <= MAX else 0
 
 
-def _redacted(state_dir, topic_id) -> bool:
-    try:
-        return bool(topic_redaction(state_dir, topic_id))
-    except ValueError:
-        return True
-
-
-def recent(state_dir, chat, workspace, topic_id, limit, *, redacted=False, now=None, keep=None) -> list:
-    """[(topic, gist)] of the last ``limit`` other topics of ``workspace`` in ``chat`` that have a gist, newest first;
-    a redacting one only when ``redacted``. With ``keep`` (``keep(topic, record)``) ``workspace`` is not asked for: a
+def recent(state_dir, chat, workspace, topic_id, limit, *, now=None, keep=None) -> list:
+    """[(topic, gist)] of the last ``limit`` other topics of ``workspace`` in ``chat`` that have a gist, newest first.
+    With ``keep`` (``keep(topic, record)``) ``workspace`` is not asked for: a
     topic is read when ``keep`` says so."""
     now = time.time() if now is None else now
     since = now - DAYS * 86400
@@ -80,8 +72,6 @@ def recent(state_dir, chat, workspace, topic_id, limit, *, redacted=False, now=N
             continue
         seen.add(topic)
         if is_butler_topic(topic, chat) or is_channel(topic) or (keep is not None and not keep(topic, record)):
-            continue
-        if _redacted(state_dir, topic) and not redacted:
             continue
         gist = topic_gist.gist_of(topic_gist.read(state_dir, topic))
         if gist:
@@ -148,8 +138,7 @@ def block(ctx, job, *, owner_turn) -> str:
         name, keep = scope(ctx.state_dir, topic_id, ctx.workspace_name)
         if keep is False:
             return ""
-        found = recent(ctx.state_dir, chat, ctx.workspace_name, topic_id, limit,
-                       redacted=_redacted(ctx.state_dir, topic_id), keep=keep)
+        found = recent(ctx.state_dir, chat, ctx.workspace_name, topic_id, limit, keep=keep)
         return workspace_gists_block(name, lines(ctx.state_dir, found))
     except Exception:  # noqa: BLE001 - the turn goes on without it
         return ""

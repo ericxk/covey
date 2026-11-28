@@ -112,7 +112,6 @@ class HarnessCapabilities:
     command_stop: bool = False
     compaction: bool = False  # compacts a resumed session before the turn on ``compact_first`` (the butler's threshold)
     session_files: bool = False  # its session records are on this machine: subagent_report reads a turn's subagents
-    redaction: bool = False  # runs a topic that chose redaction through the term relay (core/redaction.py)
     # rewind_point/rewind_files(ctx, session_id, prompt_uuid), ``resume_at`` and the prompt_read event: drops a
     # session's last turn (↩️ 回退, app/rewind.py)
     rewind: bool = False
@@ -198,12 +197,12 @@ def backend_capabilities(backend, ctx):
 
 
 # What a Harness process on a device cannot do: each reads files of the hub (the session store, the request log, the
-# file snapshots) or runs the hub's relay, none of which exist there.
+# file snapshots), none of which exist there.
 # bridge_tools: the butler's tools are a process on this machine, its state directory too. collab: no device ran C8, and
 # its session store is the device's (app/collab_checks.py refuses a topic on a device). ask_once: its private home and
 # directory are this machine's. look_gate: the hook script, the write tool's server and the private home are this machine's.
-DEVICE_OFF = ("native_fork", "compaction", "session_files", "redaction", "rewind", "command_stop", "bridge_tools", "collab",
-              "ask_once", "look_gate")
+DEVICE_OFF = ("native_fork", "compaction", "session_files", "rewind", "command_stop", "bridge_tools", "collab", "ask_once",
+              "look_gate")
 
 
 def for_device(capabilities, ctx):

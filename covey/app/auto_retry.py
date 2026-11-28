@@ -319,17 +319,9 @@ OTHER_CODES = frozenset({"rate_limited", "quota_exhausted", "server_fault"})
 
 def other_harness(state_dir, record, topics) -> bool:
     """Whether ``record``'s failed task card offers 换个 Harness (cards/recovery.py OTHER_HARNESS, #36): it failed on a
-    limit (OTHER_CODES), it can be switched (``switch_route``), its topic does not redact (another Harness could not
-    take its terms) and another Harness is enabled (``topics.apps``). Which one, and whether it can take a task now,
+    limit (OTHER_CODES), it can be switched (``switch_route``) and another Harness is enabled (``topics.apps``). Which one, and whether it can take a task now,
     is decided on the click (app/harness_switch.py); nothing switches by itself."""
-    from covey.core.redaction import topic_redaction
-
     if not record or failure.failure_code(record) not in OTHER_CODES or not switch_route(record):
-        return False
-    try:
-        if topic_redaction(state_dir, record.get("topic_id")):
-            return False
-    except ValueError:
         return False
     return any(name != record.get("harness_id") for name in (getattr(topics, "apps", None) or {}))
 

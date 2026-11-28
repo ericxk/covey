@@ -210,11 +210,10 @@ class CardTest(unittest.TestCase):
 
     def test_a_limit_offers_another_harness_through_the_switch_card_never_by_itself(self):
         """#36: a rate limit or a used-up quota adds 换个 Harness after 换个模型, the same 换配置 click with ``other``;
-        only with another Harness enabled and a topic that does not redact."""
+        only with another Harness enabled; a topic that had 敏感词脱敏 on (taken out, T947) is offered it like any."""
         import tempfile
         from covey.cards.recovery import OTHER_LABEL
         from covey.cards.topic_actions import SWITCH_OPEN
-        from covey.core.redaction import TOPIC_KEY
         from covey.core.state import write_json
 
         with tempfile.TemporaryDirectory() as directory:
@@ -235,8 +234,8 @@ class CardTest(unittest.TestCase):
             self.assertFalse(auto_retry.other_harness(state, failed(failure_code="root_failed", harness_id="claude",
                                                                     binding_revision=3), both))
             self.assertFalse(auto_retry.other_harness(state, failed(failure_code="quota_exhausted"), both))  # No route.
-            write_json(state / "topics" / "topic" / "topic.json", {"topic_id": "topic", TOPIC_KEY: True})
-            self.assertFalse(auto_retry.other_harness(state, bound, both))  # A topic that redacts stays where it is.
+            write_json(state / "topics" / "topic" / "topic.json", {"topic_id": "topic", "redaction": True})
+            self.assertTrue(auto_retry.other_harness(state, bound, both))  # An older topic's ``redaction`` is not read.
 
     def test_the_body_of_a_failed_card_is_its_reason(self):
         from covey.app.turn_delivery import TurnDelivery

@@ -3,8 +3,7 @@ belong to one of the live tasks (``merge``) or is it a request of its own (``new
 
 ``judge`` asks once and always answers a ``Verdict``: anything that is not a clear, confident ``merge`` into one of
 the tasks it listed is ``new`` (a wrong merge costs the owner more than a wrong new track). It never retries and never
-raises. Reasons for ``new`` other than the model's own: the judge is ``off``, the topic redacts (the text must not reach
-the model: nothing is called), no task to choose from, the process did not start, ran past the hard limit
+raises. Reasons for ``new`` other than the model's own: the judge is ``off``, no task to choose from, the process did not start, ran past the hard limit
 (COVEY_TRACK_JUDGE_MS, default 6000; the whole process group is killed), exited with an error, or its answer was not
 one line of JSON, had a confidence below CONFIDENCE_MIN, or an index outside the list.
 
@@ -360,14 +359,14 @@ def parse(text: str, tasks: list[LiveJob]) -> Verdict:
 
 
 # Verdicts with no model asked: app/assist.py keeps no outcome of them.
-NOT_CALLED = frozenset({"redacted", "off", "bad_config", "no_tasks"})
+NOT_CALLED = frozenset({"off", "bad_config", "no_tasks"})
 
 
-def judge(message: Message, *, question: str = "", redacted: bool = False, backend=None, ctx=None,
+def judge(message: Message, *, question: str = "", backend=None, ctx=None,
           log: Callable[[str], None] = print, environ=None, follow: str = "", unrouted: str = "", model: str = MODEL,
           effort: str = "") -> Verdict:
     """The small model's verdict on ``message`` (core/track_route.Message, its ``live`` and ``quote.text`` are what the
-    model sees) given what the waiting task asks (``question``). ``redacted``: the topic redacts, nothing is sent.
+    model sees) given what the waiting task asks (``question``).
     ``backend`` and ``ctx``: the Harness app/assist.py chose (``claude`` channel only), ``follow`` the model of its setting
     (and its provider) for a native Harness, ``model`` Claude Code's, ``effort`` the budget; ``unrouted``: it chose none, and why (the verdict is ``new`` with that reason). Only app/assist.py calls it."""
     started = time.monotonic()
@@ -385,8 +384,6 @@ def judge(message: Message, *, question: str = "", redacted: bool = False, backe
         return verdict
 
     tasks = listed(message.live)
-    if redacted:
-        return done(Verdict("new", why="redacted"), "skipped")
     if via == "off":
         return done(Verdict("new", why="off"), "skipped")
     if via == "bad":

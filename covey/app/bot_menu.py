@@ -8,7 +8,7 @@ markers beside the messages' (card_routing.py INBOUND_DIR).
 
 The answer is a new message in the owner's private chat with the bot, keyed by the ``event_id``. That
 chat is the one Access saved from the owner's last direct message (``owner-chat.json``); before any,
-the one an older 代答 card or 脱敏 link went to; before those, one message sent to the owner's open_id
+the one an older 代答 card or 敏感词看板 link went to; before those, one message sent to the owner's open_id
 (FIRST_TEXT) opens it and its chat is saved. A click by an owner account of a space setting's (app/access.py
 ``owner_accounts``) answers in that account's own private chat (``Access.account_chat``), opened the same way when
 not known yet; the menu card of a personal group (app/group_menu.py) answers in that group (``run``).
@@ -44,7 +44,8 @@ PANELS = 'menu-panels.json'  # event_key -> the chat and message of the card it 
 GROUP_SLASH_KEYS = frozenset({'weekly_usage', 'digest_board', 'bridge_settings'})
 SLASH_MESSAGE_TYPES = frozenset({'', 'text', 'post'})
 MOVED_TEXT = '「{name}」已移到「设置」卡的「{tab}」页签：发 /设置 或点菜单的「设置」打开。'  # An older menu item cached by a client.
-MOVED_TAB = {'redaction_dashboard': '敏感词脱敏'}  # The tab's title where it is not the item's name (cards/settings_hub.py TITLES).
+# A stale item whose page went with its feature: 敏感词脱敏 was taken out (T947, docs/legacy.md).
+GONE_TEXT = {'redaction_dashboard': '敏感词脱敏已下线，菜单里的「脱敏」没有用了。'}
 
 
 def slash_key(event):
@@ -152,9 +153,9 @@ class BotMenu:
         self.said = {}  # chat_id -> when the owner's last top-level message there came (time.time()).
 
     def moved(self, key, ctx, chat_id, source, shown=None):
-        """The answer to a stale menu item (core/app_manifest.py STALE_MENU_KEYS): where its card went."""
+        """The answer to a stale menu item (core/app_manifest.py STALE_MENU_KEYS): where its card went, or that it went."""
         name = app_manifest.STALE_MENU_KEYS[key]
-        self.panels.messenger.send_text(ctx.profile, chat_id, MOVED_TEXT.format(name=name, tab=MOVED_TAB.get(key, name)),
+        self.panels.messenger.send_text(ctx.profile, chat_id, GONE_TEXT.get(key) or MOVED_TEXT.format(name=name, tab=name),
                                         'menu-moved-' + hashlib.sha256(source.encode()).hexdigest()[:24])
 
     def owner_said(self, chat_id):
@@ -264,6 +265,6 @@ class BotMenu:
 
 
 def known_chats(proxy_panel, ctx):
-    """The private chats an older 代答 card and 脱敏 link were sent to (each only opens there). The link's is in the record
-    the web dashboard kept (taken out), read while a state directory still has it."""
+    """The private chats an older 代答 card and 敏感词看板 link were sent to (each only opens there). The link's is in the
+    record the web dashboard kept (taken out, and 敏感词脱敏 with it), read while a state directory still has it."""
     return [proxy_panel.owner_chat(ctx), str(read_object(ctx.state_dir / 'redaction' / 'dashboard-entry.json').get('chat_id') or '')]

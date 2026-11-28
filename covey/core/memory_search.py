@@ -1,6 +1,6 @@
 """查记忆 (docs/butler.md 记忆): every entry of the memory store (core/memstore.py) looked up by its words, ranked the one way
 the turn's block, the tools and the command line all use: ``bin/covey_memory.py search --state <dir> --topic <id> [--owner]
-[--redacted] "<一句话>"``, ``show <短码|ref>`` (the whole entry; counted as the ``show`` signal of core/memory_rank.py) and
+"<一句话>"``, ``show <短码|ref>`` (the whole entry; counted as the ``show`` signal of core/memory_rank.py) and
 ``list``. Reading only, but for that signal.
 
 How the words are cut (``terms``): a run of Latin letters or digits is one word, kept whole when it holds a hyphen, a dot, a
@@ -15,9 +15,9 @@ the query has counts neither for nor against (no entry has it); ``sim`` is absol
 words in common, or one rare one). The order is core/memory_rank.py rank of ``sim`` times the scope's weight (SCOPE_WEIGHTS:
 the topic's own, its project's, 全局, another project's, one done or put away) with the entry's use (core/memory_usage.py
 counts). Decisions of the same question are listed once. Who reads what: a 代答 topic nothing; 全局 entries only on the owner's
-turn (``owner``); one from a topic with redaction on only with ``redacted``; 待审核 and void entries never. A turn's lookup
-(``turn_context``, and so the command's ``search``, ``show`` and ``list``) reads 代答 and redaction off the topic's own record,
-never off what the command line says (``--redacted`` is read past when ``--topic`` names a topic); ``show`` without
+turn (``owner``); 待审核 and void entries never. A turn's lookup
+(``turn_context``, and so the command's ``search``, ``show`` and ``list``) reads 代答 off the topic's own record,
+never off what the command line says; ``show`` without
 ``--owner`` reads only what ``search`` would (``_allowed``: the turn's own topic and project). Known limit (T908 M5): ``--owner``
 is still the command line's word, held to the owner's own turn by the turn's rules alone: a token of the Bridge's that proves
 it would be a new concept, not this release's.
@@ -320,13 +320,13 @@ def _allowed(entry, context) -> bool:
             entry.scope == "project" and bool(context["project"]) and entry.owner_key == context["project"])
         if not mine:
             return False
-    return not (entry.redacted and not context["redacted"])
+    return True
 
 
 def _context(context) -> dict:
     context = dict(context or {})
     return {"project": str(context.get("project") or ""), "topic": str(context.get("topic") or ""),
-            "owner": bool(context.get("owner", True)), "redacted": bool(context.get("redacted", False)),
+            "owner": bool(context.get("owner", True)),
             "kinds": tuple(context.get("kinds") or memstore.KINDS), "statuses": tuple(context.get("statuses") or SEARCHED),
             "tau": float(context["tau"]) if context.get("tau") is not None else DEFAULT_TAU,
             "proxy": bool(context.get("proxy", False)), "now": context.get("now")}
@@ -404,7 +404,7 @@ def _question_of(item) -> str:
 def eval_search(state_dir, query: str, context: dict | None = None, limit: int = 5) -> list[dict]:
     """The entries of ``state_dir`` that ``query`` finds, the best first, at most ``limit``: each {ref, code, kind, scope,
     owner_key, project, status, said, title, text, aliases, at, sim, score, weight, covered, shared}. ``context``: project
-    (the turn's project id), topic (its topic id), owner (default True: 全局 entries too), redacted, proxy (a 代答 topic:
+    (the turn's project id), topic (its topic id), owner (default True: 全局 entries too), proxy (a 代答 topic:
     nothing), kinds, statuses (default SEARCHED), tau (default DEFAULT_TAU)."""
     return rank_index(index(state_dir), query, context)[:max(1, int(limit))]
 
@@ -475,31 +475,17 @@ def _proxy(state_dir, topic_id) -> bool:
         return False
 
 
-def _redacted(state_dir, topic_id, given) -> bool:
-    """Whether a lookup reads the entries from topics with redaction on: with a topic, whether its own record says it chose
-    redaction (core/redaction.py topic_redaction; off when it cannot be read), whatever ``given`` (the command line's
-    ``--redacted``) says; ``given`` only for a lookup of no topic (a person at a terminal)."""
-    if not topic_id:
-        return bool(given)
-    from covey.core.redaction import topic_redaction
-
-    try:
-        return bool(topic_redaction(Path(state_dir), str(topic_id)))
-    except ValueError:
-        return False
-
-
-def turn_context(state_dir, topic_id="", *, owner=False, redacted=False) -> dict:
-    """The context of a lookup from a turn of ``topic_id``: its project, who may read what, its 代答 and its redaction read
-    off its own record (``_proxy``, ``_redacted``)."""
+def turn_context(state_dir, topic_id="", *, owner=False) -> dict:
+    """The context of a lookup from a turn of ``topic_id``: its project, who may read what, its 代答 read off its own record
+    (``_proxy``)."""
     return {"topic": str(topic_id or ""), "project": _topic_project(state_dir, topic_id), "owner": bool(owner),
-            "redacted": _redacted(state_dir, topic_id, redacted), "proxy": _proxy(state_dir, topic_id)}
+            "proxy": _proxy(state_dir, topic_id)}
 
 
-def search(state_dir, query, topic_id="", *, owner=False, redacted=False, workspace="", limit=LIMIT) -> list:
+def search(state_dir, query, topic_id="", *, owner=False, workspace="", limit=LIMIT) -> list:
     """The command's lookup: ``eval_search`` with the context of a turn of ``topic_id`` (``workspace`` is no longer a scope
     and is ignored)."""
-    return eval_search(state_dir, query, turn_context(state_dir, topic_id, owner=owner, redacted=redacted), limit)
+    return eval_search(state_dir, query, turn_context(state_dir, topic_id, owner=owner), limit)
 
 
 def where_of(item) -> str:
@@ -526,17 +512,17 @@ def render(rows, query) -> str:
     return "\n".join(line(row) for row in rows) + "\n看全文：covey_memory.py show <短码>"
 
 
-def show(state_dir, key, *, topic_id="", owner=False, redacted=False) -> dict | None:
+def show(state_dir, key, *, topic_id="", owner=False) -> dict | None:
     """The whole entry ``key`` (a short code, a ref or an old id) names, as the context may read it; counted as the
     ``show`` signal (core/memory_rank.py SIGNAL_WEIGHTS). None when none is, or the turn may not read it: a 代答 topic
-    nothing, one from a topic with redaction on only in such a topic (both off the topic's record, ``turn_context``), and
+    nothing (off the topic's record, ``turn_context``), and
     without ``owner`` only what the turn's ``search`` reads (``_allowed``: its own topic's and its project's, never 全局,
     another project's or another topic's; T908 M5)."""
     entry = memstore.find(state_dir, key)
     if entry is None or entry.status in ("void", "pending"):
         return None
-    context = _context({**turn_context(state_dir, topic_id, owner=owner, redacted=redacted), "statuses": SEARCHED})
-    if context["proxy"] or (entry.redacted and not context["redacted"]):
+    context = _context({**turn_context(state_dir, topic_id, owner=owner), "statuses": SEARCHED})
+    if context["proxy"]:
         return None
     if not owner and not _allowed(entry, context):
         return None
@@ -568,17 +554,17 @@ def show_text(found, key) -> str:
     return "\n".join(lines)
 
 
-def listing(state_dir, topic_id="", *, owner=False, redacted=False, limit=50) -> list:
+def listing(state_dir, topic_id="", *, owner=False, limit=50) -> list:
     """The active entries a turn of ``topic_id`` may read (全局 on the owner's, its project's, its own; every one with no
     topic), the rules first, then the decisions and the notes, the newest first in each."""
-    context = turn_context(state_dir, topic_id, owner=owner, redacted=redacted)
+    context = turn_context(state_dir, topic_id, owner=owner)
     if context["proxy"]:
         return []
     order = {kind: i for i, kind in enumerate(memstore.KINDS)}
     rows = []
     for doc in index(state_dir).docs:
         entry = doc.entry
-        if entry.status != "active" or (entry.scope == "global" and not owner) or (entry.redacted and not context["redacted"]):
+        if entry.status != "active" or (entry.scope == "global" and not owner):
             continue
         if topic_id and entry.scope != "global" and entry.owner_key != topic_id and doc.project != context["project"]:
             continue
@@ -595,7 +581,6 @@ def _common(parser, *, query=False):
     parser.add_argument("--state", required=True, help="这个部署的状态目录")
     parser.add_argument("--topic", default="", help="这一轮的话题 id")
     parser.add_argument("--owner", action="store_true", help="主人自己的一轮：带上全局的")
-    parser.add_argument("--redacted", action="store_true", help="开了脱敏的话题：带上来自脱敏话题的")
     parser.add_argument("--json", action="store_true", help="JSON 输出")
     if query:
         parser.add_argument("--workspace", default="", help="旧参数，已不按工作区分，忽略")
@@ -615,14 +600,14 @@ def main(argv=None) -> int:
     _common(every, query=True)
     args = parser.parse_args(argv)
     if args.command == "show":
-        found = show(args.state, args.key, topic_id=args.topic, owner=args.owner, redacted=args.redacted)
+        found = show(args.state, args.key, topic_id=args.topic, owner=args.owner)
         print(json.dumps(found, ensure_ascii=False) if args.json else show_text(found, args.key))
         return 0 if found is not None else 1
     if args.command == "list":
-        rows = listing(args.state, args.topic, owner=args.owner, redacted=args.redacted, limit=args.limit)
+        rows = listing(args.state, args.topic, owner=args.owner, limit=args.limit)
         print(json.dumps(rows, ensure_ascii=False) if args.json else ("\n".join(line(row) for row in rows) or "还没有记忆。"))
         return 0
-    rows = search(args.state, args.query, args.topic, owner=args.owner, redacted=args.redacted, workspace=args.workspace,
+    rows = search(args.state, args.query, args.topic, owner=args.owner, workspace=args.workspace,
                   limit=args.limit)
     print(json.dumps(rows, ensure_ascii=False) if args.json else render(rows, args.query))
     return 0

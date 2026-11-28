@@ -6,21 +6,21 @@ import * as S from '../client/src/cv/switchConfig.ts';
 const m = (key, extra = {}) => ({
   key, harness: key.split(':')[0], harness_title: key.split(':')[0], provider: '', provider_title: '自带', label: key,
   budgets: [{ value: 'high', text: '高' }, { value: 'low', text: '低' }], default_budget: 'high', start_budget: 'high',
-  redaction: true, work_modes: [], ...extra,
+  work_modes: [], ...extra,
 });
 const D = {
-  models: [m('claude:opus'), m('codex:gpt', { redaction: false, work_modes: ['auto', 'fast'], start_budget: 'low' })],
+  models: [m('claude:opus'), m('codex:gpt', { work_modes: ['auto', 'fast'], start_budget: 'low' })],
   workspaces: [{ name: 'covey', device: '', harnesses: [] }, { name: 'ws-root', device: '', harnesses: [] }],
   run_modes: [{ value: 'direct', text: '原目录' }, { value: 'worktree', text: '独立 worktree' }],
-  preselect: { model: 'claude:opus', effort: 'high', work_mode: '', redaction: 'off', workspace: 'covey', run_mode: 'direct' },
+  preselect: { model: 'claude:opus', effort: 'high', work_mode: '', workspace: 'covey', run_mode: 'direct' },
 };
-const C = { model: 'claude:opus', effort: 'high', work_mode: '', workspace: 'covey', run_mode: 'direct', redaction: 'on' };
+const C = { model: 'claude:opus', effort: 'high', work_mode: '', workspace: 'covey', run_mode: 'direct' };
 
 test('初值补成模型能选的', () => {
   assert.deepEqual(S.fromConfig(D, C), C);
   assert.equal(S.fromConfig(D, { ...C, effort: 'max' }).effort, 'high');
   const g = S.fromConfig(D, { ...C, model: 'codex:gpt', effort: 'zzz' });
-  assert.deepEqual([g.effort, g.work_mode, g.redaction], ['low', 'auto', 'off']);
+  assert.deepEqual([g.effort, g.work_mode], ['low', 'auto']);
   assert.equal(S.fromConfig(D, { ...C, model: 'gone:x' }).model, 'gone:x');
 });
 
@@ -46,7 +46,7 @@ test('换不了的情况', () => {
 // v36：专项负责人的换配置（同飞书专项卡上的「换配置」）：只列能当负责人的模型（bridge_tools），不查 worktree，在做时等它做完
 const L = {
   ...D,
-  models: [m('claude:opus', { bridge_tools: true }), m('codex:gpt', { redaction: false, bridge_tools: true }), m('pi:gpt')],
+  models: [m('claude:opus', { bridge_tools: true }), m('codex:gpt', { bridge_tools: true }), m('pi:gpt')],
 };
 
 test('负责人的目录只留能当负责人的模型', () => {

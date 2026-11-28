@@ -685,14 +685,15 @@ class BackupListTest(unittest.TestCase):
         from covey.core import backup
         with tempfile.TemporaryDirectory() as tmp:
             state = Path(tmp)
-            kept = ["principles.json", "main-thread.json", "redaction/config.json", "knowledge/owner.jsonl",
+            kept = ["principles.json", "main-thread.json", "knowledge/owner.jsonl",
                     "knowledge/workspaces/app.jsonl", "projects/abc123def456.json", "projects/abc123def456/memory.json",
                     "projects/abc123def456/library.json", "projects/tidy/state.json", "owner-chat.json",
                     "pinned-topics.json", "status-cards/x.json", "held-notes/y.json", "web/inbox.json", "digest.json",
                     "memory/global.json", "memory/review.json", "memory/log.jsonl", "memory/codes.json",
                     "projects/abc123def456/memory-v2.json", "projects/abc123def456/decisions.jsonl",
                     "topics/t1/memory-v2.json", "topics/t1/decisions.jsonl", "repos.json", "home.json"]
-            left = ["projects/abc123def456/library/f/report.pdf", "redaction/card-key", "redaction/turns.jsonl",
+            left = ["projects/abc123def456/library/f/report.pdf", "redaction/config.json", "redaction/card-key",
+                    "redaction/turns.jsonl", "claude-upstream.json",
                     "projects/.locks/abc123def456.lock", "tmp/x", "bridge.log", "repos.md", "memory/.locks/global.json.lock"]
             for name in kept + left:
                 (state / name).parent.mkdir(parents=True, exist_ok=True)

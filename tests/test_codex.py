@@ -928,7 +928,7 @@ class CodexHandoffSummaryTests(unittest.TestCase):
                 with handoff.HandoffHome(self.ctx.state_dir, dict(os.environ)) as env:
                     result = handoff.summarize(self.ctx, SID, "写交接摘要", env, **kwargs)
             else:
-                result = CodexBackend().handoff_summary(self.ctx, SID, "写交接摘要", redact=False, **kwargs)
+                result = CodexBackend().handoff_summary(self.ctx, SID, "写交接摘要", **kwargs)
         return result, rpc
 
     def test_the_summary_is_an_ephemeral_read_only_fork_with_no_tool(self):
@@ -1034,11 +1034,8 @@ class CodexHandoffSummaryTests(unittest.TestCase):
         self.assertLessEqual(SlowServer.timeouts[0][1], handoff.HANDSHAKE_SECONDS)
         self.assertTrue(slow.closed)
 
-    def test_a_redacted_topic_or_a_session_that_is_no_thread_sends_nothing(self):
+    def test_a_session_that_is_no_thread_sends_nothing(self):
         from covey.backends.codex import handoff
-        from covey.backends.codex.bridge import NOT_REDACTED
         with mock.patch.object(handoff, "AppServer") as server:
-            self.assertEqual(CodexBackend().handoff_summary(self.ctx, SID, "写", redact=True), ("", NOT_REDACTED))
-            self.assertEqual(CodexBackend().handoff_summary(self.ctx, "not-a-thread", "写", redact=False),
-                             ("", "原会话标识不对"))
+            self.assertEqual(CodexBackend().handoff_summary(self.ctx, "not-a-thread", "写"), ("", "原会话标识不对"))
         server.assert_not_called()

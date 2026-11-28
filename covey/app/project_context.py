@@ -19,7 +19,7 @@ COVEY_PROJECTS=1 and COVEY_PROJECT_MEMORY=1; with either off every function here
 - ``turn_to_library`` (app/project_loop.py after_runner, the Bridge once a topic's run has ended; rule 8: a task process writes
   nothing of the project's): the artifacts the turn's checkpoint lists and its delivery become index lines, by path or link only,
   nothing copied; ``result_to_library`` (the same, C7): a member turn's whole reply, kept in result-files/, one line by its
-  path, ``redacted`` when its topic has redaction on (only such a topic reads it then: ``block``).
+  path.
 
 Rule 1 (AGENTS.md): the records are written under their own lock; nothing is sent to Feishu. Nothing raises: a project's memory
 is never why a turn or an answer does not go through."""
@@ -37,7 +37,6 @@ from covey.core import memory as core_memory
 from covey.core import memory_usage, memstore, project_library, project_memory, projects, triage
 from covey.core.attachments import ATTACHMENTS_HEADER, parse_attachment_block
 from covey.core.checkpoint import DELIVERY_LABELS, checkpoint_delivery, read_checkpoint
-from covey.core.redaction import topic_redaction
 from covey.core.state import write_json
 from covey.core.text import cut
 from covey.core.topics import proxy_topic, topic_label
@@ -112,27 +111,16 @@ def decision_rows(state_dir, project_id, rows=None) -> list:
                 row.update(valid="superseded", superseded_by=entry.superseded_by.rsplit(":", 1)[-1])
             elif entry.status in DECISION_VALID:
                 row["valid"] = DECISION_VALID[entry.status]
-            if entry.redacted:
-                row["redacted"] = True
             out.append(row)
         return out
     except Exception:  # noqa: BLE001 - the memory's own lines are read all the same
         return []
 
 
-def marked(state_dir, topic_id) -> bool:
-    """Whether ``topic_id`` reads the lines from topics with redaction on: its own redaction is on (off when it cannot be read)."""
-    try:
-        return bool(topic_redaction(state_dir, topic_id))
-    except ValueError:
-        return False
-
-
-def memory_view(ctx, job, *, redacted=None):
+def memory_view(ctx, job):
     """The project's memory as ``job``'s turn in a member topic reads it (core/memory.py project_view of every entry), None when
     ``member_record`` has none: ``since`` the start of the topic's previous turn (core/board_read.py previous_start), so the lines
-    voided after it are said. ``redacted``: whether the topic reads the lines from topics with redaction on (None: its own
-    setting, ``marked``)."""
+    voided after it are said."""
     found = member_record(ctx, job)
     if found is None:
         return None
@@ -141,7 +129,7 @@ def memory_view(ctx, job, *, redacted=None):
     since = board_read.previous_start(ctx.state_dir, topic, getattr(job, "job_id", 0))
     rows = project_memory.entries(ctx.state_dir, record)
     return core_memory.project_view(rows + decision_rows(ctx.state_dir, pid, rows), pid,
-                                    redacted=marked(ctx.state_dir, topic) if redacted is None else redacted, since=since,
+                                    since=since,
                                     used=memory_usage.last_used(ctx.state_dir) if core_memory.learning() else None)
 
 
@@ -156,8 +144,7 @@ def block(ctx, job, *, resumed: bool) -> str:
         pid, record = found
         state = ctx.state_dir
         memory = [] if core_memory.enabled() else project_memory_lines(memory_view(ctx, job))
-        topic = getattr(job, "topic_id", "") or ctx.topic_id
-        library = [] if resumed else ["- " + line for line in project_library.index_lines(state, pid, redacted_reader=marked(state, topic))]
+        library = [] if resumed else ["- " + line for line in project_library.index_lines(state, pid)]
         return project_block(record.get("name"), memory, library, limit=None)
     except Exception:  # noqa: BLE001 - the turn goes on without it
         return ""
@@ -172,9 +159,7 @@ def library_block(ctx, job) -> str:
         if found is None:
             return ""
         pid, record = found
-        topic = getattr(job, "topic_id", "") or ctx.topic_id
-        library = ["- " + line for line in project_library.index_lines(ctx.state_dir, pid,
-                                                                        redacted_reader=marked(ctx.state_dir, topic))]
+        library = ["- " + line for line in project_library.index_lines(ctx.state_dir, pid)]
         return project_block(record.get("name"), [], library, limit=None) if library else ""
     except Exception:  # noqa: BLE001 - the turn goes on without it
         return ""
@@ -257,7 +242,6 @@ def remember_answer(state_dir, topic_id, record, log=None, *, owners=False, sett
             token = str(record.get("token") or "")
             if scope == "project":
                 elsewhere(state, owner, lines, log)
-            redacted = marked(state, topic_id)
             if scope == "project" and project_memory.TOKEN.fullmatch(token):
                 keep_record(state, owner, {**record, "topic_id": record.get("topic_id") or topic_id})
             for line in lines:
@@ -265,7 +249,7 @@ def remember_answer(state_dir, topic_id, record, log=None, *, owners=False, sett
                                       text=line["text"], question_ref=f"{token}-{line['index']}" if project_memory.TOKEN.fullmatch(token) else "",
                                       topic_key=str(topic_id or ""), chosen=line["answer"], category=question_dedup.category(line["asked"]),
                                       polarity=question_dedup.polarity(line["answer"]),
-                                      status="done" if line.get("valid") == "done" else "active", redacted=redacted,
+                                      status="done" if line.get("valid") == "done" else "active",
                                       origin={"topic_key": str(topic_id or ""), "item": line["item"], "index": line["index"],
                                               **({"job": str(record["job_key"])} if record.get("job_key") else {}), **came},
                                       who="owner")
@@ -353,26 +337,16 @@ def owner_files(state_dir, topic_id, chat_id, text, media, log=None) -> None:
             log(f"project library of a message failed: {type(exc).__name__}")
 
 
-def source_redacted(state_dir, topic_id) -> bool:
-    """Whether what ``topic_id`` wrote is for the topics with redaction on alone: its own redaction is on, or its setting
-    cannot be read (``marked`` is the reader's side, off then)."""
-    try:
-        return bool(topic_redaction(state_dir, topic_id))
-    except ValueError:
-        return True
-
-
 def result_to_library(state_dir, project_id, topic_id, job_record, path, log=None) -> None:
     """The whole reply of a member topic's turn that ended (C7: kept at ``path`` by app/project_loop.py after_runner,
     app/artifacts.py write_result_file) noted in the library of ``project_id`` by its path, "T12 #41 结论全文" (source
-    ``result``); ``redacted`` when its topic has redaction on or that cannot be read (``source_redacted``): only a topic
-    with redaction on lists it then (core/project_library.py index_lines)."""
+    ``result``)."""
     try:
         if not projects.memory_enabled() or not path:
             return
         label = topic_label(Path(state_dir), topic_id) or str(topic_id)[:8]
         project_library.add_ref(state_dir, project_id, "path", str(path), name=f"{label} #{job_record.get('job_id')} 结论全文",
-                                source="result", topic_id=topic_id, redacted=source_redacted(state_dir, topic_id))
+                                source="result", topic_id=topic_id)
     except Exception as exc:  # noqa: BLE001 - the task's end does not depend on it
         if log is not None:
             log(f"project library of a result failed: {type(exc).__name__}")

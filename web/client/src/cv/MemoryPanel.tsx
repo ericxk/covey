@@ -104,7 +104,6 @@ const Row: React.FC<{
       <button type="button" className="a-mrow" onClick={onToggle} aria-expanded={open}>
         <span className={`tag ${src.you ? 'you' : 'ai'}`}>{src.tag}</span>
         <span className="a-msum">{summary(m.text)}</span>
-        {m.redacted ? <span className="a-mvalid" title="来自开了脱敏的话题：只有开了脱敏的话题带它">脱敏</span> : null}
         {live ? null : <span className="a-mvalid">{VALID_WORD[m.valid ?? ''] ?? m.valid}</span>}
         <span className="a-mat">{when(m.at)}</span>
       </button>

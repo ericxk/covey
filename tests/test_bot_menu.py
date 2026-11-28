@@ -61,20 +61,22 @@ class MenuTests(UnifiedCase):
         with mock.patch.dict('os.environ', {'COVEY_BUTLER': '0'}):
             ruled_out = type(self.app)(script_path=self.app.runtime.script_path)
         self.assertEqual(set(ruled_out.menu.actions), set(KEYS) | set(STALE) | {'digest_board'})
-        # Each folds its newest card in place (app/bot_menu.py); the old 工作区 and 脱敏 keys send a 设置 card.
+        # Each folds its newest card in place (app/bot_menu.py).
         self.assertEqual({key: fold.__func__ for key, fold in fresh.menu.folds.items()}, {
             'weekly_usage': type(fresh.weekly_usage).fold, 'proxy_settings': type(fresh.proxy.panel).fold,
             'bridge_settings': type(fresh.settings_hub).fold,
             'digest_board': type(fresh.digest).fold_board})  # 看板 in every deployment, the digest off too (T813).
 
-    def test_a_cached_copy_of_a_removed_item_is_told_where_its_page_went(self):
+    def test_a_cached_copy_of_a_removed_item_is_told_where_its_page_went_or_that_it_went(self):
         menu = bot_menu.BotMenu(self.app.runtime, 'inbound', {}, bot_menu.Panels(self.app.runtime, self.app.messenger))
         self.assertEqual(set(menu.actions), set(STALE))
-        for key, name, tab in (('manage_workspaces', '仓库', '仓库'), ('redaction_dashboard', '脱敏', '敏感词脱敏'),
-                               ('manage_groups', '群聊', '群聊')):
+        for key, name, tab in (('manage_workspaces', '仓库', '仓库'), ('manage_groups', '群聊', '群聊')):
             menu.actions[key](self.ctx, 'oc_dm', 'src-' + key, shown=lambda message_id: None)
             args = self.app.messenger.send_text.call_args.args
             self.assertEqual((args[1], args[2]), ('oc_dm', f'「{name}」已移到「设置」卡的「{tab}」页签：发 /设置 或点菜单的「设置」打开。'))
+        # 敏感词脱敏 was taken out with its tab (T947): its item only says so.
+        menu.actions['redaction_dashboard'](self.ctx, 'oc_dm', 'src-r', shown=lambda message_id: None)
+        self.assertEqual(self.app.messenger.send_text.call_args.args[1:3], ('oc_dm', '敏感词脱敏已下线，菜单里的「脱敏」没有用了。'))
         self.assertEqual(self.click('manage_groups', 'ev-moved'), 'unknown_key')  # setUp's table has none of them.
 
     def test_others_unknown_keys_and_a_second_delivery_are_logged_and_ignored(self):

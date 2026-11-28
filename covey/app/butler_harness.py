@@ -19,7 +19,6 @@ from pathlib import Path
 from covey.core import butler as contract
 from covey.core import butler_settings, devices
 from covey.core.harness import backend_capabilities
-from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
 from covey.core.roster import NAMES
 from covey.core.workspaces import load_config
 
@@ -96,7 +95,7 @@ def workspace_of(state_dir, default_workdir, settings) -> tuple:
 
 def unwritten_topic(state_dir, apps) -> dict:
     """What the butler's topic.json says before its first message writes it (app/butler.py keep_topic): the Harness it runs
-    on (``chosen``), the settings' model, budget and 脱敏, and their workspace. What a project's lead starts from where the
+    on (``chosen``), the settings' model and budget, and their workspace. What a project's lead starts from where the
     butler has not run yet (app/projects.py step_lead). {} when no enabled Harness can run it."""
     name, app = chosen(state_dir, apps)
     if app is None:
@@ -105,6 +104,4 @@ def unwritten_topic(state_dir, apps) -> dict:
     space, workdir = workspace_of(state_dir, app.harness.context.default_workdir, settings)
     model, effort = model_of(settings, name)
     data = {"harness_id": name, "model": model, "effort": effort, "workspace_name": space, "workdir": workdir}
-    if settings.redaction:
-        data[REDACTION_KEY] = True
     return data

@@ -1753,14 +1753,14 @@ class ExtrasTest(WebCase):
         self.sync.push_once(T0)
         topics = {item["key"]: item["data"] for item in self.web.items("topic")}
         self.assertEqual(topics[TOPIC]["config"], {"model": "claude:opus", "effort": "high", "work_mode": "", "workspace": "ws1",
-                                                   "run_mode": "direct", "redaction": "off", "device": ""})
+                                                   "run_mode": "direct", "device": ""})
         self.assertNotIn("config", topics[BUTLER])
         from covey.app import web_switch
         # A budget preset is its model with the preset's budget; a Bridge worktree is ``worktree``.
         menu = {"claude:opus-x": {"harness": "claude", "presets": {"max": "opus-max", "high": "opus-x"}}}
         self.assertEqual(web_switch.topic_config({"harness_id": "claude", "model": "opus-max", "workdir": "/wt/abc/repo",
-                                                  "redaction": True}, menu, prefix="/wt/"),
-                         {"model": "claude:opus-x", "effort": "max", "work_mode": "", "workspace": "", "run_mode": "worktree", "redaction": "on",
+                                                  "redaction": True}, menu, prefix="/wt/"),  # An old flag: not read (T947).
+                         {"model": "claude:opus-x", "effort": "max", "work_mode": "", "workspace": "", "run_mode": "worktree",
                           "device": ""})
         self.assertIsNone(web_switch.topic_config({}))
 
@@ -2501,13 +2501,12 @@ class RanWithTest(WebCase):
 
     def test_a_record_reads_in_the_launch_cards_words(self):
         job = {"harness_id": "claude", "model": "opus", "effort": "high", "workspace_name": "ws-root"}
-        self.assertEqual(web_turns.ran_with(job, self.MENU, False), {"harness": "Claude Code", "provider": "自带", "model": "Opus 5.5",
-                                                                     "effort": "high", "workspace": "ws-root", "redaction": "off"})
-        self.assertEqual(web_turns.ran_with(dict(job, model="gw/opus"), self.MENU, True)["provider"], "网关")
-        self.assertEqual(web_turns.ran_with(dict(job, model="gw/opus"), self.MENU, True)["redaction"], "on")
+        self.assertEqual(web_turns.ran_with(job, self.MENU), {"harness": "Claude Code", "provider": "自带", "model": "Opus 5.5",
+                                                                  "effort": "high", "workspace": "ws-root"})
+        self.assertEqual(web_turns.ran_with(dict(job, model="gw/opus"), self.MENU)["provider"], "网关")
         # No menu (it could not be read) or a model the menu no longer has: the model's own name, no provider.
-        self.assertEqual(web_turns.ran_with(dict(job, model="claude-opus-5-5"), {}, False),
-                         {"harness": "claude", "model": "Opus 5.5", "effort": "high", "workspace": "ws-root", "redaction": "off"})
+        self.assertEqual(web_turns.ran_with(dict(job, model="claude-opus-5-5"), {}),
+                         {"harness": "claude", "model": "Opus 5.5", "effort": "high", "workspace": "ws-root"})
         self.assertEqual(web_turns.ran_with({"model": "opus"}, self.MENU), {})
         self.assertEqual(web_turns.ran_with({"model": "opus"}, self.MENU, topic={"harness_id": "claude", "workspace_name": "ws1"})["workspace"],
                          "ws1")
@@ -2515,12 +2514,12 @@ class RanWithTest(WebCase):
     def test_an_answer_turn_carries_it_and_the_owners_does_not(self):
         self.topic()
         write_topic(self.state, topic_id=TOPIC, chat_id=CHAT, harness_id="claude", topic_number=7, origin={"title": "整理账单"},
-                    workspace_name="ws1", redaction=True)
+                    workspace_name="ws1", redaction=True)  # An old flag: not read (T947).
         with mock.patch.object(app_collect.Collector, "menu", return_value=self.MENU):  # Both collectors' (the pass builds it).
             self.sync.push_once(T0)
         turns = {item["key"]: item["data"] for item in self.web.items("turn")}
         self.assertEqual(turns[f"{TOPIC}:2"]["ran_with"], {"harness": "Claude Code", "provider": "自带", "model": "Opus 5.5",
-                                                         "workspace": "ws1", "redaction": "on"})
+                                                         "workspace": "ws1"})
         self.assertNotIn("ran_with", turns[f"{TOPIC}:1"])
 
 

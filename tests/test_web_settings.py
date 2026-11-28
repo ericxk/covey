@@ -1,6 +1,6 @@
 """网页工作台的设置页 (app/web_settings.py; app/web_ops.py ``settings``; app/web_sync.py's ``settings`` item, COVEY_WEB=1): the page reads the
 设置 card's tabs as the card draws them, and the few changes it may make go through the card's own code, so the card shows them too (and a
-change on the card shows on the page). Only the owner; the rows the owner kept to Feishu are refused; no redaction term leaves the machine."""
+change on the card shows on the page). Only the owner; the rows the owner kept to Feishu are refused."""
 from __future__ import annotations
 
 import json
@@ -21,7 +21,7 @@ from covey.app.web_ops import Ops
 from covey.app import web_sync as web_sync_app
 from covey.app.web_sync import WebSync
 from covey.cards import butler_panel as cards
-from covey.core import butler_settings as settings, groups as group_records, redaction, repomap, web_sync
+from covey.core import butler_settings as settings, groups as group_records, repomap, web_sync
 from covey.core.jobs import upsert_job_record
 from covey.core.state import read_json, write_json
 from covey.core.workspaces import config_path
@@ -69,7 +69,7 @@ class WebSettingsTest(SettingsCase):
         from covey.app.proxy_send import available
         # 设备 only with nodes; 代答 only where a sender is (an extension, covey_internal).
         # T619: the card's 配置 is one page here too, every section open (no card's size to keep to).
-        self.assertEqual([t["label"] for t in data["tabs"]], ["配置", "常用路径", "脱敏", "群聊"] + (["代答"] if available() else []))
+        self.assertEqual([t["label"] for t in data["tabs"]], ["配置", "常用路径", "群聊"] + (["代答"] if available() else []))
         # Data contract v34: the operations this Covey does, so the page shows 收尾、停止 and 不对 only where they are done.
         self.assertTrue({"project_finish", "project_stop", "memory_undo", "recover"} <= set(data["ops"]))
         self.assertNotIn("nodes", data)
@@ -78,12 +78,13 @@ class WebSettingsTest(SettingsCase):
         self.assertNotIn("review", config)  # 独立复核 was taken out (T937).
         self.assertTrue(config["summary"].startswith("新话题 "))
         topic = config["topic"]
-        self.assertEqual([r["label"] for r in topic["rows"]][:1] + [r["label"] for r in topic["rows"]][-1:], ["Harness", "脱敏"])
+        self.assertEqual([r["label"] for r in topic["rows"]][:1], ["Harness"])
+        self.assertNotIn("脱敏", [r["label"] for r in topic["rows"] + config["main"]["rows"]])  # Taken out (T947).
+        self.assertNotIn("redaction", data)
         for gone in ("工作区", "运行方式"):  # v43: a new topic starts in the home; the repositories are the 仓库 page's.
             self.assertNotIn(gone, [r["label"] for r in topic["rows"]])
         self.assertEqual(sorted(topic), ["note", "rows", "title"])  # v24: no 直接开工 row, start_note or trusted.
         self.assertEqual({r["label"]: r["line"] for r in topic["rows"]}.get("Harness"), 1)
-        self.assertEqual({r["label"]: r["line"] for r in topic["rows"]}.get("脱敏"), 2)
         self.assertTrue(all(r["editable"] for r in topic["rows"] + config["more"]))
         self.assertEqual(config["more"][0]["label"], "子 Agent")
         butler = config["main"]
@@ -191,10 +192,10 @@ class WebSettingsTest(SettingsCase):
         self.assertNotEqual(self.web.stamps(), before)
 
     def test_a_row_changed_on_the_page_is_the_cards_change_and_shows_on_both(self):
-        state, words = self.op(what="row", kind=cards.TOPIC_REDACTION, option="on")
+        state, words = self.op(what="row", kind=cards.TOPIC_HARNESS, option="codex")
         self.assertEqual((state, words), ("done", "已保存：之后新开的话题照这个来。"))
-        self.assertTrue(settings.load(self.ctx.state_dir).topic_defaults.redaction)
-        self.assertEqual(self.row("topic", cards.TOPIC_REDACTION)["current"], "on")
+        self.assertEqual(settings.load(self.ctx.state_dir).topic_defaults.harness, "codex")
+        self.assertEqual(self.row("topic", cards.TOPIC_HARNESS)["current"], "codex")
         state, words = self.op(what="row", kind=cards.COMPACT, option="100000")
         self.assertEqual((state, words), ("done", "已保存：管家下一轮起照这个来。"))
         self.assertEqual(settings.load(self.ctx.state_dir).compact_tokens, 100000)
@@ -208,17 +209,17 @@ class WebSettingsTest(SettingsCase):
         self.assertEqual(self.op(what="row", kind=cards.TOPIC_HARNESS, option="nowhere"), ("failed", web_settings.GONE))
         for kind in (cards.TOPIC_WORKSPACE, cards.TOPIC_RUN_MODE, cards.SPACE):  # Offline: the rows are gone from the page.
             self.assertEqual(self.op(what="row", kind=kind, option="worktree"), ("failed", cards.OFFLINE_NOTICE))
-        self.assertEqual(self.op(operator="ou_other", what="row", kind=cards.TOPIC_REDACTION, option="on"),
+        self.assertEqual(self.op(operator="ou_other", what="row", kind=cards.TOPIC_HARNESS, option="codex"),
                          ("failed", web_settings.OWNER_ONLY))
-        self.assertEqual(self.op(what="nope", kind=cards.TOPIC_REDACTION), ("failed", "不认识的设置改动"))
+        self.assertEqual(self.op(what="nope", kind=cards.TOPIC_HARNESS), ("failed", "不认识的设置改动"))
         self.assertTrue(settings.load(self.ctx.state_dir).enabled)
-        self.assertFalse(settings.load(self.ctx.state_dir).topic_defaults.redaction)
+        self.assertEqual(settings.load(self.ctx.state_dir).topic_defaults.harness, "")
         self.assertEqual(settings.load(self.ctx.state_dir).topic_defaults.run_mode, "direct")
         settings.update(self.ctx.state_dir, enabled=False)  # 纯话题: the butler's rows count for nothing.
         self.assertEqual(self.op(what="row", kind=cards.COMPACT, option="0")[0], "failed")
         self.assertEqual([r["kind"] for r in self.snap()["config"]["main"]["rows"]], [cards.MODE])
 
-    def test_a_workspaces_use_the_retired_untrust_and_the_redaction_switches(self):
+    def test_a_workspaces_use_and_the_retired_untrust_and_redaction_changes(self):
         self.assertEqual(self.op(what="note", workspace="docs", note="  文档 和 手册 "), ("done", "已保存。"))
         self.assertEqual(settings.load(self.ctx.state_dir).note("docs"), "文档 和 手册")
         self.assertEqual(next(w for w in self.snap()["workspace"]["items"] if w["name"] == "docs")["note"], "文档 和 手册")
@@ -226,44 +227,18 @@ class WebSettingsTest(SettingsCase):
         self.assertEqual(settings.load(self.ctx.state_dir).note("docs"), "")
         self.assertEqual(self.op(what="note", workspace="elsewhere", note="x"), ("failed", "没有这个工作区"))
         self.assertEqual(self.op(what="untrust", key="project|edit"), ("failed", "记住的工作区已下线：管家开的话题一律直接开工"))
-        redaction.update_config(self.ctx.state_dir, lambda config: config["terms"].append(
-            {"term": "Secretproj", "stand_in": "", "anywhere": False}))
-        data = self.snap()["redaction"]
-        self.assertEqual((data["terms"], data["ignore_case"]), (["Secretproj"], True))  # The owner, T567: the page edits the list.
-        self.assertTrue(data["summary"].startswith("1 个词"))
-        self.assertEqual(self.op(what="redaction", name="restore", on=False), ("done", "「回复还原」关掉了。"))
-        self.assertFalse(redaction.load_config(self.ctx.state_dir)["restore"])
-        self.assertFalse(next(s for s in self.snap()["redaction"]["switches"] if s["name"] == "restore")["on"])
-
-    def test_terms_are_added_and_removed_at_once_and_the_receipt_names_none(self):
-        def terms():
-            return [row["term"] for row in redaction.load_config(self.ctx.state_dir)["terms"]]
-
-        redaction.save_config(self.ctx.state_dir, {"terms": [  # An older version saved a stand-in of the owner's own.
-            {"term": "Old Project", "stand_in": "", "anywhere": False}, {"term": "legacy", "stand_in": "ZQ-77", "anywhere": False}]})
-        state, words = self.op(what="terms", add=["Blue Harbor 二期", " ACME Corp ", "", "blue harbor 二期", "LEGACY"],
-                               remove=["old project", "gone already"])
-        self.assertEqual((state, words), ("done", "已保存：加 2 个、删 1 个（2 个已在词表里，1 个已经不在词表里）。下一轮起生效。"))
-        self.assertEqual(terms(), ["legacy", "Blue Harbor 二期", "ACME Corp"])
-        self.assertNotIn("ZQ-77", json.dumps(self.snap()["redaction"], ensure_ascii=False))  # Never a stand-in.
-        # A term written again in another case: removed first, then added.
-        self.assertEqual(self.op(what="terms", add=["Acme Corp"], remove=["ACME Corp"])[1], "已保存：加 1 个、删 1 个。下一轮起生效。")
-        self.assertEqual(terms(), ["legacy", "Blue Harbor 二期", "Acme Corp"])
-        # One term the list cannot take saves nothing, and the words say which by its place, not by itself.
-        state, words = self.op(what="terms", add=["Fine term", "X", "a => b", "Y"], remove=["legacy"])
-        self.assertEqual(state, "failed")
-        self.assertEqual(words, "没有保存：新加的第 2、4 个词原词至少要 2 个字；新加的第 3 个词替身词自动生成，不用写 =>")
-        self.assertEqual(terms(), ["legacy", "Blue Harbor 二期", "Acme Corp"])
-        self.assertEqual(self.op(what="terms", add=[], remove=[]), ("done", "没有变化"))
-        self.assertEqual(self.op(what="terms", add="Fine term", remove=[]), ("failed", web_settings.TERMS_SHAPE))
+        # 敏感词脱敏 was taken out (T947): its two changes and its rows, from a page drawn before, are refused and change nothing.
+        before = settings.path(self.ctx.state_dir).read_bytes() if settings.path(self.ctx.state_dir).exists() else b""
+        retired = ("failed", web_settings.REDACTION_RETIRED)
+        self.assertEqual(self.op(what="redaction", name="restore", on=False), retired)
+        self.assertEqual(self.op(what="terms", add=["Fine term"], remove=[]), retired)
+        self.assertEqual(self.op(what="terms", add="Fine term", remove=[]), retired)
+        for kind in ("bridge_main_redaction", "bridge_main_topic_redaction"):
+            self.assertEqual(self.op(what="row", kind=kind, option="on"), retired)
         self.assertEqual(self.op(operator="ou_other", what="terms", add=["Fine term"], remove=[]),
                          ("failed", web_settings.OWNER_ONLY))
-        redaction.config_path(self.ctx.state_dir).write_text('{"terms": [{"term": "Leaky", "stand_in": ""}, '
-                                                             '{"term": "leaky", "stand_in": ""}]}')
-        self.assertEqual(self.op(what="terms", add=["Fine term"], remove=[]), ("failed", web_settings.TERMS_UNREADABLE))
-        data = json.dumps(self.snap()["redaction"], ensure_ascii=False)
-        self.assertIn("error", data)
-        self.assertNotIn("eaky", data)
+        after = settings.path(self.ctx.state_dir).read_bytes() if settings.path(self.ctx.state_dir).exists() else b""
+        self.assertEqual(before, after)
 
     def test_a_group_is_turned_off_and_on_by_a_key_that_is_no_chat_id(self):
         chat = "oc_group0123456789"
@@ -287,10 +262,6 @@ class WebSettingsTest(SettingsCase):
             again = sync.settings_items("dm", 2.0, False)
             self.assertNotEqual(again[0]["rev"], first[0]["rev"])
             self.assertEqual(sync.settings_items("dm", 3.0, True)[0]["rev"], again[0]["rev"])  # A full look: the same rev.
-            redaction.update_config(self.ctx.state_dir, lambda config: config["terms"].append(  # The card added a term.
-                {"term": "Fresh term", "stand_in": "", "anywhere": False}))
-            third, = sync.settings_items("dm", 4.0, False)
-            self.assertEqual(third["data"]["redaction"]["terms"], ["Fresh term"])
 
     def test_a_change_from_the_page_is_pushed_before_its_ack_and_one_on_the_card_within_a_second(self):
         """2026-11-19 T554 on the live page: the push thread's full look took minutes, so the page's own change came back 3 min 40 s later
@@ -298,7 +269,7 @@ class WebSettingsTest(SettingsCase):
         with mock.patch.dict(os.environ, {web_sync.ENV: "1"}):
             sync = WebSync(self.app.runtime, self.env)
         calls, outbox = [], [{"seq": 1, "op_id": "op-1", "kind": "settings", "topic_key": "", "project_key": "",
-                              "payload": {"what": "row", "kind": cards.TOPIC_REDACTION, "option": "on"}}]
+                              "payload": {"what": "row", "kind": cards.TOPIC_HARNESS, "option": "codex"}}]
 
         def request(method, path, body=None):
             calls.append((path.split("?")[0], body))
@@ -310,8 +281,8 @@ class WebSettingsTest(SettingsCase):
             paths = [path for path, _ in calls]
             self.assertEqual(paths, ["/sync/inbox", "/sync/upsert", "/sync/ack"])
             pushed, = calls[1][1]["items"]
-            redaction, = [r for r in pushed["data"]["config"]["topic"]["rows"] if r["kind"] == cards.TOPIC_REDACTION]
-            self.assertEqual(redaction["current"], "on")
+            harness, = [r for r in pushed["data"]["config"]["topic"]["rows"] if r["kind"] == cards.TOPIC_HARNESS]
+            self.assertEqual(harness["current"], "codex")
             outbox.clear()
             calls.clear()
             sync.inbox_once()  # Nothing changed: no post.
@@ -325,7 +296,7 @@ class WebSettingsTest(SettingsCase):
 
     # -- T554 second round (2026-11-19): what the page could only look at -------------------------------------------------------
 
-    def test_the_private_chat_mode_and_the_butlers_redaction_change_on_the_page(self):
+    def test_the_private_chat_mode_changes_on_the_page(self):
         self.assertEqual(self.op(what="row", kind=cards.MODE, option="topics", confirm=True),
                          ("done", butler_panel.MODE_NOTICES[False]))
         self.assertFalse(settings.load(self.ctx.state_dir).enabled)
@@ -333,7 +304,6 @@ class WebSettingsTest(SettingsCase):
         self.assertTrue(mode["editable"])  # 纯话题: the row that turns the butler on again.
         self.assertEqual(self.op(what="row", kind=cards.MODE, option="agent"), ("done", butler_panel.MODE_NOTICES[True]))
         self.assertTrue(settings.load(self.ctx.state_dir).enabled)
-        self.assertEqual(self.op(what="row", kind=cards.REDACTION, option="off")[0], "done")
 
     def test_a_settings_file_that_cannot_be_read_now_is_not_reset_and_the_page_says_so(self):
         """W1-F (RT-6): read as {} a moment, the write of one row put the defaults over every other setting."""
@@ -342,10 +312,10 @@ class WebSettingsTest(SettingsCase):
         body = path.read_bytes()
         path.write_bytes(body[: len(body) // 2])
         torn = path.read_bytes()
-        self.assertEqual(self.op(what="row", kind=cards.TOPIC_REDACTION, option="on"), ("failed", settings.UNREADABLE))
+        self.assertEqual(self.op(what="row", kind=cards.TOPIC_HARNESS, option="codex"), ("failed", settings.UNREADABLE))
         self.assertEqual(path.read_bytes(), torn)
         path.write_bytes(body)
-        self.assertEqual(self.op(what="row", kind=cards.TOPIC_REDACTION, option="on")[0], "done")
+        self.assertEqual(self.op(what="row", kind=cards.TOPIC_HARNESS, option="codex")[0], "done")
         self.assertEqual(settings.load(self.ctx.state_dir).compact_tokens, 0)
 
     def test_workspaces_added_by_path_removed_and_pruned_as_on_the_card(self):
@@ -850,8 +820,11 @@ class WebSettingsTest(SettingsCase):
         self.assertEqual(self.launch("op-b2", **{**base, "effort": "nope"}), ("failed", "这个模型没有这一档思考预算，请重新选"))
         self.assertEqual(self.launch("op-b3", **{**base, "workspace": "elsewhere"}), ("failed", "没有登记工作区「elsewhere」，请重新选"))
         self.assertEqual(self.launch("op-b4", **{**base, "text": " "}), ("failed", "要先写这个话题做什么"))
-        if not model["redaction"]:
-            self.assertEqual(self.launch("op-b5", **{**base, "redaction": "on"}), ("failed", "这个模型不能脱敏"))
+        # 敏感词脱敏 was taken out (T947): the catalog says nothing of it, and an older page's choice of it is ignored.
+        self.assertNotIn("redaction", model)
+        self.assertNotIn("redaction", self.snap()["launch"]["preselect"])
+        self.app.messenger.create_and_send_card = mock.Mock(return_value=("card1", "om_root5"))
+        self.assertEqual(self.launch("op-b5", **{**base, "redaction": "on"})[0], "done")
 
     def test_the_topic_a_launch_opened_is_built_on_the_next_push(self):
         """2026-11-20 live (T576): the page waited over a minute for the topic it had just opened; the inbox now touches it."""
@@ -940,7 +913,7 @@ class WebSettingsTest(SettingsCase):
     def same_config(self, path):
         from covey.app import web_switch
         config = web_switch.topic_config(json.loads(path.read_text()))
-        return {key: config[key] for key in ("model", "effort", "work_mode", "redaction")}
+        return {key: config[key] for key in ("model", "effort", "work_mode")}
 
     def test_a_switch_sets_the_topics_repos_it_adds_changes_clears_or_leaves_them(self):
         """Seam W2 ↔ WEB (T870, data contract v43 §4 ``repos?``): ``repos`` sets the topic's repositories, checked as a new topic's
@@ -1219,9 +1192,6 @@ class StampCoverageTest(SettingsCase):
         self.state = Path(state)
         chat = "oc_group0123456789"
         group_records.save_group(state, chat, lambda record: {**record, "chat_id": chat, "active": True, "external": False})
-        redaction.config_path(state).parent.mkdir(parents=True, exist_ok=True)
-        write_json(redaction.config_path(state), {"terms": [{"term": "Leaky", "stand_in": ""}]})
-        redaction.stats_path(state).write_text(json.dumps({"time": "10:00", "number": 1, "requests": 1, "replaced": 1}) + "\n")
         repomap_dir = Path(self.work)
         (repomap_dir / ".git").mkdir(exist_ok=True)
         write_json(repomap.path(state), {"schema": 1, "repos": {"project": {"path": str(repomap_dir)}}})
@@ -1269,7 +1239,7 @@ class StampCoverageTest(SettingsCase):
         with mock.patch.object(Path, "read_text", text), mock.patch.object(Path, "read_bytes", raw), \
                 mock.patch.object(builtins, "open", open_):
             data = self.snap()
-        for tab in ("config", "repos", "redaction", "groups", "nodes", "proxy"):
+        for tab in ("config", "repos", "groups", "nodes", "proxy"):
             self.assertIn(tab, data)
             self.assertNotIn("error", data[tab], tab)
         return seen
@@ -1283,7 +1253,7 @@ class StampCoverageTest(SettingsCase):
         read = self.reads()
         names = {str(path.relative_to(self.state)) for path in read}
         # The fixture does read what each tab reads, or the gate would pass for nothing.
-        for expected in ("main-thread.json", "workspace-config.json", "assist-state.json", "redaction/config.json", "repos.json",
+        for expected in ("main-thread.json", "workspace-config.json", "assist-state.json", "repos.json",
                          "nodes/registry.json", "nodes/box/link.json", "nodes/box/latest.json", "proxy/settings.json"):
             self.assertIn(expected, names)
         self.assertTrue(any(name.startswith("groups/") for name in names), names)
@@ -1317,7 +1287,6 @@ class StampCoverageTest(SettingsCase):
             "开话题 (the last launch)": lambda: write_json(state / "launch-defaults.json", {"model": "x"}),
             "开话题 (a model menu)": lambda: write_json(state / "launch-models" / "claude.json", {"updated_at": 1, "models": {}}),
             "开话题 (the recent picks)": lambda: write_json(state / "model-usage.json", {"picks": []}),
-            "脱敏 (the terms)": lambda: write_json(redaction.config_path(state), {"terms": []}),
         }
         for name, change in steps.items():
             before = self.web.stamps()

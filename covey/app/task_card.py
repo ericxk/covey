@@ -30,8 +30,7 @@ from covey.feishu.transport import last_failure
 
 # What the task card is drawn with besides the job's own fields, set when its first card is made
 # (app/cards.py create_streaming_reply); a replacement card is drawn with the same.
-CARD_FACTS = ("harness_capabilities", "topic_label", "model_label", "workspace_label", "redaction",
-              "input_parts", "card_speaker")
+CARD_FACTS = ("harness_capabilities", "topic_label", "model_label", "workspace_label", "input_parts", "card_speaker")
 
 
 @dataclass

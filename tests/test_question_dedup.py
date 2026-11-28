@@ -663,30 +663,5 @@ class NoInternalNamesTest(unittest.TestCase):
             self.assertNotIn(word, words)
 
 
-
-class RedactedTopicTest(Case):
-    """T908 M5: a topic with redaction on asks again what was answered in it: its check reads the decisions from topics with
-    redaction on, as its turns read them (before, ``redacted`` was never passed and such a decision was never found)."""
-
-    def setUp(self):
-        super().setUp()
-        for n, (question, said) in enumerate((("Repair 能不能改题面？", "不能改，只能补测试"), ("网页工作台对外怎么处理？", "先内部用"))):
-            answer(self.state, {"question": question}, said, at=NOW - 3600 - n)
-
-    check = RealSearchTest.check
-
-    def test_a_redacted_topic_finds_its_own_answer_and_another_topic_does_not(self):
-        secret = memstore.add_decision(self.state, scope="project", owner_key=PID, question="密钥轮换要不要先停旧服务？",
-                                       answer="先停旧服务", text=project_context.answer_line("密钥轮换要不要先停旧服务？", "先停旧服务"),
-                                       topic_key=MEMBER, category=question_dedup.category("密钥轮换要不要先停旧服务？"),
-                                       polarity=question_dedup.polarity("先停旧服务"), redacted=True, now=NOW - 60)
-        self.assertIsNone(self.check("密钥轮换前要不要先停掉旧服务？"))  # The topic has it off: never read.
-        path = self.state / "topics" / MEMBER / "topic.json"
-        path.write_text(json.dumps({**json.loads(path.read_text()), "redaction": True}, ensure_ascii=False))
-        hit = self.check("密钥轮换前要不要先停掉旧服务？")
-        self.assertIsNotNone(hit)
-        self.assertEqual(hit.ref, secret.ref)
-
-
 if __name__ == "__main__":
     unittest.main()

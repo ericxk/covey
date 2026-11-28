@@ -196,7 +196,7 @@ class CompatTest(Case):
         data = self.stored()
         self.assertEqual(data["schema_version"], 1)
         for row in data["entries"]:
-            self.assertLessEqual(set(row), {"id", "text", "kind", "source", "at", "deleted", "redacted"})  # The rest is in the meta.
+            self.assertLessEqual(set(row), {"id", "text", "kind", "source", "at", "deleted"})  # The rest is in the meta.
             self.assertIsInstance(row["id"], str)
             self.assertIsInstance(row["text"], str)
             self.assertIn(row["kind"], project_memory.KINDS)

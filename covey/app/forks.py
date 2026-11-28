@@ -116,7 +116,7 @@ class Forks:
             with LOCK:
                 data = read_topic(target)
                 data.update({key: source[key] for key in ("harness_id", "model", "effort", "model_settings_snapshot",
-                                                          "work_mode", "workspace_name", "workdir", "redaction")
+                                                          "work_mode", "workspace_name", "workdir")
                              if key in source},
                             **home_fields(source, now=origin["at"]),
                             binding_revision=1, workspace_locked=True, harness_locked=True, forked_from=origin)

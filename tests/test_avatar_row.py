@@ -176,7 +176,7 @@ class RowTest(unittest.TestCase):
 
     def test_an_answer_card_takes_the_block_into_its_row_which_is_the_way_back(self):
         block = ask_block("看板改成彩色块", at="20:41", url=URL, who="管家", doing="answer", avatar="img_b")
-        facts = facts_element(input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", False, "covey"),
+        facts = facts_element(input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", "covey"),
                               [figure("用时", "12分40秒")], link="T9")
         built = answer_card("好了", "管家 · 好了", tail=[facts], head=[block])
         self.assertNotIn("header", built)
@@ -214,7 +214,7 @@ class RowTest(unittest.TestCase):
 
 
 class FactsTest(unittest.TestCase):
-    parts = input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", False, "covey")
+    parts = input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", "covey")
     out = [figure("用时", "12分40秒"), "**41** <font color='grey'>token/s</font>", figure("token", "76万"),
            figure("缓存命中", "92%")]
 
@@ -226,7 +226,7 @@ class FactsTest(unittest.TestCase):
         self.assertTrue(lines[0].startswith("<font color='grey'>输入</font> "))
         self.assertTrue(lines[1].startswith("<font color='grey'>输出</font> "))
         plain = element["content"].replace(" ", " ").replace("⁠", "")
-        for words in ("Claude Code", "Claude 自带", "Opus 5.5", "思考 xhigh", "脱敏关", "covey", "用时", "12分40秒", "41", "token/s",
+        for words in ("Claude Code", "Claude 自带", "Opus 5.5", "思考 xhigh", "covey", "用时", "12分40秒", "41", "token/s",
                       "76万", "缓存命中", "92%"):
             self.assertIn(words, plain)
         self.assertNotIn("background", json.dumps(element))
@@ -266,7 +266,7 @@ class RelayTest(unittest.TestCase):
 
     def test_the_foot_has_the_whole_input_and_output_the_change_line_and_the_links(self):
         change = {"commit": "a6bc148d38ce", "deployed": "第 322 代", "verified": "全量通过", "not_found": ["a6bc148d38ce"]}
-        parts = input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", False, "covey")
+        parts = input_parts("Claude Code", "Claude 自带", "Opus 5.5", "xhigh", "covey")
         built, _ = relay_card("T623", DONE, text="## 结论\n好了\n\n" + "细节很多。" * 60, change=change, inputs=parts,
                               outputs=[figure("用时", "1分"), figure("token", "76万"), figure("缓存命中", "92%")],
                               url=TOPIC_URL, ask=self.asked())
@@ -277,7 +277,7 @@ class RelayTest(unittest.TestCase):
         facts = built["body"]["elements"][-2]  # Over the line where a reply goes (T647 P1-A3).
         self.assertEqual("answer_facts", facts["element_id"])
         plain = facts["content"].replace(" ", " ").replace("⁠", "")
-        for words in ("输入", "Claude Code", "Claude 自带", "Opus 5.5", "思考 xhigh", "脱敏关", "covey", "输出", "用时", "token",
+        for words in ("输入", "Claude Code", "Claude 自带", "Opus 5.5", "思考 xhigh", "covey", "输出", "用时", "token",
                       "缓存命中", "改动", "a6bc148"):
             self.assertIn(words, plain)
         # One way in, the row (the owner, 2026-11-22: 进话题做到卡头 T 号和标题上): no 进话题 › or 看你那句 › at the end.

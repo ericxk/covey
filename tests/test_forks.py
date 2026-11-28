@@ -95,19 +95,16 @@ class ForkTests(UnifiedCase):
         self.assertNotIn('home_start', read_topic(target))
         self.assertNotIn('repos', read_topic(target))
 
-    def test_a_fork_keeps_redacting(self):
-        # A topic chose 敏感词脱敏 for its life; its forks carry the same history, so they redact too.
-        for n, redacts in enumerate((None, True)):
-            with self.subTest(redacts=redacts):
-                data = read_topic(self.source)
-                if redacts:
-                    data['redaction'] = True
-                write_topic(self.source, data)
-                record = {'job_id': 1, 'status': 'done', 'user_text': 'first question'}
-                with FakeCardKit({'data': {'message_id': f'om_fork_{n}'}}), self.detail:
-                    self.app_.forks.create_fork(self.source, 'chat', record, f'click-{n}')
-                _, target = self.route_reply(f'om_fork_{n}')
-                self.assertEqual(read_topic(target).get('redaction'), redacts)
+    def test_a_fork_does_not_carry_an_old_redaction_flag(self):
+        # 敏感词脱敏 is retired (T947): a topic that still has the flag in its topic.json is an ordinary one, and so is its fork.
+        data = read_topic(self.source)
+        data['redaction'] = True
+        write_topic(self.source, data)
+        record = {'job_id': 1, 'status': 'done', 'user_text': 'first question'}
+        with FakeCardKit({'data': {'message_id': 'om_fork_0'}}), self.detail:
+            self.app_.forks.create_fork(self.source, 'chat', record, 'click-0')
+        _, target = self.route_reply('om_fork_0')
+        self.assertNotIn('redaction', read_topic(target))
 
     def route_reply(self, root):
         return self.app.topics.route(self.ctx, {'chat_id': 'chat', 'sender_id': 'owner', 'message_id': root + '-reply',
