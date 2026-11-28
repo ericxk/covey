@@ -3,7 +3,7 @@ snapshot a task record keeps and restores, and the turn's token usage (turn_usag
 or reasoning bodies. cards/trace_view.py draws it."""
 import copy
 import time
-from covey.core.protocol import AGENT_ENDED, AGENT_LIVE, STEP_ENDED, STEP_TITLES
+from covey.core.protocol import AGENT_ENDED, AGENT_LIVE, COMPACT_STEP, STEP_ENDED, STEP_TITLES
 from covey.core.text import safe_text
 from covey.core.ttft import SOURCES
 from covey.core.usage import non_negative_int, number, rate
@@ -189,6 +189,12 @@ class ToolTrace:
         trace.subtask_usage = copy.deepcopy(usage) if isinstance(usage, dict) else None
         trace.accept("redaction", data.get("redaction") or {})
         return trace
+
+    def compactions(self) -> int:
+        """How many times the main task's context was compacted in this turn (its ``context_compaction`` steps that ended
+        well: before the turn when the Bridge asked, or within it); a subtask's own do not count. The job record's
+        ``compactions`` (app/interaction.py): the next turn sends its rules whole after one (app/rules_sent.py)."""
+        return sum(1 for step in self.steps.values() if step.get("title") == COMPACT_STEP and step.get("status") == "done")
 
     def tree(self):
         """This trace and each subtask below it, at any depth, once (a nested subtask is also the root's child)."""

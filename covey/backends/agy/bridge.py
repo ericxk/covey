@@ -451,9 +451,12 @@ class AntigravityBackend(BackendRuntime):
         # (look_server; W1-C, on agy 1.5.18: tests/test_collab_c8.py AgyLookC6).
         # command_stop: AgyControl.stop_command stops the commands agy runs (the same SIGINT), on this machine's only.
         here = not device_of(ctx)
+        # system_instructions: the bridge rules in the private home's ~/.gemini/GEMINI.md, read again at every turn
+        # (``Homes``, backends/agy/home.py), on this machine only.
         return for_device(HarnessCapabilities(steering=here, steer_reads=here, command_stop=here, bridge_tools=True,
                                               rate_limit_retry=True, fault_retry=True, ask_once=True, compaction=here,
-                                              look_gate=True), ctx)
+                                              look_gate=True, system_instructions=here,
+                                              system_refresh="turn" if here else ""), ctx)
 
     # The butler's idle compaction (app/idle_compaction.py): how long after a turn it starts, and that it runs with the
     # butler's tools (the turn's MCP servers), so its request starts with the same prompt as the turn and reads it from
@@ -469,7 +472,7 @@ class AntigravityBackend(BackendRuntime):
             return False  # A device's conversation is on the device.
         self.normalize_model_settings(ctx, ctx.model, ctx.effort)
         argv, env = self.argv(ctx, request.session_id), self.environment(ctx)
-        homes = Homes(ctx)
+        homes = Homes(ctx, request.instructions)  # The rules too: its request starts as the turn's does.
         try:
             with extension_turn(ctx, env, run_id=request.inputs.run_id) as (env, _switch):
                 done, _usage = agy_compaction.compact(ctx, argv, homes.env(env), request.session_id,
@@ -580,7 +583,7 @@ class AntigravityBackend(BackendRuntime):
         request = dataclasses.replace(request, context=dataclasses.replace(ctx, options=options))
         stdin = json.dumps({"event": "user", "message": {"content": request.prompt}}, ensure_ascii=False) + "\n"
         argv, env = self.argv(ctx, request.session_id), self.environment(ctx)
-        homes = Homes(ctx)
+        homes = Homes(ctx, request.instructions)
         try:
             with extension_turn(ctx, env, run_id=request.inputs.run_id) as (env, switch):
                 result = run_stream(request, argv, stdin, homes.env(env),
@@ -656,21 +659,23 @@ def extension_turn(ctx, env, *, run_id=""):
 
 
 class Homes:
-    """The butler's turn (``options["mcp_config"]``) and a held LOOK turn (its write tool, ``look_server``) run each agy
-    process in a home of its own (backends/agy/home.py) over its environment's HOME: made again when the turn goes on in
-    another environment, removed with the turn. Any other turn runs in the environment as it is."""
+    """The butler's turn (``options["mcp_config"]``), a held LOOK turn (its write tool, ``look_server``) and every turn
+    with the bridge rules at the system level (``rules``, RunRequest.instructions: they go in the home's GEMINI.md) run each
+    agy process in a home of its own (backends/agy/home.py) over its environment's HOME: made again when the turn goes on
+    in another environment, removed with the turn. Any other turn (a device's) runs in the environment as it is."""
 
-    def __init__(self, ctx):
-        self.ctx, self.home = ctx, None
+    def __init__(self, ctx, rules=""):
+        self.ctx, self.home, self.rules = ctx, None, "" if device_of(ctx) else str(rules or "")
 
     def env(self, env):
         """``env`` for the next process, the home of the one before removed."""
         self.close()
         config = home_config(self.ctx)
-        if not config:
+        if not config and not self.rules:
             return env
         # The same name at each turn of the topic, so the prompt agy starts it with reads from the cache.
-        home = PrivateHome(self.ctx.state_dir, env.get("HOME") or Path.home(), config, env, key=self.ctx.topic_id)
+        home = PrivateHome(self.ctx.state_dir, env.get("HOME") or Path.home(), config, env, key=self.ctx.topic_id,
+                           rules=self.rules)
         path = home.__enter__()
         self.home = home
         if home.note:
@@ -688,7 +693,7 @@ class Homes:
         """Say in the log which of the Bridge's tools agy left out of ``conversation``'s latest request (``left_out``):
         the turn ran without them, and its model could not know they were there."""
         home = self.home
-        if home is None or device_of(self.ctx):
+        if home is None or device_of(self.ctx) or not home.listed:
             return
         try:
             missing = left_out(home.home, conversation, home.listed)

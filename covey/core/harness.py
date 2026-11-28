@@ -95,9 +95,13 @@ class HarnessCapabilities:
     image_frame: int = 0
     steering: bool = False
     native_fork: bool = False  # can start a new session from a copy of another
-    # Sends RunRequest.instructions at system level on every turn. None does: the bridge rules
-    # go in the user message, the model's own system prompt left as it is.
+    # Takes RunRequest.instructions (the bridge rules) at the system level, beside the model's own system prompt, so a
+    # resumed turn's message need not restate them and a compaction keeps them (app/rules_sent.py, WAVE12 C9).
     system_instructions: bool = False
+    # How a session keeps them (app/rules_sent.py): "turn" read again at every turn (dsh's patch, agy's GEMINI.md),
+    # "compaction" kept from the session's first invocation until a compaction renders them again from the invocation's
+    # own (Claude Code's --append-system-prompt), "" kept from the session's start (Codex's developerInstructions).
+    system_refresh: str = ""
     rate_limit_retry: bool = False  # a turn rate-limited with no reply is retried automatically (app/auto_retry.py)
     incomplete_retry: bool = False  # a turn ended incomplete (settle_timeout) with no reply is continued once, too
     fault_retry: bool = False  # tells a passing server fault (529, 5xx, a dropped connection: server_fault) from other failures

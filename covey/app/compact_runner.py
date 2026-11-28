@@ -15,11 +15,11 @@ import threading
 import time
 from pathlib import Path
 
-from covey.app import runner_ipc, runner_spawn
+from covey.app import rules_sent, runner_ipc, runner_spawn
 from covey.app import idle_compaction as idle
 from covey.app.butler import COMPACT_INSTRUCTIONS, RELEASE
 from covey.app.unified import UnifiedBridgeApp
-from covey.core.harness import RunCallbacks, RunInputs, RunRequest
+from covey.core.harness import RunCallbacks, RunInputs, RunRequest, backend_capabilities
 from covey.core.butler import mcp_config
 from covey.core.jobs import context_for_job, job_key
 from covey.core.locks import resource_lock
@@ -70,8 +70,15 @@ def compact_main(directory) -> int:
                         if current.get("started_at") == marker.get("started_at"):
                             write_json(mark, {**current, "claude": process_identity(process.pid)}, ensure_ascii=False)
             log(f"idle compaction topic={job.topic_id[:12]} session={session}")
+            # The rules at the system level as the turn has them (app/rules_sent.py): Claude Code renders the session's
+            # system prompt again from this process's, and agy's compaction request starts as the turn's does.
+            # A compaction without them would leave a Claude Code session without its rules: none then, the request
+            # goes back and the next turn compacts first, with its own.
+            caps = backend_capabilities(app.backend, target)
+            rules = (app.runs.bridge_rules(target, job, system=True)
+                     if caps.system_instructions is True and rules_sent.enabled() else "")
             done = app.backend.compact_session(RunRequest(target, "", session, callbacks=RunCallbacks(process=observe),
-                                                          inputs=RunInputs(cancel)))
+                                                          inputs=RunInputs(cancel), instructions=rules))
             outcome = idle.DONE if done else idle.CANCELLED if cancel.is_set() else idle.NOT_DONE
     except JobCancelled:
         outcome = idle.CANCELLED

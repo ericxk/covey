@@ -21,7 +21,7 @@ from support.world import QuestionFixture, harness_app
 
 from covey.backends.claude.bridge import CLAUDE_SPEC
 from covey.backends.claude.sessions import ClaudeSessionStore
-from covey.core.checkpoint import CHECKPOINT_RULES
+from covey.core.checkpoint import CHECKPOINT_RULES, checkpoint_rules
 from covey.core.jobs import BridgeReplyJob as ReplyJob
 from covey.app import project_context, project_facts, project_lead, project_loop
 from covey.app.prompts import PROJECT_CHARS, bridge_rules, project_block
@@ -150,7 +150,7 @@ class RunsTest(unittest.TestCase):
         resumed = self.runs._with_rules(self.ctx, self.job, "MSG", rules, system=False, fresh=False, rules_session=False)
         self.assertIn("窗口在周六", resumed)
         self.assertNotIn("/data/out/bill.csv", resumed)
-        self.assertTrue(resumed.endswith(CHECKPOINT_RULES))
+        self.assertTrue(resumed.endswith(checkpoint_rules(images=False)))
 
     def test_with_the_switch_off_the_rules_have_no_project_block(self):
         os.environ[projects.MEMORY_ENV] = "0"

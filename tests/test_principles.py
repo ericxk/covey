@@ -273,14 +273,15 @@ class TurnTest(unittest.TestCase):
         self.assertIn(CHECKPOINT_RULES, self.app().runs.bridge_rules(self.ctx, self.job()))
 
     def test_every_harness_has_it_in_its_rules_and_its_message(self):
-        """No backend takes the rules at system level (owner 2026-11-02), so each reads them in request.prompt:
-        Claude (stdin), Codex (the turn's input), MASO, dsh (stdin) all pass that on."""
+        """Every core backend takes the rules at the system level (the owner's call of 11-28, app/rules_sent.py), the
+        principles with them, the system level's text and the message's alike."""
         self.save()
         for name in NAMES:
             with self.subTest(harness=name):
                 spec, backend, store = components(name)
-                self.assertFalse(backend_capabilities(backend, self.ctx).system_instructions)
+                self.assertTrue(backend_capabilities(backend, self.ctx).system_instructions)
                 runs = self.app(backend, spec, store).runs
+                self.assertIn(PRINCIPLES_HEAD + "\n" + BOTH, runs.bridge_rules(self.ctx, self.job(), system=True))
                 self.assertIn(PRINCIPLES_HEAD + "\n" + BOTH, runs.bridge_rules(self.ctx, self.job()))
                 self.assertIn(WORKSPACE_ONLY, runs.bridge_rules(self.ctx, self.job(sender=OTHER)))
 

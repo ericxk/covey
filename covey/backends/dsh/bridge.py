@@ -95,9 +95,21 @@ def mcp_rows(mcp_config):
     return rows
 
 
-def route_patch(gateway, catalog, model, effort, mcp_config=None):
-    """The patch overlay: the gateway's route with every dsh model, the task's model as the default, and the Bridge's
-    tools when the turn has them."""
+# dsh's system-prompt config is replaced whole by a patch, so its headless persona line goes back in with the rules
+# (dsh 0.2.2-rc.5, measured 11-28: a suffix alone dropped it). ``{{name}}`` is a prompt variable there and an unknown one
+# fails the turn before any request, so the rules' own braces are broken apart (``persona_suffix``).
+PERSONA_PREFIX = "You are a coding agent powered by the {{model}} model."
+
+
+def persona_suffix(text) -> str:
+    """``text`` (the bridge rules) as dsh's personaSuffix: no ``{{`` left in it."""
+    return str(text or "").replace("{{", "{ {").replace("}}", "} }")
+
+
+def route_patch(gateway, catalog, model, effort, mcp_config=None, instructions=""):
+    """The patch overlay: the gateway's route with every dsh model, the task's model as the default, the Bridge's
+    tools when the turn has them, and the bridge rules (``instructions``) at the end of the system prompt, put in again
+    at every turn (app/rules_sent.py)."""
     models = []
     for name, row in catalog.items():
         levels = [r["effort"] for r in row["supported_reasoning_levels"]]
@@ -116,6 +128,8 @@ def route_patch(gateway, catalog, model, effort, mcp_config=None):
                                                  **({"reasoningEffort": effort} if effort else {})}},
         {"id": "session-title-llm", "disabled": True},  # No extra model request for a title nobody shows.
         *([{"insert": rows}] if (rows := mcp_rows(mcp_config)) else []),  # A new row is an insert; a bare id is "not found".
+        *([{"id": "system-prompt", "config": {"personaPrefix": PERSONA_PREFIX,
+                                               "personaSuffix": persona_suffix(instructions)}}] if instructions else []),
     ]
 
 
@@ -183,7 +197,9 @@ class DshBackend(BackendRuntime):
     def capabilities(self, ctx):
         # What headless_outcome tells apart. No native_fork: ``--session-id`` only goes on with a session (so no
         # 交接摘要 either, app/switch_handoff.py).
-        return HarnessCapabilities(bridge_tools=True, rate_limit_retry=True, fault_retry=True)
+        # The bridge rules in the patch's system-prompt personaSuffix, put in again at every turn (``route_patch``).
+        return HarnessCapabilities(bridge_tools=True, rate_limit_retry=True, fault_retry=True, system_instructions=True,
+                                   system_refresh="turn")
 
     @staticmethod
     def gateway():
@@ -228,7 +244,8 @@ class DshBackend(BackendRuntime):
         fd, patch = tempfile.mkstemp(prefix="dsh-patch-", suffix=".yml", dir=str(tmp))
         try:
             with os.fdopen(fd, "w") as handle:  # JSON is YAML; mkstemp already made it owner-only.
-                json.dump(route_patch(found, catalog, ctx.model, ctx.effort, ctx.options.get("mcp_config")), handle)
+                json.dump(route_patch(found, catalog, ctx.model, ctx.effort, ctx.options.get("mcp_config"),
+                                      request.instructions), handle)
             argv = [*ctx.backend_cmd, "--profile", "headless", "--patch", patch, "--json",
                     *(LEAD_ARGS if lead_turn(ctx) else ()),
                     *(["--session-id", session_id] if session_id else []), "-"]

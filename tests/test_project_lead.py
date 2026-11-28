@@ -29,7 +29,8 @@ from covey.backends.claude.argv import stream_argv
 from covey.backends.claude.bridge import ClaudeBackend
 from covey.core import butler_mcp, butler, butler_tool_specs, checkpoint, project_memory, project_proposals, projects, quota_hold
 from covey.core import butler_settings as settings
-from covey.core.jobs import job_key
+from covey.core.jobs import job_key, job_path, read_job_record
+from covey.core.topics import topic_file
 from covey.core.harness import CONSULT, LEAD as HELD, READ, TOOL_LIMIT  # LEAD here is the lead topic's id.
 from covey.core.butler_requests import Request
 from covey.core.state import write_json
@@ -343,11 +344,56 @@ class RebuildTest(Case):
         self.assertIn("换了模型", self.reason(model="claude-sonnet-5"))
         self.assertEqual(self.reason(model=""), "")
 
-    def test_the_input_tokens_stand_in_when_a_record_has_no_context_size(self):
-        self.last(input_tokens=400_000)
-        self.assertIn("400000", self.reason())
-        self.last(input_tokens=200_000)
+    def test_a_record_without_its_context_size_counts_turns_on_the_session_not_the_input_tokens(self):
+        # WAVE12 C9: 2 of agy's 34 turns without context_tokens rebuilt on their summed input_tokens; now the turns in a row
+        # on the session stand in (REBUILD_TURNS_FALLBACK), whatever the input tokens say.
+        from covey.app.rules_sent import REBUILD_TURNS_FALLBACK
+
+        self.last(input_tokens=400_000, session_id="sid-1")
         self.assertEqual(self.reason(), "")
+        self.assertEqual(project_lead.rebuild(self.state, LEAD, "lead-2", "claude-opus-5", NOW, "sid-1"), ("", ""))
+        for number in range(2, REBUILD_TURNS_FALLBACK):
+            self.lead_job(f"lead-0{number}", job_id=100 + number, status="done", model="claude-opus-5", session_id="sid-1",
+                          timings={"execution_finished": NOW - 60})
+        self.assertEqual(project_lead.session_turns(self.state, LEAD, "lead-2", "sid-1"), REBUILD_TURNS_FALLBACK - 1)
+        self.assertEqual(project_lead.rebuild(self.state, LEAD, "lead-2", "claude-opus-5", NOW, "sid-1")[0], "")
+        self.lead_job("lead-0x", job_id=200, status="done", model="claude-opus-5", session_id="sid-1", input_tokens=10,
+                      timings={"execution_finished": NOW - 60})
+        code, words = project_lead.rebuild(self.state, LEAD, "lead-2", "claude-opus-5", NOW, "sid-1")
+        self.assertEqual(code, "tokens")
+        self.assertIn(f"连着 {REBUILD_TURNS_FALLBACK} 轮", words)
+        # Another session, or a turn in between that failed, starts the count again.
+        self.assertEqual(project_lead.session_turns(self.state, LEAD, "lead-2", "sid-2"), 0)
+        self.lead_job("lead-0y", job_id=300, status="failed", model="claude-opus-5", session_id="sid-1",
+                      timings={"execution_finished": NOW - 60})
+        self.assertEqual(project_lead.session_turns(self.state, LEAD, "lead-2", "sid-1"), 0)
+
+    def test_every_lead_turn_records_why_its_session_is_new(self):
+        runtime = SimpleNamespace(session_lock=__import__("threading").RLock(), log=self.logs.append)
+        sessions = SimpleNamespace(clear_session=lambda ctx, revision, sid: True, capture_session=lambda ctx: (8, None))
+        ctx = SimpleNamespace(state_dir=self.state, model="claude-opus-5")
+
+        def turn(key, number, sid):
+            job = SimpleNamespace(topic_id=LEAD, chat_id=CHAT, message_id=key, job_id=number, model="claude-opus-5")
+            self.lead_job(key, job_id=number, status="running", model="claude-opus-5")
+            project_lead.settle_session(ctx, job, sessions, runtime, 7, sid)
+            return read_job_record(job_path(self.state, key)).get("session_rebuild_reason")
+
+        self.assertEqual(turn("lead-1", 1, None), "")  # The first turn.
+        self.lead_job("lead-1", job_id=1, status="done", model="claude-opus-5", context_tokens=10,
+                      timings={"execution_finished": NOW - 60}, session_id="sid-1")
+        self.assertEqual(turn("lead-2", 2, "sid-1"), "")  # Goes on.
+        self.lead_job("lead-2", job_id=2, status="done", model="claude-opus-5", context_tokens=400_000,
+                      timings={"execution_finished": NOW - 60}, session_id="sid-1")
+        self.assertEqual(turn("lead-3", 3, "sid-1"), "tokens")
+        self.lead_job("lead-3", job_id=3, status="failed", model="claude-opus-5", timings={"execution_finished": NOW - 60})
+        self.assertEqual(turn("lead-4", 4, None), "prev_failed")
+        self.lead_job("lead-4", job_id=4, status="done", model="claude-opus-5", harness_id="agy", binding_revision=1,
+                      context_tokens=10, timings={"execution_finished": NOW - 60})
+        topic = json.loads(topic_file(self.state, LEAD).read_text()) if topic_file(self.state, LEAD).is_file() else {}
+        write_json(topic_file(self.state, LEAD), {**topic, "harness_id": "claude", "binding_revision": 2})
+        self.assertEqual(turn("lead-5", 5, None), "binding")
+        self.assertEqual(set(project_lead.REBUILD_CODES), {"", "tokens", "idle", "model", "binding", "prev_failed"})
 
     def test_settle_session_clears_the_pointer_and_logs_why(self):
         self.last(context_tokens=400_000)
@@ -482,6 +528,21 @@ class TurnTest(Case):
         _, message = self.run_turn(session_id="sid")
         self.assertNotIn("把账单迁到新库", message)
         self.assertIn("话题（还没有）", message)
+
+    def test_a_leads_rules_at_the_system_level_leave_its_message_and_the_pack_goes_whole_when_the_session_lost_it(self):
+        # WAVE12 C9 (11-28): with the rules at the system level (a plan, app/rules_sent.py) the lead's own go there too.
+        from covey.app import rules_sent
+
+        held_on = self.job(rules_plan=rules_sent.Plan(rules_sent.SYSTEM, "", "v1", "compaction"))
+        _, message = session.butler_turn(self.context(), held_on, "叫醒", "sid", mock.Mock(), self.logs.append)
+        self.assertNotIn("[负责人规则]", message)
+        self.assertTrue(message.startswith("[专项状态：迁移账单]"))
+        self.assertNotIn("把账单迁到新库", message)
+        self.assertEqual(held_on.pack_pending["project"], PID)
+        lost = self.job(rules_plan=rules_sent.Plan(rules_sent.SYSTEM, "", "v1", "compaction", intact=False))
+        _, message = session.butler_turn(self.context(), lost, "叫醒", "sid", mock.Mock(), self.logs.append)
+        self.assertNotIn("[负责人规则]", message)
+        self.assertIn("把账单迁到新库", message)  # The goal: the whole pack after a compaction.
 
     def test_a_lead_whose_record_is_gone_goes_on_unchanged_and_says_so(self):
         projects.record_path(self.state, PID).unlink()

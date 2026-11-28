@@ -32,7 +32,7 @@ from covey.cards.review import stopped_sentence
 from covey.core.state import write_json
 from covey.core.logs import append_private_text
 from covey.core.butler import worded
-from covey.app import auto_retry, butler_reactions, butler_relay, butler_reply, butler_tracks, policy_retry, project_lead, quota_return, repos_turn, track_digest, unstick
+from covey.app import auto_retry, butler_reactions, butler_relay, butler_reply, butler_tracks, policy_retry, project_lead, quota_return, repos_turn, rules_sent, track_digest, unstick
 from covey.app.turn_delivery import TurnDelivery, outgoing_markdown, show_outcome
 from covey.app.turn_images import TurnImages
 from covey.app.turn_settle import TurnResult, settle_turn
@@ -212,6 +212,10 @@ def process_bridge_reply_job(job: Any, ctx: Any, *, harness, runtime, messenger,
     turn, snapshot = _run_turn(job, ctx, harness=harness, runtime=runtime, cards=cards, sessions=sessions, runs=runs,
                                record_job_state=record_job_state, send_text=send_text, capabilities=capabilities,
                                revision=revision, session_id=session_id)
+    # What the turn's session now has of the rules and of a lead's pack: only after a turn that ended well (app/rules_sent.py).
+    rules_sent.settle(ctx, job, turn.status, runtime.log)
+    if turn.status in ("done", "waiting_user"):
+        project_lead.pack_settle(ctx, job, runtime.log)
     if turn.status != "waiting_user":  # A track of the butler forgets its session (app/butler_tracks.py).
         butler_tracks.release_pointer(ctx, job, harness, runtime)
     if turn.status == "interrupted":

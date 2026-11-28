@@ -244,6 +244,9 @@ class Interaction:
             trace = job_trace(job)
             if not trace.accept(kind, data):
                 return
+            if kind == "tool" and main and data.get("name") == "context_compaction" and data.get("status") == "done":
+                # The record's count of the turn's compactions (core/trace.py): the next turn's rules go whole (app/rules_sent.py).
+                upsert_job_record(ctx.state_dir, job.message_id, compactions=trace.compactions())
             if kind == "agent_state":
                 job.agents = {**job.agents, data["id"]: {k:v for k,v in data.items() if k != "id"}}
             if kind == "tool":

@@ -534,7 +534,8 @@ class OwnerSendAllowedTest(unittest.TestCase):
         with mock.patch.object(owner_send, "enabled", return_value=True), \
                 mock.patch.object(owner_send.records, "open_lines", return_value=[]), \
                 mock.patch.object(owner_send.records, "turn_lines", return_value=[]):
-            mine = SimpleNamespace(topic_id="t" * 64, chat_id="oc_owner", sender_id=OWNER, turn_source={}, read_only=False)
+            mine = SimpleNamespace(topic_id="t" * 64, chat_id="oc_owner", sender_id=OWNER, turn_source={}, read_only=False,
+                                   user_text="把结论发给张三")  # Words that may send: only then is the rule told (C9).
             lead = SimpleNamespace(**{**vars(mine), "turn_source": turn_source.stamp("lead")})
             self.assertIn(owner_send.records.RULE, owner_send.turn_note(self.ctx, mine, self.access))
             self.assertEqual(owner_send.turn_note(self.ctx, lead, self.access), "")

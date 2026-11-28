@@ -789,8 +789,9 @@ def tool_nudge(text) -> dict:
     return {"after": TOOL_NUDGE_CALLS, "text": TOOL_NUDGE_TEXT}
 
 
-def butler_message(snapshot: str, message: str, note: str = "", ask=None) -> str:
-    """A butler turn's message: its rules, the snapshot of the owner's topics, then the turn's own message.
+def butler_message(snapshot: str, message: str, note: str = "", ask=None, *, rules: str | None = None) -> str:
+    """A butler turn's message: its rules (``rules`` in their place when given: '' when they are at the system level,
+    app/rules_sent.py), the snapshot of the owner's topics, then the turn's own message.
     ``note``: a track's parallel note (app/butler_tracks.py), between the snapshot and the message. ``ask``: the turn's
     Harness's ``ask_words`` (None: ASK_TOOL's)."""
-    return "\n\n".join((butler_rules(ask), snapshot, *((note,) if note else ()), message))
+    return "\n\n".join(part for part in (butler_rules(ask) if rules is None else rules, snapshot, note, message) if part)

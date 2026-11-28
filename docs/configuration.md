@@ -36,6 +36,7 @@
 | [连着做完的回带合成一条](butler.md#结论回到顶层) | `COVEY_RELAY_MERGE_SECONDS`（默认 20，要管家开着） | 别的话题还在做时，“完成”的回带等 20 秒，这期间做完的合成一张「N 个话题做完了」 | `COVEY_RELAY_MERGE_SECONDS=0`（每条马上发） |
 | [自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | `COVEY_APP_CHECK`（默认开） | 应用缺权限、事件或菜单时私聊出现「飞书应用待补」卡 | `COVEY_APP_CHECK=0` |
 | [子 Agent 守则](harnesses.md#claude-code) | `COVEY_CLAUDE_HOOKS`（默认开） | Claude Code 的子 Agent（Explore 除外）开工时带上四句守则；子 Agent 调 Bridge 的工具（开话题、转交）被拒；管家这一轮自己调满 6 次别的工具时被提醒一次交给话题 | `COVEY_CLAUDE_HOOKS=0`（不注册这些 hook，和原来一样） |
+| [规则放在系统级](architecture.md#续接轮的规则) | `COVEY_SYSTEM_RULES`（默认开） | 四个核心 Harness 的桥接规则放在系统级（Claude Code 的 `--append-system-prompt`、Codex 新线程的 `developerInstructions`、dsh 的 patch、agy 私有主目录的 `GEMINI.md`），续接轮消息里不再整份重发、压缩也压不掉；会话里是旧版时在消息里补发一次新版；任务记录多 `rules_sent`、`compactions`，负责人轮多 `session_rebuild_reason` | `COVEY_SYSTEM_RULES=0`（规则回到用户消息，和原来一样；每轮现读，不用重新部署） |
 | [欢迎卡](usage.md#第一次使用) | `COVEY_WELCOME`（默认开） | 新部署第一次启动后私聊里有一张「欢迎使用 Covey」卡；升级前已在用的部署不发 | `COVEY_WELCOME=0` |
 | [限流和临时故障后自动继续](reference.md#自动重试) | `COVEY_AUTO_RETRY_LONG`（默认开） | 限流后的自动重试最久等约 3 小时（Claude 说了恢复时间就等到那时），529/5xx/断连也自动重试几次，每次另加 0–30 秒随机；任务卡上写着几点自动继续 | `COVEY_AUTO_RETRY_LONG=0`（照旧限流只重试两次、临时故障不重试、没有随机） |
 | [几个话题同因停下的合并提示](reference.md#自动重试) | `COVEY_LIMIT_NOTICE`（默认开） | 几个话题差不多同时因限流或临时故障停下、各自排好自动重试时，私聊里多一条提示，列出每个话题几点继续 | `COVEY_LIMIT_NOTICE=0`（没有这条提示，各话题的任务卡照旧） |
@@ -594,6 +595,7 @@
 | `COVEY_HOME` | `core/repomap.py`（`bin/covey_repo.py`：相对路径从这里算）、`backends/claude/tool_guard.py`（只读首轮的钩子：命令里的 `$COVEY_HOME` 按它解开） | Bridge 给每个本机的 Harness 进程设成主目录（服务的 `--workdir`），不要手设，见[主目录与仓库地图](#主目录与仓库地图) | 否 |
 | `COVEY_TOPIC` | `core/repomap.py`（`bin/covey_repo.py`） | Bridge 给每个本机的 Harness 进程设成这一轮的话题 id，`covey repo` 据此找本话题的 worktree 目录和用到的仓库，不要手设 | 否 |
 | `CODEX_HOME` | `core/paths.py`（`codex_home`，Codex 的会话目录从它取）、`core/model_settings.py`、`backends/codex/consult.py`（协作咨询轮的私有 home 从它链接）、`core/same_account.py`（读它的 config.toml / settings.json，看自己的登录和哪个模型网关是同一账号） | `~/.codex` | 否 |
+| `COVEY_SYSTEM_RULES` | `app/rules_sent.py`（`enabled`：`app/runs.py` 据此把桥接规则放到 Harness 的系统级，`app/butler.py`、`app/project_lead.py` 的管家、负责人规则跟着走） | 开：声明了 `system_instructions` 的 Harness（现在四个核心 Harness 都是）规则放系统级，见[续接轮的规则](architecture.md#续接轮的规则)；`0` 关：规则放用户消息，和原来一样 | 否 |
 | `COVEY_CLAUDE_HOOKS` | `backends/claude/hooks.py`（`enabled`：`TurnHooks.registration` 据此在每轮 Claude Code 的 initialize 里注册 SDK hook） | 开：子 Agent（Explore 除外）开工时收到守则（`SubagentStart`），子 Agent 调 `mcp__bridge__*` 被拒（`PreToolUse`），管家这一轮自己调满 6 次非 Bridge 工具时提醒一次交给话题（`PostToolUse`，主人说了“你直接做”的那一轮没有）；`0` 关：不注册，每轮和原来一样 | 否 |
 | `CLAUDE_CONFIG_DIR` | `backends/claude/sessions.py`、`backends/claude/redaction.py`、`core/maintenance_rules.py`、`core/claude_retention.py`（只读它的 `settings.json`，诊断页和 `./install` 提示会话保留几天）、`core/same_account.py`（读它的 config.toml / settings.json，看自己的登录和哪个模型网关是同一账号） | `~/.claude` | 否 |
 | `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`、`CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING` | `backends/claude/bridge.py`（Bridge 的环境里设了就用它的值，否则给 claude 子进程设成 `1`） | `1` | 否 |

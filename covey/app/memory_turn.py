@@ -30,7 +30,7 @@ from covey.app import assist, knowledge_turn, project_context
 from covey.app.prompts import memory_rules_block, memory_tail_block
 from covey.core import (knowledge, memory, memory_review, memory_search, memory_usage, memstore, principles, projects,
                         topic_gist, topic_memory)
-from covey.core import turn_source
+from covey.core import home, turn_source
 from covey.core.butler import is_butler_topic
 from covey.core.butler_opened import handed_on
 from covey.core.jobs import job_key, topic_job_records, upsert_job_record
@@ -364,7 +364,9 @@ def plan(ctx, job, owner_turn) -> Plan:
 def search_command(ctx, job, owner) -> str:
     """The command line a turn looks its memory up with (bin/covey_memory.py search, core/memory_search.py): this
     deployment's state and the turn's topic, ``--owner`` on the owner's own turn (his 全局 lines), ``--redacted`` in a topic
-    with redaction on (the lines only such a topic reads); '' on a device, whose files are not this machine's."""
+    with redaction on (the lines only such a topic reads); '' on a device, whose files are not this machine's. Through
+    ``<数据根>/bin/covey memory`` (core/home.py ``ensure_shim``, which each deploy points at its release), so the line, and
+    the rules it is in, stay the same from one deploy to the next (WAVE12 C9); the release's own script when that is not there."""
     if device_of(ctx):
         return ""
     topic_id = str(getattr(job, "topic_id", "") or ctx.topic_id or "")
@@ -372,8 +374,13 @@ def search_command(ctx, job, owner) -> str:
         hidden = bool(topic_redaction(ctx.state_dir, topic_id))
     except ValueError:
         hidden = False  # Its redacted lines are then not looked up, as the block leaves them out.
-    words = [sys.executable, "-B", str(entry_script("covey_memory.py")), "search", "--state", str(ctx.state_dir),
-             "--topic", topic_id, *(["--owner"] if owner else []), *(["--redacted"] if hidden else [])]
+    shim = home.bin_dir() / home.SHIM
+    try:
+        head = [str(shim), "memory"] if shim.is_file() else [sys.executable, "-B", str(entry_script("covey_memory.py"))]
+    except OSError:
+        head = [sys.executable, "-B", str(entry_script("covey_memory.py"))]
+    words = [*head, "search", "--state", str(ctx.state_dir), "--topic", topic_id, *(["--owner"] if owner else []),
+             *(["--redacted"] if hidden else [])]
     return " ".join(shlex.quote(word) for word in words) + ' "<一句话>"'
 
 

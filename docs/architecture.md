@@ -292,7 +292,7 @@ CardKit 只接受比同一张卡已有写入（含结果不确定的）都大的
 - `RunHandle` 的写绝不自动重放：`steer` 抛 `SteerRefused`/`SteerNotReady` 是没发出，其他异常是可能已送达。暂停型后端用 `wait_for_answer` 中断回合。共享层还读 `supports_steer`、`awaiting_answer`、`control_lock`、`verify_question_request(proof)`。
 - `capabilities(ctx)` 的 `HarnessCapabilities` 决定任务卡控件、话题消息能否当回答、能否复制原生会话、自动重试（`rate_limit_retry`、`fault_retry`、`incomplete_retry`）、回退（`rewind`）、脱敏（`redaction`）、子 Agent 恢复读会话文件（`session_files`）、能否把一轮限在只读（`read_only`）。
 - **一轮能做什么**（`core/harness.py` 的 `TOOL_LIMIT`，`app/tool_limits.py` 的 `limit` 决定，`Runs._prompt` 在这一轮任何东西跑之前写进上下文的 `options`）：`read` 是只读群里群成员的一轮（Claude Code `--tools Read,Grep,Glob` 加空的 `--strict-mcp-config`；Codex 只读沙箱，`turn/start` 另带 `sandboxPolicy`，app-server 关 apps、plugins、memories、hooks，续接原线程时在不含执行规则、钩子、插件和记忆的私有 `CODEX_HOME` 里跑（[harnesses.md 执行权限](harnesses.md#执行权限)）；`read_only` 为 False 的 Harness 这一轮不启动，错误码 `read_only_refused`）；`look` 是管家判为只读、没等主人点开始就开工的那一轮（Claude Code `--disallowedTools Edit,Write,NotebookEdit`，命令行还在；Codex 只读沙箱，关 apps、plugins、memories、hooks，执行规则里 allow 的命令仍在沙箱外执行；别的 Harness 只有任务说明里那句话）；`proxy` 是代答话题的一轮（Claude Code `--tools Read,Grep,Glob,Bash,Edit,Write`、不挂 MCP，PreToolUse 钩子 `bin/covey_tool_guard.py` 只放行只读的 lark-cli 命令和写联系人笔记目录，不读不写自带记忆；Codex 沙箱照旧（沙箱里 lark-cli 读不了聊天），app-server 关 memories、线程标成不进记忆，见[代答](proxy.md)）；`lead` 是专项负责人的一轮，不由 `limit` 定，`app/project_lead.py` 的 `held` 在负责人的轮里设（已经是 `consult`、`proxy`、`read` 的照旧，`look` 让位）：读、搜和 Bridge 工具，不改东西（Claude Code `--tools Read,Grep,Glob`，Bridge 工具照常；Codex 只读沙箱，Bridge 的 MCP 服务设 `default_tools_approval_mode = "approve"`，app-server 和 `read` 一样关 apps、plugins、memories、hooks，续接时同样用私有 `CODEX_HOME`；Antigravity 这一次运行的 `--settings` 拒绝规则，写文件、执行命令、读网址都拒；DeepSeek Harness 的 `read-only` 权限预设加 `--approval-policy never`，Bridge 工具经补丁里 `insert` 的 `dsh-mcp-client`；`bridge_tools` 为 False 的 Harness 这一轮不启动，见[专项 · 负责人只读](projects.md#负责人只读)）。都没有时一轮和以前一样。
-- 提示词（`app/prompts.py`，`app/runs.py` 组装）：桥接规则同一话题每轮相同，放在用户消息里，`request.instructions` 为空；续接只给最新消息和 `RESUME_REMINDERS`；主人的原则由 `principles_block` 加入。检查点约定按轮拼（`Runs.checkpoint_rules`）：每轮都带的几行之外，`steps`、`delivery`（连同验收三行 `acceptance`）、`show_images` 用到才带（[检查点步骤与改动](cards.md#检查点步骤与改动)）。`system_instructions` 通道保留，现在没有后端声明它。
+- 提示词（`app/prompts.py`，`app/runs.py` 组装）：桥接规则同一话题每轮相同，四个核心 Harness 都放在系统级（`request.instructions`，见[续接轮的规则](#续接轮的规则)），消息里只有每轮变的；没有系统级规则的老会话和 `COVEY_SYSTEM_RULES=0` 时照旧放在用户消息里，续接轮附 `RESUME_REMINDERS` 等提醒。主人的原则由 `principles_block` 加入。检查点约定（`Runs.checkpoint_rules`）：新会话整份；老会话的续接轮带步骤和交付两段，`show_images` 只在主人说到图时放消息里（[检查点步骤与改动](cards.md#检查点步骤与改动)）。
 - 后端继承 `BackendRuntime`。启动检查（`on_startup`）只由 worker 经 `Harness.ensure_started` 跑，失败后 `STARTUP_RETRY_SECONDS` 内的消息直接拒绝。模型目录由 Bridge 后台刷新到 `launch-models/<名字>.json`，点卡片时不探测后端。
 
 ### 后端名单
@@ -368,6 +368,27 @@ CardKit 只接受比同一张卡已有写入（含结果不确定的）都大的
 - 入口见[回退一步](usage.md#回退一步)：capability `rewind` 为真的 Harness（Claude）。点击由 `app/rewind.py` 的 `RewindCards` 在 EARLY 表里接住，不转给任务进程；记录在 `<state>/rewind-forms/`。
 - Claude Code 回放本轮提问时，`Rewinds.prompt_read` 在任务记录写 `prompt_uuid`、`prompt_session`；能回退的只有当前会话最新一个有这两项的任务，且话题空闲。
 - `backends/claude/rewind.py` 读会话文件找到保留条目和文件快照；先回退文件（失败则什么都不改），再在话题锁内移出最后一轮历史、取消待答问题、写 `rewind-next.json`。下一轮用 `--resume-session-at` 接上，不压缩。
+
+### 续接轮的规则
+
+桥接规则（身份与约束、主目录段和仓库地图、记忆的规矩、检查点契约和它的两条可选规则；管家和负责人连同自己的规则）放在每个核心 Harness 的系统级，续接轮的消息不再整份重发，会话压缩也压不掉（WAVE12 C9，主人定的；`app/rules_sent.py`）。系统级的文本每轮相同（`Runs.bridge_rules(system=True)`）：工作区最近话题的要点和专项资料库索引会随别的话题变，放在新会话第一条消息的开头（`_background`），不进系统级。
+
+- **四家各自的通道**（`HarnessCapabilities.system_instructions`、`system_refresh`；按本地假模型服务抓到的请求实测）：
+
+| Harness | 放在哪 | 续接时 | 压缩之后 |
+|---|---|---|---|
+| Claude Code（2.1.331） | 每次启动都带 `--append-system-prompt` | 沿用会话第一次调用存下的系统提示，传新的被忽略 | 按当次启动传的重新生成（`system_refresh="compaction"`） |
+| Codex（0.172.0） | 新线程的 `developerInstructions` | 存在线程历史里，续接、fork 都改不了 | 保留（本地压缩路径实测）（`system_refresh=""`） |
+| dsh（0.2.2-rc.5） | `--patch` 的 `system-prompt.personaSuffix`（连同默认的 `personaPrefix`；规则里的 `{{` 拆开） | 每轮按当前 patch 重新拼 | 每次请求重新拼（`"turn"`） |
+| agy（1.5.18） | 每轮的私有主目录（`backends/agy/home.py`）里的 `~/.gemini/GEMINI.md`，超过 23000 字节的部分进 `config/GEMINI.md` | 每轮重读 | 保留（`"turn"`） |
+
+- **版本不一致时补发**（`rules_sent.decide`，只对 Claude Code、Codex 这种不每轮重读的）：会话记录 `<state>/topics/<话题>/rules-sent.json` 里每个“Harness:会话”记着它系统级是哪一版（`system`，sha256 前 12 位）和消息里补发过哪一版（`override`）。这一轮的版本和会话的一样，消息里什么都不加（`system`）；不一样（部署改了规则、记忆的规矩多了一条），在消息里整份补发这一轮的，开头写明“以这份为准”（`override`，`OVERRIDE_HEAD`）；补发过同一版、且会话从那以后没压缩、上下文没骤降 30% 以上、上一轮善终、检查点没写 `rules_missing`、不满 `N_FULL`（8）轮，就不再补。新会话、Claude Code 压缩过的会话记成这一轮的版本。记录只在善终后写（`app/worker.py` 调 `rules_sent.settle`）；分叉的第一轮读源会话的记录；↩️ 回退（`app/rewind.py`）清掉本话题的记录；🔁 换配置后绑定对不上，等于没有记录。
+- **老会话**：没在系统级带过规则的会话（`app/sessions.py` 的 `started_with_system_rules` 没有标记）照旧每个续接轮在消息里整份发；每轮重读的 dsh、agy 不分新老。代答话题、协作咨询轮也照旧把规则放在消息里。
+- **管家和负责人**：规则在系统级时，管家的消息只有快照和这一轮的话，负责人的只有状态包和这一轮的话。会话完整（`rules_sent.lost` 为假）时，负责人状态包里三块只写变了的（`app/project_lead.py` 的 `state_pack(sent=…)`：话题清单只列没结束的、摘要变了的和本轮回执点到的，其余计数；专项记忆版本没变只写版本号；决定只列新增），读过什么记在 `<state>/projects/<专项>/pack-sent.json`（`pack_settle`，善终后写）；不完整时状态包整份，管家快照也整份。
+- **Codex 每轮的说明**：线程只认创建时的 `developerInstructions`，所以那里只放线程不变的（`backends/codex/appserver.py` 的 `thread_instructions`：负责人的、或通用的）；协作咨询、群成员只读、只读首轮这类按轮次变的说法放在这一轮输入的末尾（`turn_instructions`）。
+- **可观测**：任务记录多 `rules_sent`（`system`/`override`/`full`）和 `rules_sent_reason`，压缩过的一轮多 `compactions`；负责人每轮多 `session_rebuild_reason`（`""`/`tokens`/`idle`/`model`/`binding`/`prev_failed`，原来只在任务进程的日志里），缺 `context_tokens` 时不再拿累计 `input_tokens` 比 30 万，改按同一会话连续善终 `REBUILD_TURNS_FALLBACK`（12）轮重建。
+- **退回**：`COVEY_SYSTEM_RULES=0`（每轮现读，不用重新部署）：规则回到用户消息，和原来一样。
+- **代发规则**：`app/owner_send.py` 的 `turn_note` 不再接在主人原话后面（那样最近对话里最后一行和“用户最新的消息”对不上、去重失效，主人的话重复出现），改放消息末尾，只在有没结的草稿或这一轮的话提到“发给、通知”这类时带规则全文，刚结束的草稿结果照常一行一条。
 
 ### 敏感词脱敏
 

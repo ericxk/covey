@@ -665,8 +665,14 @@ class TurnTest(TracksCase):
         for options, fresh in ((forked, False), (None, True)):
             with mock.patch.object(runtime_tracks, "fork_options", return_value=options):
                 prompt, rules, system, _ = self.claude.runs._prompt(_Live(ctx), job, None)
-            self.assertEqual(rules in prompt, fresh, options)
+            self.assertTrue(system)  # The rules at the system level (app/rules_sent.py): never in front of the message.
+            self.assertNotIn(rules, prompt)
             self.assertIn("同时在做的几件事之一" if options else "最近的对话：", prompt)
+        with mock.patch.dict(os.environ, {"COVEY_SYSTEM_RULES": "0"}):
+            for options, fresh in ((forked, False), (None, True)):
+                with mock.patch.object(runtime_tracks, "fork_options", return_value=options):
+                    prompt, rules, system, _ = self.claude.runs._prompt(_Live(ctx), job, None)
+                self.assertEqual(rules in prompt, fresh, options)
 
     def test_a_track_on_its_own_session_resumes_it_and_forks_nothing(self):
         self.root_session()

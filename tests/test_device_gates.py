@@ -90,7 +90,8 @@ class Capabilities(unittest.TestCase):
             questions=True, image_bytes=claude_caps().image_bytes, image_frame=claude_caps().image_frame, steering=True,
             native_fork=True, rate_limit_retry=True, incomplete_retry=True, fault_retry=True, steer_reads=True, compaction=True,
             command_stop=True, session_files=True, redaction=True, rewind=True, bridge_tools=True, read_only=True, collab=True,
-            look_gate=True, question_tool="AskUserQuestion", nudges=True))
+            look_gate=True, question_tool="AskUserQuestion", nudges=True, system_instructions=True,
+            system_refresh="compaction"))
 
 
 def claude_caps():
@@ -317,7 +318,7 @@ class DeviceTurn:
         """Run ``job`` through ``app.process_reply_job`` under a guard. Kept: ``guard``, ``prompts``, ``requests`` (the
         Codex app server's requests), ``elements`` (what was put on the task card) and the device processes."""
         ctx = ctx or self.ctx
-        self.elements, self.prompts, self.requests = [], [], []
+        self.elements, self.prompts, self.requests, self.rules = [], [], [], []
         guard = self.guard = DeviceGuard(self.standin, device_root=self.device.home)
         tx = MemoryTransport()
         stack = contextlib.ExitStack()
@@ -346,6 +347,7 @@ class DeviceTurn:
             def prompt(live, job, session_id):
                 result = original_prompt(live, job, session_id)
                 self.prompts.append(result[0])
+                self.rules.append(result[1] if result[2] else "")  # The rules at the system level (app/rules_sent.py).
                 return result
 
             def request(this, method, params, *args, **kwargs):
@@ -424,11 +426,12 @@ class DeviceTurn:
         prompt = self.prompts[0]
         self.assertIn("本任务检查点文件：" + mirror["path"], prompt)
         self.assertNotIn(job.checkpoint_path, prompt)
-        self.assertIn("（在设备 gpu1 上", prompt)
+        self.assertIn("（在设备 gpu1 上", self.rules[0] + prompt)  # The rules (at the system level) name the device.
         history = knowledge_history()
         for hub in (str(self.state), str(self.root), "incoming_media", "history.py", "standin", history):
             if hub:
                 self.assertNotIn(hub, prompt, hub)
+                self.assertNotIn(hub, self.rules[0], hub)
 
     # ---- attachments (A-SPEC 5.2): a message's files are put on the device, the prompt names the copies
     def attachments(self):

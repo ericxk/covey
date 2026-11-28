@@ -1353,10 +1353,11 @@ class TurnTest(ButlerUnifiedCase):
                 mock.patch('covey.app.runs.stop_task_leftovers'):
             app.runs.generate_reply_for_worker(target, job, None, None)
         request = run.call_args.args[0]
-        self.assertIn('[管家规则]', request.prompt)
+        # The butler's rules at the system level with the bridge rules (app/rules_sent.py), the snapshot in the message.
+        self.assertIn('[管家规则]', request.instructions)
+        self.assertNotIn('[管家规则]', request.prompt)
         self.assertIn('[快照', request.prompt)
         self.assertIn('hello', request.prompt)
-        self.assertEqual(request.instructions, '')
         self.assertIn(butler.MCP_SERVER, request.context.options['mcp_config']['mcpServers'])
 
     def test_a_butler_turn_runs_its_subagents_light_unless_the_setting_says_same(self):
@@ -1657,7 +1658,9 @@ class IdleCompactionTest(ButlerUnifiedCase):
             backend.compact_session.side_effect = result
         else:
             backend.compact_session.return_value = result
-        app = SimpleNamespace(harness=self.claude.harness, sessions=self.claude.sessions, backend=backend)
+        backend.capabilities.return_value = HarnessCapabilities(system_instructions=True, system_refresh="compaction")
+        runs = SimpleNamespace(bridge_rules=lambda ctx, job, system=False: "THE TURN'S RULES" if system else "")
+        app = SimpleNamespace(harness=self.claude.harness, sessions=self.claude.sessions, backend=backend, runs=runs)
         gateway = SimpleNamespace(runtime=SimpleNamespace(runner=None, log=self.lines.append, owner_open_id=None),
                                   build_parser=lambda: SimpleNamespace(parse_args=lambda argv: argv),
                                   build_context=lambda args: None, apps={'claude': app})
@@ -1678,6 +1681,8 @@ class IdleCompactionTest(ButlerUnifiedCase):
         self.assertEqual(request.context.options['compact_instructions'], session.COMPACT_INSTRUCTIONS)
         self.assertNotIn('mcp_config', request.context.options)
         self.assertEqual(request.context.topic_id, BUTLER)
+        # The rules at the system level as a turn has them: Claude Code renders them again from this process's.
+        self.assertEqual(request.instructions, "THE TURN'S RULES")
         self.assertIsNone(self.request())
         at = idle_compaction.compacted_at(snapshot.parent)
         self.assertGreater(at, 0)

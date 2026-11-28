@@ -227,6 +227,7 @@
 | `app/review.py` | 独立复核: a read-only topic that reviews one finished turn's changes, opened only when the owner clicks the … |
 | `app/revisits.py` | 到点回来看 at the Bridge: a topic that waits on something outside (a training, CI, a deploy) ends its turn with … |
 | `app/rewind.py` | ↩️ 回退: drop a topic's latest turn, on a Harness that can (Claude Code) |
+| `app/rules_sent.py` | Rules sent (WAVE12 C9, W1-E) |
 | `app/runner.py` | The task runner process: one job of the Bridge, to completion |
 | `app/runner_ipc.py` | Messages between the Bridge and a job's task runner through its run directory |
 | `app/runner_spawn.py` | Starting a job's task runner, the Bridge side of app/detached.py |
@@ -580,7 +581,7 @@
 | `backends/agy/accounts.py` | Several Google accounts for Antigravity on this machine |
 | `backends/agy/bridge.py` | Antigravity (Google's `agy` CLI): Gemini and the other models of the owner's Google account, headless |
 | `backends/agy/compaction.py` | Compacting an agy conversation between turns: `/compact` in an agy process of its own |
-| `backends/agy/home.py` | agy's private home for one turn that takes the Bridge's tools (`options["mcp_config"]`, the butler's) |
+| `backends/agy/home.py` | agy's private home for one turn that takes the Bridge's tools (`options["mcp_config"]`, the butler's), or the … |
 | `backends/agy/judge.py` | One question to Antigravity and nothing else: the background model's questions when they go to Antigravity |
 
 ### backends/claude

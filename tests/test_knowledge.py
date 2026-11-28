@@ -326,8 +326,9 @@ class TurnTest(StateCase):
         self.assertEqual(runs.bridge_rules(self.ctx), self.old_rules(runs, None))
         rules = runs.bridge_rules(self.ctx, job)
         resumed = runs._with_rules(self.ctx, job, "MSG", rules, system=False, fresh=False, rules_session=False)
+        # The resumed contract is all of it but the image rule (WAVE12 C9: one text every turn, so its version holds).
         self.assertEqual(resumed, "MSG\n\n" + resume_reminders() + "\n\n" + workspace_block(self.ctx.workspace_name, self.ctx.workdir)
-                         + "\n\n" + CHECKPOINT_RULES)
+                         + "\n\n" + checkpoint_rules(images=False))
         fresh = runs._with_rules(self.ctx, job, "MSG", rules, system=False, fresh=True, rules_session=False)
         self.assertEqual(fresh, rules + "\n\nMSG")
         self.assertEqual(butler_rules(), "\n".join(("[管家规则]", *AREA_OPENING, *SHARED_RULES, USAGE_RULE, area_rule())))

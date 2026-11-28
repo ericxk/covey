@@ -1,4 +1,5 @@
-"""agy's private home for one turn that takes the Bridge's tools (``options["mcp_config"]``, the butler's).
+"""agy's private home for one turn that takes the Bridge's tools (``options["mcp_config"]``, the butler's), or the bridge
+rules at the system level (app/rules_sent.py: ``rules``, written as the home's ``~/.gemini/GEMINI.md``).
 
 agy reads its MCP servers from ``~/.gemini/config/mcp_config.json`` alone (and from its plugins): ``--settings``
 refuses ``mcpServers`` and no flag names another file. A turn with tools therefore runs with ``HOME`` a directory of
@@ -28,6 +29,11 @@ are therefore the tools a turn works with, those that hand work to topics first 
 SECONDARY last (``eager_names``), until they would take more than ``EAGER_BYTES`` (``COVEY_AGY_EAGER_BYTES``); agy names
 the rest, which costs it a line each.
 backends/agy/bridge.py ``left_out`` says after the turn when agy dropped some all the same.
+
+The rules: agy puts ``~/.gemini/GEMINI.md`` and ``~/.gemini/config/GEMINI.md`` into its system instruction (its
+``<user_rules>``), read again at every turn, after a ``/compact`` too (agy 1.5.18, measured 11-28 against a local fake
+model service). The private home's ``GEMINI.md`` is the owner's own (when there is one) and the rules after it; past
+``RULES_BYTES`` (agy cuts a rules file there, by lines) the rest goes to ``config/GEMINI.md``, after the owner's own.
 """
 from __future__ import annotations
 
@@ -47,7 +53,8 @@ from covey.core.state import ensure_private_dir
 
 TOOL_SECONDS = 150  # Above core/butler_requests.py's 120 seconds.
 LIST_SECONDS = 10  # How long the server may take to list its tools before the turn.
-GEMINI, CONFIG, MCP_FILE = ".gemini", "config", "mcp_config.json"
+GEMINI, CONFIG, MCP_FILE, RULES_FILE = ".gemini", "config", "mcp_config.json", "GEMINI.md"
+RULES_BYTES = 23000  # Of one rules file: agy 1.5.18 cuts one at 24000 bytes, by lines.
 PROTOCOL = "2025-06-18"
 # What a server's eager tools may take (``tool_size``). The butler's that work with topics take 14.7 KB with the
 # projects on; on 1.5.16 that and the others by name fit beside 62 skills (40 KB of them), all 21 eager did not.
@@ -121,15 +128,42 @@ def agy_servers(config, env) -> tuple[dict, dict]:
     return servers, listed
 
 
-def linked(source: Path, target: Path, keep: str) -> None:
-    """``target`` (made, empty) with a link to every entry of ``source`` but ``keep``."""
+def linked(source: Path, target: Path, keep) -> None:
+    """``target`` (made, empty) with a link to every entry of ``source`` but ``keep`` (a name, or several)."""
+    keep = (keep,) if isinstance(keep, str) else tuple(keep)
     try:
         entries = list(os.scandir(source))
     except OSError:
         return  # No such directory yet: agy makes what it needs in the private one.
     for entry in entries:
-        if entry.name != keep:
+        if entry.name not in keep:
             os.symlink(entry.path, target / entry.name)
+
+
+def rules_parts(rules: str) -> tuple[str, str]:
+    """``rules`` as (what fits ``RULES_BYTES`` in ``GEMINI.md``, the rest for ``config/GEMINI.md``), cut between lines."""
+    head, size = [], 0
+    lines = str(rules or "").splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        size += len(line.encode("utf-8"))
+        if size > RULES_BYTES and head:
+            return "".join(head), "".join(lines[index:])
+        head.append(line)
+    return "".join(head), ""
+
+
+def owners_rules(path: Path) -> str:
+    """The owner's own rules file at ``path`` (followed through its link), '' when there is none or it cannot be read."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def write_private(path: Path, text: str) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(text)
 
 
 def home_name(key, home) -> str:
@@ -138,15 +172,17 @@ def home_name(key, home) -> str:
 
 
 class PrivateHome:
-    """``with PrivateHome(state_dir, home, config, env, key) as path``: the turn's HOME, removed on the way out. ``home``
-    is the real one, ``config`` the turn's --mcp-config, ``env`` the turn's environment (the servers start with it),
-    ``key`` the topic whose turns share the name (``home_name``; "": a name of its own).
+    """``with PrivateHome(state_dir, home, config, env, key, rules) as path``: the turn's HOME, removed on the way out.
+    ``home`` is the real one, ``config`` the turn's --mcp-config (None: the owner's MCP servers as they are), ``env`` the
+    turn's environment (the servers start with it), ``key`` the topic whose turns share the name (``home_name``; "": a
+    name of its own), ``rules`` the bridge rules for its GEMINI.md ('' none).
     ``note``: why the owner's own servers are not there, "" when they are (or there are none). ``listed``: the tools
     each of ``config``'s servers listed, {server: [name]}."""
 
-    def __init__(self, state_dir, home, config, env, key=""):
+    def __init__(self, state_dir, home, config, env, key="", rules=""):
         self.state_dir, self.home, self.config, self.env = Path(state_dir), Path(home), config, env
         self.key = str(key or "")
+        self.rules = str(rules or "")  # The bridge rules, at the system level (the module's docstring); '' none.
         self.path = None
         self.lock = None  # The descriptor that holds the topic's name while the turn runs.
         self.note = ""
@@ -179,17 +215,23 @@ class PrivateHome:
         self.path = self.claim(tmp) or Path(tempfile.mkdtemp(prefix="agy-home-", dir=str(tmp)))  # mkdtemp is 0700.
         try:
             real = self.home / GEMINI
+            first, rest = rules_parts(self.rules)
             linked(self.home, self.path, GEMINI)
             (self.path / GEMINI / CONFIG).mkdir(parents=True, mode=0o700)
-            linked(real, self.path / GEMINI, CONFIG)
-            linked(real / CONFIG, self.path / GEMINI / CONFIG, MCP_FILE)
-            own = self.owner_servers(real / CONFIG / MCP_FILE)
-            servers, self.listed = agy_servers(self.config, self.env)
-            data = {"mcpServers": {**own, **servers}}
-            target = self.path / GEMINI / CONFIG / MCP_FILE
-            descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(descriptor, "w") as handle:
-                json.dump(data, handle, ensure_ascii=False, indent=2)
+            linked(real, self.path / GEMINI, (CONFIG, RULES_FILE) if first else CONFIG)
+            linked(real / CONFIG, self.path / GEMINI / CONFIG,
+                   (*((MCP_FILE,) if self.config else ()), *((RULES_FILE,) if rest else ())))
+            if self.config:
+                own = self.owner_servers(real / CONFIG / MCP_FILE)
+                servers, self.listed = agy_servers(self.config, self.env)
+                data = {"mcpServers": {**own, **servers}}
+                write_private(self.path / GEMINI / CONFIG / MCP_FILE, json.dumps(data, ensure_ascii=False, indent=2))
+            if first:
+                write_private(self.path / GEMINI / RULES_FILE,
+                              "\n\n".join(part for part in (owners_rules(real / RULES_FILE), first) if part))
+            if rest:
+                write_private(self.path / GEMINI / CONFIG / RULES_FILE,
+                              "\n\n".join(part for part in (owners_rules(real / CONFIG / RULES_FILE), rest) if part))
         except BaseException:
             self.__exit__(None, None, None)
             raise

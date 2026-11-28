@@ -34,12 +34,12 @@ import sys
 import time
 from pathlib import Path
 
-from covey.app import butler_harness, butler_reactions, idle_compaction, butler_relay, pins, project_lead, track_digest
+from covey.app import butler_harness, butler_reactions, idle_compaction, butler_relay, pins, project_lead, rules_sent, track_digest
 from covey.app.compaction import left_for_idle
 from covey.core.topic_seen import SEEN_FILE
 from covey.app import butler_tracks as tracks_module
 from covey.app.butler_tracks import Tracks
-from covey.app.prompts import (ask_words, first_turn_message, butler_message, resume_message, earlier_history,
+from covey.app.prompts import (ask_words, first_turn_message, butler_message, butler_rules, resume_message, earlier_history,
                                 tool_nudge)
 from covey.core import butler as contract
 from covey.core import butler_tracks
@@ -415,16 +415,36 @@ def butler_turn(ctx, job, prompt, session_id, compaction, log, harness=None):
     try:
         # A request this turn takes compacts the session first; one left to the idle compaction does not.
         request = None if track else compaction.request(ctx)
-        # Whole on a Harness the Bridge does not compact (compaction.supported): it may compact on its own, unseen.
+        # Whole on a Harness the Bridge does not compact (compaction.supported): it may compact on its own, unseen; and
+        # when the turn's plan says the conversation may have lost what earlier turns told it (app/rules_sent.py).
         snapshot = take_snapshot(ctx, job.chat_id, key, save=not track,
                                  full=bool(track) or not session_id or not compaction.supported(ctx)
-                                 or (request is not None and not left_for_idle(request)))
+                                 or (request is not None and not left_for_idle(request)) or rules_sent.lost(job))
     except Exception as exc:  # noqa: BLE001 - the owner's message goes on without it
         log(f"main thread snapshot unavailable job=#{job.job_id}: {type(exc).__name__}")
         snapshot = "[快照暂时读不到，需要时用 topics_list]"
     # How it asks the owner while the turn runs: its Harness's question tool, or the checkpoint (W2-A).
-    ask = ask_words(backend_capabilities(getattr(harness, "backend", None), ctx)) if harness is not None else None
-    return ctx, butler_message(snapshot, prompt, digest_note(ctx, job, key, track, note, log), ask)
+    ask = ask_of(ctx, harness)
+    # The butler's rules at the system level with the bridge rules (app/runs.py bridge_rules), else at the message's head.
+    rules = "" if rules_sent.at_system(job) else None
+    return ctx, butler_message(snapshot, prompt, digest_note(ctx, job, key, track, note, log), ask, rules=rules)
+
+
+def ask_of(ctx, harness):
+    """The turn's Harness's ``ask_words`` (app/prompts.py), None without a Harness."""
+    return ask_words(backend_capabilities(getattr(harness, "backend", None), ctx)) if harness is not None else None
+
+
+def family_rules(ctx, job, harness=None) -> str:
+    """The butler's or a lead's own rules (``butler_rules`` as ``harness`` asks, app/project_lead.py ``rules_of``), at
+    the system level after the bridge rules when the turn has them there (app/runs.py bridge_rules); '' for any other
+    turn."""
+    traits = contract.traits_of(job)
+    if not traits.own_turn:
+        return ""
+    if traits is contract.LEAD:
+        return project_lead.rules_of(ctx, job)
+    return butler_rules(ask_of(ctx, harness))
 
 
 def digest_note(ctx, job, key, track, note, log) -> str:

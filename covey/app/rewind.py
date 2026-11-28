@@ -21,6 +21,7 @@ from __future__ import annotations
 import dataclasses
 import time
 
+from covey.app import rules_sent
 from covey.app.card_queue import CardActionQueue
 from covey.app.card_actions import action_value
 from covey.app.binding import busy_reason, marker_path, read_marker, retire_open_questions
@@ -151,6 +152,8 @@ def rewind_turn(topics, app, ctx, chat, form, files):
                 compare_and_set_session(ctx.session_path, app.spec.session_pattern, revision, current, None)
         upsert_job_record(ctx.state_dir, record["key"], rewound={"at": done["at"], "files": restored,
                                                                  "token": form["token"]})
+        # The session cut back may have lost the turn that had the rules whole: the next one sends them (app/rules_sent.py).
+        rules_sent.forget(ctx.state_dir, ctx.topic_id)
     retire_open_questions(topics, app, ctx, chat, reason="rewound", message="这一轮已回退")
     topics.runtime.log(f"rewound topic={ctx.topic_id[:12]} job=#{form['job_id']} files={restored} "
                        f"rows={len(dropped)} fresh={not point['keep']}")

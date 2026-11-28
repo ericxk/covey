@@ -287,7 +287,7 @@ SEEN = {
     "agy": {"tools": agy_tools, "lead": agy_lead, "look": agy_look, "free": agy_free},
 }
 RULE_ASK, RULE_LOOK, RULE_ANCHOR, RULE_CONTEXT, RULE_NUDGE, RULE_SEARCH, RULE_WALK = (
-    "规则 · 提问方式", "规则 · 只读首轮", "规则 · 续接锚点", "规则 · 上下文偏高提醒", "规则 · 管家工具提醒",
+    "规则 · 提问方式", "规则 · 只读首轮", "规则 · 系统级规则", "规则 · 上下文偏高提醒", "规则 · 管家工具提醒",
     "规则 · 主目录搜索 · 命令行", "规则 · 主目录搜索 · 程序内递归")
 LOOK_GATE, LOOK_GIT, LOOK_SHELL, LOOK_NEXT = ("话题 · 只读首轮 · 路径闸", "话题 · 只读首轮 · .git 拒写", "话题 · 只读首轮 · 命令行写",
                                               "话题 · 只读首轮 · 第二轮解限")
@@ -306,11 +306,6 @@ GAPS = {
     (LOOK_SHELL, "agy"): "设计如此（规范 C6）：LOOK_SETTINGS 只拒 agy 自己的写文件工具、不拒 command(*)，留着跑只读调研脚本；"
                          "命令行能写仓库（RT-4 第 5 类：agy 1.5.18 实测 echo >> 写进了仓库文件，AgyLookC6）",
     (LOOK_SHELL, "dsh"): "同 dsh 路径闸：文字约束",
-    (RULE_ANCHOR, "claude"): "W1-E（app/rules_sent.py，规范 C9）还没合入：续接轮仍每轮发全量规则；合入后 LEAN 含 claude，"
-                             "这一格成立，从 GAPS 去掉",
-    (RULE_ANCHOR, "codex"): "规范 C9：续接减重上线先只对 Claude Code 开（LEAN），Codex 过了压缩对照实测再加",
-    (RULE_ANCHOR, "agy"): "规范 C9：同上，agy 过了压缩对照实测再加",
-    (RULE_ANCHOR, "dsh"): "设计如此（规范 C9）：dsh 不报压缩事件和上下文窗口，看不出会话压缩过，维持每轮全量",
     (RULE_CONTEXT, "agy"): "agy 只报上下文大小（context_tokens），不报窗口：stream 的 init/step/result 行、agy models 和本机会话库"
                            "都没有窗口字段（agy 1.5.18，W2-A 查过），context_high 不知道窗口就不提醒",
     (RULE_CONTEXT, "dsh"): "dsh 只报上下文大小，不报窗口：网关模型目录只有 id、协议、显示名和推理档位（docs/harnesses.md）；"
@@ -888,16 +883,40 @@ class RulesRowTest(HarnessCellsCase):
                 holds = gate == held(LOOK_GATE, name) and gate == held(LOOK_GIT, name) and bool(BOUNDS.get(name))
                 self.assertEqual(holds, held(RULE_LOOK, name), gap_words(RULE_LOOK, name))
 
+    def system_plan(self, name, sid="11111111-1111-4111-8111-111111111111"):
+        """(the backend's capabilities, the request's rules at the system level, the plan) of a topic's resumed turn on
+        ``name`` after one that began its session with them and ended well."""
+        from covey.app import rules_sent
+        from support import make_job
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root, topic = Path(tmp.name), "r" * 32
+        ctx = make_context(root, topic_id=topic, history_path=root / "state" / "topics" / topic / "history.jsonl")
+        write_topic(ctx, {"binding_revision": 1})
+        runs, caps = self.apps[name].runs, self.capabilities(name)
+        first, second = (make_job(job_id=number, message_id=f"om-r{number}", topic_id=topic, chat_id=self.chat,
+                                  result_backend=name, user_text="接着做") for number in (1, 2))
+        rules = runs.bridge_rules(ctx, second, system=True)
+        write_job(ctx.state_dir, "om-r1", job_id=1, topic_id=topic, chat_id=self.chat, backend=name, status="done")
+        rules_sent.record(ctx, first, sid, rules_sent.Plan(rules_sent.SYSTEM, "new_session", rules_sent.version(rules),
+                                                         caps.system_refresh))
+        return caps, rules, runs._rules_plan(ctx, second, sid, rules, caps)
+
     def test_a_resumed_turn_takes_the_anchor(self):
-        """C9 (W1-E): the Harnesses whose resumed turns get the anchor in place of the whole rules (rules_sent.LEAN)."""
-        try:
-            from covey.app import rules_sent
-        except ImportError:
-            rules_sent = None
+        """C9 (W1-E, the owner's call of 11-28): the bridge rules at the system level of every core Harness's session
+        (its own channel: system_instructions, system_refresh), so a resumed turn's message has none of them; with
+        COVEY_SYSTEM_RULES=0 they are in the message everywhere, as before."""
+        from covey.app import rules_sent
+
         for name in CORE_HARNESSES:
             with self.subTest(harness=name):
-                holds = rules_sent is not None and name in getattr(rules_sent, "LEAN", ())
+                caps, rules, found = self.system_plan(name)
+                holds = (caps.system_instructions and rules_sent.enabled() and found is not None
+                         and found.mode == rules_sent.SYSTEM and "检查点" in rules)
                 self.assertEqual(holds, held(RULE_ANCHOR, name), gap_words(RULE_ANCHOR, name))
+        with mock.patch.dict(os.environ, {rules_sent.ENV: "0"}):
+            self.assertFalse(rules_sent.enabled())
 
     def test_a_high_context_is_told(self):
         """The backend reports the latest request's context and the window it compacts against, so the next resumed turn

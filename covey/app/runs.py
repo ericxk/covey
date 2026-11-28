@@ -17,11 +17,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from covey.app import (collab_channel, device_files, home_turn, knowledge_turn, memory_turn, owner_send,
-                       project_context, quota_failure, repo_peers, repos_turn, subagent_recovery, tool_limits,
+                       project_context, quota_failure, repo_peers, repos_turn, rules_sent, subagent_recovery, tool_limits,
                        workspace_gists)
-from covey.core.statuses import ENDED
+from covey.core.statuses import ENDED, RUNNING
 from covey.app.leftovers import stop_task_leftovers
-from covey.app.butler import butler_turn
+from covey.app.butler import butler_turn, family_rules
 from covey.app.prompts import (MEMORY_FIX_RULE, REMEMBER_RULE, bridge_rules, earlier_history, first_turn_message,
                                         home_section, principles_block, context_high, resume_message, resume_reminders,
                                         turn_tail)
@@ -151,10 +151,25 @@ class Runs:
         self.rewinds = rewinds
         self.record_job_state = record_job_state
 
-    def bridge_rules(self, ctx: BridgeContext, job: ReplyJob | None = None, *, fresh: bool = False) -> str:
+    def bridge_rules(self, ctx: BridgeContext, job: ReplyJob | None = None, *, fresh: bool = False,
+                     system: bool = False) -> str:
         """The rules of ``job``'s turn; ``fresh``: a new session's, which alone carry the workspace's recent topics
         (app/workspace_gists.py, COVEY_WORKSPACE_GISTS). Static within a topic, one cacheable prefix (docs/butler.md 记忆 · 每轮怎么带): what changes
-        turn by turn is ``_turn_tail``'s."""
+        turn by turn is ``_turn_tail``'s. ``system``: the rules at the system level (app/rules_sent.py), the same text at
+        every turn of the topic: no recent topics and no library index (a new session's message has them,
+        ``_background``), and the butler's or a lead's own rules at their end (app/butler.py family_rules)."""
+        text = self._rules_text(ctx, job, fresh=fresh and not system, library=not system)
+        family = family_rules(ctx, job, self.harness) if system and job is not None else ""
+        return text + "\n\n" + family if family else text
+
+    def _background(self, ctx: BridgeContext, job: ReplyJob) -> str:
+        """What a new session's first message starts with when its rules are at the system level: the workspace's recent
+        topics and the project's library index, which change as other topics go on; '' without either."""
+        owner = lambda: self.owner_turn(ctx, job)  # noqa: E731
+        parts = (workspace_gists.block(ctx, job, owner_turn=owner), project_context.library_block(ctx, job))
+        return "\n\n".join(part for part in parts if part)
+
+    def _rules_text(self, ctx: BridgeContext, job: ReplyJob | None, *, fresh: bool, library: bool) -> str:
         return bridge_rules(
             backend_name=self.harness.spec.prompt_agent_name,
             workspace_name=ctx.workspace_name,
@@ -162,7 +177,7 @@ class Runs:
             runtime_note=self.harness.backend.prompt_runtime_note(ctx),
             notes=self.backend_notes(ctx),
             principles=self.principles(ctx, job),
-            project=project_context.block(ctx, job, resumed=False),
+            project=project_context.block(ctx, job, resumed=not library),
             knowledge_text=knowledge_turn.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job), resumed=False),
             remember=knowledge_turn.remembers(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)),
             memory_text=memory_turn.block(ctx, job, owner_turn=lambda: self.owner_turn(ctx, job)),
@@ -198,8 +213,13 @@ class Runs:
 
     def backend_notes(self, ctx: BridgeContext) -> tuple[str, ...]:
         """The backend's own constraints of ``ctx``'s turn (core/harness.py ``prompt_notes``), in the rules and in each
-        resumed turn's reminder: one that changed after the session started (redaction turned on) reaches the next turn."""
-        return tuple(getattr(self.harness.backend, "prompt_notes", lambda ctx: ())(ctx) or ())
+        resumed turn's reminder: one that changed after the session started (redaction turned on) reaches the next turn.
+        A backend whose notes fail gives none (a line in the log): the turn goes on with the rest of its rules (F2)."""
+        try:
+            return tuple(getattr(self.harness.backend, "prompt_notes", lambda ctx: ())(ctx) or ())
+        except Exception as exc:  # noqa: BLE001 - its notes never stop a turn
+            self.runtime.log(f"prompt notes of {self.harness.spec.name} unavailable: {type(exc).__name__}")
+            return ()
 
     @staticmethod
     def lead_turn(ctx: BridgeContext, job: ReplyJob | None) -> bool:
@@ -218,8 +238,9 @@ class Runs:
     def checkpoint_rules(self, ctx: BridgeContext, job: ReplyJob | None, *, resumed: bool = False) -> str:
         """The checkpoint contract of ``job``'s turn (core/checkpoint.py checkpoint_rules, 5.9 row 7): the part every turn
         uses for a ``slim`` one; all of it at the head of a topic's new session, which may run long, change code or
-        show an image. A topic's ``resumed`` turn, whose session read that, is reminded of the part every turn uses and
-        of what the topic uses (``_used``)."""
+        show an image. A topic's ``resumed`` turn has all of it but the image rule, which its message carries when the
+        owner's words are about an image (``_images_note``): the same text every turn, so the rules' version holds
+        (app/rules_sent.py; it used to follow what the topic's earlier turns did)."""
         if ctx.options.get(TOOL_LIMIT) == CONSULT:
             return collab_channel.RULES  # A 协作 ask: no checkpoint at all (app/tool_limits.py CONSULT).
         if self.lead_turn(ctx, job):
@@ -228,21 +249,7 @@ class Runs:
             return checkpoint_rules(steps=False, delivery=False, images=False)
         if not resumed or job is None:
             return checkpoint_rules()
-        steps, delivery, images = self._used(ctx, job)
-        return checkpoint_rules(steps=steps, delivery=delivery, images=images)
-
-    def _used(self, ctx: BridgeContext, job: ReplyJob) -> tuple[bool, bool, bool]:
-        """(steps, delivery, images): whether a turn of the topic before ``job`` listed steps (a long task), whether one
-        changed code (it wrote a delivery, or the Bridge saw it change files: its diff), and whether the owner's words
-        of this turn are about an image to show at once (core/checkpoint.py IMAGE_WORDS)."""
-        images = bool(images_note(job.user_text))
-        try:
-            records = [record for record in self.harness.topic_records(ctx, job.chat_id)
-                       if record.get("message_id") != job.message_id]
-        except (OSError, ValueError, AttributeError):  # Unreadable: remind of all of it, as before the split.
-            return True, True, True
-        return (any(record.get("steps") for record in records),
-                any(record.get("delivery") or record.get("diff_json_path") for record in records), images)
+        return checkpoint_rules(images=False)
 
     def principles(self, ctx: BridgeContext, job: ReplyJob | None) -> str:
         """The owner's principles block for ``job``'s turn (core/principles.py): ctx's workspace's always (the
@@ -359,25 +366,40 @@ class Runs:
                                        held=backend_capabilities(self.harness.backend, live.ctx).look_gate)
         # A fork replaces ctx; the callbacks read it when they are called.
         live.ctx, prompt = self._turn_message(live.ctx, job, session_id)
+        caps = backend_capabilities(self.harness.backend, live.ctx)
+        # The rules at the system level where the Harness has a channel (app/rules_sent.py; COVEY_SYSTEM_RULES=0: none):
+        # what this turn's session has of them, before the butler's turn, whose own rules and pack follow it.
+        system = (caps.system_instructions and rules_sent.enabled() and not proxy_topic(live.ctx)
+                  and live.ctx.options.get(TOOL_LIMIT) != CONSULT)  # A 协作 ask's fork has its helper's: rules in its message.
+        rules = self.bridge_rules(live.ctx, job, system=True) if system else ""
+        job.rules_plan = self._rules_plan(live.ctx, job, session_id, rules, caps) if system else None
         # The butler's turn (app/butler.py): its rules and snapshot open the message, its Bridge tools
         # join the run; the whole snapshot on a new session and on one compacted before this turn.
         live.ctx, prompt = butler_turn(live.ctx, job, prompt, session_id, self.compaction, self.runtime.log, self.harness)
         ctx = live.ctx
         fresh = fresh and not ctx.options.get("track_fork")  # A track's fork has its source's conversation and rules.
-        rules = self.bridge_rules(ctx, job, fresh=fresh)
+        if not system:
+            rules = self.bridge_rules(ctx, job, fresh=fresh)
         caps = backend_capabilities(self.harness.backend, ctx)
-        system = caps.system_instructions
-        # A native session keeps the system rules of its first invocation: a new one starts with
-        # them, a fork has its source's, a resumed one has them only if it started with them.
+        # A native session keeps the system rules of its first invocation: a new one starts with them, a fork has its
+        # source's, a resumed one has them only if it started with them; a Harness that reads them again at every turn
+        # (``system_refresh`` "turn") has them in any session.
         source = session_id or ctx.options.get("fork_session")
-        live.rules_session = system and (started_with_system_rules(ctx, self.harness.spec.name, source) if source else True)
+        live.rules_session = system and (caps.system_refresh == rules_sent.REREAD or (
+            started_with_system_rules(ctx, self.harness.spec.name, source) if source else True))
+        if system and not live.rules_session:
+            job.rules_plan = None  # A session from before: its rules in each resumed turn's message, as before.
         prompt = self._with_rules(ctx, job, prompt, rules, system=system, fresh=fresh, rules_session=live.rules_session)
+        self._note_rules(ctx, job, fresh=fresh)
         if ctx.options.get(TOOL_LIMIT) == CONSULT:
             # A 协作 ask: no checkpoint file, no context or repository note; its limit's words last.
             prompt += ("\n\n" + collab_channel.RECORD_NOTE if ctx.options.get(collab_channel.RECORD_ONLY) else "") + tool_limits.note(ctx)
         else:
-            prompt += (self._checkpoint_note(ctx, job) + self._turn_tail(ctx, job) + self._context_note(ctx, job, session_id)
-                       + self._repo_note(ctx, job) + tool_limits.note(ctx))
+            # 代发's rule at the tail, only when the turn may send (app/owner_send.py turn_note), never in the owner's words.
+            prompt += (self._checkpoint_note(ctx, job, resumed=not fresh and not live.rules_session) + self._turn_tail(ctx, job)
+                       + self._context_note(ctx, job, session_id)
+                       + self._repo_note(ctx, job) + owner_send.turn_note(ctx, job, getattr(self.runtime, "access", None))
+                       + tool_limits.note(ctx))
         attachments = self._image_attachments(ctx, prompt)
         if ctx.device:
             prompt, attachments, live.ctx = self._stage_attachments(ctx, job, prompt, attachments)
@@ -517,8 +539,8 @@ class Runs:
 
     def _turn_message(self, ctx: BridgeContext, job: ReplyJob, session_id: str | None) -> tuple[BridgeContext, str]:
         """The message before the rules, and the context to run in (a fork's first run has its own)."""
-        user_text = ((job.prompt_text or job.user_text) + proxy_turn_note(ctx, job)
-                     + owner_send.turn_note(ctx, job, getattr(self.runtime, "access", None)))
+        said = job.prompt_text or job.user_text  # The history's last row is these words (``earlier_history``).
+        user_text = said + proxy_turn_note(ctx, job)
         if session_id:
             return ctx, resume_message(user_text)
         history_snapshot = (
@@ -530,7 +552,7 @@ class Runs:
         if getattr(job, "policy_retry", None):
             # A retry after a safety refusal (app/policy_retry.py) starts from its own snapshot, the refused round
             # taken out: a switch handoff would bring that round back, and the switch notice, again.
-            return ctx, first_turn_message(user_text, earlier_history(history_snapshot, job.message_id, user_text))
+            return ctx, first_turn_message(user_text, earlier_history(history_snapshot, job.message_id, said))
         # The old model's summary is not asked for a turn generate_reply refuses below (a missing workdir, 敏感词脱敏, a
         # member's read-only turn on a Harness that cannot hold it).
         history_snapshot, handoff = self.switch.switch_handoff(
@@ -539,7 +561,7 @@ class Runs:
                            and not self._limit_refusal(ctx)),
             note=lambda text: self._bridge_note(ctx, job, "bridge-handoff", text),
             show=lambda element: self._handoff_block(ctx, job, element))
-        earlier = earlier_history(history_snapshot, job.message_id, user_text)
+        earlier = earlier_history(history_snapshot, job.message_id, said)
         if proxy_topic(ctx):
             earlier = brief_history(earlier)  # Each earlier batch by its messages; its rules are this batch's.
         # After a switch each earlier message is cut short: the transcript file has them whole.
@@ -568,7 +590,15 @@ class Runs:
             memory_turn.record(ctx, job, lambda: self.owner_turn(ctx, job), self.runtime.log)
         if not system and fresh:
             prompt = rules + "\n\n" + prompt
-        elif not rules_session and not proxy_topic(ctx):
+        elif system and fresh and not ctx.options.get("fork_session"):
+            background = self._background(ctx, job)  # The rules are at the system level; what changes is here.
+            prompt = background + "\n\n" + prompt if background else prompt
+        elif rules_session:
+            # The session has the rules at the system level (app/rules_sent.py): an older version of them is told the
+            # turn's whole, which wins over its own; the knowledge entries since the topic's previous turn too.
+            if rules_sent.mode_of(job) == rules_sent.OVERRIDE:
+                prompt += "\n\n" + rules_sent.override(rules, job.rules_plan.current)
+        elif not proxy_topic(ctx):
             # A 代答 topic's batch prompts carry its rules each turn (core/proxy.py batch_prompt): nothing appended.
             # Sessions without the rules at system level (older ones, or no such channel); their original prompts may still describe the tool repository as the
             # output root, or compaction may have dropped them.
@@ -595,7 +625,40 @@ class Runs:
                 + ("\n\n" + MEMORY_FIX_RULE if memory_fix else ""))
         return prompt
 
-    def _checkpoint_note(self, ctx: BridgeContext, job: ReplyJob) -> str:
+    def _rules_plan(self, ctx: BridgeContext, job: ReplyJob, session_id: str | None, rules: str,
+                    caps) -> rules_sent.Plan | None:
+        """What ``job``'s turn tells of its system-level ``rules`` (app/rules_sent.py ``make``), from the session's record
+        and the topic's last two turns. Never raises: a plan that cannot be made tells them whole."""
+        if job.kind != "chat":
+            return None
+        current = rules_sent.version(rules)
+        try:
+            done = [record for record in self.harness.topic_records(ctx, job.chat_id)
+                    if record.get("job_id") != job.job_id and record.get("status") not in RUNNING]
+            previous, before = (done + [None, None])[:2]
+            return rules_sent.make(ctx, job, session_id, current=current, refresh=caps.system_refresh,
+                                   previous=previous, before=before)
+        except Exception as exc:  # noqa: BLE001 - the turn tells its rules whole
+            self.runtime.log(f"rules plan of job=#{job.job_id} unavailable: {type(exc).__name__}")
+            return rules_sent.Plan(rules_sent.OVERRIDE, "unreadable", current, caps.system_refresh, False)
+
+    def _note_rules(self, ctx: BridgeContext, job: ReplyJob, *, fresh: bool) -> None:
+        """What the turn did with its rules on its job record (``rules_sent``: system, override, or full for rules in the
+        message; ``rules_sent_reason`` with a plan, app/rules_sent.py decide): none for a 代答 topic. A failure is a line
+        in the log."""
+        if proxy_topic(ctx):
+            return
+        found = getattr(job, "rules_plan", None)
+        plan = found if isinstance(found, rules_sent.Plan) else None
+        fields = {"rules_sent": plan.mode if plan else rules_sent.FULL}
+        if plan is not None:
+            fields["rules_sent_reason"] = plan.reason
+        try:
+            upsert_job_record(ctx.state_dir, job.message_id, **fields)
+        except (OSError, ValueError) as exc:
+            self.runtime.log(f"rules sent of job=#{job.job_id} not recorded: {type(exc).__name__}")
+
+    def _checkpoint_note(self, ctx: BridgeContext, job: ReplyJob, *, resumed: bool = False) -> str:
         """The checkpoint file and the previous status; continuing an answered task closes its card. None in a 代答
         topic: its turns never wait for the owner and write no checkpoint (app/prompts.py proxy_constraints)."""
         if not job.checkpoint_path or proxy_topic(ctx):
@@ -626,7 +689,7 @@ class Runs:
             return "\n\n" + told if told else ""
         return ("\n\n" + checkpoint_note(Path(job.checkpoint_path), prior, shown=shown) + self._gist_note(ctx, job)
                 + self._revisit_note(ctx, job) + self._ask_note(ctx, job) + self._collab_note(ctx, job)
-                + self._criteria_note(ctx, job) + self._images_note(ctx, job))
+                + self._criteria_note(ctx, job) + self._images_note(ctx, job, resumed=resumed))
 
     def _turn_tail(self, ctx: BridgeContext, job: ReplyJob) -> str:
         """The turn's dynamic block (app/prompts.py turn_tail): the memory's (app/memory_turn.py tail) and the repositories'
@@ -676,10 +739,10 @@ class Runs:
         found = criteria.note(criteria.read(ctx.state_dir, job.topic_id or ctx.topic_id))
         return "\n\n" + found if found else ""
 
-    def _images_note(self, ctx: BridgeContext, job: ReplyJob) -> str:
-        """show_images's rule in the message of a ``slim`` turn (its rules lack it) whose owner's words are about an image
-        to show at once (core/checkpoint.py images_note); '' otherwise."""
-        note = images_note(job.user_text) if self.slim(ctx, job) else ""
+    def _images_note(self, ctx: BridgeContext, job: ReplyJob, *, resumed: bool = False) -> str:
+        """show_images's rule in the message of a ``slim`` turn or a ``resumed`` one (their rules lack it) whose owner's words
+        are about an image to show at once (core/checkpoint.py images_note); '' otherwise."""
+        note = images_note(job.user_text) if self.slim(ctx, job) or resumed else ""
         return "\n\n" + note if note else ""
 
     @staticmethod

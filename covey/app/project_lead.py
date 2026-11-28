@@ -9,7 +9,8 @@ how its session lives. Only a lead topic's turn (core/butler.py ``is_lead``) com
 - ``lead_rules``: the lead's rules in layers (identity, tools, style, and the practice layer phase 3 fills for a
   specialist: nothing now).
 - ``settle_session`` (app/worker.py ``_start_turn``): the session is dropped, and the pack sent again, when the previous
-  turn's conversation ended over ``RESET_TOKENS``, the topic has been idle ``RESET_IDLE`` seconds, or the model changed.
+  turn's conversation ended over ``RESET_TOKENS`` (a record without its size: ``REBUILD_TURNS_FALLBACK`` turns in a row),
+  the topic has been idle ``RESET_IDLE`` seconds, or the model changed; why, on the turn's record (``session_rebuild_reason``).
 - ``lead_turn`` (app/butler.py ``butler_turn``): the turn's context (its Bridge tools, the turn held to reading on
   whichever Harness it runs: LEAD, ``held``) and message (rules, pack, then the turn's own message).
 - The inbox, ``projects/<id>/inbox/<n>.json`` ({id, kind, thread, label, text, at, taken_by}): receipts of what happened since
@@ -44,7 +45,7 @@ from covey.core import turn_source
 from covey.core.checkpoint import (ASK_SHORT, checked, checkpoint_delivery, delivery_commits, read_checkpoint, short_commit,
                                    turn_summary)
 from covey.core.harness import CONSULT, LEAD, PROXY, READ, TOOL_LIMIT
-from covey.core.jobs import job_key, job_path, owner_stopped, read_job_record, topic_job_records
+from covey.core.jobs import job_key, job_path, owner_stopped, read_job_record, topic_job_records, upsert_job_record
 from covey.core.locks import resource_lock
 from covey.core.state import epoch_seconds, read_for_write, read_object, write_json
 from covey.core.statuses import ENDED, RUNNING
@@ -772,7 +773,20 @@ DEVICE_PLACE = ("工作区：专项的话题在设备上的工作区「{name}」
                 "开专项的话题时 workspace 填「{name}」，Harness 用那台设备声明的。")
 
 
-def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redacted=False) -> str:
+PACK_SENT = "pack-sent.json"  # <state>/projects/<id>/: what the lead's session read of the pack (``pack_sent``).
+TOPICS_LEFT = "其余 {count} 个话题和上次状态包里一样（都已结束），这里不再列。"
+MEMORY_SAME = "专项记忆 v{version} 没变（全文在之前的状态包里），照它办。"
+DECISIONS_NEW = "新增 {count} 条决定（之前的 {before} 条见之前的状态包）："
+
+
+def digest(text) -> str:
+    """A pack part's sha12 (app/rules_sent.py version)."""
+    from covey.app.rules_sent import version
+
+    return version(text)
+
+
+def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redacted=False, sent=None, keep=None) -> str:
     """The pack at the head of the lead's turn ``key``. ``full``: the whole of it (a new session); else the parts that
     change between turns (members, memory, style, inbox, decisions), the goal being in the session already.
     ``receipts``: the inbox's items when the caller has taken them. The memory is core/memory.py project_view's, as a member
@@ -782,7 +796,12 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
     the 简报 (``brief_block``: its background in a new session only), the 目标检查表 and the open 协作 gaps (``checklist_block``:
     a resumed session's items met in one line) and the inbox in groups (``inbox_block``), in a new session and a resumed one.
     A resumed session gets what the library has new since its previous turn began (``library_added``), and a turn after one
-    the owner stopped the receipts that one had taken (``stopped_block``)."""
+    the owner stopped the receipts that one had taken (``stopped_block``).
+
+    ``sent`` (a resumed session's, app/rules_sent.py: what it read of the pack before, ``pack_sent``): three parts only say
+    what changed (WAVE12 C9): the topics, only those not ended, whose line changed or that a receipt of this turn names,
+    the rest counted; the memory, only its version when that did not change; the decisions, only the new ones. ``keep``: a
+    dict given gets what this pack says of those three (``topics``, ``memory``, ``decisions``), for ``pack_sent``."""
     style = style_of(record)
     if receipts is None:
         receipts = take_receipts(state_dir, record["id"], key)
@@ -798,8 +817,15 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
         if value:
             out.append(DEVICE_PLACE.format(name=name or value, value=value))
     rows = member_rows(state_dir, record)
+    lines = {row["topic_id"]: thread_line(row) for row in rows}
+    shown = rows
+    if isinstance(sent, dict) and isinstance(sent.get("topics"), dict):
+        named = {str(item.get("thread") or "") for item in receipts or () if isinstance(item, dict)}
+        shown = [row for row in rows if row["live"] or row["topic_id"] in named
+                 or sent["topics"].get(row["topic_id"]) != digest(lines[row["topic_id"]])]
     out.append("话题（" + (f"{len(rows)} 个，{sum(1 for row in rows if row['live'])} 个没结束" if rows else "还没有") + "）："
-               + ("\n" + "\n".join(map(thread_line, rows)) if rows else ""))
+               + ("\n" + "\n".join(lines[row["topic_id"]] for row in shown) if shown else "")
+               + ("\n" + TOPICS_LEFT.format(count=len(rows) - len(shown)) if len(shown) < len(rows) else ""))
     if collab_on:
         out += [brief_block(state_dir, record, rows, full=full), checklist_block(state_dir, record, rows, full=full)]
     waiting = deploy_block(state_dir, record)
@@ -812,7 +838,10 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
     view = core_memory.project_view(rows + project_context.decision_rows(state_dir, record["id"], rows), record["id"], redacted=redacted,
                                     since=None if full else since)
     memory = memory_lines(view, memory_codes(state_dir, record["id"]) if view["parts"] else None)
-    if memory:
+    memory_version = digest("\n".join(memory))
+    if memory and isinstance(sent, dict) and sent.get("memory") == memory_version:
+        out.append(MEMORY_SAME.format(version=memory_version))
+    elif memory:
         out.append(LEAD_MEMORY_HEAD + "\n" + "\n".join(memory))
     words = owner_word_lines(state_dir, record) if triage.enabled() else []  # Grounds project_answer may name (W0-2).
     if words:
@@ -833,8 +862,16 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
         out.append(held)
     out.append("风格：" + "；".join(f"{name}={value}" for name, value in style.items()))
     decisions = [row for row in record.get("decisions") or () if isinstance(row, dict) and row.get("text")][-DECISIONS:]
-    if decisions:
+    ids = [str(row.get("id") or row.get("at") or "") for row in decisions]
+    if decisions and isinstance(sent, dict) and isinstance(sent.get("decisions"), list):
+        new = [row for row, ident in zip(decisions, ids) if ident not in sent["decisions"]]
+        if new:
+            out.append(DECISIONS_NEW.format(count=len(new), before=len(decisions) - len(new)) + "\n"
+                       + "\n".join(f"- {stamp(row.get('at'))} {row['text']}" for row in new))
+    elif decisions:
         out.append(f"近 {len(decisions)} 条决定：\n" + "\n".join(f"- {stamp(row.get('at'))} {row['text']}" for row in decisions))
+    if isinstance(keep, dict):
+        keep.update(topics={tid: digest(line) for tid, line in lines.items()}, memory=memory_version, decisions=ids)
     reopened = [row for row in record.get("reopened") or () if isinstance(row, dict)]
     if reopened and record.get("state") == projects.ACTIVE:
         last = reopened[-1]
@@ -898,43 +935,110 @@ def previous_turn(state_dir, topic_id, key):
     return max(found, key=lambda record: int(record.get("job_id") or 0), default=None)
 
 
-def rebuild_reason(state_dir, topic_id, key, model, now=None) -> str:
-    """Why the lead's session must be built again ('' when it may go on): the previous turn ended with its conversation
-    over RESET_TOKENS, the topic was idle over RESET_IDLE, or the model is not the previous turn's.
+REBUILD_CODES = ("", "tokens", "idle", "model", "binding", "prev_failed")  # A lead turn's ``session_rebuild_reason``.
 
-    The conversation's size is the previous turn's ``context_tokens`` (what its next request would start from), not its
+
+def session_turns(state_dir, topic_id, key, session_id) -> int:
+    """How many of the lead topic's turns before ``key`` in a row, newest first, ran on ``session_id`` and ended well."""
+    if not session_id:
+        return 0
+    found = sorted((record for record in topic_job_records(state_dir, topic_id) if record.get("key") != key),
+                   key=lambda record: int(record.get("job_id") or 0), reverse=True)
+    count = 0
+    for record in found:
+        if record.get("status") in {"waiting_workspace"} or (record.get("status") not in ENDED and not record.get("session_id")):
+            continue  # Never started, or not over: neither breaks nor adds to the run.
+        if record.get("session_id") != session_id or record.get("status") not in GOOD_ENDS:
+            break
+        count += 1
+    return count
+
+
+def rebuild(state_dir, topic_id, key, model, now=None, session_id="") -> tuple[str, str]:
+    """(code, words) of why the lead's session must be built again (('', '') when it may go on; ``code`` one of
+    ``REBUILD_CODES``): the previous turn ended with its conversation over RESET_TOKENS, the topic was idle over
+    RESET_IDLE, or the model is not the previous turn's.
+
+    The conversation's size is the previous turn's ``context_tokens`` (what its next request would start from), never its
     ``input_tokens``: those add up every request of the turn, each of which read the whole conversation again (T776: a
     lead turn of 41 steps on a 200K conversation had read 918K, and every turn of the lead started a new session, its
-    first request reading nothing from the cache). A record without it (one from before the counts) falls back to them."""
+    first request reading nothing from the cache; WAVE12 §1.1: 2 of agy's 34 turns without it rebuilt so). A record without
+    it counts the turns in a row on ``session_id`` instead: ``REBUILD_TURNS_FALLBACK`` of them build a new one."""
+    from covey.app.rules_sent import REBUILD_TURNS_FALLBACK
+
+    last = previous_turn(state_dir, topic_id, key)
+    if last is None:
+        return "", ""
+    tokens = last.get("context_tokens")
+    if type(tokens) is int:
+        if tokens > RESET_TOKENS:
+            return "tokens", f"上一轮结束时对话有 {tokens} token"
+    else:
+        turns = session_turns(state_dir, topic_id, key, session_id)
+        if turns >= REBUILD_TURNS_FALLBACK:
+            return "tokens", f"上一轮没有记下上下文大小，这个会话已连着 {turns} 轮"
+    ended = board_read.ended_at(last)
+    if ended and now_of(now) - ended > RESET_IDLE:
+        return "idle", "空闲超过 24 小时"
+    before = str(last.get("model") or "")
+    if before and model and before != model:
+        return "model", f"换了模型（{before} → {model}）"
+    return "", ""
+
+
+def rebuild_reason(state_dir, topic_id, key, model, now=None, session_id="") -> str:
+    """``rebuild``'s words: why the lead's session must be built again, '' when it may go on."""
+    return rebuild(state_dir, topic_id, key, model, now, session_id)[1]
+
+
+def missing_reason(state_dir, topic_id, key, binding) -> str:
+    """Why a lead's turn has no session to go on (the code a new session's turn records): ``prev_failed`` when the
+    previous turn did not end well (its session was not kept), ``binding`` when it ran on another Harness or binding
+    revision (a 🔁 换配置 cleared the pointer); '' for a first turn, or none of these."""
     last = previous_turn(state_dir, topic_id, key)
     if last is None:
         return ""
-    tokens = last.get("context_tokens")
-    tokens = tokens if type(tokens) is int else last.get("input_tokens")
-    if type(tokens) is int and tokens > RESET_TOKENS:
-        return f"上一轮结束时对话有 {tokens} token"
-    ended = board_read.ended_at(last)
-    if ended and now_of(now) - ended > RESET_IDLE:
-        return "空闲超过 24 小时"
-    before = str(last.get("model") or "")
-    if before and model and before != model:
-        return f"换了模型（{before} → {model}）"
+    if last.get("status") not in GOOD_ENDS:
+        return "prev_failed"
+    harness, revision = binding
+    if (harness and last.get("harness_id") and last.get("harness_id") != harness) or (
+            revision and last.get("binding_revision") and str(last.get("binding_revision")) != str(revision)):
+        return "binding"
     return ""
 
 
 def settle_session(ctx, job, sessions, runtime, revision, session_id, now=None):
     """(revision, session_id) a lead's turn starts with (app/worker.py ``_start_turn``): the pointer cleared when
-    ``rebuild_reason`` says so, so the turn starts a new session and the pack goes in whole. Other topics, and a lead
-    topic with the switch off, are not touched."""
-    if not session_id or not butler.is_lead(job.topic_id, job.chat_id):
+    ``rebuild`` says so, so the turn starts a new session and the pack goes in whole. Every lead turn records why its
+    session is new (``session_rebuild_reason``, one of ``REBUILD_CODES``, '' when it goes on or is the first) on its job
+    record: the reason was only in its runner's log. Other topics, and a lead topic with the switch off, are not touched."""
+    if not butler.is_lead(job.topic_id, job.chat_id):
         return revision, session_id
-    reason = rebuild_reason(ctx.state_dir, job.topic_id, job_key(job.message_id, job.job_id), job.model or ctx.model, now)
-    if not reason:
+    key = job_key(job.message_id, job.job_id)
+    if not session_id:
+        try:
+            topic = read_object(topic_file(ctx.state_dir, job.topic_id))
+            code = missing_reason(ctx.state_dir, job.topic_id, key, (topic.get("harness_id"), topic.get("binding_revision")))
+        except (OSError, ValueError):
+            code = ""
+        _note_rebuild(ctx, job, code, runtime)
+        return revision, session_id
+    code, reason = rebuild(ctx.state_dir, job.topic_id, key, job.model or ctx.model, now, session_id)
+    _note_rebuild(ctx, job, code, runtime)
+    if not code:
         return revision, session_id
     with runtime.session_lock:
         cleared = sessions.clear_session(ctx, revision, session_id)
     runtime.log(f"lead session rebuilt job=#{job.job_id} topic={job.topic_id[:12]}: {reason}")
     return sessions.capture_session(ctx) if cleared else (revision, session_id)
+
+
+def _note_rebuild(ctx, job, code, runtime) -> None:
+    """The lead turn's ``session_rebuild_reason`` on its job record; a failure is a line in the log."""
+    try:
+        upsert_job_record(ctx.state_dir, job.message_id, session_rebuild_reason=code)
+    except (OSError, ValueError) as exc:
+        runtime.log(f"lead rebuild reason not recorded job=#{job.job_id}: {type(exc).__name__}")
 
 
 # The turn.
@@ -961,13 +1065,65 @@ def lead_turn(ctx, job, prompt, session_id, log, release, now=None):
     ctx = held(dataclasses.replace(ctx, options={**ctx.options, "mcp_config": config}))
     if job.kind != "chat":
         return ctx, prompt
+    # The rules at the system level (app/rules_sent.py, app/runs.py bridge_rules) or here; the pack whole in a new session
+    # and when the turn's plan says the conversation may have lost the packs before, else three of its parts by what
+    # changed since the session read them (``pack_sent``).
+    from covey.app import rules_sent
+
+    plan = getattr(job, "rules_plan", None)
+    at_system = rules_sent.at_system(job)
+    whole = not session_id or rules_sent.lost(job)
+    keep = {}
+    job.pack_pending = None  # This turn's alone (``pack_settle``): never one an earlier try of the job left.
     try:
-        pack = state_pack(ctx.state_dir, record, key, full=not session_id, redacted=project_context.marked(ctx.state_dir, job.topic_id),
-                          since=board_read.previous_start(ctx.state_dir, job.topic_id, job.job_id) if session_id else None)
+        pack = state_pack(ctx.state_dir, record, key, full=whole, redacted=project_context.marked(ctx.state_dir, job.topic_id),
+                          since=board_read.previous_start(ctx.state_dir, job.topic_id, job.job_id) if session_id else None,
+                          sent=pack_sent(ctx.state_dir, record["id"], job, session_id) if at_system and not whole else None,
+                          keep=keep)
+        if plan is not None:
+            job.pack_pending = {"project": record["id"], **keep}
     except Exception as exc:  # noqa: BLE001 - the turn goes on with the rules alone
         log(f"lead state pack unavailable job=#{job.job_id}: {type(exc).__name__}")
         pack = "[专项状态暂时读不到：先用 topic_read 看话题]"
-    return ctx, "\n\n".join((lead_rules(record.get("style")), pack, prompt))
+    rules = "" if at_system else lead_rules(record.get("style"))
+    return ctx, "\n\n".join(part for part in (rules, pack, prompt) if part)
+
+
+def rules_of(ctx, job) -> str:
+    """The lead's rules for ``job``'s turn (``lead_rules`` with its project's style), '' without a project record."""
+    try:
+        found = projects.topic_project(ctx.state_dir, job.topic_id)
+        record = projects.read_record(ctx.state_dir, found.id) if found is not None else {}
+    except (OSError, ValueError):
+        return ""
+    return lead_rules(record.get("style")) if record else ""
+
+
+def pack_sent(state_dir, project_id, job, session_id) -> dict | None:
+    """What the lead's session ``session_id`` read of the pack (``<state>/projects/<id>/pack-sent.json``, written after
+    its turns that ended well: ``pack_settle``), None for another session or none."""
+    saved = read_object(projects.folder(state_dir) / project_id / PACK_SENT)
+    harness = str(getattr(job, "result_backend", "") or "")
+    return saved if session_id and saved.get("session") == f"{harness}:{session_id}" else None
+
+
+def pack_settle(ctx, job, log=None) -> None:
+    """After a lead's turn that ended well (app/rules_sent.py ``settle``): what its pack said of the three parts becomes
+    what its session has read (``pack_sent``). Never raises."""
+    pending = getattr(job, "pack_pending", None)
+    session_id = getattr(job, "session_id", None)
+    if not isinstance(pending, dict) or not pending.get("project") or not session_id:
+        return
+    try:
+        target = projects.folder(ctx.state_dir) / pending["project"] / PACK_SENT
+        value = {"v": 1, "session": f"{getattr(job, 'result_backend', '') or ''}:{session_id}",
+                 "job": job_key(job.message_id, job.job_id),
+                 **{name: pending.get(name) for name in ("topics", "memory", "decisions")}}
+        with resource_lock("record", target.absolute()):
+            write_json(target, value, ensure_ascii=False)
+    except Exception as exc:  # noqa: BLE001 - the next turn then reads the parts whole
+        if log is not None:
+            log(f"lead pack sent not recorded job=#{getattr(job, 'job_id', '')}: {type(exc).__name__}")
 
 
 # What the turn did.

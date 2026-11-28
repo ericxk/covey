@@ -157,6 +157,23 @@ def block(ctx, job, *, resumed: bool) -> str:
         return ""
 
 
+def library_block(ctx, job) -> str:
+    """The project's library index alone (``block``'s, without the memory) for a new session's first message when the
+    rules are at the system level (app/runs.py ``_background``: it changes as the project's topics go on); '' outside a
+    project or with an empty library."""
+    try:
+        found = member_record(ctx, job)
+        if found is None:
+            return ""
+        pid, record = found
+        topic = getattr(job, "topic_id", "") or ctx.topic_id
+        library = ["- " + line for line in project_library.index_lines(ctx.state_dir, pid,
+                                                                        redacted_reader=marked(ctx.state_dir, topic))]
+        return project_block(record.get("name"), [], library, limit=None) if library else ""
+    except Exception:  # noqa: BLE001 - the turn goes on without it
+        return ""
+
+
 def answer_line(question, answer) -> str:
     """One answered question as a line of the project's memory, "主人答：<question>→<answer>": both whole when they fit in
     core/project_memory.py ANSWER_TEXT, else the question cut first, the answer keeping at least ``ANSWER_CHARS`` (the whole of

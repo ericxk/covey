@@ -103,7 +103,10 @@ class CodexBackend(BackendRuntime):
         return for_device(HarnessCapabilities(questions=True, steering=True, native_fork=True, session_files=True,
                                               bridge_tools=True, read_only=True, collab=True, rate_limit_retry=True,
                                               fault_retry=True, ask_once=True, look_gate=True,
-                                              question_tool=QUESTION_TOOL), ctx)
+                                              question_tool=QUESTION_TOOL,
+                                              # The bridge rules in a new thread's developerInstructions, kept from its
+                                              # start through compactions (codex-cli 0.172.0, app/rules_sent.py).
+                                              system_instructions=True), ctx)
 
     def ask_once(self, ctx, system, data, *, heavy=False, limit, cwd=None, follow=""):
         """One question to Codex and nothing else (backends/codex/judge.py): the answer's text, or AskFailed. ``follow``:

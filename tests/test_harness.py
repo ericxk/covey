@@ -30,7 +30,7 @@ import covey.backends.claude.bridge as claude
 from covey.core import extensions
 from covey.app.group_menu import KIND as GROUP_MENU_KIND
 from covey.app.questions import recover_question_delivery
-from covey.app import outbox
+from covey.app import outbox, rules_sent
 from covey.app.app import BridgeApp
 from covey.app.availability import observe, snapshot
 from covey.app.card_actions import ACTIONS
@@ -389,21 +389,22 @@ class TwoStagePromptTest(unittest.TestCase):
     def _turn(self, backend, sid=None, *, user_text="帮我检查代码", history=None, message_id="om", options=None):
         app = harness_app(CLAUDE_SPEC, backend, ClaudeSessionStore())
         quiet(app)
-        ctx = make_context(self.root, options=options or {})
+        ctx = make_context(self.root, options=options or {}, topic_id="s" * 32)
         job = ReplyJob(job_id=1, user_text=user_text, chat_id="oc", message_id=message_id, timeout=0,
-                       history_snapshot=history)
+                       history_snapshot=history, topic_id=ctx.topic_id)
         job.checkpoint_path = str(self.root / "checkpoint.json")
         app.runs.generate_reply_for_worker(ctx, job, sid, None)
         for claimed in job.native_session_claims:  # Settled as the worker does, so the next turn may resume it.
             finish_native_session(ctx, CLAUDE_SPEC.name, claimed, job.bridge_run_id, True)
+        rules_sent.settle(ctx, job, "done")  # As app/worker.py does: what the session has of its system-level rules.
         return backend.prompts[-1], job.checkpoint_path
 
     def test_a_backend_with_a_system_channel_gets_the_rules_there_on_every_turn(self) -> None:
-        for sid in (None, "11111111-1111-4111-8111-111111111111"):
+        session = "11111111-1111-4111-8111-111111111111"
+        for sid in (None, session):
             with self.subTest(resumed=bool(sid)):
-                if sid:  # A session that started with the rules at system level (see below for one that did not).
-                    mark_system_rules(make_context(self.root), CLAUDE_SPEC.name, sid)
-                backend = InstructedBackend(note="unit sandbox note")
+                # The first turn starts the session with the rules at the system level (see below for one that did not).
+                backend = InstructedBackend(note="unit sandbox note", sid=session)
                 prompt, checkpoint = self._turn(backend, sid)
                 rules = backend.instructions[-1]
                 self.assertTrue(rules.startswith("你是 Claude Code，通过飞书回复用户。"))
@@ -431,33 +432,28 @@ class TwoStagePromptTest(unittest.TestCase):
                      "本任务检查点文件：" + checkpoint):
             self.assertIn(part, resumed)
 
-    def test_a_resumed_turn_is_reminded_of_steps_delivery_and_images_only_where_the_topic_uses_them(self) -> None:
-        # 5.9 row 7: a new session's first message has the whole contract; a resumed turn, the part every turn uses and
-        # what the topic uses: steps once a turn of it listed steps, delivery once one changed code, show_images when
-        # the owner's words are about an image.
+    def test_a_resumed_turn_is_reminded_of_the_whole_contract_but_images_which_come_with_words_about_one(self) -> None:
+        # 5.9 row 7 then WAVE12 C9: a new session's first message has the whole contract; a resumed turn, all of it but
+        # show_images, the same text whatever the topic's earlier turns did (its version holds, app/rules_sent.py), and
+        # show_images in its message when the owner's words are about an image (it used to follow ``_used``).
         app = harness_app(CLAUDE_SPEC, FakeBackend(), ClaudeSessionStore())
         quiet(app)
         ctx = make_context(self.root, topic_id="t" * 32)
         job = ReplyJob(job_id=3, user_text="接着做", chat_id="oc", message_id="om3", timeout=0, topic_id=ctx.topic_id)
+        lean = checkpoint_rules(images=False)
         self.assertEqual(app.runs.checkpoint_rules(ctx, job), checkpoint_rules())
-        self.assertEqual(app.runs.checkpoint_rules(ctx, job, resumed=True), CHECKPOINT_RULES)
+        self.assertEqual(app.runs.checkpoint_rules(ctx, job, resumed=True), lean)
+        self.assertEqual(lean, "\n".join((CHECKPOINT_RULES, STEPS_RULE, DELIVERY_PART)))
         resumed = app.runs._with_rules(ctx, job, "MSG", "", system=False, fresh=False, rules_session=False)
-        self.assertTrue(resumed.endswith("\n\n" + CHECKPOINT_RULES))
-        job.user_text = "登录要扫码，把二维码发我"
-        self.assertEqual(app.runs.checkpoint_rules(ctx, job, resumed=True), CHECKPOINT_RULES + "\n" + IMAGES_RULE)
-        job.user_text = "接着做"
+        self.assertTrue(resumed.endswith("\n\n" + lean))
         write_job(ctx.state_dir, "om1", job_id=1, topic_id=ctx.topic_id, chat_id="oc", backend="claude",
-                  status="done", steps=[{"title": "读代码", "state": "done"}])
-        self.assertEqual(app.runs.checkpoint_rules(ctx, job, resumed=True), CHECKPOINT_RULES + "\n" + STEPS_RULE)
-        write_job(ctx.state_dir, "om2", job_id=2, topic_id=ctx.topic_id, chat_id="oc", backend="claude",
-                  status="done", diff_json_path="/absolute/diff.json")
-        self.assertEqual(app.runs.checkpoint_rules(ctx, job, resumed=True),
-                         "\n".join((CHECKPOINT_RULES, STEPS_RULE, DELIVERY_PART)))
-        write_job(ctx.state_dir, "om3", job_id=3, topic_id=ctx.topic_id, chat_id="oc", backend="claude",
-                  status="running", delivery={"commit": "a6bc148"})  # This turn's own record counts for nothing.
-        write_job(ctx.state_dir, "om0", job_id=9, topic_id="u" * 32, chat_id="oc", backend="claude",
-                  status="done", delivery={"commit": "a6bc148"})  # Nor another topic's.
-        self.assertNotIn(IMAGES_RULE, app.runs.checkpoint_rules(ctx, job, resumed=True))
+                  status="done", steps=[{"title": "读代码", "state": "done"}], diff_json_path="/absolute/diff.json")
+        self.assertEqual(app.runs.checkpoint_rules(ctx, job, resumed=True), lean)
+        self.assertEqual(app.runs._images_note(ctx, job, resumed=True), "")
+        job.user_text = "登录要扫码，把二维码发我"
+        self.assertEqual(app.runs.checkpoint_rules(ctx, job, resumed=True), lean)
+        self.assertIn(IMAGES_RULE.removeprefix("- "), app.runs._images_note(ctx, job, resumed=True))
+        self.assertEqual(app.runs._images_note(ctx, job), "")  # A new session's rules have it already.
 
     def test_a_home_topics_resumed_turn_keeps_the_home_block_and_the_redaction_note_turned_on_later(self) -> None:
         """T900 W0-4: a resumed turn's reminder had the workspace block, not the rules' 主目录段, so from its second turn a
@@ -488,21 +484,27 @@ class TwoStagePromptTest(unittest.TestCase):
         self.assertIn(f"当前工作区：ws\n当前工作目录：{self.root.resolve()}", resumed)
         self.assertNotIn("仓库地图：", resumed)
 
-    def test_claude_and_codex_carry_the_rules_in_the_message(self) -> None:
-        # Owner 2026-11-02: the model's own system prompt (developer instructions) stays as it is.
+    def test_claude_and_codex_carry_the_rules_at_the_system_level(self) -> None:
+        # The owner's call of 11-28 (app/rules_sent.py): beside the model's own system prompt (Claude Code's
+        # --append-system-prompt, Codex's developerInstructions), no longer in the message (11-02 to 11-28 they were).
         from covey.backends.codex.bridge import CodexBackend
         for real in (ClaudeBackend, CodexBackend):
             with self.subTest(backend=real.__name__):
-                backend = InstructedBackend(note="unit sandbox note")
+                sid = str(uuid.uuid4())
+                backend = InstructedBackend(note="unit sandbox note", sid=sid)
                 backend.capabilities = real().capabilities
                 first, _ = self._turn(backend)
+                self.assertTrue(backend.instructions[-1].startswith("你是 Claude Code，通过飞书回复用户。"))
+                self.assertIn(CHECKPOINT_RULES, backend.instructions[-1])
+                self.assertFalse(first.startswith("你是 Claude Code"))
+                self.assertNotIn(CHECKPOINT_RULES, first)
+                resumed, _ = self._turn(backend, sid)
+                self.assertIn(CHECKPOINT_RULES, backend.instructions[-1])
+                self.assert_lean(resumed, True)
+                with mock.patch.dict(os.environ, {"COVEY_SYSTEM_RULES": "0"}):  # Off: in the message, as before.
+                    first, _ = self._turn(backend)
                 self.assertEqual(backend.instructions[-1], "")
                 self.assertTrue(first.startswith("你是 Claude Code，通过飞书回复用户。"))
-                for part in ("unit sandbox note", CHECKPOINT_RULES):
-                    self.assertIn(part, first)
-                resumed, _ = self._turn(backend, "11111111-1111-4111-8111-111111111111")
-                self.assertEqual(backend.instructions[-1], "")
-                self.assert_lean(resumed, False)
 
     def assert_lean(self, prompt, lean):
         for part in (resume_reminders(), f"当前工作目录：{self.root.resolve()}", CHECKPOINT_RULES):
@@ -534,8 +536,10 @@ class TwoStagePromptTest(unittest.TestCase):
             with self.subTest(source_marked=marked):
                 source, forked = str(uuid.uuid4()), str(uuid.uuid4())
                 ctx = make_context(self.root)
-                if marked:
-                    mark_system_rules(ctx, CLAUDE_SPEC.name, source)
+                # The source session: begun with the rules at the system level, or (switch off) without them.
+                with mock.patch.dict(os.environ, {"COVEY_SYSTEM_RULES": "" if marked else "0"}):
+                    self._turn(InstructedBackend(sid=source))
+                self.assertEqual(started_with_system_rules(ctx, CLAUDE_SPEC.name, source), marked)
                 first, _ = self._turn(InstructedBackend(sid=forked), options={"fork_session": source})
                 self.assertIn("最近的对话", first)
                 self.assertEqual(started_with_system_rules(ctx, CLAUDE_SPEC.name, forked), marked)

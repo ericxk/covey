@@ -65,6 +65,24 @@ LOOK_HELD_WRITE = "这一轮只读：检查点文件和本话题产物目录用 
 LOOK_NO_WRITE = "这一轮只读、写不了文件：检查点不用写，要主人定的事写在回复里。"
 
 
+def thread_instructions(ctx) -> str:
+    """What a thread's developer instructions say of questions and sub-agents: a thread keeps the ones it started with,
+    through every resume, fork and compaction (codex-cli 0.172.0, measured 11-28), so they are the topic's, not its first
+    turn's: ASK_LEAD for a lead's (LEAD), CODEX_INSTRUCTIONS for any other. A turn whose limit says otherwise is told
+    so in its own input (``turn_instructions``)."""
+    return ASK_LEAD + SUBAGENTS if ctx.options.get(TOOL_LIMIT) == LEAD else CODEX_INSTRUCTIONS
+
+
+TURN_HEAD = "[这一轮的说明：和开头的开发者说明不一样时，以这里为准]"
+
+
+def turn_instructions(ctx) -> str:
+    """``codex_instructions`` of the turn when they are not its thread's (``thread_instructions``: a CONSULT, READ or
+    LOOK turn), under TURN_HEAD, for the end of its input; '' otherwise."""
+    found = codex_instructions(ctx)
+    return "" if found == thread_instructions(ctx) else TURN_HEAD + "\n" + found
+
+
 def codex_instructions(ctx) -> str:
     """CODEX_INSTRUCTIONS as the turn's TOOL_LIMIT has them: SUBAGENTS alone for CONSULT, ASK_LEAD for LEAD, ASK_MEMBER for
     READ; LOOK with what its gate lets it write first (``look_writes``); every other turn the whole of it."""
@@ -215,7 +233,8 @@ def thread_params(ctx, session_id, instructions="", process=None):
             **({"mcp_servers.bridge_workspace.default_tools_approval_mode": "approve"} if look_writes(ctx) else {}),
             **({} if device_of(ctx) else bridge_servers(ctx)),
         },
-        "developerInstructions": "\n\n".join(filter(None, (instructions, codex_instructions(ctx)))),
+        # Kept from the thread's start (``thread_instructions``): the bridge rules at the system level (app/rules_sent.py).
+        "developerInstructions": "\n\n".join(filter(None, (instructions, thread_instructions(ctx)))),
     }
     if ctx.options.get("model_provider"):
         params["modelProvider"] = ctx.options["model_provider"]
@@ -264,7 +283,8 @@ def start_turn(rpc, request, ctx, prompt, session_id):
         "turn/start",
         {
             "threadId": rpc.thread_id,
-            "input": [{"type": "text", "text": prompt}] + [{"type": "localImage", "path": path} for path in image_paths(ctx, request.inputs.attachments)],
+            "input": [{"type": "text", "text": "\n\n".join(filter(None, (prompt, turn_instructions(ctx))))}]
+                     + [{"type": "localImage", "path": path} for path in image_paths(ctx, request.inputs.attachments)],
             "model": ctx.model,
             **({"effort": ctx.effort} if ctx.effort else {}),
             # A read-only turn says so for the turn too, whatever the thread resumed with; any other turn sends nothing

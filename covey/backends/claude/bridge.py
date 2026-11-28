@@ -4,8 +4,8 @@
 All bridge behavior lives in the components of ``covey.app.app``; this file
 only describes the Claude Code Harness: every turn runs ``claude -p`` with stream-json
 input and output in ``--workdir`` (``backends/claude/runtime.py``), multi-turn
-continuity via ``--resume <session_id>``; the bridge rules travel in the user message (no
-``system_instructions``: Claude Code's system prompt is kept as it is); a resumed
+continuity via ``--resume <session_id>``; the bridge rules travel at the system level, appended to Claude Code's own
+system prompt on every invocation (``system_instructions``, app/rules_sent.py); a resumed
 session compacted before the turn when asked (``backends/claude/compaction.py``); a topic that chose
 redaction through its term relay (``backends/claude/redaction.py``). A topic on a removed provider's model
 (core/providers.py RETIRED_PREFIXES) is refused before Claude Code starts.
@@ -163,7 +163,10 @@ class ClaudeBackend(BackendRuntime):
             # PreToolUse hook (backends/claude/tool_guard.py --mode look, W1-C).
             collab=True, look_gate=True,
             # question_tool: backends/claude/control.py answers the root's AskUserQuestion; nudges: TurnHooks' PostToolUse.
-            question_tool="AskUserQuestion", nudges=True), ctx)
+            question_tool="AskUserQuestion", nudges=True,
+            # The bridge rules by --append-system-prompt on every invocation: a session keeps its first one's, a compaction
+            # renders them again from the invocation's own (Claude Code 2.1.331, app/rules_sent.py).
+            system_instructions=True, system_refresh="compaction"), ctx)
 
     def model_catalog(self, ctx):
         return with_extension_models(model_catalog(self, ctx, self.child_env(ctx)))

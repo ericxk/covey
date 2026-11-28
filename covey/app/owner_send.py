@@ -116,18 +116,34 @@ def allowed(job, ctx, access=None) -> str:
     return ""
 
 
+# The words of a turn that may have to tell someone something as the owner (``turn_note``): only then, or with a draft
+# still open, is the rule told (WAVE12 C9: its 700 characters followed the owner's words in every turn).
+TRIGGER = re.compile(r"发给|发送给|通知|转告|告诉.{0,6}(?:同事|他|她|一声)|发消息|发条|发一条|发个消息|发邮件|代发|"
+                     r"以.{0,4}身份|send_as_owner")
+
+
+def triggered(job) -> bool:
+    """Whether ``job``'s words (the owner's, and the message the turn reads) ask to tell someone something (``TRIGGER``)."""
+    return bool(TRIGGER.search(f"{getattr(job, 'prompt_text', '') or ''}\n{getattr(job, 'user_text', '') or ''}"))
+
+
 def turn_note(ctx, job, access=None) -> str:
-    """What a topic's turn is told after its message while 代发 is on: the rule, and what became of the topic's
-    drafts that ended lately (core/owner_send.py turn_lines). '' off, or for a turn that may draft none (``allowed``:
-    a 代答 topic, the butler's chat, an agent's words, a group member's turn). Read only: a task runner calls it."""
+    """What a topic's turn is told at its message's tail while 代发 is on: the rule, with the drafts still open, when there
+    is one or the turn's words ask to tell someone something (``triggered``); what became of the topic's drafts that ended
+    lately (core/owner_send.py turn_lines) whenever there are some. '' else, off, or for a turn that may draft none
+    (``allowed``: a 代答 topic, the butler's chat, an agent's words, a group member's turn). Never in the owner's words
+    (app/runs.py: a history whose last row is them is told apart again). Read only: a task runner calls it."""
     try:
         topic = str(getattr(job, "topic_id", "") or getattr(ctx, "topic_id", "") or "")
         if not enabled() or not topic or allowed(job, ctx, access):
             return ""
         waiting = records.open_lines(ctx.state_dir, topic)
         lines = records.turn_lines(ctx.state_dir, topic)
-        return ("\n\n" + records.RULE + ("\n" + records.OPEN_HEAD + "\n" + "\n".join(waiting) if waiting else "")
-                + ("\n之前的代发草稿：\n" + "\n".join(lines) if lines else ""))
+        rule = (records.RULE + ("\n" + records.OPEN_HEAD + "\n" + "\n".join(waiting) if waiting else "")
+                if waiting or triggered(job) else "")
+        ended = "之前的代发草稿：\n" + "\n".join(lines) if lines else ""
+        text = "\n".join(part for part in (rule, ended) if part)
+        return "\n\n" + text if text else ""
     except Exception:  # noqa: BLE001 - a turn never fails for its note
         return ""
 
