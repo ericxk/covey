@@ -34,10 +34,12 @@ _QUOTE = re.compile(r" {0,3}>[ \t]?(.*)")
 _DETAILS_OPEN = re.compile(r"<details(\s+open(?:=\S*)?)?\s*>(.*)", re.IGNORECASE)
 _DETAILS_CLOSE = re.compile(r"[ \t]*</details>[ \t]*", re.IGNORECASE)
 _SUMMARY = re.compile(r"[ \t]*<summary>(.*?)</summary>(.*)", re.IGNORECASE)
+_CLOSES = re.compile(r"(.*?)</details>[ \t]*", re.IGNORECASE)  # The rest of a details' line that closes it there.
 _TABLE_RULE = re.compile(r"\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?")
 _PIPE = re.compile(r"(?<!\\)\|")
 _PAIR = re.compile(r"([^:：]+?)\s*[:：]\s*(.+)")
 _TASK = re.compile(r"^([ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+)\[([ xX])\](?=[ \t])")
+_BULLET_TASK = re.compile(r"^([ \t]*)[-*+][ \t]+\[([ xX])\][ \t]+")
 
 
 @dataclasses.dataclass
@@ -90,7 +92,8 @@ def _details_end(lines, i):
                 return None
             j = end + 1
             continue
-        if _DETAILS_OPEN.fullmatch(lines[j]):
+        opened = _DETAILS_OPEN.fullmatch(lines[j])
+        if opened and not _CLOSES.fullmatch(opened.group(2)):  # One closed on its own line is not counted.
             depth += 1
         elif _DETAILS_CLOSE.fullmatch(lines[j]):
             depth -= 1
@@ -116,13 +119,13 @@ def _cells(line) -> list:
 def metric_items(body) -> tuple:
     """(label, value, delta) of each line of a metrics block that has a label and a value; a table's rule skipped, and
     the header row over it."""
-    items, last = [], None  # last: the line the last item came from.
+    items, last, piped = [], None, False  # last: the line the last item came from; piped: it had a "|".
     for n, raw in enumerate(str(body).split("\n")):
         line = raw.strip()
         if not line:
             continue
         if _TABLE_RULE.fullmatch(line):
-            if items and last == n - 1:
+            if items and last == n - 1 and ("|" in line or piped):
                 items.pop()
             continue
         if "|" in line:
@@ -137,13 +140,13 @@ def metric_items(body) -> tuple:
             label, value, delta = pair.group(1).strip(), pair.group(2).strip(), ""
         if label and value:
             items.append((label, value, delta))
-            last = n
+            last, piped = n, "|" in line
     return tuple(items)
 
 
 def blocks(text) -> list:
     """``text``'s blocks in order, the Markdown between them as ``md`` blocks (none blank)."""
-    lines = str(text or "").replace("\r\n", "\n").split("\n")
+    lines = str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     out, run = [], []
 
     def flush():
@@ -182,9 +185,10 @@ def blocks(text) -> list:
             i = j
             continue
         opened = _DETAILS_OPEN.fullmatch(line)
-        end = _details_end(lines, i) if opened else None
+        whole = _CLOSES.fullmatch(opened.group(2)) if opened else None  # <details><summary>…</summary>…</details>
+        end = i if whole else _details_end(lines, i) if opened else None
         if end is not None:
-            rest, inner, title = opened.group(2), lines[i + 1:end], ""
+            rest, inner, title = (whole.group(1) if whole else opened.group(2)), lines[i + 1:end], ""
             summary = _SUMMARY.fullmatch(rest)
             if summary:
                 title, rest = summary.group(1), summary.group(2)
@@ -231,11 +235,18 @@ def outside_code(text, change) -> str:
 
 def task_marks(text, marks=None) -> str:
     """``text`` with GFM task list items' ``[ ]`` and ``[x]`` as a mark outside code (a card's Markdown shows the
-    brackets as they are): a green ✓ and a grey ○ (``TASK_MARKS``), or ``marks`` {done: mark}."""
-    marks = marks or TASK_MARKS
+    brackets as they are): a green ✓ and a grey ○ without the item's bullet (a card drew "• ✓"), a nested one indented
+    by full-width spaces (``TASK_MARKS``); or ``marks`` {done: mark} after the bullet (words for a person)."""
     if "[" not in str(text):
         return str(text)
-    return outside_code(text, lambda line: _TASK.sub(lambda m: m.group(1) + marks[m.group(2) in "xX"], line))
+    if marks:
+        return outside_code(text, lambda line: _TASK.sub(lambda m: m.group(1) + marks[m.group(2) in "xX"], line))
+
+    def card(line):
+        bare = _BULLET_TASK.sub(lambda m: "　" * (len(m.group(1).expandtabs(2)) // 2) + TASK_MARKS[m.group(2) in "xX"] + " ",
+                                line)
+        return bare if bare != line else _TASK.sub(lambda m: m.group(1) + TASK_MARKS[m.group(2) in "xX"], line)
+    return outside_code(text, card)
 
 
 def callout_head(block) -> str:
@@ -245,7 +256,7 @@ def callout_head(block) -> str:
 
 def shown_title(block) -> str:
     """A callout's title as shown after its kind: none when it only says the kind again ("> [!WARNING] 注意")."""
-    return "" if block.title.strip("*：: ") in (TONE_WORDS[block.tone], block.tone, block.tone.upper()) else block.title
+    return "" if block.title.strip("*：: ").lower() in (TONE_WORDS[block.tone], block.tone) else block.title
 
 
 def metric_line(item) -> str:
@@ -259,8 +270,11 @@ def card_markdown(text) -> str:
     text = str(text or "")
     if not rich(text):
         return task_marks(loose_tags(text))
-    parts = []
+    parts, last = [], ""
     for block in blocks(text):
+        if block.kind == CALLOUT and last == CALLOUT:
+            parts.append("　")  # Two quotes in a row are drawn as one: a line apart.
+        last = block.kind
         if block.kind == CALLOUT:
             inner = card_markdown(block.body)
             # A bare ">" glues the lines around it in a card (cards/review.py question_preview): a full-width space.
@@ -299,7 +313,7 @@ def plain(text) -> str:
     marks as ☑ and ☐; cards/review.py plain_markdown strips the remaining marks from it for a title or a preview."""
     text = str(text or "")
     if not rich(text):
-        return task_marks(text, {True: "☑", False: "☐"})
+        return task_marks(loose_tags(text), {True: "☑", False: "☐"})
     parts = []
     for block in blocks(text):
         if block.kind == CALLOUT:
@@ -310,5 +324,5 @@ def plain(text) -> str:
             parts.append("\n".join(f"{label}：{value}" + (f"（{delta}）" if delta else "")
                                    for label, value, delta in block.items))
         else:
-            parts.append(task_marks(block.source, {True: "☑", False: "☐"}))
+            parts.append(task_marks(loose_tags(block.source), {True: "☑", False: "☐"}))
     return "\n\n".join(parts)

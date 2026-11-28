@@ -326,5 +326,86 @@
     "source": "结论在后面"
    }
   ]
+ },
+ {
+  "name": "details_single_line_inside",
+  "text": "<details>\n<summary>外层</summary>\n<details><summary>内</summary>x</details>\n</details>\n后续正文",
+  "blocks": [
+   {
+    "kind": "details",
+    "title": "外层",
+    "body": "**内**\n\nx",
+    "open": false
+   },
+   {
+    "kind": "md",
+    "source": "后续正文"
+   }
+  ]
+ },
+ {
+  "name": "details_single_line",
+  "text": "<details><summary>一行收起</summary>只有一句</details>\n\n后面",
+  "blocks": [
+   {
+    "kind": "details",
+    "title": "一行收起",
+    "body": "只有一句",
+    "open": false
+   },
+   {
+    "kind": "md",
+    "source": "后面"
+   }
+  ]
+ },
+ {
+  "name": "metrics_dash_rule_keeps_pair",
+  "text": "```metrics\n成功率：98%\n---\n用时：3分\n```",
+  "blocks": [
+   {
+    "kind": "metrics",
+    "items": [
+     [
+      "成功率",
+      "98%",
+      ""
+     ],
+     [
+      "用时",
+      "3分",
+      ""
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "lone_cr",
+  "text": "> [!NOTE] 标题\r正文一行\n> 第二行",
+  "blocks": [
+   {
+    "kind": "callout",
+    "tone": "note",
+    "title": "标题",
+    "body": ""
+   },
+   {
+    "kind": "md",
+    "source": "正文一行\n> 第二行"
+   }
+  ]
+ },
+ {
+  "name": "callout_in_details",
+  "text": "<details>\n<summary>细节</summary>\n\n> [!WARNING] 里面的提示\n> 正文\n\n```metrics\na | 1\n```\n\n</details>",
+  "blocks": [
+   {
+    "kind": "details",
+    "title": "细节",
+    "body": "> [!WARNING] 里面的提示\n> 正文\n\n```metrics\na | 1\n```",
+    "open": false
+   }
+  ]
  }
 ]

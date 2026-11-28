@@ -27,6 +27,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from covey.core.rich_md import card_markdown, rich
 from covey.app import answer_cards
 from covey.app.access import Access
 from covey.app.artifacts import answer_files
@@ -206,7 +207,9 @@ def send_saved(ctx, job, text, outgoing, *, send, artifacts, log):
             answer_cards.register(ctx.state_dir, key, "answer", sent[-1], outgoing.pages[-1]["card"], outgoing.status)
     else:
         sent = []
-        delivered = send(where, job.chat_id, text, outgoing.key, card=outgoing.answer, on_card=sent.append)
+        # The text goes as Markdown only if Feishu refuses the card: its 富文本块 in words then (core/rich_md.py).
+        shown = card_markdown(text) if rich(text) else text
+        delivered = send(where, job.chat_id, shown, outgoing.key, card=outgoing.answer, on_card=sent.append)
         message = sent[0] if sent else ""
         if sent and outgoing.files and not apart:
             answer_cards.register(ctx.state_dir, key, "answer", sent[0], outgoing.answer, outgoing.status)

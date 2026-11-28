@@ -8,11 +8,10 @@ over several (cards/pages.py)."""
 from __future__ import annotations
 
 from covey.cards.answer_card import change_element, check_element, details, facts_element, words_fold
-from covey.cards.elements import card, element_count, grey, json_size, md, note
-from covey.cards.review import ANSWER_CARD_BYTES, FOLD_ID, answer_lead, drop_part_heading, reply_body, reply_shown
+from covey.cards.elements import card, grey, json_size, md, note
+from covey.cards.review import ANSWER_CARD_BYTES, FOLD_ID, answer_lead, drop_part_heading, one_card, reply_body, reply_shown
 from covey.cards.ui import BODY_PADDING, BODY_SPACING, banded, container, speaker_row, split_ask, topic_badge
 from covey.core import look, rich_md
-from covey.core.card_limits import TARGET_NODES
 from covey.core.failure import HEADLINE_CHARS, split_title
 from covey.core.text import literal, redact
 
@@ -92,7 +91,7 @@ def relay_card(label, outcome, *, text="", question="", reason="", inputs=None, 
         body = reply_body(text)
         lead = summary(label, look.word("result"), answer_lead(text, SUMMARY_CHARS))
         if len(body.encode("utf-8")) > CARD_TEXT_BYTES:
-            return None, body
+            return None, rich_md.card_markdown(body)  # Sent as Markdown or on pages: 富文本块 in words.
         # No conclusion band (T638): the band said the reply's first line again, large, over two rows. The reply as it
         # is, whole (docs/ui.md 5.2 聊天结果卡).
         shown_change = change or delivery
@@ -108,12 +107,12 @@ def relay_card(label, outcome, *, text="", question="", reason="", inputs=None, 
         parts = details([files, change_element(None if line else shown_change), check_element(shown_change), *(notes or ())])
         tail = [*parts, *([ending] if ending else []), *(buttons or ()), reply_hint(label)]
         built = banded(card([row, *said, *reply, *tail], lead, update_multi=True, **style))
-        if element_count(built) > TARGET_NODES and rich_md.rich(shown):  # Its 富文本块 in words: one markdown element.
+        if rich_md.rich(shown) and not one_card(built):  # Its 富文本块 in words, one markdown element, before pages.
             reply = reply_shown(shown, closable=True, rich=False)
             built = banded(card([row, *said, *reply, *tail], lead, update_multi=True, **style))
         # A long 改动 fold may take a card past its limit (as cards/review.py answer_card): the reply goes on
         # several cards, its parts under the last or after them (``relay_pages``, app/relay_send.py send_once).
-        return (built if json_size(built) <= ANSWER_CARD_BYTES else None), body
+        return (built if json_size(built) <= ANSWER_CARD_BYTES else None), rich_md.card_markdown(body)
     elif outcome == WAITING:
         words = " ".join(str(question or "").split())
         body = words[:QUESTION_CHARS] + ("…" if len(words) > QUESTION_CHARS else "")

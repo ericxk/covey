@@ -7,10 +7,9 @@ import json
 import re
 from typing import Any
 
-from covey.cards.elements import card, element_count, md
+from covey.cards.elements import CARD_NODES, card, element_count, json_size, md
 from covey.cards.ui import BODY_PADDING, BODY_SPACING, banded, labelled, role_of, speaker_row, split_ask
-from covey.core import rich_md, turn_words
-from covey.core.card_limits import TARGET_NODES
+from covey.core import card_limits, rich_md, turn_words
 from covey.core.text import redact
 
 STREAM_PROGRESS_STATUS_MAX_CHARS = 22000
@@ -327,6 +326,15 @@ outcome_line = turn_words.outcome_line  # The task card's status line once its r
 
 # A card message's request is at most 30 KB, with its content escaped once more: room for that.
 ANSWER_CARD_BYTES = 25_000
+SENT_BYTES = 29_000  # A card's JSON escaped once more, as a message request carries it, under Feishu's 30 KB.
+PAGE_NODES = CARD_NODES - 10  # Tagged nodes a card may have, a few kept free (CardKit refuses one over 200: 300305).
+
+
+def one_card(built) -> bool:
+    """Whether one card message can carry ``built``: ANSWER_CARD_BYTES of JSON, SENT_BYTES as the request carries it and
+    PAGE_NODES tagged nodes (cards/pages.py fits, which adds CardKit's rendered size for a card it creates)."""
+    return (isinstance(built, dict) and json_size(built) <= ANSWER_CARD_BYTES
+            and card_limits.sent_size(built) <= SENT_BYTES and element_count(built) <= PAGE_NODES)
 
 
 def answer_summary(label: str, status: str, lead: str) -> str:
@@ -398,7 +406,7 @@ def bold_minor_headings(text: str) -> str:
 
 _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})([^`]*)")
 # Blocks a single line of which means more than its code: a metric (core/rich_md.py) and a one-line diff.
-KEEP_FENCED = ("metrics", "diff")
+KEEP_FENCED = ("metrics", "diff", "patch")
 
 
 def inline_one_line_code(text: str) -> str:
@@ -453,7 +461,7 @@ def reply_shown(text, element_id=FOLD_ID, *, label="", closable=False, rich=True
     from covey.cards.rich_body import reply_elements
 
     main, stages = split_stages(text)
-    shown = (reply_elements(main, element_id, label) if rich else
+    shown = (reply_elements(main, element_id, label, polish=bold_minor_headings) if rich else
              [md(labelled(rich_md.card_markdown(main), label, main), element_id=element_id)])
     if stages:
         shown.append(stages_fold(stages, element_id + (STAGES_CLOSABLE + "0" if closable else STAGES_SUFFIX), closable))
@@ -523,6 +531,6 @@ def answer_card(text: str, summary: str, tail: list | tuple = (), head: list | t
                             padding=BODY_PADDING, spacing=BODY_SPACING))
     else:
         built = banded(card(elements, summary, update_multi=bool(tail)))
-    if rich and element_count(built) > TARGET_NODES and rich_md.rich(body):
-        return answer_card(text, summary, tail, given, rich=False)  # Its blocks in words: one markdown element.
+    if rich and rich_md.rich(body) and not one_card(built):
+        return answer_card(text, summary, tail, given, rich=False)  # Its blocks in words, one markdown element, first.
     return built if len(json.dumps(built, ensure_ascii=False).encode("utf-8")) <= ANSWER_CARD_BYTES else None

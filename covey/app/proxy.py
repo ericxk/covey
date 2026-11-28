@@ -39,7 +39,7 @@ from covey.app.owner_send import OwnerSend
 from covey.app.proxy_resend import ProxyResend
 from covey.app.proxy_send import (READ_BACKS, NullLogin, ProxySend, available, clock, message_epoch, minute,
                                            plain_mentions)
-from covey.core import extensions
+from covey.core import extensions, rich_md
 from covey.app.proxy_topics import ProxyTopics
 from covey.cards.elements import notice_card
 from covey.core import proxy as records
@@ -69,6 +69,12 @@ def removed(batch):
     kind, _, target = batch["contact"].partition(":")
     return {"key": batch["contact"], "kind": kind, "target": target, "name": "",
             "chat_id": batch["messages"][-1]["chat_id"]}
+
+
+def words_only(reply) -> str:
+    """A reply for a colleague without 富文本块 marks (core/rich_md.py plain): the proxy's prompt asks none, this keeps
+    one out if a model wrote it."""
+    return rich_md.plain(reply) if rich_md.rich(reply) else reply
 
 
 class Proxy:
@@ -589,7 +595,7 @@ class Proxy:
         if mode == records.CHECK_OFF:
             return []
         try:
-            hits = records.reply_hits(plain_mentions(reply))
+            hits = records.reply_hits(plain_mentions(words_only(reply)))
             counted = records.count_check(ctx.state_dir, hits, batch=batch["id"], job_id=job_id, mode=mode)
         except (OSError, ValueError, TypeError) as exc:
             self.runtime.log(f"proxy reply check failed batch={batch['id'][:8]}: {type(exc).__name__}")
@@ -610,7 +616,7 @@ class Proxy:
         reply of a held batch (the owner's turn, a send tried again): said once, with when it goes out, and
         tried again by later polls; LATER too while the tool's login runs (repo review F2: the owner's turn
         was taken as done). Its at tags are plain text from here on (``plain_mentions``), as saved and read back."""
-        reply = plain_mentions(reply)
+        reply = plain_mentions(words_only(reply))
         owner = settings.get("owner_user_id") or ""
         if owner and any(m.get("sender_id") == owner for m in batch["messages"]):
             # Never an answer to the owner's own message (T571): ``addressed`` takes none in; this holds if one came.

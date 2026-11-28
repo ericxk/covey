@@ -163,7 +163,10 @@ def say_outcome(delivery) -> bool:
 def reply_fold(text, *, lead=False):
     """The model's own words under the topic lines, folded; on a slim card in its 详情 (Cards.set_task_element). A
     project's lead's turn (``lead``) says whose they are: the lead's, not the butler's."""
-    return markdown_panel(REPLY_FOLD, "负责人的回答" if lead else "管家的回答", text, quiet=True)
+    from covey.core.rich_md import card_markdown
+
+    # One markdown text: its 富文本块 in words (core/rich_md.py).
+    return markdown_panel(REPLY_FOLD, "负责人的回答" if lead else "管家的回答", card_markdown(text), quiet=True)
 
 
 def routed_body(lines) -> str:

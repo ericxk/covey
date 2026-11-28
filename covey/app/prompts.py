@@ -54,7 +54,7 @@ def search_rules() -> tuple[str, ...]:
 RICH_RULE = ("- 卡片和网页工作台还认这几种写法，只在能让风险、对比、长明细一眼看清时用，短回答照常写："
              "`> [!NOTE]`、`[!TIP]`、`[!IMPORTANT]`、`[!WARNING]`、`[!CAUTION]` 开头的提示框（同一行可跟标题，一条回答最多两个）；"
              "单独成行的 `<details>`、`<summary>标题</summary>` 到 `</details>`，收起十几行以上的次要明细（日志、完整清单），"
-             "结论不放进去，不嵌套；`- [ ]`、`- [x]` 清单；```metrics 指标条（每行 `标签 | 数值 | 变化`，只放实测有的数）。")
+             "结论不放进去；`- [ ]`、`- [x]` 清单；`metrics` 围栏的指标条（每行 `标签 | 数值 | 变化`，只放实测有的数）。块里不再套块。")
 
 
 # For a backend without a system channel the rules are only in a fresh session's message;

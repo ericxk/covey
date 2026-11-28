@@ -57,8 +57,8 @@ class CardMarkdownTest(unittest.TestCase):
         self.assertIn("> **⚠️ 注意**  迁移风险\n> 旧卡片不会重画。", shown)
         self.assertIn("**完整日志**\n" + FENCE, shown)
         self.assertIn("通过：**120/120**  <font color='grey'>+3</font>", shown)
-        self.assertIn("- <font color='green'>✓</font> 测试", shown)
-        self.assertIn("- <font color='grey'>○</font> 部署", shown)
+        self.assertIn("\n<font color='green'>✓</font> 测试", shown)  # No bullet before it: a card drew "• ✓".
+        self.assertIn("\n<font color='grey'>○</font> 部署", shown)
         for mark in ("[!WARNING]", "<details>", "<summary>", "</details>", FENCE + "metrics", "[ ]", "[x]"):
             self.assertNotIn(mark, shown)
 
@@ -72,6 +72,11 @@ class CardMarkdownTest(unittest.TestCase):
     def test_a_text_without_blocks_is_unchanged(self):
         text = "## 结论\n\n普通回答。\n\n" + FENCE + "\n- [ ] 代码里的不动\n" + FENCE
         self.assertEqual(text, rich_md.card_markdown(text))
+
+    def test_callouts_in_a_row_stay_apart_and_nested_tasks_keep_their_depth(self):
+        shown = rich_md.card_markdown("> [!NOTE]\n> 一\n> [!TIP]\n> 二\n\n- [x] 父\n  - [ ] 子")
+        self.assertIn("> 一\n\n　\n\n> **💡 提示**", shown)
+        self.assertIn("\n　<font color='grey'>○</font> 子", shown)
 
     def test_a_details_left_open_shows_no_tags(self):
         shown = rich_md.card_markdown("<details>\n<summary>写到一半</summary>\n\n还没闭合")
@@ -101,6 +106,15 @@ class PlainTest(unittest.TestCase):
         self.assertEqual("注意：先停机", answer_lead("> [!WARNING]\n> 先停机。\n\n后面。"))
         self.assertEqual("先折起来", answer_lead("<details><summary>先折起来</summary>\n明细\n</details>"))
         self.assertNotIn("[!", plain_markdown("> [!NOTE] 标题\n> 正文"))
+
+    def test_a_details_left_open_is_no_lead(self):
+        self.assertEqual("写到一半", answer_lead("<details>\n<summary>写到一半</summary>\n\n还没闭合"))
+
+    def test_a_proxy_reply_has_no_marks(self):
+        from covey.app.proxy import words_only
+
+        self.assertEqual("提示：明天见", words_only("> [!TIP]\n> 明天见"))
+        self.assertEqual("普通的话 - [ ] 不动", words_only("普通的话 - [ ] 不动"))
 
     def test_a_draft_for_a_person_has_no_marks(self):
         found = owner_send.drafts({owner_send.FIELD: [{"to": "王五", "text": "> [!NOTE] 周五上线\n> 记得看一下",
@@ -145,6 +159,28 @@ class CardElementsTest(unittest.TestCase):
         self.assertNotIn("[!NOTE]", drawn[0]["content"])
         built = answer_card(many, "T1 有结果")
         self.assertLessEqual(element_count(built), TARGET_NODES)
+
+    def test_a_card_too_large_with_its_blocks_tries_one_text_first(self):
+        from covey.cards.pages import fits
+
+        long = "\n\n".join(f"> [!NOTE] 第 {n} 条\n> " + "很长的一句话。" * 30 for n in range(28))
+        built = answer_card(long, "T1 有结果")
+        self.assertIsNotNone(built)
+        self.assertTrue(fits(built))
+        self.assertNotIn("[!NOTE]", json.dumps(built, ensure_ascii=False))
+
+    def test_a_details_holds_the_blocks_in_it(self):
+        drawn = rich_body.reply_elements("<details>\n<summary>细节</summary>\n\n> [!WARNING] 里面\n> 正文\n\n</details>",
+                                         "answer_reply")
+        fold = drawn[0]
+        self.assertEqual("collapsible_panel", fold["tag"])
+        self.assertEqual("column_set", fold["elements"][0]["tag"])
+
+    def test_the_butler_answer_fold_is_words(self):
+        from covey.app.butler_reply import reply_fold
+
+        panel = reply_fold("> [!NOTE] 记一下\n> 正文")
+        self.assertNotIn("[!NOTE]", json.dumps(panel, ensure_ascii=False))
 
     def test_label_goes_first(self):
         drawn = rich_body.reply_elements("> [!TIP] 小提示", "mirror_output", label="这一轮输出")

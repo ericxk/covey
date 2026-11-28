@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Copy, Info, Lightbulb, MessageSquareWarning, OctagonAlert, TriangleAlert } from 'lucide-react';
-import { DETAILS_WORD, TONE_WORDS, type RichBlock, type Tone } from './richBlocks';
+import { DETAILS_WORD, TONE_WORDS, hasRich, richBlocks, type RichBlock, type Tone } from './richBlocks';
 import './rich.css';
 
 /**
@@ -29,9 +29,15 @@ const Inline: React.FC<{ text: string }> = ({ text }) => (
 
 /** 标题只是把类型词再说一遍（`> [!WARNING] 注意`）就不再写（和 Bridge 的 rich_md.shown_title 一样） */
 const sameWord = (title: string, tone: Tone): boolean =>
-  [TONE_WORDS[tone], tone, tone.toUpperCase()].includes(title.replace(/^[*：:\s]+|[*：:\s]+$/gu, ''));
+  [TONE_WORDS[tone], tone].includes(title.replace(/^[*：:\s]+|[*：:\s]+$/gu, '').toLowerCase());
 
-export const RichBody: React.FC<{ blocks: RichBlock[]; render: (md: string) => React.ReactNode }> = ({ blocks, render }) => (
+/** 块里的正文：还有块（提示框里的折叠、折叠里的提示框、指标）就再切一层画，最多两层，不露原样的标记 */
+const Inner: React.FC<{ text: string; render: (md: string) => React.ReactNode; depth: number }> = ({ text, render, depth }) => {
+  const blocks: RichBlock[] | null = React.useMemo(() => (depth < 2 && hasRich(text) ? richBlocks(text) : null), [text, depth]);
+  return <>{blocks ? <RichBody blocks={blocks} render={render} depth={depth + 1} /> : render(text)}</>;
+};
+
+export const RichBody: React.FC<{ blocks: RichBlock[]; render: (md: string) => React.ReactNode; depth?: number }> = ({ blocks, render, depth = 0 }) => (
   <div className="mdr">
     {blocks.map((b: RichBlock, i: number) => {
       if (b.kind === 'callout') {
@@ -48,7 +54,11 @@ export const RichBody: React.FC<{ blocks: RichBlock[]; render: (md: string) => R
                 </span>
               ) : null}
             </div>
-            {b.body ? <div className="mdc-b">{render(b.body)}</div> : null}
+            {b.body ? (
+              <div className="mdc-b">
+                <Inner text={b.body} render={render} depth={depth} />
+              </div>
+            ) : null}
           </aside>
         );
       }
@@ -58,7 +68,7 @@ export const RichBody: React.FC<{ blocks: RichBlock[]; render: (md: string) => R
             <summary>
               <Inline text={b.title || DETAILS_WORD} />
             </summary>
-            <div className="mdd-b">{b.body ? render(b.body) : null}</div>
+            <div className="mdd-b">{b.body ? <Inner text={b.body} render={render} depth={depth} /> : null}</div>
           </details>
         );
       }
@@ -117,31 +127,39 @@ function toReact(node: HastNode, key: React.Key): React.ReactNode {
   );
 }
 
+// 这些不高亮（diff 自己按行着色，纯文本没什么可亮的），也不为它们去加载高亮器
+const PLAIN = new Set(['', 'diff', 'patch', 'text', 'txt', 'plaintext', 'plain']);
+
+/** 高亮结果和它那份代码绑在一起：同一位置换了代码（换语言、换成纯文本）时旧结果不会画到新代码上 */
 function useLit(lang: string, code: string): HastNode | null {
   const key = `${lang}\u0000${code}`;
-  const [tree, setTree] = useState<HastNode | null>(() => lit.get(key) ?? null);
+  const [made, setMade] = useState<{ key: string; tree: HastNode } | null>(() => {
+    const known: HastNode | undefined = lit.get(key);
+    return known ? { key, tree: known } : null;
+  });
+  const skip: boolean = PLAIN.has(lang) || code.length > 60_000;
   useEffect(() => {
-    if (!lang || lang === 'diff' || lang === 'text' || code.length > 60_000) return undefined;
+    if (skip) return undefined;
     const known: HastNode | undefined = lit.get(key);
     if (known) {
-      setTree(known);
+      setMade({ key, tree: known });
       return undefined;
     }
     let live = true;
     loadLow()
       .then((low: Low) => {
         if (!live || !low.registered(lang)) return;
-        const made: HastNode = low.highlight(lang, code);
+        const tree: HastNode = low.highlight(lang, code);
         if (lit.size >= LIT_MAX) lit.delete(lit.keys().next().value as string);
-        lit.set(key, made);
-        setTree(made);
+        lit.set(key, tree);
+        setMade({ key, tree });
       })
       .catch(() => undefined);
     return () => {
       live = false;
     };
-  }, [key, lang, code]);
-  return tree;
+  }, [key, lang, code, skip]);
+  return made && made.key === key && !skip ? made.tree : lit.get(key) ?? null;
 }
 
 async function copyText(text: string): Promise<boolean> {

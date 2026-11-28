@@ -22,13 +22,15 @@ import dataclasses
 import json
 import re
 
-from covey.cards.elements import CARD_NODES, card, element_count, json_size, md, note
-from covey.cards.review import ANSWER_CARD_BYTES
+from covey.cards.elements import card, json_size, md, note
+from covey.cards import review
+from covey.cards.review import ANSWER_CARD_BYTES, one_card
 from covey.cards.ui import BODY_PADDING, BODY_SPACING, banded, labelled, role_of, speaker_row, split_ask
 from covey.core import card_limits
 
-SENT_BYTES = 29_000  # A card's JSON escaped once more, as a message request carries it, under Feishu's 30 KB.
-PAGE_NODES = CARD_NODES - 10  # Tagged nodes a card may have, a few kept free (CardKit refuses one over 200: 300305).
+# Drawn to in cards/review.py one_card (an answer card falls back to one text by it); read here by name too.
+SENT_BYTES, PAGE_NODES = review.SENT_BYTES, review.PAGE_NODES
+
 MARGIN = 600  # Kept free on each card for what ``finish`` adds (its other parts' links) and a longer page mark.
 PARAGRAPH = 0.6  # A card is cut after its last paragraph when that leaves it at least this full, else after a line.
 SENTENCE = 0.6  # A line is cut after its last sentence end when that leaves the room at least this full.
@@ -57,8 +59,7 @@ def fits(built, *, cardkit=False) -> bool:
     """Whether one card message can carry ``built``: ANSWER_CARD_BYTES of JSON and SENT_BYTES as the request carries
     it, PAGE_NODES tagged nodes; ``cardkit``: a card CardKit creates (a question's copy), within its rendered size too
     (cards/card_cost.py)."""
-    if (not isinstance(built, dict) or json_size(built) > ANSWER_CARD_BYTES or sent_size(built) > SENT_BYTES
-            or element_count(built) > PAGE_NODES):
+    if not one_card(built):
         return False
     if cardkit:
         from covey.cards.card_cost import CARD_COST_BUDGET, card_cost

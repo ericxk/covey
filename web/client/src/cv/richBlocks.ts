@@ -34,6 +34,7 @@ const QUOTE = /^ {0,3}>[ \t]?(.*)$/u;
 const DETAILS_OPEN = /^<details(\s+open(?:=\S*)?)?\s*>(.*)$/iu;
 const DETAILS_CLOSE = /^[ \t]*<\/details>[ \t]*$/iu;
 const SUMMARY = /^[ \t]*<summary>(.*?)<\/summary>(.*)$/iu;
+const CLOSES = /^(.*?)<\/details>[ \t]*$/iu; // details 开头那行就收了：<details><summary>…</summary>…</details>
 const TABLE_RULE = /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/u;
 const PIPE = /(?<!\\)\|/u;
 const PAIR = /^([^:：]+?)\s*[:：]\s*(.+)$/u;
@@ -64,8 +65,10 @@ function detailsEnd(lines: string[], i: number): number | null {
       j = end + 1;
       continue;
     }
-    if (DETAILS_OPEN.test(lines[j])) depth += 1;
-    else if (DETAILS_CLOSE.test(lines[j])) {
+    const opened = DETAILS_OPEN.exec(lines[j]);
+    if (opened) {
+      if (!CLOSES.test(opened[2])) depth += 1; // 同一行就收掉的（单行 details）不算一层
+    } else if (DETAILS_CLOSE.test(lines[j])) {
       depth -= 1;
       if (!depth) return j;
     }
@@ -85,11 +88,12 @@ function cells(line: string): string[] {
 export function metricItems(body: string): Metric[] {
   const items: Metric[] = [];
   let last: number | null = null;
+  let piped = false; // 上一项那行有没有竖线：有才算表格，分隔行才把它当表头去掉
   body.split('\n').forEach((raw: string, n: number) => {
     const line: string = raw.trim();
     if (!line) return;
     if (TABLE_RULE.test(line)) {
-      if (items.length && last === n - 1) items.pop();
+      if (items.length && last === n - 1 && (line.includes('|') || piped)) items.pop();
       return;
     }
     let label: string;
@@ -108,6 +112,7 @@ export function metricItems(body: string): Metric[] {
     if (label && value) {
       items.push([label, value, delta]);
       last = n;
+      piped = line.includes('|');
     }
   });
   return items;
@@ -124,7 +129,7 @@ export function flatten(text: string): string {
 
 /** text 的块，按顺序；块之间的 Markdown 是 md 块（不会是空白） */
 export function richBlocks(text: string): RichBlock[] {
-  const lines: string[] = String(text ?? '').replace(/\r\n/gu, '\n').split('\n');
+  const lines: string[] = String(text ?? '').replace(/\r\n?/gu, '\n').split('\n');
   const out: RichBlock[] = [];
   let run: string[] = [];
   const flush = (): void => {
@@ -162,9 +167,10 @@ export function richBlocks(text: string): RichBlock[] {
       continue;
     }
     const opened = DETAILS_OPEN.exec(line);
-    const end: number | null = opened ? detailsEnd(lines, i) : null;
+    const whole = opened ? CLOSES.exec(opened[2]) : null;
+    const end: number | null = whole ? i : opened ? detailsEnd(lines, i) : null;
     if (opened && end !== null) {
-      let rest: string = opened[2];
+      let rest: string = whole ? whole[1] : opened[2];
       let inner: string[] = lines.slice(i + 1, end);
       let title = '';
       let summary = SUMMARY.exec(rest);

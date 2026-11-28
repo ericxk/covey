@@ -186,8 +186,7 @@ def drafts(checkpoint) -> list[dict]:
             continue
         ref = _ref(entry, index)
         text, problem = _text(entry)
-        if rich_md.rich(text):  # Words for a person, not 富文本块 (core/rich_md.py plain).
-            text = rich_md.plain(text)
+        text = rich_md.plain(text)  # Words for a person, without 富文本块 or task marks (core/rich_md.py plain).
         to = _target(entry)
         if not to:
             problem = problem or "没有收件人"

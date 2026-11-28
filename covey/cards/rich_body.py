@@ -22,12 +22,12 @@ def fold_id(element_id, n) -> str:
     return (element_id or "rich")[: 20 - len(suffix)] + suffix
 
 
-def callout(block) -> dict:
+def callout(block, polish=str) -> dict:
     """A callout on a grey block (never a red or orange one: docs/ui.md 2.2): its mark and kind in bold with its title,
     its body under it."""
     lines = [md(rich_md.callout_head(block))]
-    if block.body.strip():
-        lines.append(md(rich_md.card_markdown(block.body)))
+    if block.body.strip():  # ``polish``: its small headings bold, as a reply's (a quote's lines missed reply_body).
+        lines.append(md(polish(rich_md.card_markdown(block.body))))
     column = {"tag": "column", "width": "weighted", "weight": 1, **BLOCK_LOOK, "elements": lines}
     return {"tag": "column_set", "flex_mode": "none", "horizontal_spacing": "0px", "columns": [column]}
 
@@ -51,14 +51,14 @@ def metrics(block) -> list:
     return rows
 
 
-def elements(text, element_id="") -> list:
+def elements(text, element_id="", polish=str) -> list:
     """``text``'s elements (see the module); [] for an empty text."""
     out, folds = [], 0
     for block in rich_md.blocks(text):
         if block.kind == CALLOUT:
-            out.append(callout(block))
+            out.append(callout(block, polish))
         elif block.kind == DETAILS:
-            inner = elements(block.body) or [md(" ")]
+            inner = elements(block.body, polish=polish) or [md(" ")]
             out.append(collapsible(fold_id(element_id, folds), rich_md.plain(block.title) or rich_md.DETAILS_WORD,
                                    inner, expanded=block.open))
             folds += 1
@@ -69,14 +69,14 @@ def elements(text, element_id="") -> list:
     return out
 
 
-def reply_elements(text, element_id="", label="") -> list:
+def reply_elements(text, element_id="", label="", polish=str) -> list:
     """The elements of a reply's ``text`` (as a card shows it: cards/review.py reply_body), ``label`` grey before it,
     the first element carrying ``element_id``: one markdown element when ``text`` holds no block or its blocks would
     take too many of the card's nodes."""
     from covey.cards.ui import labelled
 
     if rich_md.rich(text):
-        drawn = elements(text, element_id)
+        drawn = elements(text, element_id, polish)
         if label:
             drawn.insert(0, md(grey(label)))
         if drawn and element_count(drawn) <= NODE_SHARE:
