@@ -155,7 +155,7 @@
 
 **和旧版本**：改成一题一条之前的版本读 `memory.json` 照常，超过 200 字的读成前 200 字；它写的时候按它的 40 条、6 KB 删条目。`memory-meta.json`、`answers/`、`memory-archive.json` 它不读也不写，所以出处和纠正都还在；连 `memory-meta.json` 都没了时，问答条目的出处从条目 id 读回来。之前记下的“主人答：…；…”一条多题的旧条目照旧读，算你说的当前决定，没有出处（`level` 是 `agent`），等存量迁移从原问题找回出处；真实记忆文件不在读的时候改。
 
-**整理记忆**（`COVEY_MEMORY_LEARN=1`、早晚汇总开着，[管家 · 记忆自己长](butler.md#记忆自己长开关默认关)）：晚间汇总时，30 天没用过的当前决定和待核对参考、问的事已经办完的（对某一次部署、合并的同意）、说的是别的专项的，只按规则 `valid` 记成 `done`（`core/project_memory.py` 的 `settle`），读成历史记录、不再每轮带，汇总卡上「撤销」放回去（`unsettle`）；不再调模型判“被新回答替代”，也不再提炼新约定。收起的条目还在文件里，查记忆（`bin/covey_memory.py`）照样查得到。
+**整理记忆**（`COVEY_MEMORY` 开着就每天一次，[管家 · 记忆](butler.md#记忆)）：只理资料和决定（`memory.json` 的行和 `decisions.jsonl` 的决定），30 天没用过的（只认 `memory_used`、`show`、问前查重命中）、问的事已经办完的（对某一次部署、合并的同意）、说的是别的专项的，只按规则收进历史记录（`memory.json` 的 `valid` 记成 `done`，`core/project_memory.py` 的 `settle`；`decisions.jsonl` 的记成办完），不再每轮带，晚间汇总卡上「撤销」放回去；规矩一条不收，负责人记的、旧版负责人写的限制也一样。不再调模型判“被新回答替代”，也不再提炼新约定。收起的条目还在文件里，查记忆（`bin/covey_memory.py`）照样查得到。
 
 **维护**（`core/maintenance_rules.py`）：专项做完 30 天后删资料库里的文件、索引留着；已结束（做完、已取消）的专项记忆条目 180 天后删，在做和停住的专项不动；`memory-meta.json`、`answers/`、`memory-archive.json` 随专项目录一起删；`projects/` 不进备份。
 

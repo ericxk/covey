@@ -222,7 +222,7 @@ ACTIONS = {
     "bridge_board_recover": CardAction("在看板上检查并继续", bot_only=True),
     # 你反复说的 on the evening digest (REMEMBER_KIND, retired: the candidates wait in 待审核): a click on an older card says where.
     "bridge_digest_remember": CardAction("记下或不用汇总里的候选"),  # Answered in words by app/digest.py (claim).
-    # 整理记忆 on the evening digest (cards/digest.py MEMORY_KIND, COVEY_MEMORY_LEARN=1): 撤销 puts the lines it put away back;
+    # 整理记忆 on the evening digest (cards/digest.py MEMORY_KIND, COVEY_MEMORY on): 撤销 puts the lines it put away back;
     # an older card's 确认长期 and 不对 are answered in words (app/digest.py memory_click, app/memory_tidy.py decide).
     "bridge_digest_memory": CardAction("撤销汇总里的整理记忆"),
     # 飞书应用待补 (cards/app_setup.py): the owner's, in the private chat (app/app_setup.py).

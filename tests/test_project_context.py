@@ -257,6 +257,54 @@ class AnswerTest(Case):
         self.assertEqual(self.logs, ["project memory answers not read against the other projects: OSError"])
 
 
+class RealAnswerTest(Case):
+    """T908 4.2: only a real answer is a decision, by rules alone (no model). Three live ones were not: a remark typed in the
+    topic while a card waited ("这个你能用CUA方式来弄么"), and two that asked back or held on."""
+
+    OPTIONS = {"id": "pick", "question": "自动学习要不要对所有部署默认打开？",
+               "options": [{"label": "对所有部署默认打开（推荐）"}, {"label": "保持默认关"}]}
+    FREE = {"id": "free", "question": "93 条迁移来的负责人约束怎么处理？"}
+
+    def note(self, question, said, channel, token):
+        record = {"token": token, "questions": [question], "answers": {question["id"]: {"answers": [said]}},
+                  "answer_by": {"party": "owner", "channel": channel}}
+        before = len(memstore.decisions(self.state, "project", PID, statuses=None))
+        project_context.remember_answer(self.state, MEMBER, record, self.logs.append, owners=True)
+        return len(memstore.decisions(self.state, "project", PID, statuses=None)) > before
+
+    def test_a_pick_and_an_options_words_typed_are_answers_other_words_typed_in_the_topic_are_not(self):
+        cases = [(self.OPTIONS, "对所有部署默认打开（推荐）", "card", True),
+                 (self.OPTIONS, " 对所有部署默认打开 。", "message", True),  # Its words, the 推荐 mark and the marks aside.
+                 (self.OPTIONS, "保持默认关", "message", True),
+                 (self.OPTIONS, "这个你能用CUA方式来弄么", "message", False),
+                 (self.OPTIONS, "我觉得都行，你看着办", "message", False),  # Typed in the topic, none of the options.
+                 (self.OPTIONS, "两个都先保持现状", "card", True),  # Written in the card's own box: his answer.
+                 (self.OPTIONS, "这两个有什么区别？", "card", False)]
+        for n, (question, said, channel, noted) in enumerate(cases):
+            self.assertEqual(self.note(question, said, channel, f"{n:016x}"), noted, said)
+        self.assertIn("question answers not noted as decisions: 1 of 1 not an answer", self.logs)
+        self.assertFalse([line for line in self.logs if "CUA" in line])  # Never his words in a log line.
+
+    def test_a_free_question_answered_by_asking_back_or_holding_on_is_not_an_answer(self):
+        cases = [("问几个问题，这个包级满意率是啥意思？", False), ("这个你能用CUA方式来弄么", False),
+                 ("等等你不能用无头浏览器登录，帮我建么", False), ("先别动，我再看看", False), ("这样可以吗 。", False),
+                 ("你先说说有几种做法呢", False), ("Is it safe?", False),
+                 ("先都不动，我自己逐个看", True), ("照 11-27 的选择做", True), ("要", True)]
+        for n, (said, noted) in enumerate(cases):
+            for m, channel in enumerate(("message", "card")):
+                self.assertEqual(self.note(self.FREE, said, channel, f"{n:08x}{m:08x}"), noted, (said, channel))
+
+    def test_the_rule_reads_each_part_and_never_a_skipped_one(self):
+        multi = {**self.OPTIONS, "multiple": True}
+        self.assertTrue(project_context.real(multi, ["对所有部署默认打开（推荐）", "保持默认关"], "card"))
+        self.assertFalse(project_context.real(self.FREE, ["好的", "这样行吗？"], "card"))
+        self.assertTrue(project_context.asks_back("真的么"))
+        self.assertFalse(project_context.asks_back("先都不动，我自己逐个看"))
+        record = {"token": "fedcba9876543210", "questions": [self.FREE],
+                  "answers": {"free": {"answers": ["用户选择不回答此题（不表示同意或授权）"]}}, "answer_by": {"channel": "card"}}
+        self.assertEqual(project_context.answered(record), [])
+
+
 class SubmittedAnswerTest(QuestionFixture, unittest.TestCase):
     """The click itself: the Bridge's own submit_answer notes the decision when the topic belongs to a project."""
 

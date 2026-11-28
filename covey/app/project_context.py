@@ -10,7 +10,8 @@ COVEY_PROJECTS=1 and COVEY_PROJECT_MEMORY=1; with either off every function here
   add_decision: the project's decisions.jsonl for a project's topic or lead, the topic's for an ordinary topic), one a question
   answered ("主人答：question→answer", ``answer_line``; ``question_ref`` the record's token and the question's place, so an answer
   submitted again is not noted twice). Feedback and skipped answers do not, nor the card's own extra question
-  (app/question_dedup.py; ``settle`` takes the owner's pick there). A question that names an entry of another project's memory
+  (app/question_dedup.py; ``settle`` takes the owner's pick there), nor what is no answer (``real``, rules alone: words typed
+  in the topic that are none of the options, or a reply that asks back or holds on). A question that names an entry of another project's memory
   by its id (``elsewhere``) is history at once. ``decision_rows``: those decisions as the lines of the project's memory read
   them (core/memory.py project_view), so every reader of it (a member topic's turn, the lead's pack, triage's grounds) has them.
 - ``fix_memory``: the owner's correction of a line (docs/web.md memory_fix: ``scope`` its conditions, ``once`` only that time,
@@ -26,11 +27,12 @@ Rule 1 (AGENTS.md): the records are written under their own lock; nothing is sen
 is never why a turn or an answer does not go through."""
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
 from covey.app import question_dedup
-from covey.app.answers import SKIPPED
+from covey.app.answers import MESSAGE, SKIPPED
 from covey.app.prompts import project_block, project_memory_lines
 from covey.core import board_read
 from covey.core import memory as core_memory
@@ -44,6 +46,12 @@ from covey.core.topics import proxy_topic, topic_label
 
 ANSWER_CHARS = 190  # Of an answer that does not fit with its question in one line: what it keeps before the question is cut.
 ANSWER_HEAD = "主人答："
+# What makes an answer no answer (``real``): it asks back (ends with a question mark or 吗、么、呢, sentence marks after it
+# aside) or holds on (starts with 等等、先别). Rules alone, no model: what slips through the owner voids from the search.
+ASKS_BACK = re.compile(r"(?:[?？]|[吗么呢])[\s。.！!~～…]*$")
+HOLDS_ON = re.compile(r"^[\s，,。.、：:]*(?:等等|先别)")
+RECOMMENDED = re.compile(r"[（(]\s*推荐\s*[）)]")  # An option's own mark, not part of what it says.
+_MARKS = re.compile(r"[\s，,。.！!、；;：:（）()【】\[\]“”\"'‘’~～…]+")
 ARTIFACTS_PER_TURN = 8
 FILES_PER_MESSAGE = 5
 
@@ -209,7 +217,7 @@ def elsewhere(state_dir, project_id, lines, log=None) -> None:
                 log(f"project memory answer {line['index']} noted as history: it names project {about[0]}'s lines")
 
 
-def remember_answer(state_dir, topic_id, record, log=None, *, owners=False, settles=None, origin=None) -> None:
+def remember_answer(state_dir, topic_id, record, log=None, *, owners=False, settles=None, origin=None, proof=None) -> None:
     """Note the owner's saved answer ``record`` (a question record with ``answers``) of ``topic_id`` as decisions (core/memstore.py
     add_decision): the project's (COVEY_PROJECT_MEMORY=1) for a topic or the lead of a project, the topic's own (COVEY_MEMORY on)
     for an ordinary one; a decision each question answered (``answer_line``), its ``question_ref`` ``<token>-<place>`` so it is
@@ -223,8 +231,10 @@ def remember_answer(state_dir, topic_id, record, log=None, *, owners=False, sett
     app/triage.py ``answer``) is not the owner's word and is not noted; the 分流记录 and the decision log hold it, and the
     owner corrects it in the topic (the 分流记录's 不对 is retired, T898). A question the lead passed on (``escalated``) and the owner answered is noted as always.
     ``settles``: whether the extra question's pick writes its rule (WAVE12 C2: the owner's own click or web page answer;
-    ``owners`` when not given). ``origin``: where the owner's word came in (app/questions.py: the question's token, his
-    message's id, ``via``), kept on each decision's origin."""
+    ``owners`` when not given); ``proof``: that click's core/memory_gate.py Proven (app/memory_proof.py by_click), which the
+    rule is written through. ``origin``: where the owner's word came in (app/questions.py: the question's token, his
+    message's id, ``via``), kept on each decision's origin. Only real answers (``answered``, ``real``) are noted, and only a
+    real answer is what a rule of the extra question says to do."""
     settles = owners if settles is None else settles
     came = {key: str(value) for key, value in (origin or {}).items() if key in ("question", "message_id", "via") and value}
     try:
@@ -240,6 +250,11 @@ def remember_answer(state_dir, topic_id, record, log=None, *, owners=False, sett
         if scope == "topic" and (not core_memory.enabled() or not (state / "topics" / owner / "topic.json").is_file()):
             return
         lines = answered(record) if owners else []
+        saved = record.get("answers") if isinstance(record.get("answers"), dict) else {}
+        given = sum(1 for answer in saved.values() if isinstance(answer, dict)
+                    and any(str(part).strip() and part != SKIPPED for part in answer.get("answers") or ()))
+        if owners and len(lines) < given and log is not None:
+            log(f"question answers not noted as decisions: {given - len(lines)} of {given} not an answer")  # Never his words.
         if lines:
             token = str(record.get("token") or "")
             if scope == "project":
@@ -257,7 +272,7 @@ def remember_answer(state_dir, topic_id, record, log=None, *, owners=False, sett
                                               **({"job": str(record["job_key"])} if record.get("job_key") else {}), **came},
                                       who="owner")
         question_dedup.settle(state, topic_id, record, {line["item"]: line["answer"] for line in answered(record)}, owner=settles,
-                              log=log)  # Only the owner's own click or web answer (``settles``: app/questions.py) writes a rule.
+                              proof=proof, log=log)  # Only the owner's own click or web answer (``settles``) writes a rule.
     except Exception as exc:  # noqa: BLE001 - the answer is delivered whether or not it was noted
         if log is not None:
             log(f"memory of an answer failed: {type(exc).__name__}")
@@ -277,17 +292,45 @@ def keep_record(state_dir, project_id, record) -> None:
                       "noted_at": time.time()}, ensure_ascii=False, indent=1)
 
 
+def _plain(text) -> str:
+    """``text`` as an option's words are compared (``real``): its 推荐 mark, blanks and punctuation dropped, lower case."""
+    return _MARKS.sub("", RECOMMENDED.sub("", str(text or ""))).lower()
+
+
+def asks_back(text) -> bool:
+    """Whether ``text`` asks back or holds on rather than answers (``ASKS_BACK``, ``HOLDS_ON``)."""
+    words = " ".join(str(text or "").split())
+    return bool(words) and (bool(ASKS_BACK.search(words)) or bool(HOLDS_ON.match(words)))
+
+
+def real(question, parts, channel) -> bool:
+    """Whether ``parts`` (what was given to ``question``, skipped ones left out) is a real answer, by rules alone (no model):
+    every part one of the question's options (picked, or its words typed: ``_plain``) always; for a question with options,
+    words typed in the topic (``channel`` app/answers.py MESSAGE) that are none of them never (a remark in the topic while a
+    card waits is taken as its answer); anything else (a question without options, the card's or the page's answer box) unless
+    it asks back or holds on (``asks_back``)."""
+    options = {_plain(option.get("label")) for option in question.get("options") or () if isinstance(option, dict)}
+    options.discard("")
+    if options and all(_plain(part) in options for part in parts):
+        return True
+    if options and channel == MESSAGE:
+        return False
+    return not any(asks_back(part) for part in parts)
+
+
 def answered(record) -> list:
-    """The questions of ``record`` the owner answered (skipped ones left out), in order: {index (from 1), item (its id),
-    question, answer, text (``answer_line``), asked (its id, header and words)}. Never the card's extra question."""
+    """The questions of ``record`` the owner really answered (skipped ones and those ``real`` says are none left out), in
+    order: {index (from 1), item (its id), question, answer, text (``answer_line``), asked (its id, header and words)}. Never
+    the card's extra question."""
     answers = record.get("answers") if isinstance(record.get("answers"), dict) else {}
+    by = record.get("answer_by") if isinstance(record.get("answer_by"), dict) else {}
     lines = []
     for index, question in enumerate(record.get("questions") or (), 1):
         if not isinstance(question, dict):
             continue
         given = (answers.get(question.get("id")) or {}).get("answers")
         parts = [str(part) for part in given or () if str(part).strip() and part != SKIPPED]
-        if parts:
+        if parts and real(question, parts, str(by.get("channel") or "")):
             words = str(question.get("question") or question.get("header") or "")
             lines.append({"index": index, "item": str(question.get("id") or ""), "question": cut(" ".join(words.split()), 590),
                           "answer": cut("；".join(parts), 590), "text": answer_line(words, "；".join(parts)),

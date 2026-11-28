@@ -1,9 +1,10 @@
 """问前查重 (app/question_dedup.py, app/native_questions.py dispatch) and the older callers on the memory store (core/memstore.py):
 the check only once core/memory_search.py has its similarity, the refusal in the same turn before anything is registered and at
 most once per question even after a restart, the grey line on any other backend and for the high-risk classes, the lead given
-the old answer, the third same-class question kept out of ``questions`` (live_question_proof), out of what the model gets and out
-of the decisions, a rule only from the owner's own submit, 30 quiet days; and config_basis, triage's grounds and the lead's tools
-reading short codes, the older ids and decisions.jsonl."""
+the old answer (never a done one: T908, triage's grounds refuse it), the third same-class question only on the owner's own turn,
+kept out of ``questions`` (live_question_proof), out of what the model gets and out of the decisions, its option saying where
+the rule goes, a rule only from the owner's own submit and through core/memory_gate.py, 30 quiet days; and config_basis,
+triage's grounds and the lead's tools reading short codes, the older ids and decisions.jsonl."""
 from __future__ import annotations
 
 import hashlib
@@ -18,7 +19,8 @@ from unittest import mock
 from support import UNSET_OFF, make_context, make_job
 from support.records import state_dir, write_job, write_topic
 
-from covey.app import answers, config_basis, native_questions, project_context, project_tools, question_dedup, triage as flow
+from covey.app import answers, config_basis, memory_proof, native_questions, project_context, project_tools, question_dedup
+from covey.app import triage as flow
 from covey.app.native_questions import NativeQuestions
 from covey.core import memory as core_memory
 from covey.core import memory_rank, memory_search, memory_usage, memstore, project_memory, projects, triage, turn_source
@@ -103,11 +105,12 @@ class Case(unittest.TestCase):
     def ctx(self, topic=MEMBER):
         return make_context(self.state.parent, state_dir=self.state, topic_id=topic)
 
-    def native(self, harness="claude", refuses=True, leads=False):
+    def native(self, harness="claude", refuses=True, leads=False, owners=True):
         spec = Spec(name=harness, refuses_questions=refuses)
         questions = SimpleNamespace(triage=SimpleNamespace(leads=lambda ctx, record: leads))
-        return NativeQuestions(SimpleNamespace(spec=spec), runtime=SimpleNamespace(log=self.logs.append), cards=None,
-                               questions=questions)
+        access = SimpleNamespace(owner_turn=lambda chat, sender: owners, is_owner=lambda open_id: open_id == "ou_owner")
+        return NativeQuestions(SimpleNamespace(spec=spec), runtime=SimpleNamespace(log=self.logs.append, access=access),
+                               cards=None, questions=questions)
 
     def job(self, topic=MEMBER, key="om_q1", job_id=1):
         write_job(self.state, key, topic_id=topic, chat_id=CHAT, job_id=job_id, status="running")
@@ -350,6 +353,18 @@ class RefuseInTheTurnTest(Case):
         self.assertIn(f"主人上次答过：{MERGE['question']}→合进去（{self.old.code}）", question_dedup.lead_line(saved[0]))
         self.assertNotIn(question_dedup.EXTRA_KEY, saved[0])
 
+    def test_a_done_old_answer_is_the_owners_grey_line_but_never_handed_to_the_lead(self):
+        """T908 4.3: triage's grounds refuse a decision that is done (history), so a lead quoting the code of the 主人上次答过 it
+        was handed had its answer sent back and the question waited three minutes."""
+        memstore.settle(self.state, self.old.ref)
+        saved, _ = self.ask(self.native(leads=True), self.job(), [MERGE], Rpc())
+        mark = saved[0][question_dedup.MARK_KEY]["merge"]
+        self.assertEqual(mark["status"], "done")
+        self.assertIn("上次你答过：合进去", mark["line"])  # The card's grey line still says it.
+        self.assertEqual(question_dedup.lead_line(saved[0]), "")
+        older = {question_dedup.MARK_KEY: {"merge": {key: value for key, value in mark.items() if key != "status"}}}
+        self.assertIn("主人上次答过：", question_dedup.lead_line(older))  # A record saved before the status was kept: as before.
+
     def test_the_lead_may_have_it_says_triage_without_writing_anything(self):
         environment(self, **{triage.ENV: "1"})
         record = {"topic_id": MEMBER, "chat_id": CHAT, "questions": [MERGE], "blocking": True, "status": "pending"}
@@ -374,7 +389,8 @@ class ThirdOfAClassTest(Case):
         self.assertEqual(record["questions"], [MERGE])
         (extra,) = record[question_dedup.EXTRA_KEY]
         self.assertEqual((extra["id"], [o["label"] for o in extra["options"]]),
-                         (question_dedup.EXTRA_ID, [question_dedup.KEEP_ASKING, question_dedup.FOLLOW]))
+                         (question_dedup.EXTRA_ID, [question_dedup.KEEP_ASKING, "以后按这次的做，记成这个专项的规矩"]))
+        self.assertIn("记成这个专项的一条规矩", extra["options"][1]["description"])
         proof = hashlib.sha256(json.dumps([MERGE], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
         self.assertEqual(hashlib.sha256(json.dumps(record["questions"], ensure_ascii=False, sort_keys=True).encode()).hexdigest(), proof)
         drawn = question_dedup.drawn(record)
@@ -388,6 +404,27 @@ class ThirdOfAClassTest(Case):
         self.assertIn(question_dedup.KEEP_ASKING, painted)
         self.assertIn(question_dedup.FOLLOW, painted)
         self.assertEqual(painted.count(question_dedup.FOLLOW), json.dumps(question_element({**drawn, "display_pending": False, "body_delivery_confirmed": True}), ensure_ascii=False).count(question_dedup.FOLLOW))
+
+    def test_only_on_the_owners_own_turn(self):
+        """T908 4.2②: the class question is the owner's to answer about his own work: a lead's turn, the butler's hand-on, a
+        wake-up or a 协作 one never gets it, nor a turn of somebody else in the group."""
+        saved, _ = self.ask(self.native("codex", owners=False), self.job(), [MERGE], Rpc(live=False))
+        self.assertNotIn(question_dedup.EXTRA_KEY, saved[0])
+        access = SimpleNamespace(owner_turn=lambda chat, sender: True)
+        for kind, mine in ((turn_source.LEAD, False), (turn_source.RELAY, False), (turn_source.WAKE, False),
+                           (turn_source.ANSWER_FOR, False), (turn_source.ASK, False), (turn_source.ANSWER, True)):
+            job = SimpleNamespace(chat_id=CHAT, sender_id="", turn_source={"v": 1, "kind": kind})
+            self.assertEqual(question_dedup.owner_turn(access, job), mine, kind)
+        self.assertTrue(question_dedup.owner_turn(access, SimpleNamespace(chat_id=CHAT, sender_id="ou_owner")))  # His message.
+        self.assertFalse(question_dedup.owner_turn(None, SimpleNamespace(chat_id=CHAT, sender_id="ou_owner")))
+
+    def test_an_ordinary_topics_option_says_the_rule_is_global(self):
+        for tid in ("ef" * 32, "fa" * 32):
+            write_topic(self.state, topic_id=tid, chat_id=CHAT)
+            answer(self.state, MERGE, "合进去", owner=tid, at=NOW - 86400)
+        (extra,) = question_dedup.class3(self.ctx(PLAIN), {"topic_id": PLAIN}, [MERGE])
+        self.assertEqual(extra["options"][1]["label"], "以后按这次的做，记成全局规矩")
+        self.assertEqual(extra["class"]["scope"], "global")
 
     def test_not_for_a_high_risk_class_nor_with_two_answers_that_disagree(self):
         answer(self.state, DEPLOY, "部署", at=NOW - 2 * 86400)
@@ -405,16 +442,24 @@ class ThirdOfAClassTest(Case):
         saved, _ = self.ask(self.native("codex"), self.job(), [MERGE], Rpc(live=False))
         record = self.submit(saved[0], {"option_0": "0", "option_1": "1"})
         self.assertEqual(record["answers"], {"merge": {"answers": ["合进去"]}})
-        self.assertEqual(record[question_dedup.EXTRA_ANSWERS], {question_dedup.EXTRA_ID: question_dedup.FOLLOW})
+        self.assertEqual(record[question_dedup.EXTRA_ANSWERS], {question_dedup.EXTRA_ID: "以后按这次的做，记成这个专项的规矩"})
         shown, text, delivered = answers.answer_message(record, record["answers"], "", [])
         self.assertNotIn("以后这类", shown + text)
         self.assertEqual(list(delivered), ["merge"])
         before = {entry.ref for entry in memstore.decisions(self.state, "project", PID)}
-        project_context.remember_answer(self.state, MEMBER, record, self.logs.append, owners=True)
+        project_context.remember_answer(self.state, MEMBER, record, self.logs.append, owners=True)  # No proof: no rule.
+        self.assertEqual(memstore.entries(self.state, scope="project", owner_key=PID, kinds=("rule",)), [])
+        access = SimpleNamespace(is_owner=lambda open_id: open_id == "ou_owner")
+        proof = memory_proof.by_click(access, "ou_owner", "card", question=record["token"])
+        with mock.patch("covey.core.memory_gate.write", wraps=__import__("covey.core.memory_gate", fromlist=["write"]).write) as gate:
+            project_context.remember_answer(self.state, MEMBER, record, self.logs.append, owners=True, proof=proof)
+        gate.assert_called_once()  # The rule goes through the write gate (T908 4.2②).
         new = [entry for entry in memstore.decisions(self.state, "project", PID) if entry.ref not in before]
         self.assertEqual([entry.text for entry in new], [project_context.answer_line(MERGE["question"], "合进去")])
         (rule,) = memstore.entries(self.state, scope="project", owner_key=PID, kinds=("rule",))
         self.assertEqual((rule.said, rule.by), ("owner", "bridge"))
+        self.assertEqual(rule.origin.get("question"), record["token"])  # Where he said it: the owner's level for triage.
+        self.assertEqual(rule.origin.get("topic_key"), MEMBER)
         self.assertIn("合进去", rule.text)
         self.assertEqual(question_dedup.class3(self.ctx(), {"topic_id": MEMBER}, [MERGE]), [])  # Quiet now.
 

@@ -1,7 +1,9 @@
 """每轮带法 (app/memory_turn.py, app/prompts.py memory_rules_block / memory_tail_block): the rules carry the 规矩 alone and stay the
 same turn after turn (the prompt cache), the tail carries the decisions in progress, the notes the turn's words find and the
-titles of the related ones; a decision of the topic's own is carried until it is answered anew, another topic's ends with that
-topic's delivered commit; a light user gets nothing; the job record names what was carried; the web page's preview."""
+titles of the related ones; a decision of the topic's own is carried until it is answered anew, the lead's ends with the lead's
+delivered commit, another topic's of the project is never carried whole (only its title, when the search finds it: T908 4.3);
+a rule the lead wrote is in the rules however long no turn used it, 整理记忆 never puts it away; a light user gets nothing; the
+job record names what was carried; the web page's preview."""
 from __future__ import annotations
 
 import os
@@ -15,13 +17,14 @@ from unittest import mock
 from support import UNSET_OFF
 from support.records import write_job, write_topic
 
-from covey.app import memory_turn
+from covey.app import memory_tidy, memory_turn
 from covey.app.prompts import RULES_HEAD, TAIL_HEAD, turn_tail
-from covey.core import memory, memory_review, memory_search, memstore, projects
+from covey.core import memory, memory_review, memory_search, memory_usage, memstore, projects
 from covey.core.jobs import find_job_record, job_key
 
 PID, CHAT = "a1b2c3d4e5f6", "oc_owner_dm"
 T1, T2 = "a1" * 32, "b2" * 32
+LEAD = projects.lead_topic_id(CHAT, PID)
 
 
 class Case(unittest.TestCase):
@@ -140,21 +143,45 @@ class RulesTest(Case):
 
 
 class DecisionTest(Case):
-    def test_a_topics_own_decision_stays_after_its_commit_and_ends_for_the_others(self):
-        asked = time.time() - 3600
-        self.decide("网关镜像要不要先发预发？", "先发预发", T1, asked)
+    def test_a_topics_own_decision_stays_after_its_commit(self):
+        self.decide("网关镜像要不要先发预发？", "先发预发", T1, time.time() - 3600)
         self.assertIn("先发预发", self.tail(T1))
-        self.assertIn("先发预发", self.tail(T2))  # Another topic of the project: in progress while T1 has not delivered.
         write_job(self.state, job_key("omt1", 9), job_id=9, topic_id=T1, chat_id=CHAT, status="done",
                   delivery={"commit": "0123abcd", "deployed": "", "verified": ""})
         memory_turn._plans.clear()
         self.assertIn("先发预发", self.tail(T1))  # The topic's own: until it ends or the question is answered anew.
-        self.assertNotIn("先发预发", self.tail(T2))
 
-    def test_another_topics_decision_older_than_the_window_is_not_carried(self):
-        self.decide("旧批次要不要重跑？", "不重跑", T1, time.time() - 3 * 86400)
+    def test_the_leads_decision_is_carried_to_its_topics_until_the_lead_delivers(self):
+        self.decide("网关镜像要不要先发预发？", "先发预发", LEAD, time.time() - 3600)
+        self.assertIn("→先发预发", self.tail(T1))
+        self.assertIn("→先发预发", self.tail(T2))
+        write_job(self.state, job_key("omlead", 9), job_id=9, topic_id=LEAD, chat_id=CHAT, status="done",
+                  delivery={"commit": "0123abcd", "deployed": "", "verified": ""})
+        memory_turn._plans.clear()
+        self.assertNotIn("→先发预发", self.tail(T2))
+
+    def test_the_leads_decision_older_than_the_window_is_not_carried(self):
+        self.decide("旧批次要不要重跑？", "不重跑", LEAD, time.time() - 3 * 86400)
         self.assertNotIn("不重跑", self.tail(T2))
-        self.assertIn("不重跑", self.tail(T1))
+        self.decide("这一批要不要重跑？", "要重跑", T1, time.time() - 3 * 86400)
+        self.assertIn("要重跑", self.tail(T1))  # The topic's own: whatever its age.
+
+    def test_another_topics_decision_is_never_carried_whole_only_its_title_when_the_search_finds_it(self):
+        """T908 4.3: what a sibling topic asked the owner is carried in that topic alone; another topic of the project sees
+        its title among 相关但没带的 when its words find it (``covey memory show`` has the whole), and nothing otherwise."""
+        made = self.decide("网关镜像要不要先发预发？", "先发预发", T1, time.time() - 60)
+        found = memory_turn.make_plan(self.state, topic=T2, project=PID, owner=True, words="网关镜像要不要先发预发")
+        self.assertNotIn(made.ref, [entry.ref for entry in found.decisions])
+        self.assertIn(made.ref, [item["ref"] for item in found.listed])
+        text = self.tail(T2, "网关镜像要不要先发预发")
+        self.assertIn(made.code, text)
+        self.assertNotIn("→先发预发", text)
+        quiet = memory_turn.make_plan(self.state, topic=T2, project=PID, owner=True, words="看下额度条颜色")
+        self.assertNotIn(made.ref, [entry.ref for entry in quiet.decisions])
+        self.assertNotIn(made.ref, [item["ref"] for item in quiet.listed])
+        self.assertIn("→先发预发", self.tail(T1))  # Its own topic carries it whole.
+        self.assertTrue(memory_turn.sibling(made, T2, LEAD))
+        self.assertFalse(memory_turn.sibling(made, T1, LEAD))
 
     def test_the_same_question_answered_anew_carries_the_newer_answer(self):
         self.decide("额度条用什么颜色？", "黄色", T1, time.time() - 7200)
@@ -165,7 +192,29 @@ class DecisionTest(Case):
 
     def test_a_decision_says_where_it_was_asked(self):
         self.decide("网关镜像要不要先发预发？", "先发预发", T1, time.time() - 60)
-        self.assertRegex(self.tail(T2), r"- D[0-9A-Z]{4,6} 主人答：|- D[0-9A-Z]{4,6} 网关镜像要不要先发预发？→先发预发（T7 · ")
+        self.assertRegex(self.tail(T1), r"- D[0-9A-Z]{4,6} 网关镜像要不要先发预发？→先发预发（T7 · ")
+
+
+class LeadRuleTest(Case):
+    def test_a_leads_rule_unused_for_31_days_is_still_in_the_rules_block(self):
+        """T908 4.2: 整理记忆 never puts a 规矩 away for not being used, the lead's (负责人记的, a limit on what to do) neither:
+        31 days with no ``memory_used``, and the day's tidy run, it is still in the rules a topic of the project reads."""
+        old = time.time() - 31 * 86400
+        made = memstore.add(self.state, kind="rule", scope="project", owner_key=PID, text="改共享配置前先在预发验证一遍",
+                            said="summary", by="lead", now=old)
+        note = memstore.add(self.state, kind="note", scope="project", owner_key=PID, text="预发集群的地址在项目简报里",
+                            said="summary", by="lead", now=old)
+        usage = memory_usage.idle_view(self.state)
+        self.assertTrue(memory_usage.idle(usage, made.ref, made.at))  # No turn used it.
+        tidy = memory_tidy.MemoryTidy(SimpleNamespace(log=lambda line: None))
+        run = tidy.run(SimpleNamespace(state_dir=self.state), CHAT, memory_tidy.day(time.time()), now=time.time())
+        self.assertEqual(memstore.find(self.state, made.ref).status, "active")
+        self.assertEqual(memstore.find(self.state, note.ref).status, "archived")  # Its 资料 is put away.
+        self.assertEqual([row[0] for row in run["projects"][0]["settled"]], [memstore.parse_ref(note.ref)[2]])
+        memory_turn._plans.clear()
+        block = self.block(T1)
+        self.assertIn("改共享配置前先在预发验证一遍", block)
+        self.assertIn("负责人记的", block)
 
 
 class NotesTest(Case):

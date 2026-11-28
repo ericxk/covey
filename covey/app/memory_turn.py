@@ -6,11 +6,12 @@ the topic's own; the owner's first, then as they were written; past a scope's ro
 专项 10 and 1,000, 话题 5 and 400, given to the owner's first and then the newest: ``pick_rules``) only their titles, never one
 dropped. It is the same every turn of a topic while its rules
 are, so the rules stay one cacheable prefix. ``tail`` is what changes turn by turn: the decisions in progress (the topic's own
-until it ends or the same question has a newer answer; another topic's of the project while that topic is going and has not
-delivered a commit since, and at most IN_PROGRESS_HOURS old otherwise: ``in_progress``), the notes that the turn's words, the
+until it ends or the same question has a newer answer; one the project's lead asked while the lead's topic is going and has
+not delivered a commit since, and at most IN_PROGRESS_HOURS old otherwise: ``in_progress``; one another topic of the project
+asked is never carried whole, only its title when the search finds it: ``sibling``), the notes that the turn's words, the
 topic's title and its 话题要点 find (core/memory_search.py, at most NOTES with sim ≥ DEFAULT_TAU and NOTE_CHARS characters),
-then the titles of the related entries not carried. ``preview`` is the same reckoning for the web page (data contract v43
-MemoryPreview).
+then the titles of the related entries not carried (a sibling's decision among them). ``preview`` is the same reckoning for
+the web page (data contract v43 MemoryPreview).
 
 Who reads what is as it was: a 代答 topic nothing; a line from a topic with redaction on only one with it on; 待审核 never.
 Nothing is written but the job record's ``memory_ids`` (carried whole: {n, ref, scope, kind, by}) and ``memory_listed``
@@ -176,9 +177,10 @@ def _topic_state(state_dir, topic_id, cache) -> tuple[float, list]:
 
 def in_progress(state_dir, entry, topic, *, now, cache=None) -> bool:
     """Whether the active decision ``entry`` is in progress for a turn of ``topic`` (docs/butler.md 记忆): the topic's own
-    always (it is done when the topic ends or the same question is answered anew: the store says so); another topic's while
-    that topic has not delivered a commit since it was decided and either it was decided within IN_PROGRESS_HOURS or that
-    topic had a turn within them. A delivery ends it for the others only."""
+    always (it is done when the topic ends or the same question is answered anew: the store says so); another topic's (for a
+    turn: only the lead's, ``decisions_of`` leaves the other topics' out) while that topic has not delivered a commit since it
+    was decided and either it was decided within IN_PROGRESS_HOURS or that topic had a turn within them. A delivery ends it
+    for the others only."""
     cache = {} if cache is None else cache
     asked = _asked_in(entry)
     if entry.status != "active":
@@ -196,9 +198,29 @@ def in_progress(state_dir, entry, topic, *, now, cache=None) -> bool:
     return recent or now - last <= IN_PROGRESS_HOURS * 3600
 
 
+def lead_of(state_dir, project) -> str:
+    """The topic id of ``project``'s lead ('' for none, or when its record cannot be read)."""
+    if not project:
+        return ""
+    try:
+        record = projects.read_record(state_dir, project) or {}
+    except (OSError, ValueError):
+        return ""
+    return str(record.get("lead_topic_id") or "")
+
+
+def sibling(entry, topic, lead) -> bool:
+    """Whether the decision ``entry`` was asked in another topic of the project than ``topic`` and its lead's (``lead``): a
+    turn never carries it whole (T908 4.3), the search lists its title when it finds it (``notes_of``). One that names no
+    asking topic is not (``in_progress`` keeps it IN_PROGRESS_HOURS, as before)."""
+    asked = _asked_in(entry)
+    return bool(topic) and entry.scope == "project" and bool(asked) and asked not in (topic, lead)
+
+
 def decisions_of(state_dir, *, topic="", project="", redacted_on=False, now=None, cache=None) -> list:
-    """The decisions in progress a turn of ``topic`` in ``project`` carries, the newest first, a question once. ``cache``:
-    the asking topics' job records as ``in_progress`` read them, shared by the caller (the web page's previews of one build)."""
+    """The decisions in progress a turn of ``topic`` in ``project`` carries, the newest first, a question once: the topic's own
+    and the lead's (``in_progress``), never another topic's of the project (``sibling``). ``cache``: the asking topics' job
+    records as ``in_progress`` read them, shared by the caller (the web page's previews of one build)."""
     now = time.time() if now is None else now
     found = []
     if topic:
@@ -206,9 +228,12 @@ def decisions_of(state_dir, *, topic="", project="", redacted_on=False, now=None
     if project:
         found += memstore.entries(state_dir, scope="project", owner_key=project, kinds=("decision",))
     cache = {} if cache is None else cache
+    lead = lead_of(state_dir, project)
     seen, out = set(), []
     for entry in sorted(found, key=lambda e: -e.at):
-        if not _readable(entry, redacted_on) or not in_progress(state_dir, entry, topic, now=now, cache=cache):
+        if not _readable(entry, redacted_on) or sibling(entry, topic, lead):
+            continue
+        if not in_progress(state_dir, entry, topic, now=now, cache=cache):
             continue
         question = (entry.owner_key, _asked_in(entry), entry.title)
         if question in seen:

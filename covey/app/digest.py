@@ -455,7 +455,7 @@ class Digest:
         self.others = {}  # chat_id -> a personal group's Digest (app/group_boards.py): its 看板's clicks are its own.
         self.link = lambda ctx, chat, text, cards=None: linkify(text, ctx.state_dir, chat, profile=ctx.profile, cards=cards)
         self.menu = MenuPanel(self, BOARD_KIND, BOARD_FOLDER, BOARD_KIND)
-        self.memory_tidy = None  # 整理记忆 (app/memory_tidy.py MemoryTidy, COVEY_MEMORY_LEARN=1): the private chat's digest only.
+        self.memory_tidy = None  # 整理记忆 (app/memory_tidy.py MemoryTidy, COVEY_MEMORY on): the private chat's digest only.
 
     def menu_items(self):
         """The bot menu's 看板, always (app/unified.py menu)."""
@@ -744,8 +744,8 @@ class Digest:
             proxied = {}
         if proxied:
             found["proxy"] = proxied
-        if self.memory_tidy is not None and memory.learning():
-            tidied = self.memory_tidy.view(ctx, chat, slot, now)  # 整理记忆: never raises.
+        if self.memory_tidy is not None and memory.enabled():
+            tidied = self.memory_tidy.view(ctx, chat, slot, now)  # 整理记忆, the day's run: never raises.
             if tidied:
                 found["memory_tidy"] = tidied
         return found

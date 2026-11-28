@@ -184,7 +184,7 @@ Bridge 自己停了、或者和飞书断了，它自己说不了话。所以由�
 │  ├─ limit-notices/               几个话题同一原因停下的合并提示（`COVEY_LIMIT_NOTICE`）：每组一个，发没发过
 │  ├─ digest.json                  早晚汇总
 │  ├─ memory-candidates.json       旧版晚间汇总里“你反复说的”候选和主人点的「记下」「不用」（`COVEY_MEMORY` 没关；新候选进待审核，不再写这里）
-│  ├─ memory-usage.json、memory-tidy.json、memory-harvest.json   记忆自己长（`COVEY_MEMORY_LEARN=1`）：每条记忆最后一次被用到的时间、每晚整理记忆收起了什么（撤销用）、读过的 Codex 和 Claude Code 自己的记忆
+│  ├─ memory-usage.json、memory-tidy.json、memory-harvest.json   旧版每条记忆最后一次被用到的时间（只读）、每天整理记忆收起了什么（撤销用，`COVEY_MEMORY` 没关）、旧版读过的 Codex 和 Claude Code 自己的记忆
 │  ├─ projects/                    专项（`COVEY_PROJECTS`）：`<专项>.json`；`<专项>/` 里是记忆 `memory.json`（旧版也读写）、它的新字段 `memory-v2.json`、决定记录 `decisions.jsonl`、资料库索引 `library.json` 和复制的文件 `library/`、收件箱 `inbox/`；整理专项的记录 `tidy/`
 │  ├─ owner-send/                  代发的草稿和发送记录
 │  ├─ butler-asks/                 话题转给管家的事（`COVEY_PROJECTS`）：每轮一个，转了什么、发没发出去

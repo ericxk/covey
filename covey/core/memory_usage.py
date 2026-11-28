@@ -1,4 +1,4 @@
-"""Which memory lines the turns used and carried (docs/butler.md 记忆自己长), so what is never of use goes first
+"""Which memory lines the turns used and carried (docs/butler.md 记忆), so what is never of use goes first
 and in time out of the way: ``<state>/memory-usage.json`` {schema_version, refs: {ref: {n, last}}}, ``ref`` as core/memory.py
 names an item ("principle:<id>", "project:<project>:<id>", "candidate:<id>", …), ``n`` how many turns used it, ``last`` when
 the latest did. The Bridge writes it once a turn has ended (app/memory_learn.py: the numbers the turn's checkpoint lists in
@@ -12,9 +12,12 @@ keys, so they lie beside it in ``memory/usage.json`` (core/memstore.py usage_pat
 ``e`` how many turns carried the line's whole text (``carried``), ``t`` how many listed only its title (``listed``),
 ``h`` the strong signals that it was of use, weighed as core/memory_rank.py SIGNAL_WEIGHTS says (``signal``: shown with
 ``covey memory show``, a question it answered before, the owner confirming it, a checkpoint's ``memory_used``), ``last``
-when a turn last carried it whole or gave a signal (a title listed is not a use). ``counts`` reads both files as one: an
-old ref (``principle:p…``) is read as the entry that has it among its aliases (memory/codes.json), its ``n`` added to the
-entry's and the later ``last`` kept; 整理记忆 ages the lines by it (``idle``). Standard library and core only."""
+when it was last used: a checkpoint's ``memory_used``, ``show``, a question it answered before (``USES``). Carried whole
+or listed by title is no use, nor the owner confirming it (T908: a line carried every turn and never of use stayed for
+good). ``counts`` reads both files as one: an old ref (``principle:p…``) is read as the entry that has it among its aliases
+(memory/codes.json), its ``n`` added to the entry's and the later ``last`` kept; 整理记忆 ages the 资料 and the 决定 by it
+(``idle``; never a 规矩). A ``last`` an older release wrote when a turn carried the line is read as it is: it ages out
+within IDLE_DAYS. Standard library and core only."""
 from __future__ import annotations
 
 import time
@@ -27,7 +30,7 @@ from covey.core.state import read_object, write_json
 FILE = "memory-usage.json"
 SCHEMA = 1
 KEPT = 2000
-IDLE_DAYS = 30  # A line of 它总结的 or a 当前决定 no turn used for this long is let go by 整理记忆 (app/memory_tidy.py).
+IDLE_DAYS = 30  # A 资料 or a 决定 no turn used (``USES``) for this long is put away by 整理记忆 (app/memory_tidy.py).
 
 
 def path(state_dir) -> Path:
@@ -98,7 +101,7 @@ def idle(usage, ref, written_at, *, now=None, days=IDLE_DAYS) -> bool:
 COUNTS = ("e", "t", "h")
 
 
-USED = ("e", "h")  # What moves a line's ``last``: carried whole, a signal of use (not a title listed).
+USES = ("memory_used", "show", "dedup")  # The signals that move a line's ``last``: it was of use (not carried, listed, confirmed).
 
 
 def _v2(state_dir) -> dict:
@@ -137,7 +140,7 @@ def idle_view(state_dir) -> dict:
     return found
 
 
-def _bump(state_dir, refs, key, amount, now=None) -> int:
+def _bump(state_dir, refs, key, amount, now=None, *, used=False) -> int:
     refs = list(dict.fromkeys(str(ref) for ref in refs or () if ref))
     if not refs or not amount:
         return 0
@@ -148,7 +151,7 @@ def _bump(state_dir, refs, key, amount, now=None) -> int:
         for ref in refs:
             row = found.setdefault(ref, {**dict.fromkeys(COUNTS, 0.0), "last": 0.0})
             row[key] = round(row[key] + amount, 3)
-            if key in USED:
+            if used:
                 row["last"] = max(row["last"], stamp)
         kept = dict(sorted(found.items(), key=lambda pair: -(pair[1]["e"] + pair[1]["h"]))[:KEPT * 2])
         write_json(path, {"version": memstore.VERSION, "refs": kept}, ensure_ascii=False, separators=(",", ":"))
@@ -156,7 +159,7 @@ def _bump(state_dir, refs, key, amount, now=None) -> int:
 
 
 def carried(state_dir, refs) -> int:
-    """``refs`` whose whole text one turn carried: each one's ``e`` up by one."""
+    """``refs`` whose whole text one turn carried: each one's ``e`` up by one (not a use: ``last`` stays)."""
     return _bump(state_dir, refs, "e", 1)
 
 
@@ -167,10 +170,10 @@ def listed(state_dir, refs) -> int:
 
 def signal(state_dir, refs, kind) -> int:
     """A strong sign ``kind`` (core/memory_rank.py SIGNAL_WEIGHTS: show, dedup, confirm, memory_used) that ``refs`` were of
-    use: each one's ``h`` up by its weight. ValueError for another kind."""
+    use: each one's ``h`` up by its weight, and its ``last`` now for one of ``USES``. ValueError for another kind."""
     if kind not in memory_rank.SIGNAL_WEIGHTS:
         raise ValueError(f"signal {kind!r}")
-    return _bump(state_dir, refs, "h", memory_rank.SIGNAL_WEIGHTS[kind])
+    return _bump(state_dir, refs, "h", memory_rank.SIGNAL_WEIGHTS[kind], used=kind in USES)
 
 
 def carry_v2(state_dir, old, new) -> bool:

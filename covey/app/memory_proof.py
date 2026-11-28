@@ -15,14 +15,15 @@ from covey.core.jobs import job_path, read_job_record
 from covey.core.memory_gate import Proof, Proven
 
 
-def by_click(access, open_id: str, via: str) -> Proven | None:
+def by_click(access, open_id: str, via: str, *, question: str = "") -> Proven | None:
     """A Proven of the owner's level for a click by ``open_id`` through ``via`` when it is the owner's (``access.is_owner``);
-    None for anybody else's, or when it cannot be told."""
+    None for anybody else's, or when it cannot be told. ``question``: the token of the question card the click answered
+    (its proof names it, so what is written of it keeps where the owner said it)."""
     try:
         owner = bool(open_id) and bool(access.is_owner(open_id))
     except Exception:  # noqa: BLE001 - not known to be his
         owner = False
-    return Proven(Proof(via=str(via or "")), turn_source.LEVEL_OWNER) if owner else None
+    return Proven(Proof(via=str(via or ""), question=str(question or "")), turn_source.LEVEL_OWNER) if owner else None
 
 
 def _squash(text) -> str:

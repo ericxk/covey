@@ -12,7 +12,7 @@ While core/memory_search.py has neither of the two, with COVEY_MEMORY off, or in
 hit does is the dispatch's:
 
 - a project's question that triage hands to its lead (app/triage.py ``leads``): no turn of its own, the old answer goes
-  with it to the lead (``lead_line``, in the receipt);
+  with it to the lead (``lead_line``, in the receipt), unless that decision is done (app/triage.py grounds refuses it then);
 - one of the five high-risk classes (``HIGH_RISK``, or a gate word of core/project_gates.py): only the grey line, never held;
 - on a backend that takes a refused question back in the same turn (``in_turn``: its Harness ``refuses_questions`` and keeps
   the turn open on a question): the question is refused with the old answer (``reject_text``), at most ``MAX_REJECTS`` time
@@ -21,12 +21,15 @@ hit does is the dispatch's:
 - on any other (a refusal that ends the run, a question that pauses the turn, a checkpoint's question): the card shows a grey
   line 上次你答过：…（Txx） (``hint``) and is never held.
 
-The third same-class answer (``class3``): when the project (an ordinary topic: every ordinary topic) has two decisions of the
-same class (``category`` and a similar question) answered the same way (``polarity``) in ``CLASS_DAYS`` days, the card adds a
-question of its own, kept in the record's ``extra_questions`` and never in ``questions`` (``live_question_proof`` hashes
-those): drawn on the card by ``drawn``, its answer read by ``extra_answers``, nothing of it in what the model gets back or in
-the decision noted. ``settle``: only the owner's own submit writes the rule of ``FOLLOW`` (a lead answering never does), and
-``KEEP_ASKING`` (or the rule written) keeps the class quiet for ``CLASS3_QUIET_DAYS`` (memory/dedup.json, the Bridge's).
+The third same-class answer (``class3``): on the owner's own turn (``owner_turn``: his message, or the continuation of his
+answer; never a lead's, the butler's or a wake-up's), when the project (an ordinary topic: every ordinary topic) has two
+decisions of the same class (``category`` and a similar question) answered the same way (``polarity``) in ``CLASS_DAYS``
+days, the card adds a question of its own, kept in the record's ``extra_questions`` and never in ``questions``
+(``live_question_proof`` hashes those): drawn on the card by ``drawn``, its answer read by ``extra_answers``, nothing of it in
+what the model gets back or in the decision noted. Its ``FOLLOW`` option says where the rule goes (``FOLLOW_WHERE``: this project's, or 全局 for an ordinary
+topic). ``settle``: only the owner's own submit writes that rule, through core/memory_gate.py ``write`` with the proof of his
+click (a lead answering never does), and ``KEEP_ASKING`` (or the rule written) keeps the class quiet for ``CLASS3_QUIET_DAYS``
+(memory/dedup.json, the Bridge's).
 Nothing here raises into the question's path: whatever fails, the question is asked as before."""
 from __future__ import annotations
 
@@ -58,7 +61,8 @@ MARK_KEY = "dedup"  # The record's: {question id: the hit as the card and the le
 EXTRA_ANSWERS = "extra_answers"  # The record's: {extra question id: the label picked}.
 JOB_FIELD = "question_dedup"  # A job record's: [{q, ref, request, at}], one a question refused with an old answer.
 EXTRA_ID = "__memory_class"
-KEEP_ASKING, FOLLOW = "还要问", "以后按这次的做"
+KEEP_ASKING, FOLLOW = "还要问", "以后按这次的做"  # FOLLOW alone: the label of a card sent before FOLLOW_WHERE.
+FOLLOW_WHERE = {"project": "，记成这个专项的规矩", "global": "，记成全局规矩"}  # After FOLLOW: where the rule goes.
 STORE = "dedup.json"  # Under memory/: {"quiet": {class key: until}}; the Bridge writes it (an answer's path).
 ANSWER_SHOWN = 60  # Characters of an old answer on the card's grey line.
 
@@ -83,6 +87,7 @@ class Hit:
     question: str = ""  # The old question's words.
     mutual: float = 1.0  # The old and the new question alike both ways (REFUSE_MUTUAL for a refusal in the turn).
     risky: bool = False  # The old question or its answer is of the five high-risk classes (``old_risky``): the grey line only.
+    status: str = "active"  # The old decision's: a done one is the owner's grey line, never the lead's ground (``lead_line``).
 
 
 def q_hash(question: dict) -> str:
@@ -303,7 +308,7 @@ def check(ctx, record: dict, questions) -> dict:
                     best, best_mutual = Hit(ref=entry.ref, code=entry.code, answer=answer, topic_number=_number(state, entry),
                                             at=float(entry.at or (entry.origin or {}).get("at") or 0),
                                             sim=float(sim) if isinstance(sim, (int, float)) else float(both), question=old,
-                                            mutual=float(both), risky=old_risky(old, answer)), float(both)
+                                            mutual=float(both), risky=old_risky(old, answer), status=entry.status), float(both)
             if best is not None:
                 hits[str(question["id"])] = best
         return hits
@@ -328,11 +333,12 @@ def hint(hit) -> str:
 
 
 def lead_line(record) -> str:
-    """The old answers a held question's receipt hands the lead (``MARK_KEY``), '' for none."""
+    """The old answers a held question's receipt hands the lead (``MARK_KEY``), '' for none. Not a high-risk one, nor a done
+    one: app/triage.py grounds refuses a decision that is done, so a lead that quoted its code had its answer sent back."""
     marks = record.get(MARK_KEY) if isinstance(record.get(MARK_KEY), dict) else {}
     lines = [f"主人上次答过：{_cut(mark.get('question'), 60)}→{_cut(mark.get('answer'), 80)}"
              + (f"（{mark['code']}）" if mark.get("code") else "") for mark in marks.values()
-             if isinstance(mark, dict) and not mark.get("risky")]  # A high-risk old answer is no ground for the lead either.
+             if isinstance(mark, dict) and not mark.get("risky") and mark.get("status", "active") == "active"]
     return "；".join(lines)
 
 
@@ -353,6 +359,7 @@ def marks(hits) -> dict:
         return {}
     return {MARK_KEY: {qid: {"ref": hit.ref, "code": hit.code, "answer": hit.answer, "question": hit.question,
                              "topic_number": hit.topic_number, "at": hit.at, "line": hint(hit),
+                             "status": str(getattr(hit, "status", "active") or "active"),
                              **({"risky": True} if getattr(hit, "risky", False) else {})} for qid, hit in hits.items()}}
 
 
@@ -444,6 +451,23 @@ def keep_quiet(state_dir, key, now=None) -> None:
         write_json(path, {**data, "quiet": quiet}, ensure_ascii=False, indent=1)
 
 
+def owner_turn(access, job) -> bool:
+    """Whether ``job`` is the owner's own turn, the only one whose card gets the class question (``class3``): his own message
+    (core/turn_source.py LEGACY or OWNER, its sender the owner as app/access.py owner_turn says) or the continuation of his
+    answer (ANSWER); never a lead's, the butler's hand-on, a wake-up, a 协作 one or a lead's answer for him."""
+    from covey.core import turn_source
+
+    found = turn_source.kind(job)
+    if found == turn_source.ANSWER:
+        return True
+    if found not in (turn_source.LEGACY, turn_source.OWNER) or access is None:
+        return False
+    try:
+        return bool(access.owner_turn(getattr(job, "chat_id", ""), getattr(job, "sender_id", "")))
+    except Exception:  # noqa: BLE001 - not known to be his
+        return False
+
+
 def class_name(question) -> str:
     kind = category(query_of(question))
     return CLASS_WORDS.get(kind) or _cut(asked(question), 16)
@@ -485,12 +509,14 @@ def class3(ctx, record: dict, questions, now=None) -> list:
                 same.setdefault(polarity(answer), set()).add(entry.ref)
             if not any(len(refs) >= CLASS3_AFTER - 1 for refs in same.values()):
                 continue
-            name = class_name(question)
+            name, scope = class_name(question), "project" if project else "global"
+            where = "这个专项" if project else "全局"
             return [{"id": EXTRA_ID, "header": "以后", "question": f"以后这类（{name}）还要问你吗？",
                      "options": [{"label": KEEP_ASKING, "description": f"照常问；{CLASS3_QUIET_DAYS} 天内不再问这一句"},
-                                 {"label": FOLLOW, "description": "记成一条规矩：以后同类的题按这次的回答直接做"}],
+                                 {"label": FOLLOW + FOLLOW_WHERE[scope],
+                                  "description": f"记成{where}的一条规矩：以后{where}同类的题按这次的回答直接做"}],
                      "class": {"key": key, "category": kind, "name": name, "for": str(question["id"]),
-                               "scope": "project" if project else "global", "project_id": project}}]
+                               "scope": scope, "project_id": project}}]
         return []
     except Exception:  # noqa: BLE001 - the card goes without it
         return []
@@ -526,33 +552,38 @@ def extra_answers(record, fields) -> dict:
     return picked
 
 
-def settle(state_dir, topic_id, record, given, *, owner: bool, log=None, now=None) -> None:
-    """What the owner picked in the extra questions of the answered ``record``: FOLLOW writes the class's rule (the owner's
-    words, by the Bridge, its origin this card) and keeps the class quiet, KEEP_ASKING only keeps it quiet. ``given``: question
-    id -> what was answered to it (skipped ones left out). ``owner``: the owner's own submit; anybody else's (the lead's in the
+def settle(state_dir, topic_id, record, given, *, owner: bool, proof=None, log=None, now=None) -> None:
+    """What the owner picked in the extra questions of the answered ``record``: FOLLOW (with where it goes, ``FOLLOW_WHERE``,
+    or alone on an older card) writes the class's rule and keeps the class quiet, KEEP_ASKING only keeps it quiet. The rule
+    goes through core/memory_gate.py ``write`` with ``proof`` (the Proven of the owner's click, app/memory_proof.py by_click):
+    the owner's, by the Bridge, its origin this card; none without a proof. ``given``: question id -> what was really
+    answered to it (app/project_context.py answered). ``owner``: the owner's own submit; anybody else's (the lead's in the
     owner's place) writes nothing."""
     picked = record.get(EXTRA_ANSWERS) if isinstance(record.get(EXTRA_ANSWERS), dict) else {}
     if not owner or not picked:
         return
-    from covey.core import memstore
+    from covey.core import memory_gate, memstore
 
     for question in record.get(EXTRA_KEY) or ():
         try:
             if not isinstance(question, dict) or not isinstance(question.get("class"), dict):
                 continue
-            label, kind = picked.get(str(question.get("id"))), question["class"]
-            if label == FOLLOW:
+            label, kind = str(picked.get(str(question.get("id"))) or ""), question["class"]
+            follows = label.startswith(FOLLOW)
+            if follows:
                 answer = _cut(given.get(str(kind.get("for"))) or "", 80)
-                if not answer:
+                if not answer or proof is None:
                     continue
                 scope = "project" if kind.get("scope") == "project" and kind.get("project_id") else "global"
-                memstore.add(Path(state_dir), kind="rule", scope=scope, owner_key=kind.get("project_id") if scope == "project" else "",
-                             text=_cut(f"{kind.get('name')}这类题直接按“{answer}”做，不用再问", memstore.TEXT_CHARS),
-                             title=_cut(f"{kind.get('name')}直接按{answer}做", memstore.TITLE_CHARS), said="owner", by="bridge",
-                             origin={"topic_key": str(topic_id or ""), "question": str(record.get("token") or ""),
-                                     "job": str(record.get("job_key") or "")},
-                             who="owner", now=now)
-            if label in (FOLLOW, KEEP_ASKING):
+                written = memory_gate.write(
+                    Path(state_dir), kind="rule", scope=scope, owner_key=kind.get("project_id") if scope == "project" else "",
+                    text=_cut(f"{kind.get('name')}这类题直接按“{answer}”做，不用再问", memstore.TEXT_CHARS),
+                    title=_cut(f"{kind.get('name')}直接按{answer}做", memstore.TITLE_CHARS), proof=proof, by="bridge",
+                    source="class3", place=str(topic_id or ""),
+                    origin={"topic_key": str(topic_id or ""), "job": str(record.get("job_key") or "")}, now=now)
+                if written.entry is None and log is not None:
+                    log(f"question class rule not written: {written.reason}")  # The gate's words, never the owner's.
+            if follows or label == KEEP_ASKING:
                 keep_quiet(state_dir, str(kind.get("key") or ""), now=now)
         except Exception as exc:  # noqa: BLE001 - the answer is delivered whether or not this took
             if log is not None:

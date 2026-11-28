@@ -115,7 +115,8 @@ class NativeQuestions:
         the old answers (every question of it a hit, none of the high-risk classes, a backend that takes the refusal back
         in the same turn, none refused before: ``in_turn``, ``may_refuse``), else what its record keeps (the grey line's
         ``dedup``, the ``extra_questions``; {} for nothing). A question its project's lead is to have (app/triage.py
-        ``leads``) is never refused: the old answer goes to the lead with it, and it gets no extra question. Never raises."""
+        ``leads``) is never refused: the old answer goes to the lead with it, and it gets no extra question; nor does one
+        of a turn that is not the owner's own (app/question_dedup.py owner_turn). Never raises."""
         questions = data.get("questions")
         if not questions or not isinstance(questions, list) or any(not isinstance(q, dict) or q.get("isSecret") for q in questions):
             return {}
@@ -141,7 +142,8 @@ class NativeQuestions:
                 self.runtime.log(f"question of job #{job.job_id} answered before: refused with {len(pairs)} old answer(s)")
                 return None
             kept = question_dedup.marks(hits)
-            extra = [] if leads else question_dedup.class3(ctx, asking, questions)
+            mine = question_dedup.owner_turn(getattr(self.runtime, "access", None), job)  # The class question: his turn only.
+            extra = [] if leads or not mine else question_dedup.class3(ctx, asking, questions)
             if extra:
                 kept[question_dedup.EXTRA_KEY] = extra
             return kept

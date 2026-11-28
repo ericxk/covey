@@ -125,7 +125,7 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
     # task runner (``task_runner=True``), which rarely meets any of it.
     PARTS = ('directory_picker', 'launch_model_picker', 'workspace_manager', 'harness_switch', 'rewind', 'proxy',
              'weekly_usage', 'group_manager', 'redaction_panel', 'butler_panel',
-             'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'storage_alerts', 'digest',
+             'settings_hub', 'overview', 'butler_env', 'butler_tools', 'butler_search', 'memguard_alerts', 'storage_alerts', 'digest', 'memory_tidy',
              'topic_seen', 'app_setup', 'dispatch_cards', 'project_cards', 'projects', 'project_tidy',
              'project_loop', 'devices', 'nodes', 'web_sync', 'web_login', 'source_watch', 'extension_features', 'features', 'menu', 'group_menu', 'group_boards',
              'welcome', 'revisits', 'review', 'collab', 'fold_close', 'owner_ledger', 'quota_watch', 'batch_switch')
@@ -267,8 +267,9 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.storage_alerts = StorageAlerts(self.runtime, self.messenger, self.voice)
             # 早晚汇总 (app/digest.py), when COVEY_DIGEST_TIMES is set: a card in the owner's private chat.
             self.digest = Digest(self.runtime, self.messenger, self.voice)
-            # 整理记忆 on the evening digest (app/memory_tidy.py), COVEY_MEMORY_LEARN=1: rules only.
-            self.digest.memory_tidy = MemoryTidy(self.runtime)
+            # 整理记忆 (app/memory_tidy.py), COVEY_MEMORY on: once a day by rules alone, shown on the evening digest.
+            self.memory_tidy = MemoryTidy(self.runtime)
+            self.digest.memory_tidy = self.memory_tidy
             # Its line of old questions has 手上的事's 这些都不用回答了: the click is 手上的事's, then the digest card's.
             self.overview.handed[self.digest.origin] = self.digest.dismissed
             self.overview.unhanded[self.digest.origin] = self.digest.undismissed  # 撤销 under its 已撤下 line.
@@ -324,7 +325,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.quota_watch = QuotaWatch(self.runtime, self.messenger, self.voice)
             features = (self.weekly_usage, self.workspace_manager, self.memguard_alerts, self.storage_alerts, self.proxy,
                         self.group_manager, self.overview, self.topic_seen, self.butler_tools,
-                        self.butler_search, self.settings_hub, self.butler, self.digest, self.app_setup, self.welcome,
+                        self.butler_search, self.settings_hub, self.butler, self.digest, self.memory_tidy, self.app_setup,
+                        self.welcome,
                         self.dispatch_cards, self.project_cards, self.projects, self.project_tidy,
                         self.project_loop, self.devices, self.nodes, self.web_sync, self.source_watch,
                         self.revisits, self.collab, self.owner_ledger, self.quota_watch, *self.extension_features)

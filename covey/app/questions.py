@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from covey.core.checkpoint import read_checkpoint, release_user_wait
-from covey.app import butler_reactions, device_files, project_approvals, project_context
+from covey.app import butler_reactions, device_files, memory_proof, project_approvals, project_context
 from covey.app.card_lanes import after_ack
 from covey.core.turn_words import retry_hint
 from covey.app.outbox import AUDIT_REFUSED_NOTE
@@ -305,10 +305,15 @@ class Questions:
                                          **({"answer_by": given_by} if given_by else {}), **response)
             self.answering.add(token)  # On its way from here: another answer of the same instant is told it lost.
         owners = self.owner_submitted(by)
+        settles = owners and self.owner_clicked(by)
         # A lead's deploy question the owner himself said yes (or no) to: the project's approvals (WAVE12 C4). Never raises.
         project_approvals.note(ctx.state_dir, record, answer_by(by), log=self.runtime.log)
         project_context.remember_answer(ctx.state_dir, ctx.topic_id, record, self.runtime.log,  # A project's topic: a decision noted.
-                                        owners=owners, settles=owners and self.owner_clicked(by),
+                                        owners=owners, settles=settles,
+                                        proof=memory_proof.by_click(getattr(self.runtime, "access", None),
+                                                                    open_id_of(answer_by(by)) or "", via_of(by),
+                                                                    question=str(record.get("token") or ""))
+                                        if settles else None,
                                         origin={"question": str(record.get("token") or ""),
                                                 **({"message_id": answer_by(by).message_id}
                                                    if owners and answer_by(by).message_id else {}),
