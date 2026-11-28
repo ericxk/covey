@@ -37,6 +37,10 @@ TOPIC_DAYS = 30  # A full look takes the topics with a job written within this m
 REBUILD_SECONDS = 1800.0
 FOLDER_SECONDS = 60.0  # A folder the pass reads whole (Collector.folder) is listed again at least this often, changed or not.
 MENU_SECONDS = 60.0  # How long the model menu a topic's ``config`` reads is kept (Collector.menu).
+# The quick look reads the board again at least this often (``Shared.board_at``), whatever its indexes say: 可能卡住 comes with time,
+# and a proposal of 整理专项, a project a guard paused or a result seen in Feishu touch none of the indexes it reads. A pass reads it
+# when it starts, but on the network disk a pass can take many minutes (its steps stuck 60 s and more: ``web sync pass stuck``).
+BOARD_SECONDS = 60.0
 TURNS_KEPT = 100  # The newest turns of a topic that are pushed.
 STATE_WORDS = {"done": "做完", "waiting_user": "等你", "cancelled": "已停止", "failed": "失败", "interrupted": "失败"}
 BUTLER_TITLE = "管家"
@@ -64,6 +68,19 @@ CHECKLIST_SHOWN = ("id", "criterion", "topic", "needs", "evidence", "gap", "stat
 ACTION_SHOWN = ("id", "title", "note", "items", "topics", "state", "at")  # What an action of the 简报 carries.
 GAP_TEXT = 200  # Characters of a 协作 gap a project item carries.
 NEXT_STEP, WAITING_TEXT = 120, 160  # Characters of a running topic's next step and of what it waits for the owner to answer.
+
+
+def board_marks(running, asking, starting=None) -> frozenset:
+    """What the board's 要你处理 turns on, as the quick look's indexes read it: each task running (its topic, number and status), each
+    question pending (its token, and whether it ``asks``: shown, its card sent) and each task waiting for 开始 (its topic, key and
+    card). The quick look reads the board again when these change, not only when the topics among them do: a topic whose task runs,
+    asks the owner and runs on once the owner answered on its card is among them all along. 2026-11-29 T978: the last two questions
+    answered on their cards by 01:02:31 and none pending, the page said 1 件事要你处理 at 01:04 and drew no topic under 等你."""
+    return frozenset([
+        *(("job", str(record.get("topic_id") or ""), str(record.get("job_id") or ""), str(record.get("status") or ""))
+          for record in running),
+        *(("question", str(row.get("topic_id") or ""), str(row.get("token") or ""), board_read.asks(row)) for row in asking),
+        *(("start", str(topic), str(wait.record.get("key") or ""), wait.card) for topic, wait in (starting or {}).items())])
 
 
 def estimate_of(job, turn) -> None:
@@ -108,6 +125,7 @@ class Shared:
         self.unseen = set()
         self.board = None  # topic id -> its group on the board (``board_groups``); None without the board (COVEY_PINNED_TOPICS unset).
         self.asks = None  # 要你处理 as every card counts it ({waiting, stopped, stuck}, core/board_read.py Asks.counts), data contract v34.
+        self.board_at = -math.inf  # ``now`` of the last look that read the board (Collector.read_board), the quick look's or the pass's.
         self.pushed_topics, self.pass_seen, self.pushed_collabs = set(), set(), set()
         # topic id -> the left-behind thread stuck reading it, or a tuple of them (a quick look's, then a touch's or a reread's, app/web_sync.py):
         # looks leave the topic out while one of them lives (``hold``, ``alive_stuck``).
@@ -193,6 +211,7 @@ class Collector:
         self.doing = ""  # What the look is at, for the log line of one left behind (WebSync.loop): indexes, board, topic, projects...
         self.retired = False  # Left behind (WebSync.start_over_pass): a pass it ends late changes nothing the new one keeps.
         self.hot = set()  # The topics the last quick look found running, asking or waiting for 开始.
+        self.marks = frozenset()  # What the board's 要你处理 turns on, as the last quick look read its indexes (``board_marks``).
         # The full pass under way: the topics still to look at, and whether the last step ended it.
         self.pass_left, self.pass_done = [], False
         self.urgent = 0  # How many of the last look's items, at its head, are the hot topics' (WebSync.push_once sends them first).
@@ -277,7 +296,7 @@ class Collector:
         asked = self.asked(state, chat, now, looked)
         self.board = board_groups(looked.rows, looked.dismissed, asked) if pins.laid() else None
         self.asks = dict(asked.counts()) if asked is not None else None
-        self.board_due = False
+        self.board_due, self.shared.board_at = False, now
 
     board_due = True  # The quick look reads the board before its first build (a pass reads it when it starts).
 
@@ -338,14 +357,19 @@ class Collector:
         self.mark("indexes")
         running = board_read.running_jobs(state, chat)
         asking = board_read.pending_questions(state, chat)
+        starting = board_read.starts(state, chat)
         records, family = self.read_projects(state, chat)
         hot = {row.get("topic_id") for row in (*running, *asking) if row.get("topic_id")}
-        hot |= set(board_read.starts(state, chat))  # Waiting for 开始 on a launch card: 等我 as a question is.
-        hot |= self.family_live(state, chat, family)  # A turn of one runs or asks (the board does not list them).
+        hot |= set(starting)  # Waiting for 开始 on a launch card: 等我 as a question is.
+        live, family_marks = self.family_live(state, chat, family)
+        hot |= live  # A turn of one runs or asks (the board does not list them).
+        marks = board_marks(running, asking, starting) | family_marks
         with self.shared.lock:
             asked = set(self.shared.dirty)  # Taken off once this look went through: one given up leaves them to the next.
         touched = asked | back
-        if self.board_due or hot != self.hot or touched:
+        # Not only when topics come and go: one that runs, asks and runs on (answered on its card) stays hot all along (``board_marks``).
+        if (self.board_due or hot != self.hot or marks != self.marks or touched
+                or now - self.shared.board_at >= BOARD_SECONDS):
             self.mark("board")
             self.read_board(state, chat, now)
         quick = [topic for topic in hot | self.hot | touched if topic not in family and topic not in out]
@@ -359,7 +383,7 @@ class Collector:
         groups += [(f"{each['type']}:{each['key']}", seq, [each]) for each in made]
         # The look went through: what it was asked to build is done with. A topic whose build raised was logged; it is built again when
         # it runs, asks or is touched again, and by every pass (kept in the hot set it would read the board again at every look).
-        self.hot, self.left = hot, out
+        self.hot, self.left, self.marks = hot, out, marks
         with self.shared.lock:
             self.shared.pushed_collabs |= {each["key"] for each in made if each["type"] == "collab"}
             self.shared.dirty -= asked
@@ -648,13 +672,14 @@ class Collector:
         return out
 
     @staticmethod
-    def family_live(state, chat, topics) -> set:
-        """Which of ``topics`` has a task running or a question waiting: one index query of the running tasks, one of the questions each."""
+    def family_live(state, chat, topics) -> tuple:
+        """(which of ``topics`` has a task running or a question waiting, the ``board_marks`` of those tasks and questions): one index
+        query of the running tasks, one of the questions each."""
         wanted = set(topics)
-        found = {record.get("topic_id") for record in select_job_records(
-            state, lambda record: record.get("topic_id") in wanted, chat_id=chat, status=frozenset(RUNNING))}
+        running = select_job_records(state, lambda record: record.get("topic_id") in wanted, chat_id=chat, status=frozenset(RUNNING))
         store = directory_store(state / "questions")
-        return {topic for topic in wanted if topic in found or store.query(chat_id=chat, topic_id=topic, status="pending")}
+        asking = [row for topic in wanted for _, row in store.query(chat_id=chat, topic_id=topic, status="pending")]
+        return {row.get("topic_id") for row in (*running, *asking)} & wanted, board_marks(running, asking)
 
     @staticmethod
     def recent(records, now) -> bool:

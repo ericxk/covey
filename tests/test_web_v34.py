@@ -15,7 +15,8 @@ from covey.app import memory_collect, project_lead, project_loop, project_tools,
 from covey.core import criteria, projects, revisits, web_sync  # noqa: E402
 from covey.core.jobs import find_job_record, upsert_job_record  # noqa: E402
 from test_project_lead import LEAD, PID  # noqa: E402
-from test_web_sync import CHAT, TOPIC, Ctx, WebCase  # noqa: E402
+from support.records import write_job  # noqa: E402
+from test_web_sync import BUTLER, CHAT, T0, TOPIC, Ctx, WebCase  # noqa: E402
 
 
 class V34Case(WebCase):
@@ -286,6 +287,68 @@ class AsksPushTest(WebCase):
         with mock.patch.object(web_collect.board_read, "waits", return_value=SimpleNamespace(all=[1, 2])):
             self.assertEqual(web_collect.Collector.asked(self.state, CHAT, 0, looked).counts(), {"waiting": 3, "stopped": 1, "stuck": 0})
         self.assertIsNone(web_collect.Collector.asked(self.state, CHAT, 0, SimpleNamespace()))
+
+
+class AsksFollowTest(WebCase):
+    """要你处理 on the page follows a question asked and answered while its topic stays hot (2026-11-29 T978: the page said
+    1 件事要你处理 at 01:04, both questions of the last minutes answered on their cards and none pending, and drew no topic under
+    等你). The quick look read the board again only when the topics running, asking or waiting for 开始 came and went; a topic
+    whose task runs, asks and runs on once answered is among them all along, so the count stayed until the next pass."""
+
+    def pushed(self):
+        """(the 要你处理 the page has, the tone of TOPIC on the page)."""
+        asks = [each["data"] for each in self.web.items("settings") if each["key"] == web_sync.ASKS_KEY][-1]
+        topics = [each["data"] for each in self.web.items("topic") if each["key"] == TOPIC]
+        return asks["waiting"], topics[-1]["tone"] if topics else None
+
+    def runs_on(self, topic=TOPIC, job_id=8):
+        """The question answered on its card and the topic's next task running, as the Bridge leaves them a moment after."""
+        self.question(created_at=T0 - 5, topic_id=topic, status="answered")
+        write_job(self.state, f"k-next-{topic[:4]}", topic_id=topic, chat_id=CHAT, job_id=job_id, status="running", model="opus",
+                  card_message_id="om_card_next")
+
+    def test_a_question_answered_while_its_topic_runs_on_is_no_longer_counted(self):
+        self.topic(status="waiting_user", lines=(("user", "做一下"),))
+        self.question(created_at=T0 - 5)
+        self.sync.push_once(T0)
+        self.assertEqual(self.pushed(), (1, "waiting"))
+        self.runs_on()
+        self.sync.push_once(T0 + 1)
+        self.assertEqual(self.pushed(), (0, "running"))
+
+    def test_a_question_asked_while_its_topic_runs_is_counted_where_it_is_drawn(self):
+        self.topic(status="running", lines=(("user", "做一下"),))
+        self.sync.push_once(T0)
+        self.assertEqual(self.pushed(), (0, "running"))
+        write_job(self.state, f"k-{TOPIC[:4]}", status="waiting_user")
+        self.question(created_at=T0 + 1, question_message_id="")  # Its card not sent yet: no 等我 (core/board_read.py asks).
+        self.sync.push_once(T0 + 2)
+        self.assertEqual(self.pushed()[0], 0)
+        self.question(created_at=T0 + 1)  # Its card went: the same pending question, now one that asks.
+        self.sync.push_once(T0 + 3)
+        self.assertEqual(self.pushed(), (1, "waiting"))
+
+    def test_the_butlers_question_answered_while_the_butler_runs_on_is_no_longer_counted(self):
+        self.butler_topic(status="waiting_user")
+        self.question(created_at=T0 - 5, topic_id=BUTLER)
+        self.sync.push_once(T0)
+        self.assertEqual(self.pushed()[0], 1)
+        self.runs_on(BUTLER, job_id=4)
+        self.sync.push_once(T0 + 1)
+        self.assertEqual(self.pushed()[0], 0)
+
+    def test_the_quick_look_reads_the_board_again_at_least_every_board_seconds(self):
+        """可能卡住 comes with time, which no index the quick look reads says: the count follows within BOARD_SECONDS, not at the next
+        pass, which on the network disk can be many minutes away."""
+        self.topic(status="running", lines=(("user", "做一下"),))
+        write_job(self.state, f"k-{TOPIC[:4]}", last_activity_at=T0 - 30 * 60 + 30)
+        collector = self.sync.collector
+        collector.collect_hot(CHAT, T0)
+        self.assertEqual(collector.asks["stuck"], 0)
+        collector.collect_hot(CHAT, T0 + 40)  # Stuck since T0 + 30, nothing the indexes say changed: the board's reading is kept.
+        self.assertEqual(collector.asks["stuck"], 0)
+        collector.collect_hot(CHAT, T0 + web_collect.BOARD_SECONDS)
+        self.assertEqual(collector.asks["stuck"], 1)
 
 
 class KindsTest(V34Case):
