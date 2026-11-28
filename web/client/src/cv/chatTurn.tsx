@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import type { StepView, TurnAnswer, TurnView } from '@shared/api.interface';
+import type { StepView, TurnAnswer, TurnImage, TurnView } from '@shared/api.interface';
 import { AnswerFoot } from './AnswerFoot';
 import { ArtifactFold } from './ArtifactFold';
 import { Md } from './Md';
@@ -53,9 +53,11 @@ export const OwnerBubble: React.FC<{
   const answer: boolean = isAnswer(o);
   const qa: TurnAnswer[] | null = answer ? (o.answers?.length ? o.answers : answers ?? null) : null;
   const label: string | null = answer || (o.by && o.by !== 'owner') || o.via || o.edited ? saidLabel(o, answer) : null;
-  // Covey 的图还没到时，先画刚发出时本页留下的图（T933）；到了就用 Covey 的
+  // 刚从本页发出的这一行（T933）：Covey 的图没到时画本页留下的图；到了用 Covey 的编号和尺寸，图还是画本页已有的那张，不再取一遍、不闪
   const local: LocalImage[] = useLocalImages(o.key);
-  const imgs: DrawnImage[] | undefined = o.images?.length ? o.images : local.length ? local : undefined;
+  const imgs: DrawnImage[] | undefined = o.images?.length
+    ? local.length === o.images.length ? o.images.map((img: TurnImage, i: number): DrawnImage => (img.gone ? img : { ...img, src: local[i].src })) : o.images
+    : local.length ? local : undefined;
   return (
     <div className={`um${imgs?.length ? ' has-img' : ''}${qa ? ' has-qa' : ''}`} data-seq={o.seq} style={hl ? { boxShadow: JUMP_RING } : undefined}>
       <div className="um-tx">

@@ -212,8 +212,8 @@ export const Conversation: React.FC<{
         && (t.seq > p.baseSeq || (t.seq === p.baseSeq && (t.started_at ?? 0) * 1000 >= p.at - ECHO_SKEW_MS))
         && (p.files?.length ? t.body.trim().startsWith(p.text.trim()) : t.body.trim() === p.text.trim()));
       const echoed: boolean = !!back;
-      // 你那一行回来了、Covey 的图还没到：那一行先接着画这里的本地图（T933），不退回“附件：图片 N 张”
-      if (back && !back.images?.length) keepLocalImages(back.key, localImagesOf(p.files));
+      // 你那一行回来了：接着画这里的本地图（T933）。Covey 的图没到时不退回“附件：图片 N 张”，到了也不用再取一遍、不闪
+      if (back) keepLocalImages(back.key, localImagesOf(p.files));
       const row: OutboxView | undefined = outbox.find((o: OutboxView) => o.op_id === p.id);
       const landed: boolean = !!room && turns.some((t: TurnView) => t.key === `ob-${p.id}`);
       if (echoed || landed || (row?.state === 'done' && (ageMs(p.at) ?? 0) > 20000)) gone.push(p.id);
