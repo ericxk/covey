@@ -75,7 +75,7 @@
 | 节点与机器状况（`COVEY_NODE_LISTEN`） | `core/node_agent.py`（设备和本机上常驻的节点）、`core/nodes.py`（名单、口令、记录）、`core/node_rules.py`（告警规则）、`app/node_gateway.py`（TLS 服务）、`app/node_alerts.py`、`app/nodes.py`、`cards/node_cards.py` | [节点](docs/architecture.md#节点默认关)、[配置](docs/configuration.md#节点与机器状况默认关) |
 | 维护与备份 | `core/maintenance.py`（规则表在 `core/maintenance_rules.py`，备份在 `core/backup.py`）、`app/stale.py`、`core/migrate.py` | [备份、归档与维护](docs/operations.md#备份归档与维护) |
 | 服务、看门狗、诊断 | `service/manager.py`（停了告诉主人 `service/down_notice.py`）、`service/boot.py`、`service/memguard.py`、状态目录写不进与慢锁慢读 `core/storage_watch.py`、`app/storage_alerts.py`、`service/doctor.py`（终端里的中文摘要 `service/doctor_words.py`；设置卡「诊断」`app/doctor_panel.py`） | [服务组成](docs/operations.md#服务组成)、[troubleshooting.md](docs/troubleshooting.md) |
-| 安装与日常升级（`./install`、`scripts/upgrade.sh`）；网页上升级和定时自动升级（`COVEY_AUTO_UPGRADE`）；升级不丢配置（`--allow-dropped-config`） | `core/dropped_config.py`（部署预检 `pre.dropped_config`、诊断的 `dropped_config`）、`service/installer.py`（默认工作区、服务环境里再探测一次、收尾几行、停下时的下一步、新装默认开飞书 SDK `ensure_feishu_sdk`、写 `upgrade.json`）、`service/install_probe.py`、`core/welcome.py` 的 `seed_workspace`；`scripts/upgrade.sh` 套 `scripts/deploy_bridge.sh`（`--status`，网页跟着升级 `service/web_upgrade.py`）；`app/self_upgrade.py`（`upgrade.json`、查和升级）、`app/auto_upgrade.py`（每天到点、遇忙推迟、不强切不回滚） | [install.md](docs/install.md)、[日常升级](docs/deploy.md#日常升级)、[定时自动升级](docs/deploy.md#定时自动升级) |
+| 安装与日常升级（`./install`、`scripts/upgrade.sh`）；网页上升级和定时自动升级（`COVEY_AUTO_UPGRADE`）；升级不丢配置（`--allow-dropped-config`） | `core/dropped_config.py`（部署预检 `pre.dropped_config`、诊断的 `dropped_config`）、`service/installer.py`（默认工作区、服务环境里再探测一次、收尾几行、停下时的下一步、新装默认开飞书 SDK `ensure_feishu_sdk`、写 `upgrade.json`）、`service/install_probe.py`、`core/welcome.py` 的 `seed_workspace`；`scripts/upgrade.sh` 套 `scripts/deploy_bridge.sh`（`--status`，网页跟着升级 `service/web_upgrade.py`，机器上的 lark-cli 跟着升级 `service/lark_cli_upgrade.py`，扩展的安装器也用它）；`app/self_upgrade.py`（`upgrade.json`、查和升级）、`app/auto_upgrade.py`（每天到点、遇忙推迟、不强切不回滚） | [install.md](docs/install.md)、[日常升级](docs/deploy.md#日常升级)、[lark-cli 跟着升级](docs/deploy.md#lark-cli-跟着升级)、[定时自动升级](docs/deploy.md#定时自动升级) |
 
 ## 模块表
 
@@ -565,6 +565,7 @@
 | `service/install.py` | Install an explicit boot registration without changing platform init files |
 | `service/install_probe.py` | ./install 对 Harness 做的一次真实探测：薄适配层，判断本身在 core/harness_probe.py（安装器、doctor、可用性检查共用一份）。 |
 | `service/installer.py` | ./install 的安装器本体：一遍跑完，手机扫码，官方斜杠命令自动注册，最后发一句话就有回答（docs/install.md）。 |
+| `service/lark_cli_upgrade.py` | The machine's lark-cli brought along when the Bridge is upgraded |
 | `service/launchd.py` | macOS 的 launchd 托管：`~/Library/LaunchAgents/<label>.plist` 让 Manager 登录后自动跑、挂了自动拉起。 |
 | `service/manager.py` | Persistent single-host service management for all bridge entrypoints |
 | `service/memguard.py` | Memory watchdog: stop runaway search tools before they exhaust the machine |

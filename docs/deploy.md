@@ -72,15 +72,27 @@ scripts/upgrade.sh              # 部署：机器人重启一次，成功后检�
 1. 检出要干净：有没提交的改动时停下（部署的是提交，不含这些改动；先提交或 `git stash`）。`git fetch` 上游（`--no-fetch` 不取），要升到的提交是当前分支的上游（没有上游时 `origin/main`，`--ref` 可改），它必须包含检出的 `HEAD`：检出里有它没有的提交时停下，从不强制拉取、不重置。
 2. 找到机器人：服务根里只有一个时就是它，几个时用 `--state-dir` 指定。现网已经是这个提交（从检出直接运行的，看检出的 `HEAD`）、数据根 `extensions/` 下的[个人扩展](#个人扩展)也和现网带的一样时只说“已经是最新”；只有个人扩展有新提交时照样升级，核心不变。现网 release 带扩展（`--ext-repo` 装的）时停下，照扩展自己的升级说明做。
 3. 核对依赖：服务清单里的 `python3` 是 3.10 以上，服务的 `PATH` 里有 `lark-cli`（没有只提示）。
-4. 照服务清单载入环境：清单里的变量原样，终端里别的本项目变量（`COVEY_*`、代理）不带进去，所以开关和代理都不变；`BASH_ENV`、`ENV` 也不带（bash 会先执行它们指向的文件，有的 ssh 会话里它指向 `.bashrc`，改了的 `PATH` 让预检报 `env_value_diff`）；`--workdir`、`--profile`、`--app-id`、`--state-dir`、`--harness-config` 和其余参数从清单的启动命令抄。先跑 `deploy_bridge.sh --check-only`，没过的项用中文写出来（有任务重启会被打断、另一个部署在跑、权限变量……），什么都不换；`--dry-run` 到此为止。
-5. 部署：机器人重启，几秒后就收得到消息和点击，在跑的任务不中断、由新进程接管。日志在 `$COVEY_DATA_HOME/deploy-runs/<时间>/`（检查是 `<时间>-check/`）。成功后检出快进到这个提交；第一次升级时还有任务进程用着检出里的代码的，先不快进，下次运行时补上。最后列“升级后要你补的”：这一版起默认打开、服务清单没设的开关（`pre.switches_on`），和诊断列出的要手工补的事（`post.owner_todo`，即 `covey_doctor.py` 每个服务的 `todo`：事件通道还是 lark-cli、飞书应用缺的权限、网页发布要的 lark-cli 能力）。
-6. 网页：用 `web/deploy/selfhost/build.sh` 自托管的网页（`./install --web` 装的）跟着换成新 release 的 `web/`（`web/deploy/selfhost/build.sh <目录> --restart`，Manager 几秒内拉起新版，日志在 `deploy-runs/<时间>-web/`）；Bridge 已经是最新、网页还是旧的时只补网页。别的办法部署的网页只提示，不动；`--no-web` 不动网页。最后写 `upgrade.json`（见上）。
+4. 照服务清单载入环境：清单里的变量原样，终端里别的本项目变量（`COVEY_*`、代理）不带进去，所以开关和代理都不变；`BASH_ENV`、`ENV` 也不带（bash 会先执行它们指向的文件，有的 ssh 会话里它指向 `.bashrc`，改了的 `PATH` 让预检报 `env_value_diff`）；`--workdir`、`--profile`、`--app-id`、`--state-dir`、`--harness-config` 和其余参数从清单的启动命令抄。先跑 `deploy_bridge.sh --check-only`，没过的项用中文写出来（有任务重启会被打断、另一个部署在跑、权限变量……），什么都不换；`--dry-run` 到此为止（只多说一行服务用的 `lark-cli` 和版本，见下一步）。
+5. lark-cli：检查过了、新 Bridge 起来之前，把机器上 npm 全局装的 `lark-cli` 更新到最新（`lark-cli update`，见下面[lark-cli 跟着升级](#lark-cli-跟着升级)），新 Bridge 和网页发布就用新版。更新失败只提示，原来的照用，升级照常。
+6. 部署：机器人重启，几秒后就收得到消息和点击，在跑的任务不中断、由新进程接管。日志在 `$COVEY_DATA_HOME/deploy-runs/<时间>/`（检查是 `<时间>-check/`）。成功后检出快进到这个提交；第一次升级时还有任务进程用着检出里的代码的，先不快进，下次运行时补上。最后列“升级后要你补的”：这一版起默认打开、服务清单没设的开关（`pre.switches_on`），和诊断列出的要手工补的事（`post.owner_todo`，即 `covey_doctor.py` 每个服务的 `todo`：事件通道还是 lark-cli、飞书应用缺的权限、网页发布要的 lark-cli 能力）。
+7. 网页：用 `web/deploy/selfhost/build.sh` 自托管的网页（`./install --web` 装的）跟着换成新 release 的 `web/`（`web/deploy/selfhost/build.sh <目录> --restart`，Manager 几秒内拉起新版，日志在 `deploy-runs/<时间>-web/`）；Bridge 已经是最新、网页还是旧的时只补网页。别的办法部署的网页只提示，不动；`--no-web` 不动网页。最后写 `upgrade.json`（见上）。
 
-`scripts/upgrade.sh --status` 只查不换：取新提交，说现网、升级会部署的提交、新提交、网页要不要更新、现在为什么不能升（有没提交的改动、带扩展……）；加 `--json` 时最后一行是给 Bridge 的 JSON（网页「版本与更新」和定时自动升级读它）。
+`scripts/upgrade.sh --status` 只查不换：取新提交，说现网、升级会部署的提交、新提交、网页要不要更新、现在为什么不能升（有没提交的改动、带扩展……），还有服务用的 `lark-cli` 和版本；加 `--json` 时最后一行是给 Bridge 的 JSON（网页「版本与更新」和定时自动升级读它；这时不看 `lark-cli`）。
 
-退出码：0 升级好了（或已经是最新、`--dry-run` 的检查都过了、`--status` 查完），1 某项检查没过（部署前停下的什么都没换），2 参数不对或找不到机器人，3 另一个部署正在跑（等它结束再运行），4 Bridge 升级好了、网页没更新上（不用回滚 Bridge，单独重跑日志里那条网页命令，或再运行一次）。再跑一次是安全的：已经是最新时什么都不做。
+退出码：0 升级好了（或已经是最新、`--dry-run` 的检查都过了、`--status` 查完），1 某项检查没过（部署前停下的什么都没换），2 参数不对或找不到机器人，3 另一个部署正在跑（等它结束再运行），4 Bridge 升级好了、网页没更新上（不用回滚 Bridge，单独重跑日志里那条网页命令，或再运行一次）。再跑一次是安全的：已经是最新时不重启，只看一眼 `lark-cli` 有没有新版（见[lark-cli 跟着升级](#lark-cli-跟着升级)）。
 
 升级以后服务从 `releases/` 下的 release 运行：改开关用 `covey_service.py set`（[改开关三步](configuration.md#改开关三步)），不要再用 `./install`，它会把服务注册回检出目录。它不升级 Manager 和内存看门狗，需要时见下面[部署新版本](#部署新版本)第 6、8 步；回滚、带扩展和要改启动参数的，照下一节手工用 `deploy_bridge.sh`。
+
+### lark-cli 跟着升级
+
+机器人收发消息要用 `lark-cli`，扩展的网页发布也可能用它，太旧时那一步会停下（比如认不得新加的参数）。所以每次升级——终端里的 `scripts/upgrade.sh`、扩展的安装器（如 covey-internal 的 `./install upgrade`）、网页「版本与更新」和[定时自动升级](#定时自动升级)——在部署前的检查过了之后、新 Bridge 起来之前，都顺带把它更新到最新（`covey/service/lark_cli_upgrade.py`）：
+
+- 只更新 npm 全局装的那份：服务清单 `PATH` 里找到的第一个 `lark-cli` 要在同一个 `PATH` 的 `npm root -g` 下。是的就运行 `lark-cli update --json`：它查最新版本、`npm install -g @larksuite/cli@<版本>`、核对新的二进制，再把它自带的 lark-* Skills 同步到同一版本。已是最新时一秒左右，真有新版本时几分钟（大头是同步 Skills），最多等 10 分钟，超时按进程组停掉。代理和 npm 源用服务清单里的。
+- 不是 npm 全局的（`PATH` 前面另放的一份、别的办法装的）只说一句是哪个文件、为什么不动，不替你更新：`lark-cli update` 换的是全局那份，会让人以为服务用的也新了。要它跟着升级，就把那份从服务的 `PATH` 里去掉。`PATH` 里没有 `lark-cli` 或 `npm` 时也只提示。
+- 更新没成（没网、没写权限、npm 源还没同步到新版本、超时）：说原因、日志和单独重跑的命令，原来的 `lark-cli` 照用，Bridge 和网页照常升级，退出码不变。只有更新前能跑、更新后跑不起来的，才停在部署之前（在跑的 Bridge 不动），说怎么装回原来的版本。
+- 输出都以 `[lark-cli]` 开头，说更新前后的版本；日志在 `deploy-runs/<时间>-lark-cli/`（`lark-cli.log`，`update.json` 是 `lark-cli update --json` 的回答）。
+- 只查的时候不动它：`--dry-run`、扩展安装器的 `--check-only` 和 `status`、`--status` 只运行本地的 `lark-cli --version` 和 `npm root -g`，说是哪个文件、什么版本、升级时会不会更新；`--json` 时连这些也不运行。
+- Bridge 已经是最新、只补网页或什么都不换的那次运行也会做这一步；网页上和定时自动升级只在有新版本时才运行升级，所以那里只在升级时跟着更新。手工用 `deploy_bridge.sh` 部署（[升级与回滚](#升级与回滚)、[部署新版本](#部署新版本)）不碰 `lark-cli`。
 
 ### 定时自动升级
 
@@ -88,7 +100,7 @@ scripts/upgrade.sh              # 部署：机器人重启一次，成功后检�
 
 - 先查（`upgrade.json` 的 `status`）：没有新版本就什么都不做，也不说；`status` 说现在不能升（检出有没提交的改动、和远端分叉、带扩展……）就不升，在私聊里说一次要人处理什么，第二天再试。
 - 有任务在跑，或重启会打断任务（`restart_blockers`）时不升：15 分钟后再看，最多再看 3 次；还是忙就放弃这一天，私聊里说一句，第二天同一时间再试。从不强行重启。
-- 升级本身先过部署前的检查（`deploy_bridge.sh --check-only`）才部署，网页跟着一起更新（扩展的安装器、`scripts/upgrade.sh` 都是这样）。检查时另一个部署在跑、或刚好来了任务的，按上一条推迟；别的没过的、部署没成的，**不自动回滚**，私聊里说一句和日志位置，等人看过再升。
+- 升级本身先过部署前的检查（`deploy_bridge.sh --check-only`）才部署，机器上的 `lark-cli` 和网页跟着一起更新（扩展的安装器、`scripts/upgrade.sh` 都是这样；`lark-cli` 见[lark-cli 跟着升级](#lark-cli-跟着升级)，没更新上不影响升级）。检查时另一个部署在跑、或刚好来了任务的，按上一条推迟；别的没过的、部署没成的，**不自动回滚**，私聊里说一句和日志位置，等人看过再升。
 - 升级会重启 Bridge，这一天的进度记在状态目录的 `upgrade/auto.json`，新起来的 Bridge 接着读结果（`upgrade/run.json`）；升完在私聊里发一条：升到哪个版本、有哪些新提交，或者网页没更新上、为什么。夜里不打扰的时段（`COVEY_QUIET_HOURS`）里攒到时段结束再发。日志在 `deploy-runs/<时间>-auto/`。
 - 错过时间（那会儿 Bridge 没在运行）的，过了时间 2 小时就不再补，等第二天。
 

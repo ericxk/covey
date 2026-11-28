@@ -2,8 +2,9 @@
 scripts/deploy_bridge.sh that records what it was given, so each boundary is seen without a deploy: a clean checkout, a
 fetch and fast-forward only, the one service found, the manifest's own environment and command handed to the pre-check,
 --dry-run changing nothing, a failed check or a running deploy stopping before anything, the checkout fast-forwarded only
-after a deploy that went through. One test runs the real deploy_bridge.sh --check-only on a fake service root. Each run is
-one short-lived bash, Python and git child under TMPDIR; nothing touches the network."""
+after a deploy that went through, the machine's lark-cli updated between the check and the deploy (a fake npm global one,
+support/lark_cli_fake.py, first in the service's PATH). One test runs the real deploy_bridge.sh --check-only on a fake
+service root. Each run is one short-lived bash, Python and git child under TMPDIR; nothing touches the network."""
 from __future__ import annotations
 
 import json
@@ -14,7 +15,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from support import REPO
+from support import REPO, exec_tempdir
+from support import lark_cli_fake
 
 from covey.service.manager import runtime_environment
 
@@ -79,6 +81,10 @@ class UpgradeCase(unittest.TestCase):
                      "COVEY_DATA_HOME": str(self.data), "FAKE_DEPLOY_LOG": str(self.log), **GIT_ENV}
         self.saved = {**runtime_environment(self.base), "LARK_BRIDGE_REVIEW": "1",
                       "https_proxy": "http://proxy.example.invalid:3128"}
+        tools = exec_tempdir()  # The service's lark-cli is a fake npm global one: never the machine's.
+        self.addCleanup(tools.cleanup)
+        self.lark = lark_cli_fake.install(Path(tools.name) / "npm")
+        self.saved["PATH"] = self.lark["bin"] + os.pathsep + self.saved["PATH"]
         self.manifest()
 
     def lay_out(self):
@@ -145,6 +151,40 @@ class UpgradeTests(UpgradeCase):
         self.assertEqual(code, 0, out)
         self.assertIn(f"已经是最新（{self.newer[:8]}）", out)
         self.assertEqual(len(self.calls()), 2)
+
+    def test_lark_cli_is_said_by_a_dry_run_and_updated_between_the_check_and_the_deploy(self):
+        code, out = self.upgrade("--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertIn("[lark-cli] " + os.path.join(self.lark["bin"], "lark-cli") + "（npm 全局，1.0.99）", out)
+        self.assertEqual(lark_cli_fake.calls(self.lark), [])  # Read only: --version and npm root -g.
+        code, out = self.upgrade()
+        self.assertEqual(code, 0, out)
+        self.assertIn("[lark-cli] 更新好了：1.0.99 → 1.0.100", out)
+        [update] = lark_cli_fake.calls(self.lark)
+        self.assertEqual((update["argv"], update["deploys"]), (["update", "--json"], 0))  # Before the deploy, after its check.
+        self.assertEqual(update["path"], self.saved["PATH"])
+        self.assertEqual([("--check-only" in call["argv"]) for call in self.calls()], [True, True, False])
+        self.assertLess(out.index("[lark-cli] 更新好了"), out.index("部署中"))
+        code, out = self.upgrade()  # Up to date: no deploy, the lark-cli step all the same.
+        self.assertEqual(code, 0, out)
+        self.assertIn("[lark-cli] 已经是最新（1.0.100）", out)
+        self.assertEqual(len(lark_cli_fake.calls(self.lark)), 2)
+        self.assertEqual(len(self.calls()), 3)
+
+    def test_a_lark_cli_update_that_fails_never_stops_the_upgrade_and_a_broken_one_stops_before_the_deploy(self):
+        code, out = self.upgrade(FAKE_LARK_MODE="eacces")
+        self.assertEqual(code, 0, out)
+        self.assertIn("[lark-cli] 没更新上，还用原来的 1.0.99（不影响这次升级）", out)
+        self.assertIn("Permission denied", out)
+        self.assertIn("升级好了：机器人第 8 代", out)
+        git(self.checkout, "reset", "-q", "--hard", self.first)
+        self.manifest()
+        code, out = self.upgrade(FAKE_LARK_MODE="broken")
+        self.assertEqual(code, 1, out)
+        self.assertIn("lark-cli 更新后跑不起来了，Bridge 没换", out)
+        self.assertIn("npm install -g @larksuite/cli@1.0.99", out)
+        self.assertNotIn("部署中", out)
+        self.assertEqual([("--check-only" in call["argv"]) for call in self.calls()], [True, False, True])
 
     def test_a_dirty_checkout_or_a_commit_upstream_lacks_stops_before_anything(self):
         (self.checkout / "README.md").write_text("changed\n")
@@ -354,6 +394,14 @@ class StatusAndWebTests(UpgradeCase):
         self.assertIn("1 个新提交", out)
         self.assertEqual((self.calls(), self.head()), ([], self.first))
         self.assertFalse((self.data / "upgrade.json").exists())
+
+    def test_status_in_words_says_the_lark_cli_and_the_page_s_json_runs_none(self):
+        code, out = self.upgrade("--status")
+        self.assertEqual(code, 0, out)
+        self.assertIn("[lark-cli] " + os.path.join(self.lark["bin"], "lark-cli") + "（npm 全局，1.0.99）", out)
+        _, out = self.status()
+        self.assertNotIn("[lark-cli]", out)
+        self.assertEqual(lark_cli_fake.calls(self.lark), [])
 
     def test_status_says_what_blocks_an_upgrade_instead_of_stopping(self):
         (self.checkout / "README.md").write_text("changed\n")

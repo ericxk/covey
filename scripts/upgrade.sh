@@ -14,17 +14,21 @@
 #   4. 照服务清单载入环境（清单里的变量原样，终端里别的本项目变量不带进去，所以开关和代理都不变；BASH_ENV、ENV 也不带：
 #      bash 会先执行它们指向的文件，改了 PATH 预检就报 env_value_diff），从清单的启动命令抄出
 #      --workdir、--profile、--app-id、--state-dir、--harness-config 和其余参数，先跑 deploy_bridge.sh --check-only；
-#      --dry-run 到此为止，什么都不换。
-#   5. 部署：机器人重启（几秒内收不到消息和点击，在跑的任务不中断、由新进程接管），日志在 <数据根>/deploy-runs/<时间>/。
+#      --dry-run 到此为止，什么都不换（只说服务用的 lark-cli 和升级时会怎么更新它）。
+#   5. lark-cli：服务的 PATH 找到的是 npm 全局装的 lark-cli 时运行 lark-cli update，新 Bridge 起来就用新版
+#      （covey/service/lark_cli_upgrade.py，日志在 <数据根>/deploy-runs/<时间>-lark-cli/）；没网、没写权限、更新失败都只提示，
+#      原来的照用、升级照常；更新后跑不起来了才停下，在跑的 Bridge 不动。别的办法装的（PATH 前面另放的一份）只提示，不动。
+#      Bridge 已经是最新时也做这一步。
+#   6. 部署：机器人重启（几秒内收不到消息和点击，在跑的任务不中断、由新进程接管），日志在 <数据根>/deploy-runs/<时间>/。
 #      成功后检出快进（git merge --ff-only）到这个提交；还有任务进程用着检出里的代码时先不快进，下次运行时补上。
 #      最后列“升级后要你补的”：这一版起默认打开、你的清单没设的开关，诊断（covey_doctor）列出的要你手工补的事。
-#   6. 网页：用 web/deploy/selfhost/build.sh 自托管的网页跟着换成新 release 的 web/（--restart，Manager 拉起新版；
+#   7. 网页：用 web/deploy/selfhost/build.sh 自托管的网页跟着换成新 release 的 web/（--restart，Manager 拉起新版；
 #      covey/service/web_upgrade.py），Bridge 已经是最新时也补上；别的办法部署的网页只提示。--no-web 不动网页。
 #      最后写 <数据根>/upgrade.json：网页「版本与更新」和定时自动升级（COVEY_AUTO_UPGRADE）照它查新版本、升级（扩展的安装器
 #      写的不覆盖）。
 #
-# --status 只查不换（git fetch，不部署、不动检出）：现网、要升到的提交、新提交、网页要不要更新、为什么现在不能升；--json 时
-# 最后一行是给 Bridge 的 JSON（app/self_upgrade.py）。
+# --status 只查不换（git fetch，不部署、不动检出）：现网、要升到的提交、新提交、网页要不要更新、为什么现在不能升（不带 --json
+# 时还说服务用的 lark-cli 和它的版本）；--json 时最后一行是给 Bridge 的 JSON（app/self_upgrade.py）。
 #
 # 退出码：0 升级好了（或已经是最新、--dry-run 检查都过了、--status 查完），1 某项检查没过（部署前停下的什么都没换），2 参数
 # 不对或找不到机器人，3 另一个部署正在跑（等它结束再运行），4 Bridge 升级好了、网页没更新上（不用回滚 Bridge）。
@@ -37,12 +41,12 @@ from pathlib import Path
 ROOT = Path(sys.argv[1])
 sys.path.insert(0, str(ROOT))
 from covey.core.paths import data_home, service_root  # noqa: E402
-from covey.service import personal_extensions, web_upgrade  # noqa: E402
+from covey.service import lark_cli_upgrade, personal_extensions, web_upgrade  # noqa: E402
 from covey.service.manager import persistable  # noqa: E402
 
 KNOWN = ("--harness", "--state-dir", "--workdir", "--profile", "--app-id", "--harness-config")
 # The processes that run code from the checkout a service ran from before its first upgrade: a task runner the new Bridge
-# adopts keeps reading it until it ends, so the checkout is fast-forwarded only once none is left (docs/deploy.md 第 5 步).
+# adopts keeps reading it until it ends, so the checkout is fast-forwarded only once none is left (docs/deploy.md 第 6 步).
 USERS = ("covey_runner.py", "covey_bridge.py", "covey_butler_mcp.py", "lark_task_runner.py", "lark_harness_bridge.py",
          "bridge_main_mcp.py", "covey_main_mcp.py")
 PRE_WORDS = {
@@ -201,6 +205,11 @@ if manifest.get("desired_state") != "running":
 saved = manifest.get("environment") if isinstance(manifest.get("environment"), dict) else {}
 data = Path(saved.get("LARK_BRIDGE_DATA_HOME") or saved.get("COVEY_DATA_HOME") or data_home()).expanduser()
 command = [str(part) for part in manifest["command"]]
+# The service's own environment, for the pre-check, the deploy and lark-cli. Not BASH_ENV or sh's ENV either: bash runs the
+# file they name before deploy_bridge.sh's first line (some ssh setups point BASH_ENV at .bashrc), and the PATH it changes is
+# not the manifest's.
+env = {key: value for key, value in os.environ.items() if not persistable(key) and key not in ("BASH_ENV", "ENV")}
+env.update({key: value for key, value in saved.items() if isinstance(value, str)})
 entry = Path(command[2]) if len(command) > 2 else None
 live_id, live_core, with_extensions = None, None, False
 try:
@@ -271,6 +280,15 @@ def web_step(release):
     return 4 if web_upgrade.update(data, manifest, release, say) == web_upgrade.FAILED else 0
 
 
+def lark_cli_step():
+    """The machine's lark-cli before the new Bridge starts (covey/service/lark_cli_upgrade.py, step 5): an update that does
+    not go through is said and the upgrade goes on; a lark-cli that ran before it and does not now stops here, the running
+    Bridge left as it is."""
+    if lark_cli_upgrade.update(data, env, say) == lark_cli_upgrade.BROKEN:
+        stop(1, "lark-cli 更新后跑不起来了，Bridge 没换（原来的还在跑）",
+             "照上面 [lark-cli] 那行装回原来的版本，再运行 scripts/upgrade.sh")
+
+
 def in_use():
     """Whether a process still runs code from the checkout (USERS): only checked for a service that ran from it."""
     if live_id is not None:
@@ -309,6 +327,8 @@ say(f"    检出      {repo}（{short(head)}）")
 say(f"    升到      {ref} = {short(target)}" + (f"（比检出新 {newer} 个提交）" if newer != "0" else ""))
 say(f"    机器人    {state}（现网：" + (f"release {live_id}" if live_id else "直接从检出运行") + "）")
 if args.status:
+    if not args.json:  # The page's checks (--json) need no lark-cli: a check is a fetch, nothing more.
+        lark_cli_upgrade.note(env, say)
     report()
 if personal_changed:
     say("    个人扩展  " + ("、".join(f"{Path(found['path']).name}（{short(found['commit'])}）" for found in mine_found["repos"])
@@ -316,7 +336,9 @@ if personal_changed:
 if live_commit == target and not personal_changed:  # A service run from the checkout runs its HEAD.
     say(f"已经是最新（{short(target)}），不用升级。")
     if args.dry_run:
+        lark_cli_upgrade.note(env, say)
         sys.exit(0)
+    lark_cli_step()
     fast_forward()
     write_upgrader()
     sys.exit(web_step(data / "releases" / live_id if live_id is not None else repo))
@@ -333,11 +355,7 @@ if version != "True":
 if not shutil.which("lark-cli", path=saved.get("PATH", "")):
     say("提示：服务的 PATH 里找不到 lark-cli（机器人收发消息要用它）；升级照常做，之后用 ./install 检查")
 
-# ---- 4. the service's own environment and the pre-check
-# Not BASH_ENV or sh's ENV either: bash runs the file they name before deploy_bridge.sh's first line (some ssh setups
-# point BASH_ENV at .bashrc), and the PATH it changes is not the manifest's.
-env = {key: value for key, value in os.environ.items() if not persistable(key) and key not in ("BASH_ENV", "ENV")}
-env.update({key: value for key, value in saved.items() if isinstance(value, str)})
+# ---- 4. the pre-check
 values, options, rest = {}, [], command[3:]
 index, sandboxed = 0, False
 while index < len(rest):
@@ -411,10 +429,14 @@ say("部署前的检查都过了。")
 for line in (result.get("pre") or {}).get("personal_notes") or []:
     say(f"    提示：{line}")
 if args.dry_run:
+    lark_cli_upgrade.note(env, say)
     say("--dry-run：什么都没换。去掉 --dry-run 就会部署 " + short(target) + "。")
     sys.exit(0)
 
-# ---- 5. the deploy
+# ---- 5. lark-cli, before the new Bridge starts with it
+lark_cli_step()
+
+# ---- 6. the deploy
 say("部署中：机器人会重启，几秒内收不到消息和卡片点击（之后收下的会照常处理）；在跑的任务不中断，新进程接管它们。")
 deploy_dir = runs / stamp
 code, result = run_deploy(run_dir=deploy_dir)
