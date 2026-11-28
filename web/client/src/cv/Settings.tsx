@@ -647,7 +647,7 @@ const RepoAdd: React.FC<{ ops: Ops }> = ({ ops }) => {
       <div className="st-list">
         <div className="rp-add">
           <div className="rp-addrow">
-            <input className="st-in-t" value={path} maxLength={RP.PATH_MAX} disabled={busy} placeholder="绝对路径，或 设备别名:路径" aria-label="仓库路径"
+            <input className="st-in-t" value={path} maxLength={RP.PATH_MAX} disabled={busy} placeholder="绝对路径" aria-label="仓库路径"
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPath(e.target.value)} onKeyDown={onKey} />
             <button type="button" className="btn pri" disabled={busy || !payload} onClick={add}>添加</button>
           </div>

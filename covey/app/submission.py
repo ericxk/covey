@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import functools
 import time
+from pathlib import Path
 from typing import Any
 
-from covey.core import background, devices, failure, placement, timing, turn_source
+from covey.core import background, devices, failure, home, placement, timing, turn_source
 from covey.core import env as cenv
 from covey.core.jobs import BridgeReplyJob, carry_device, find_job_record
 from covey.core.metrics import mark, run_start, took_text
@@ -451,21 +452,28 @@ class Submission:
         workspace's own path (a topic worktree). `on_bound()` runs once the binding is saved
         (the launch card's receipt). The messages' task cards (seconds each) follow once the click
         is acknowledged (after_ack): inside it 开始任务 took 2.6 s of Feishu's 3 s.
-        A message sent meanwhile releases them before itself (submit_topic_job), so order holds."""
+        A message sent meanwhile releases them before itself (submit_topic_job), so order holds.
+        A `directory` that is the home (app/launch_submit.py home_binding) is bound as it is: the workspace list is
+        neither read nor written (no ``recent``)."""
+        at_home = directory is not None and Path(directory).resolve() == home.of(ctx).resolve()
         with topic_lock(ctx):
             with LOCK:
-                listed = load_config(ctx.state_dir, ctx.default_workdir)["workspaces"].get(name, "")
-                if devices.is_device_value(listed):
-                    # Already checked on the device when the launch card was submitted (app/launch_submit.py): no second 5 seconds
-                    # under LOCK. The topic keeps the value; its context the stand-in and the device's directory.
-                    binding = devices.bind_workdir(ctx, listed, strict=False)
+                if at_home:
+                    binding = devices.Binding(Path(directory), "", "", "")
                 else:
-                    name, resolved = resolve_selection(ctx.state_dir, ctx.default_workdir, name)
-                    binding = devices.Binding(directory or resolved, "", "", "")
+                    listed = load_config(ctx.state_dir, ctx.default_workdir)["workspaces"].get(name, "")
+                    if devices.is_device_value(listed):
+                        # Already checked on the device when the launch card was submitted (app/launch_submit.py): no second
+                        # 5 seconds under LOCK. The topic keeps the value; its context the stand-in and the device's directory.
+                        binding = devices.bind_workdir(ctx, listed, strict=False)
+                    else:
+                        name, resolved = resolve_selection(ctx.state_dir, ctx.default_workdir, name)
+                        binding = devices.Binding(directory or resolved, "", "", "")
                 if workspace_locked(ctx):
                     return "本话题已经开始，工作区已固定。新任务请在主聊天发送消息。"
                 bind_topic(ctx, name, binding.workdir, stored=binding.value if binding.device else "")
-                touch_workspace(ctx.state_dir, ctx.default_workdir, name)
+                if not at_home:
+                    touch_workspace(ctx.state_dir, ctx.default_workdir, name)
                 ctx = devices.with_binding(ctx, binding, workspace_name=name,
                                            sessions_dir=self.harness.store.sessions_dir(binding.workdir))
             if on_bound is not None:

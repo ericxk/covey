@@ -588,7 +588,7 @@ def bind_topic(env, app, request, path, record, args, event, config, kind="main"
             write_json(target.history_path.parent / "topic.json", data, ensure_ascii=False, indent=2)
         record["topic_id"] = target.topic_id
         save(path, record)
-        if plan["start"]:
+        if plan["start"] and not plan.get("home_start"):  # The home is in no workspace list (launch_submit.home_binding).
             touch_workspace(target.state_dir, target.default_workdir, plan["workspace"])
     label = topic_label(Path(env.state_dir), record["topic_id"])
     if label and not record.get("numbered") and record.get("card_id"):

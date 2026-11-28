@@ -144,6 +144,24 @@ class ConfigTest(unittest.TestCase):
             text = problems(json.dumps({"schema": 1, "devices": {"a": {**entry, "home": bad}}}))
             self.assertIn("devices.a.home: must be an absolute path on the device", text, repr(bad))
 
+    def test_access_and_note_are_read_and_checked_so_a_file_a_later_release_wrote_still_parses(self):
+        # T930 F0: ``access`` and ``note`` are known (read, never written here), so rolling back from the release that
+        # writes them keeps devices.json readable; any other unknown key still fails the whole file.
+        entry = {"ssh": {"host": "h"}}
+        parsed = devices.parse(json.dumps({"schema": 1, "devices": {
+            "a": {**entry, "access": "write", "note": " 主人的 GPU 机 "}, "b": {**entry, "access": "read", "note": "跑"
+                                                                              + "测" * 59}, "c": entry}}))
+        self.assertEqual([(parsed.device(alias).access, parsed.device(alias).note) for alias in "abc"],
+                         [("write", "主人的 GPU 机"), ("read", "跑" + "测" * 59), ("", "")])
+        for key, bad, words in (("access", "admin", "devices.a.access: must be write or read"),
+                                ("access", ["read"], "devices.a.access: must be write or read"),
+                                ("access", True, "devices.a.access: must be write or read"),
+                                ("note", "x" * 61, "devices.a.note: must be one line of at most 60 characters"),
+                                ("note", "第一行\n第二行", "devices.a.note: must be one line of at most 60 characters"),
+                                ("note", 7, "devices.a.note: must be one line of at most 60 characters"),
+                                ("owner", "me", "devices.a: unknown keys owner")):
+            self.assertIn(words, problems(json.dumps({"schema": 1, "devices": {"a": {**entry, key: bad}}})), (key, bad))
+
     def test_a_device_declares_the_harnesses_that_run_on_a_device_claude_and_codex_unless_it_names_them(self):
         from covey.core.roster import DEVICE_HARNESSES, NAMES
         self.assertEqual(devices.harness_names(), DEVICE_HARNESSES)

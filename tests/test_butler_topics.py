@@ -93,6 +93,18 @@ class HomeStartTest(ButlerTopicsCase):
         self.assertIn("主目录", card)
         self.assertNotIn("工作区", card)
 
+    def test_a_home_start_leaves_the_workspace_list_as_it_was(self):
+        # T930 F0 R1, R2: named after the home's directory without looking it up, and no ``recent`` written.
+        path = config_path(self.ctx.state_dir)
+        load_config(self.ctx.state_dir, self.work)  # There, as on a deployment that has used it.
+        os.utime(path, ns=(1_000_000_000_000_000_000, 1_000_000_000_000_000_000))
+        before = (path.stat().st_mtime_ns, path.read_bytes())
+        answer = self.start("h0", workspace=None, harness="codex")
+        self.assertTrue(answer["ok"] and answer["data"]["started"], answer)
+        topic = load_topic(self.ctx.state_dir, answer["data"]["topic_id"])
+        self.assertEqual((topic["workspace_name"], topic["home_start"]), (Path(self.work).resolve().name, True))
+        self.assertEqual((path.stat().st_mtime_ns, path.read_bytes()), before)
+
     def test_the_repositories_it_names_are_kept_and_a_frozen_one_is_not_written_to(self):
         self.repo_map(covey="active", web="readonly", old="frozen")
         answer = self.start("h2", workspace=None, harness="codex", repos=[

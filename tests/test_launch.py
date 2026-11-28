@@ -16,6 +16,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import json
+import os
 import subprocess
 import threading
 import time
@@ -175,6 +176,23 @@ class LaunchTests(LaunchCase):
         self.assertEqual(topic['workdir'], str(self.work.resolve()))
         # A home start (T870, core/topics.py mark_home): marked, with its start and slug, as the butler's topics are.
         self.assertEqual((topic['home_start'], type(topic['started_at']), topic['slug']), (True, float, 'hello'))  # Its first line.
+
+    def test_a_home_start_neither_looks_up_nor_rewrites_the_workspace_list(self):
+        # T930 F0 R1, R2: the home is named after its directory, not looked up in workspace-config.json (here it lists
+        # only another directory) and no ``recent`` is written: the file is left as it was, its mtime too.
+        other = self.root / 'other'
+        other.mkdir()
+        path = config_path(self.ctx.state_dir)
+        path.write_text(json.dumps({'default': 'other', 'workspaces': {'other': str(other)}}))
+        os.utime(path, ns=(1_000_000_000_000_000_000, 1_000_000_000_000_000_000))
+        before = (path.stat().st_mtime_ns, path.read_bytes())
+        self.receive('task', 'hello')
+        self.submit(self.form('task')[1])
+        self.assertEqual(self.app.runtime.jobs.queue.get_nowait().workdir, self.work.resolve())
+        topic = read_topic(self.route('task')[1])
+        self.assertEqual((topic['workspace_name'], topic['workdir'], topic['home_start']),
+                         (self.work.resolve().name, str(self.work.resolve()), True))
+        self.assertEqual((path.stat().st_mtime_ns, path.read_bytes()), before)
 
     def test_a_card_sent_before_the_home_start_still_starts_where_its_record_says(self):
         # Rule 10: a launch card already sent (a message waiting_workspace for it) names a workspace in its record.
@@ -1129,6 +1147,7 @@ class WebLaunchTests(LaunchCase):
         plan = self.plan()
         self.assertEqual((plan['workdir'], plan['run_mode'], plan['start'], plan['home_start']),
                          (str(self.work.resolve()), 'direct', True, True))
+        self.assertEqual(plan['workspace'], self.work.resolve().name)  # The home's directory, not a workspace list entry.
         self.assertNotIn('repos', plan)
 
     def test_a_payload_naming_a_device_starts_there(self):

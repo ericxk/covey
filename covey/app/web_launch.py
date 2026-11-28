@@ -217,7 +217,7 @@ def plan_of(env, ctx, chat, payload) -> dict:
     The optional ``repos`` are the ones the topic declares (``plan["repos"]``; ``plan["home_start"]`` marks a home start, both
     kept in topic.json by app/butler_topics.py bind_topic)."""
     from covey.app.launch_models import run_choice
-    from covey.app.launch_submit import home_binding
+    from covey.app.launch_submit import home_binding, home_selection
     from covey.core import devices
     from covey.core.menu_choice import chosen_work_mode
     from covey.core.workspaces import RUN_MODES, resolve_binding
@@ -234,10 +234,9 @@ def plan_of(env, ctx, chat, payload) -> dict:
             raise ValueError(f"设备 {device} 不允许在这个聊天里使用")
         name, binding = home_binding(ctx, device)
     else:
-        config, _, _ = workspace_config(env, ctx, chat)
-        if not workspace:  # A run mode alone (an older page): in the home.
-            workspace = home_binding(ctx)[0]
-        if workspace not in config["workspaces"]:
+        if not workspace:  # A run mode alone (an older page): in the home, under the name the workspace list gives it.
+            workspace = home_selection(ctx)
+        elif workspace not in workspace_config(env, ctx, chat)[0]["workspaces"]:
             raise ValueError(f"没有登记工作区「{workspace}」，请重新选")
         name, binding = resolve_binding(Path(ctx.state_dir), ctx.default_workdir, workspace)
     if binding.device:

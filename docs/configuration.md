@@ -388,7 +388,7 @@
 
 ### 主目录与仓库地图
 
-主目录就是服务的 `--workdir`（参数名不变）。话题记录里写着 `home_start` 的话题从主目录启动；管家和负责人开的、启动卡和网页开的、专项负责人和分叉出来的话题都由 `core/topics.py` 的 `mark_home` 写它，同时只写一次 `started_at` 和 `slug`（话题产物目录按它们命名，之后不再变）。设备上开的话题不算。之前开的话题照它的 `workdir` 跑，规则里照旧是工作区那一段。第一次启动时 `core/migrate.py` 的 `home_v1`、`repos_v1` 两步写 `home.json` 和仓库地图（只在文件不在时写；`--apply` 的维护没有主目录，留给 Bridge 启动时做）。
+主目录就是服务的 `--workdir`（参数名不变）。话题记录里写着 `home_start` 的话题从主目录启动；管家和负责人开的、启动卡和网页开的、专项负责人和分叉出来的话题都由 `core/topics.py` 的 `mark_home` 写它，同时只写一次 `started_at` 和 `slug`（话题产物目录按它们命名，之后不再变）。设备上开的话题不算。从主目录启动不经工作区列表：话题记录的 `workspace_name` 写主目录的目录名、`workdir` 写主目录（给旧版任务进程读），`workspace-config.json` 不读也不写（不记 `recent`）。之前开的话题照它的 `workdir` 跑，规则里照旧是工作区那一段。第一次启动时 `core/migrate.py` 的 `home_v1`、`repos_v1` 两步写 `home.json` 和仓库地图（只在文件不在时写；`--apply` 的维护没有主目录，留给 Bridge 启动时做）。
 
 - **主目录**（`core/home.py`）：接管的已有目录（你装之前就有的）一个文件都不写；Covey 新建的主目录（新装默认 `<数据根>/home`，`seed_home`）有一份不超过 60 行的 `AGENTS.md`（同样内容的 `CLAUDE.md`）、`.ignore`、`.skills/`（`.claude/skills`、`.agents/skills` 指向它）和 `tasks/{sessions,runs,shared}/`，另有标记文件 `.covey-home`。
 - **`<状态目录>/home.json`**：话题产物目录和会话目录的模板（`runs_template`、`sessions_template`，变量 `{home} {date} {no} {slug} {topic8} {run}`）、`run_scope`（`topic_day` 同一话题同一天共用一个运行目录，`turn` 每轮一个）、`cache_env`（`true` 时 Harness 进程的 `TMPDIR`、`XDG_CACHE_HOME`、`PIP_CACHE_DIR`、`UV_CACHE_DIR`、`npm_config_cache` 指到运行目录的 `tmp/`、`cache/`，写不进就不设，不悄悄退回 `/tmp`）。有这个文件时话题规则里才写“本话题产物目录”；Covey 新建的主目录第一次启动时写默认值，接管的目录不写（产物放哪由它自己的 `AGENTS.md` 说）。
@@ -427,6 +427,7 @@
 | 设备别名 | `devices` 的键，`[a-z][a-z0-9-]{0,23}`。工作区写成 `别名:路径`，例如 `gpu1:/home/me/proj`、`gpu1:~/work`（`~` 是设备上的家目录） |
 | `title` | 卡片上显示的名字，默认就是别名 |
 | `home` | 可选，设备上的主目录：`/` 开头的绝对路径，或 `~`、`~/…`（`~` 是设备上的家目录，不在 Bridge 这边展开）。不写时照旧 |
+| `access`、`note` | 可选，`access` 是 `write` 或 `read`，`note` 是一行用途（至多 60 字）。这一版只认、只校验，还不用、也不写，留给下一版：下一版写进这两个字段后回滚到这一版也读得了 |
 | `ssh.host` | `~/.ssh/config` 里的别名或 `user@host`。不能有空格，不能以 `-` 开头 |
 | `ssh.options` | 追加的 ssh 参数（`-J` 跳板、`-p`、`-i` 等）。Covey 自己的选项排在前面，这里改不掉它们 |
 | `ssh.python` | 设备上的解释器，默认 `python3`（3.9 起） |

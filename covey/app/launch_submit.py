@@ -41,10 +41,9 @@ RESTART_ABANDONED = '服务重启时 worktree 尚未创建完成'
 
 def home_selection(ctx, device: str = '') -> str:
     """Where a new topic starts (docs/configuration.md 主目录与仓库地图: one way to start, no workspace to pick): the
-    home, the service's ``--workdir`` (``ctx.default_workdir``), as core/workspaces.py resolve_binding takes it (the
-    saved workspace of that directory, or its path, listed once). On ``device`` (an alias of devices.json, COVEY_DEVICES=1)
-    the saved workspace on that device whose name sorts first, else ``<alias>:<its home>`` when devices.json names one;
-    ValueError when the device has neither."""
+    home, the service's ``--workdir`` (``ctx.default_workdir``), resolved. On ``device`` (an alias of devices.json,
+    COVEY_DEVICES=1) the saved workspace on that device whose name sorts first, else ``<alias>:<its home>`` when
+    devices.json names one; ValueError when the device has neither."""
     if not device:
         return str(Path(ctx.default_workdir).expanduser().resolve())
     data = load_config(ctx.state_dir, ctx.default_workdir)
@@ -63,7 +62,12 @@ def home_selection(ctx, device: str = '') -> str:
 
 def home_binding(ctx, device: str = '') -> tuple:
     """(workspace name, core/devices.py Binding) of ``home_selection``: what a new topic's topic.json records
-    (``workspace_name`` and ``workdir`` as before, so an older release's task runner reads it)."""
+    (``workspace_name`` and ``workdir`` as before, so an older release's task runner reads it). The home itself is not
+    looked up in the workspace list: its name is its directory's and workspace-config.json is neither read nor written.
+    On ``device`` as core/workspaces.py resolve_binding takes it."""
+    if not device:
+        home = Path(home_selection(ctx))
+        return home.name or 'root', devices.Binding(home, '', '', str(home))
     return resolve_binding(ctx.state_dir, ctx.default_workdir, home_selection(ctx, device))
 
 
