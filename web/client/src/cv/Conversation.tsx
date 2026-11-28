@@ -71,6 +71,9 @@ const ContextMeter: React.FC<{ used: number; limit: number }> = ({ used, limit }
   );
 };
 
+/** 认回显时容的钟差：Covey 记下你那一行的时刻和本页发出的时刻不是一台机器的钟 */
+const ECHO_SKEW_MS = 120_000;
+
 /** 刚发出的一句话（T765 F3）：发送中时半透明；写进网页库（POST 成功）就画成正式的样子，旁边写“✓ 已发出”；
  * Covey 回执后写它的回执原话（“已开下一轮”“已作为补充交给在做的任务 #…”），没办成写原因，没办成的可以关掉（opWords.ts bubbleWords） */
 const PendingBubble: React.FC<{ p: Pending; row: OutboxView | undefined; onClose: () => void }> = ({ p, row, onClose }) => {
@@ -204,7 +207,9 @@ export const Conversation: React.FC<{
     const gone: string[] = [];
     for (const p of pending) {
       // 带附件的那一轮，Covey 在正文后面拼了附件块：比开头；只有附件没有字的，比“这之后来了你的一轮”
-      const back: TurnView | undefined = turns.find((t: TurnView) => t.role === 'owner' && t.seq > p.baseSeq
+      // 补充进在跑的任务时，你那一行排在在跑那一轮前面、占了它原来的 seq（它挪到下一个）：同 seq 的，写下的时刻在发出之后（容两分钟钟差）也算回来了
+      const back: TurnView | undefined = turns.find((t: TurnView) => t.role === 'owner'
+        && (t.seq > p.baseSeq || (t.seq === p.baseSeq && (t.started_at ?? 0) * 1000 >= p.at - ECHO_SKEW_MS))
         && (p.files?.length ? t.body.trim().startsWith(p.text.trim()) : t.body.trim() === p.text.trim()));
       const echoed: boolean = !!back;
       // 你那一行回来了、Covey 的图还没到：那一行先接着画这里的本地图（T933），不退回“附件：图片 N 张”
