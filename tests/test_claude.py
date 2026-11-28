@@ -1340,6 +1340,10 @@ class ClaudeOneShotTests(unittest.TestCase):
                 self.assertIs(same, ctx)
 
 
+# Talks to the claude on PATH: only when asked for (docs/testing.md 真实环境验证), never on a runner without it.
+@unittest.skipUnless(
+    os.environ.get("CLAUDE_BRIDGE_REAL_CLI") == "1" and shutil.which("claude"), "opt-in installed Claude CLI contract"
+)
 class InstalledClaudeContractTests(unittest.TestCase):
     def exercise(self, question=False, policy=""):
         with tempfile.TemporaryDirectory(prefix="claude-installed-contract-") as tmp:

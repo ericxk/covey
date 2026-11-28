@@ -107,7 +107,8 @@ class HomeTests(unittest.TestCase):
         self.assertEqual(len(list(own_cli.glob("brain.own-*"))), 0)  # An empty one goes.
         self.assertTrue((self.own / ".config" / "antigravity").is_dir())
         self.assertEqual(agy_homes.prepare(self.own, self.real), [])  # Once is enough.
-        fresh = self.root / "accounts" / "c"
+        # A parent the test never made (setUp made accounts/ under the umask): prepare makes both, owner-only.
+        fresh = self.root / "new-accounts" / "c"
         agy_homes.prepare(fresh, self.real)
         for path in (fresh.parent, fresh, fresh / ".gemini", fresh / ".gemini" / "antigravity-cli", fresh / ".config"):
             self.assertEqual(path.stat().st_mode & 0o777, 0o700, path)  # Owner-only, each directory it made.
