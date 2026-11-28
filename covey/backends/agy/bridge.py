@@ -55,7 +55,8 @@ from covey.backends.agy import accounts
 from covey.backends.agy import compaction as agy_compaction
 from covey.backends.agy.home import EAGER_ENV, PrivateHome
 from covey.core.harness import (BackendConfig, BackendRuntime, HARNESS_REGISTRY, HarnessCapabilities, HarnessSpec,
-                                CONSULT, JobCancelled, LEAD, LOOK, LOOK_ROOTS, READ, TOOL_LIMIT, UUID_RE, for_device)
+                                CONSULT, EXTERNAL, JobCancelled, LEAD, LOOK, LOOK_ROOTS, READ, TOOL_LIMIT, UUID_RE,
+                                for_device)
 from covey.core import env as cenv
 from covey.core import home as covey_home
 from covey.core import extensions, procfs
@@ -119,6 +120,9 @@ READ_ONLY_SETTINGS = {"permissions": {"deny": [*FILE_WRITES, "command(*)", "read
 # limit (tests/test_matrix.py GAPS).
 LOOK_SETTINGS = {"permissions": {"deny": list(FILE_WRITES)}}
 HELD = (LEAD, READ, CONSULT)
+# A turn that starts in the topic's outputs directory (core/home.py external_cwd): agy's file tools reach only its
+# workspace (the directory it starts in) without this; what it may do there is still its toolPermission's.
+OUTSIDE = {"allowNonWorkspaceAccess": True}
 
 AGY_SPEC = HarnessSpec(
     name="agy", title="Antigravity", prompt_agent_name="Antigravity", idempotency_prefix="agy-lark",
@@ -449,13 +453,15 @@ class AntigravityBackend(BackendRuntime):
         # compaction: agy's own /compact (backends/agy/compaction.py), on this machine's conversations only.
         # look_gate: a LOOK turn's deny rules for its file tools (LOOK_SETTINGS) and its private home's workspace_write_file
         # (look_server; W1-C, on agy 1.5.18: tests/test_collab_c8.py AgyLookC6).
+        # external_cwd: no setting keeps the home's AGENTS.md out (agy 1.5.19 refuses memoryRulesDisabled and the like), so a
+        # topic that keeps off this machine's files starts in its outputs directory (core/home.py external_cwd).
         # command_stop: AgyControl.stop_command stops the commands agy runs (the same SIGINT), on this machine's only.
         here = not device_of(ctx)
         # system_instructions: the bridge rules in the private home's ~/.gemini/GEMINI.md, read again at every turn
         # (``Homes``, backends/agy/home.py), on this machine only.
         return for_device(HarnessCapabilities(steering=here, steer_reads=here, command_stop=here, bridge_tools=True,
                                               rate_limit_retry=True, fault_retry=True, ask_once=True, compaction=here,
-                                              look_gate=True, system_instructions=here,
+                                              look_gate=True, external_cwd=True, system_instructions=here,
                                               system_refresh="turn" if here else ""), ctx)
 
     # The butler's idle compaction (app/idle_compaction.py): how long after a turn it starts, and that it runs with the
@@ -496,8 +502,10 @@ class AntigravityBackend(BackendRuntime):
         return model_of(self, ctx, follow=follow)
 
     def environment(self, ctx):
-        # COVEY_HOME, COVEY_TOPIC, COVEY_STATE and <数据根>/bin on PATH (core/home.py), none on a device.
-        return {**child_process_env(ctx.workdir, device=process_device(ctx)), **covey_home.env(ctx)}
+        # COVEY_HOME, COVEY_TOPIC, COVEY_STATE and <数据根>/bin on PATH (core/home.py), none on a device; ``PWD`` where its
+        # process starts (core/home.py external_cwd).
+        where = Path(covey_home.external_cwd(ctx)) if ctx.options.get(EXTERNAL) else ctx.workdir
+        return {**child_process_env(where, device=process_device(ctx)), **covey_home.env(ctx)}
 
     def start_refusal(self, ctx):
         """(error code, words, reset) when a turn on ``ctx.model`` would only fail, refused before it starts
@@ -610,9 +618,12 @@ class AntigravityBackend(BackendRuntime):
 
 def settings_args(ctx) -> list:
     """agy's ``--settings`` of a turn: READ_ONLY_SETTINGS for one held to reading (LEAD, READ, CONSULT), LOOK_SETTINGS for a
-    LOOK one, none for any other (as before)."""
+    LOOK one, none for any other (as before); with ``OUTSIDE`` too for a turn that starts outside its workdir (a topic that
+    keeps off this machine's files, core/home.py external_cwd), so its file tools still reach a repository it is given."""
     limit = ctx.options.get(TOOL_LIMIT)
     found = READ_ONLY_SETTINGS if limit in HELD else LOOK_SETTINGS if limit == LOOK else None
+    if ctx.options.get(EXTERNAL) and covey_home.external_cwd(ctx) != str(ctx.workdir):
+        found = {**(found or {}), **OUTSIDE}
     return ["--settings", json.dumps(found, separators=(",", ":"))] if found else []
 
 
@@ -1166,6 +1177,7 @@ def run_stream(request, argv, stdin, env, switch=None):
     rc, stderr, forced_cleanup = None, "", False
     status, code, text = "failed", "root_incomplete", ""
     switches = 0
+    start = covey_home.external_cwd(ctx)  # Its workdir, or a topic's outputs directory (``external_cwd``).
     try:
         request.observers.control(control)
     except Exception:
@@ -1184,7 +1196,7 @@ def run_stream(request, argv, stdin, env, switch=None):
             adapter.home = None if device_of(ctx) else (env or {}).get("HOME") or str(Path.home())
             adapter.fresh = rows.expected_session is None  # Not resuming a conversation: its result.usage is the turn's.
             rc, stderr = stream_subprocess_lines(argv, stdin_text=stdin, timeout=left, on_line=rows.on_line,
-                                                 env=env, cwd=str(ctx.workdir), cancel_event=cancel_event,
+                                                 env=env, cwd=start, cancel_event=cancel_event,
                                                  process_observer=rows.observe, ctx=ctx)
             message, event_ids = control.take()
             if cancel_event.is_set() or rows.invalid or control.closing or (message and rows.sid is None):

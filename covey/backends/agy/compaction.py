@@ -20,6 +20,7 @@ import json
 import subprocess
 import time
 
+from covey.core.home import external_cwd
 from covey.core.process import device_of, stream_subprocess_lines
 from covey.core.text import short_count
 
@@ -80,7 +81,7 @@ def compact(ctx, argv, env, session_id, *, cancel_event=None, process_observer=N
     line = json.dumps({"event": "user", "message": {"content": COMMAND}}) + "\n"
     try:
         rc, _ = stream_subprocess_lines(compact_argv(argv), stdin_text=line, timeout=COMPACT_SECONDS,
-                                        on_line=rows.on_line, env=env, cwd=str(ctx.workdir), cancel_event=cancel_event,
+                                        on_line=rows.on_line, env=env, cwd=external_cwd(ctx), cancel_event=cancel_event,
                                         process_observer=process_observer, ctx=ctx)
     except subprocess.TimeoutExpired:
         return False, None

@@ -127,6 +127,10 @@ class HarnessCapabilities:
     # Claude Code's PreToolUse hook, Codex's and Antigravity's workspace_write_file in a sandbox or deny rules that write
     # nothing else. Without it a LOOK turn's limits are as they were and its words say so (app/tool_limits.py note).
     look_gate: bool = False
+    # starts the process of a topic that keeps off this machine's files (``options[EXTERNAL]``) in the topic's outputs
+    # directory, not its workdir (core/home.py ``external_start``): a Harness with no setting that keeps the home's own
+    # instruction files out (Antigravity). Its tool calls' relative paths are that directory's (app/repos_turn.py settle).
+    external_cwd: bool = False
     # runs a 协作 turn (core/turn_source.py NEEDS): an ask in a temporary fork of the helper's native session, in a channel
     # topic of its own (app/collab_channel.py), held to CONSULT there; the helper's session, its pointer, history and 回退
     # marker are never touched, and the fork's limits hold for that turn alone. Declared once a real write was refused in
@@ -180,6 +184,12 @@ TOOL_NOTES = "tool_notes"  # With PROXY: the contact's notes directory, the one 
 # With LOOK (app/tool_limits.py look_roots): {"file": the turn's checkpoint, "dir": the topic's outputs directory, "held":
 # whether this Harness holds its writes to those two (``HarnessCapabilities.look_gate``)}; core/look_write.py checks a path.
 LOOK_ROOTS = "look_roots"
+# A turn of a topic that keeps off this machine's repositories and files (its topic.json ``origin.local`` false; set by
+# app/runs.py from app/home_turn.py ``external``, absent for every other turn): {"home": the home, "dir": the topic's outputs
+# directory, made}. Claude Code leaves the home's own instruction files out (backends/claude/argv.py ``md_excludes``), Codex
+# reads no project docs (backends/codex/appserver.py server_flags), Antigravity starts in ``dir`` where it can
+# (core/home.py ``external_start``, ``HarnessCapabilities.external_cwd``).
+EXTERNAL = "external"
 
 
 def backend_capabilities(backend, ctx):

@@ -48,7 +48,7 @@ Covey 里每个概念只有一个中文名和一个英文名。界面、提示�
 | 主人在设置卡「记忆」上标的、范围放不下时也一直带上的那一条 | 常驻 | pinned（`principles.json` 的 `pinned`） | — | 只有主人立的原则能标，每组最多 8 条。 |
 | 一轮结束后 Bridge 自己读主人的话记下长期要求、按需查放不下的那一组做法 | 记忆自己长 | memory learning（开关 `COVEY_MEMORY_LEARN`） | — | 界面上只说“记下了”“整理记忆”“查记忆”。 |
 | 每天按规则把专项里办完的、说别的专项的、很久没用的资料和决定收进历史记录（规矩一条不收） | 整理记忆 | memory tidy（`app/memory_tidy.py`） | — | 只收起不删除，晚间汇总上能撤销。 |
-| 话题一律从这里启动的那个目录：部署的 `--workdir` | 主目录 | home（`core/home.py`） | — | 开发中（全量改造）。取代“选工作区”：话题不再开工前选目录，用到哪个仓库由 Covey 记下。`--workdir` 参数名不变。 |
+| 话题一律从这里启动的那个目录：部署的 `--workdir` | 主目录 | home（`core/home.py`） | — | 开发中（全量改造）。取代“选工作区”：话题不再开工前选目录，用到哪个仓库由 Covey 记下。`--workdir` 参数名不变。管家或负责人开话题时标了 `local: false` 的外部话题（只解读外部资料、写报告）也从这里启动，但规则里不给仓库地图和主目录的说明文件，各 Harness 也不加载它们（[管家 · 外部话题](butler.md#外部话题)）。 |
 | 这个部署在哪些 git 仓库里干活：名字、路径、用途、状态、写入方式 | 仓库地图 | repo map（`core/repomap.py`，`<状态目录>/repos.json`） | — | 开发中。Harness 读渲染出来的 `repos.md`；命令 `covey repo`。 |
 | 一个话题实际读过或改过的仓库，改的那个带本话题的 worktree | 用到的仓库 | topic repos（`core/topic_repos.py`，`topic.json` 的 `repos`） | — | 开发中。改动对比、提交核对、同仓库并行提醒都按它逐个做。 |
 | 一个话题的输出、日志、临时文件放的目录，由 Covey 按模板设好 | 话题产物目录 | topic run dir（`home.json` 的 `runs_template`） | — | 开发中。 |

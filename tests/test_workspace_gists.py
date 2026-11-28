@@ -81,7 +81,7 @@ class WorkspaceGistsTests(unittest.TestCase):
     def declared(self, topic, repos, *, home=True, project=None):
         """Rewrite ``topic``'s topic.json (its jobs stay) as one that started in the home with ``repos`` (names to paths)."""
         data = {**read_object(topic_file(self.state, topic)), "home_start": home,
-                "repos": [{"name": name, "path": path, "mode": "read"} for name, path in repos]}
+                "repos": [{"name": name, "path": path, "mode": "read", "source": "declared"} for name, path in repos]}
         if project:
             data["project"] = {"id": project, "role": "thread"}
         write_json(topic_file(self.state, topic), data)
@@ -102,6 +102,21 @@ class WorkspaceGistsTests(unittest.TestCase):
         self.assertIn("同一个仓库的事", block)
         self.assertNotIn("别的仓库的事", block)
         self.assertNotIn("同工作区但没声明仓库", block)
+
+    def test_a_repository_only_read_counts_on_neither_side(self):
+        """T923 §7: the same scope as the repository block (core/topic_repos.py works_with): a topic whose steps only read a
+        repository is not one of its topics, nor does this topic read by one it only read."""
+        used = self.state / "used"
+        (used / ".git").mkdir(parents=True)
+        self.topic("a" * 16, 1, "只看过一眼")
+        write_json(topic_file(self.state, "a" * 16), {**read_object(topic_file(self.state, "a" * 16)), "home_start": True,
+                                                     "repos": [{"name": "used", "path": str(used), "mode": "read"}]})
+        self.topic(HERE, 7, "这个话题自己")
+        self.declared(HERE, [("used", str(used))])
+        self.assertEqual(self.block(), "")
+        write_json(topic_file(self.state, HERE), {**read_object(topic_file(self.state, HERE)),
+                                                 "repos": [{"name": "used", "path": str(used), "mode": "read", "source": "touched"}]})
+        self.assertEqual(self.block(), "")
 
     def test_a_home_topic_without_repositories_carries_nothing(self):
         self.topic("a" * 16, 1, "同一个工作区的事")

@@ -189,6 +189,55 @@ def run_dir_for(config: HomeConfig, home, *, number, topic_id, title="", started
                   slug=slug(title), topic8=str(topic_id or "")[:8], run=run)
 
 
+def task_roots(config: HomeConfig, home) -> tuple[str, ...]:
+    """The roots of the home's run and session directories (``runs_template``, ``sessions_template`` up to their first
+    variable after ``{home}``; a seed home's ``<home>/tasks/runs`` and ``<home>/tasks/sessions``): a git repository under
+    one is a draft or a fixture of a topic's, never one the repo map takes in (core/topic_repos.py ``skip_roots``). A root
+    that is not below the home (a template that puts runs straight in it) is left out."""
+    base = os.path.normpath(str(home))
+    found = []
+    for template in (config.runs_template, config.sessions_template):
+        rendered = render(template, home=base)
+        head = rendered[:rendered.index("{")] if "{" in rendered else rendered
+        root = os.path.normpath(head if head.endswith("/") else os.path.dirname(head))
+        if root.startswith(base + os.sep) and root not in found:
+            found.append(root)
+    return tuple(found)
+
+
+def in_work_tree(directory) -> bool:
+    """Whether ``directory`` is in a git work tree (``git rev-parse --is-inside-work-tree``); when git cannot be run, whether
+    it or a directory above it holds ``.git``."""
+    import subprocess
+
+    try:
+        done = subprocess.run(["git", "-C", str(directory), "rev-parse", "--is-inside-work-tree"], capture_output=True,
+                              text=True, timeout=10, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        here = Path(directory)
+        return any((folder / ".git").exists() for folder in (here, *here.parents))
+    return done.returncode == 0 and done.stdout.strip() == "true"
+
+
+def external_start(found) -> str:
+    """Where the process of a Harness with no setting that keeps the home's instruction files out (Antigravity,
+    ``HarnessCapabilities.external_cwd``) starts for a topic that keeps off this machine's files: ``found`` is the turn's
+    ``options[EXTERNAL]`` (core/harness.py), and the answer its outputs directory when the home is in no git work tree;
+    '' when it starts in its workdir as before (no such topic, no directory, or a home in a work tree, where it reads the
+    instruction files up to the repository's top from wherever it starts: tests/test_matrix.py GAPS)."""
+    if not isinstance(found, dict) or not found.get("dir") or not found.get("home"):
+        return ""
+    return "" if in_work_tree(found["home"]) else str(found["dir"])
+
+
+def external_cwd(ctx) -> str:
+    """Where the process of a Harness that declares ``external_cwd`` starts for ``ctx``'s turn: ``external_start`` of its
+    ``options[EXTERNAL]``, else its workdir."""
+    from covey.core.harness import EXTERNAL
+
+    return external_start(ctx.options.get(EXTERNAL)) or str(ctx.workdir)
+
+
 def cache_env(run_dir) -> dict:
     """The cache variables (``CACHE_VARS``) under ``run_dir``'s tmp/ and cache/, once both are made and writable;
     {} when they are not (never quietly /tmp: the caller says so)."""

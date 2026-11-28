@@ -122,6 +122,21 @@ class HomeTest(Sandbox):
         self.assertEqual(cache["TMPDIR"], str(self.root / "run" / "tmp"))
         self.assertTrue((self.root / "run" / "cache").is_dir())
 
+    def test_the_run_and_session_roots_come_from_the_templates_and_never_are_the_home(self):
+        """T923 §7: a repository under the home's runs or sessions root is a topic's draft or fixture (core/topic_repos.py
+        skip_roots): a seed home's ``tasks/runs`` and ``tasks/sessions``, a taken-over one's by its home.json; a template
+        that puts runs in the home itself gives no root."""
+        self.assertEqual(home.task_roots(home.HomeConfig(), self.home),
+                         (str(self.home / "tasks" / "runs"), str(self.home / "tasks" / "sessions")))
+        mine = home.HomeConfig(runs_template="{home}/misc-tasks/runs/{date}-{slug}-{topic8}/{run}",
+                               sessions_template="{home}/misc-tasks/sessions/{date}-{slug}-{topic8}")
+        self.assertEqual(home.task_roots(mine, self.home),
+                         (str(self.home / "misc-tasks" / "runs"), str(self.home / "misc-tasks" / "sessions")))
+        flat = home.HomeConfig(runs_template="{home}/{date}-T{no}/{run}", sessions_template="{home}/s/T{no}")
+        self.assertEqual(home.task_roots(flat, self.home), (str(self.home / "s"),))
+        self.assertEqual(topic_repos.skip_roots(self.state, self.home),
+                         (str(self.data), str(self.home / "tasks" / "runs"), str(self.home / "tasks" / "sessions")))
+
     def test_the_shim_is_written_and_written_again_when_its_release_is_gone(self):
         old, new = self.root / "rel1" / "bin", self.root / "rel2" / "bin"
         for folder in (old, new):
@@ -183,8 +198,12 @@ class RepoMapTest(Sandbox):
         self.assertEqual(repomap.rules_head(self.root / "none"), ("", "", False))
 
     def test_a_used_repository_is_taken_in_and_its_last_use_kept(self):
+        """A listed one read or written gets its last use; one the map does not list is taken in once it was written, never
+        when it was only read (T923 §7: a topic's draft or fixture, something looked at)."""
         repomap.write(self.state, [repomap.Repo(name="a", path="/absolute/a")])
-        used = [topic_repos.TopicRepo(name="a", path="/absolute/a"), topic_repos.TopicRepo(name="a", path="/absolute/other/a")]
+        used = [topic_repos.TopicRepo(name="a", path="/absolute/a"),
+                topic_repos.TopicRepo(name="a", path="/absolute/other/a", mode="write"),
+                topic_repos.TopicRepo(name="seen", path="/absolute/seen")]
         repomap.note_used(self.state, used, now=100.0)
         repos = repomap.read(self.state)
         self.assertEqual([(r.name, r.path, r.added_by, r.last_used) for r in repos],
@@ -424,6 +443,19 @@ class TouchedTest(Sandbox):
         self.assertEqual(found[("lib", "")].mode, "write")
         self.assertEqual((found[("other", "")].path, found[("other", "")].source), (str(other), "touched"))
 
+    def test_a_repository_under_the_homes_runs_or_sessions_root_is_never_taken_in(self):
+        """T923 §7: the map took in a topic's fixtures and drafts (``repo``, ``work``, ``demo`` under misc-tasks/runs). One
+        under the runs or sessions root is neither read nor written into the map; a listed one there still counts."""
+        draft = make_repo(self.home / "tasks" / "runs" / "20261128-T7-x" / "repo")
+        fixture = make_repo(self.home / "tasks" / "sessions" / "20261128-T7-x" / "demo")
+        listed = make_repo(self.home / "tasks" / "runs" / "kept")
+        repos = [repomap.Repo(name="kept", path=str(listed))]
+        trace = trace_of(("修改文件", str(draft / "app.py")), ("读取文件", str(fixture / "AGENTS.md")),
+                         ("读取文件", str(listed / "app.py")))
+        found = topic_repos.touched(trace, repos, workdir=self.home, home=self.home,
+                                    skip=topic_repos.skip_roots(self.state, self.home), now=5.0)
+        self.assertEqual([(r.name, r.mode) for r in found], [("kept", "read")])
+
     def test_a_quoted_comparison_is_no_write_and_a_linked_repository_is_found_by_its_real_path(self):
         core = make_repo(self.home / "core")
         (self.root / "link").symlink_to(core)
@@ -515,6 +547,42 @@ class ReposTurnTest(Sandbox):
             self.assertLess(time.monotonic() - started, 1.0)
         finally:
             done.set()
+
+    def test_a_repository_its_steps_only_read_is_kept_but_never_shown(self):
+        """T923 §7 (T922, T923 had a data repository listed as read for a file they looked at): a listed repository a turn's steps only
+        read stays in topic.json, but the repository block does not list it; once written, it does. An unlisted one only
+        read is not taken into the map."""
+        other = make_repo(self.home / "other")
+        self.topic(home_start=True)
+        self.job.tool_trace = trace_of(("读取文件", str(self.repo / "app.py")), ("读取文件", str(other / "app.py")))
+        repos_turn.settle(self.ctx(), self.job, None)
+        self.assertEqual([(e["name"], e["mode"], e["source"]) for e in self.topic_data()["repos"]],
+                         [("core", "read", "touched"), ("other", "read", "touched")])
+        self.assertEqual(repos_turn.tail(self.ctx(), self.job), "")
+        self.assertEqual([repo.name for repo in repomap.read(self.state)], ["core"])
+        self.job.tool_trace = trace_of(("修改文件", str(other / "app.py")))
+        repos_turn.settle(self.ctx(), self.job, None)
+        block = repos_turn.tail(self.ctx(), self.job)
+        self.assertIn("- other（写", block)
+        self.assertNotIn("- core", block)
+        self.assertEqual([repo.name for repo in repomap.read(self.state)], ["core", "other"])
+
+    def test_an_external_topics_relative_paths_are_where_its_harness_started(self):
+        """VERIFY-P1 第 5 节 3: Antigravity starts a topic that keeps off this machine's files in its outputs directory
+        (``external_cwd``), so a relative path of its steps is that directory's, not the home's."""
+        self.topic(home_start=True, origin={"local": False}, started_at=time.mktime((2026, 11, 28, 3, 0, 0, 0, 0, -1)),
+                   slug="paper")
+        home.write(self.state, home.HomeConfig())
+        self.job.tool_trace = trace_of(("执行命令", "cat core/app.py"))
+        self.job.harness_capabilities = SimpleNamespace(external_cwd=True)
+        self.assertTrue(repos_turn.start_of(self.ctx(), self.job, self.topic_data()).startswith(
+            str(self.home / "tasks" / "runs") + os.sep))
+        repos_turn.settle(self.ctx(), self.job, None)
+        self.assertNotIn("repos", self.topic_data())
+        self.job.harness_capabilities = SimpleNamespace(external_cwd=False)  # Claude Code, Codex: the workdir, as before.
+        self.assertEqual(repos_turn.start_of(self.ctx(), self.job, self.topic_data()), str(self.home))
+        repos_turn.settle(self.ctx(), self.job, None)
+        self.assertEqual([e["name"] for e in self.topic_data()["repos"]], ["core"])
 
     def test_an_old_topics_repository_written_without_its_rules_is_counted_once(self):
         """T870 Wave 3.5 review: update_repos may call ``change`` twice (read without LOCK, then under it); the old topic's
@@ -823,6 +891,28 @@ class HomeBlockTest(Sandbox):
         self.assertEqual(home_turn.static_block(self.ctx(device="gpu1")), "")
         environment = home_turn.env(self.ctx())
         self.assertTrue(environment["TMPDIR"].startswith(f"{self.home}/tasks/runs/20261127-T7-fix-diff/"))
+
+    def test_an_external_topics_block_has_its_outputs_and_none_of_the_homes_repositories(self):
+        """T923 §5: ``local`` false (origin.local): the outputs directory, the boundary line and ``covey repo use`` for when
+        the owner names local code; never the home's AGENTS.md, the repo map or the write command. The same every turn."""
+        self.topic(home_start=True, origin={"local": False}, started_at=time.mktime((2026, 11, 28, 3, 0, 0, 0, 0, -1)),
+                   slug="paper")
+        block = home_turn.static_block(self.ctx())
+        self.assertEqual(block, home_turn.OUTPUTS_LINE.format(self.state / "topics" / TOPIC / "outputs") + "\n"
+                         + home_turn.EXTERNAL)  # No home.json: the state's outputs directory, as a read-only turn's.
+        home.write(self.state, home.HomeConfig())
+        block = home_turn.static_block(self.ctx())
+        self.assertIn(f"本话题产物目录：{self.home}/tasks/runs/20261128-T7-paper", block)
+        for words in ("主目录：", "仓库地图", "AGENTS.md", "--write", "repos.md"):
+            self.assertNotIn(words, block)
+        self.assertEqual(block, home_turn.static_block(self.ctx()))
+        found = home_turn.external(self.ctx())
+        self.assertEqual(found, {"home": str(self.home), "dir": f"{self.home}/tasks/runs/20261128-T7-paper"})
+        self.assertTrue(Path(found["dir"]).is_dir())
+        self.assertEqual((home_turn.static_block(self.ctx(device="gpu1")), home_turn.external(self.ctx(device="gpu1"))), ("", {}))
+        self.topic(home_start=True, origin={"local": True})
+        self.assertEqual(home_turn.external(self.ctx()), {})
+        self.assertIn("先遵守这里的 AGENTS.md", home_turn.static_block(self.ctx()))
 
     def test_the_task_runner_puts_the_home_in_its_environment(self):
         runner.export_home(self.ctx())

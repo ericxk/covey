@@ -365,6 +365,9 @@ class Runs:
         # What the turn may do (app/tool_limits.py), in its context before anything of it runs.
         live.ctx = tool_limits.limited(self.runtime.access, live.ctx, job, self.runtime.log,
                                        held=backend_capabilities(self.harness.backend, live.ctx).look_gate)
+        # A topic that keeps off this machine's files (app/home_turn.py external): each Harness leaves the home's own
+        # instruction files out.
+        live.ctx = home_turn.isolated(live.ctx)
         # A fork replaces ctx; the callbacks read it when they are called.
         live.ctx, prompt = self._turn_message(live.ctx, job, session_id)
         caps = backend_capabilities(self.harness.backend, live.ctx)

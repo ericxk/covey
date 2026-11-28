@@ -16,6 +16,11 @@ butler started without the owner's click writes only its checkpoint and the topi
 ``.git`` refusal, its shell) and whether the topic's next turn is free again; what the gate leaves to the words is in
 ``BOUNDS``, and an extension's Harness, outside the roster, in ``EXTENSION_CELLS``.
 
+话题 · 外部话题 (T923 §5, ``ExternalRowTest``): a topic opened with ``local`` false, which keeps off this machine's
+repositories and files: on each Harness, whether its turn leaves the home's own instruction files out (Claude Code's
+claudeMdExcludes, Codex's project_doc_max_bytes=0, Antigravity started in the topic's outputs directory), in a seed home and
+a taken-over one, whether its rules carry nothing of the home's repositories, and whether an ordinary topic is as before.
+
 A cell left out is what the owner kept finding by hand: the butler only on Claude Code (T614), a lead that could not choose
 its Harness (T664), the butler on Antigravity without topic_start (T750, T754), a topic opened on the web page whose outcome
 never came back to the private chat (T762). A Harness added to the roster fails ``test_every_core_harness_says_how_its_cells_are_seen`` until ``SEEN`` says how its backend takes the Bridge's
@@ -37,11 +42,12 @@ from unittest import mock
 
 from support import UNSET_OFF
 from support import make_context
+from support.git import init_git_repo
 from support.records import write_job, write_topic
 from support.world import UnifiedCase
 from test_web_sync import T0, WebCase
 
-from covey.app import butler_harness, lead_harness, prompts, relay_targets, tool_limits, web_launch
+from covey.app import butler_harness, home_turn, lead_harness, prompts, relay_targets, repos_turn, rules_sent, tool_limits, web_launch
 from covey.app.butler_model_choice import resolve
 from covey.app.launch_models import available_models
 from covey.backends.agy import home as agy_home
@@ -56,10 +62,10 @@ from covey.backends.codex import appserver
 from covey.backends.codex.turn import context_of as codex_context_of
 from covey.backends.codex.workspace_reader import WorkspaceReader
 from covey.backends.dsh import bridge as dsh_bridge
-from covey.core import butler, butler_mcp, butler_settings, home as covey_home, look_write, placement, projects
+from covey.core import butler, butler_mcp, butler_settings, home as covey_home, look_write, placement, projects, repomap, topic_repos
 from covey.core.butler import butler_topic_id
 from covey.core.butler_tool_specs import HANDING
-from covey.core.harness import LEAD, LOOK, LOOK_ROOTS, READ, TOOL_LIMIT, backend_capabilities
+from covey.core.harness import EXTERNAL, LEAD, LOOK, LOOK_ROOTS, READ, TOOL_LIMIT, backend_capabilities
 from covey.core.history_storage import append_history
 from covey.core.menu_choice import butler_harnesses, harness_of
 from covey.core.redaction import TOPIC_KEY as REDACTION_KEY
@@ -207,6 +213,63 @@ def dsh_free(ctx) -> bool:
     return not dsh_bridge.lead_turn(ctx)
 
 
+# 话题 · 外部话题 (T923 §5, VERIFY-P1 第 5 节): whether a turn whose options carry EXTERNAL leaves ``home``'s own instruction
+# files out on each backend, as the backend wires it.
+ABOVE = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md")
+
+
+def claude_external(ctx, home) -> bool:
+    """Claude Code: the turn's --settings claudeMdExcludes has the home's five and the top-level three of the directory above
+    it, and no .claude/ outside the home (under HOME that is the user's own CLAUDE.md, V2)."""
+    argv = claude_argv.stream_argv(ClaudeBackend(), ctx)
+    excluded = json.loads(_value(argv, "--settings") or "{}").get("claudeMdExcludes") or []
+    want = {str(home / name) for name in (*ABOVE, ".claude/CLAUDE.md", ".claude/rules/**")}
+    want |= {str(home.parent / name) for name in ABOVE}
+    return want <= set(excluded) and not any("/.claude/" in path and not path.startswith(str(home) + os.sep)
+                                             for path in excluded)
+
+
+def codex_external(ctx, home) -> bool:
+    """Codex: its app server reads no project doc (-c project_doc_max_bytes=0, V3)."""
+    flags = appserver.server_flags(ctx)
+    return appserver.NO_PROJECT_DOC in flags and flags[flags.index(appserver.NO_PROJECT_DOC) - 1] == "-c"
+
+
+def agy_external(ctx, home) -> bool:
+    """Antigravity: no setting turns its directory rules off (V1), so its process starts in the topic's outputs directory
+    (tests/test_agy.py: the process's own cwd), its file tools let out of that workspace."""
+    settings = json.loads(_value(AntigravityBackend().argv(ctx, None), "--settings") or "{}")
+    return (covey_home.external_cwd(ctx) == (ctx.options.get(EXTERNAL) or {}).get("dir") != str(ctx.workdir)
+            and settings.get("allowNonWorkspaceAccess") is True and AntigravityBackend().capabilities(ctx).external_cwd)
+
+
+def dsh_external(ctx, home) -> bool:
+    """DeepSeek Harness: nothing of its own (GAPS)."""
+    return False
+
+
+def claude_external_free(ctx) -> bool:
+    argv = claude_argv.stream_argv(ClaudeBackend(), ctx)
+    return "claudeMdExcludes" not in json.loads(_value(argv, "--settings") or "{}")
+
+
+def codex_external_free(ctx) -> bool:
+    return appserver.NO_PROJECT_DOC not in appserver.server_flags(ctx)
+
+
+def agy_external_free(ctx) -> bool:
+    settings = _value(AntigravityBackend().argv(ctx, None), "--settings")
+    return covey_home.external_cwd(ctx) == str(ctx.workdir) and "allowNonWorkspaceAccess" not in settings
+
+
+EXTERNAL_SEEN = {
+    "claude": (claude_external, claude_external_free),
+    "codex": (codex_external, codex_external_free),
+    "dsh": (dsh_external, lambda ctx: True),
+    "agy": (agy_external, agy_external_free),
+}
+
+
 # 规则 (G8, W2-A): the native question tool each backend wires for an ordinary turn ('' none), and the token_usage it
 # reports for a turn whose last request read a large context (the window too, when the backend knows it).
 def claude_asks(ctx) -> str:
@@ -291,9 +354,17 @@ RULE_ASK, RULE_LOOK, RULE_ANCHOR, RULE_CONTEXT, RULE_NUDGE, RULE_SEARCH, RULE_WA
     "规则 · 主目录搜索 · 命令行", "规则 · 主目录搜索 · 程序内递归")
 LOOK_GATE, LOOK_GIT, LOOK_SHELL, LOOK_NEXT = ("话题 · 只读首轮 · 路径闸", "话题 · 只读首轮 · .git 拒写", "话题 · 只读首轮 · 命令行写",
                                               "话题 · 只读首轮 · 第二轮解限")
+EXT_FILES, EXT_GIT, EXT_FREE = ("话题 · 外部话题 · 不读主目录说明文件", "话题 · 外部话题 · 主目录在 git 工作树里",
+                                 "话题 · 外部话题 · 普通话题照旧")
 # Cells that do not hold on a Harness, on purpose or not yet, with why. A cell here that starts to hold fails
 # test_the_known_gaps_are_still_gaps: take it off.
 GAPS = {
+    (EXT_FILES, "dsh"): "dsh 会不会读工作目录的 AGENTS.md、有没有关掉的设置都没实测过（T923 VERIFY-P1 只测了 Claude Code、Codex、"
+                        "agy）：外部话题只靠外部版主目录段和边界句",
+    (EXT_GIT, "dsh"): "同上：没有实测过的隔离办法",
+    (EXT_GIT, "agy"): "agy 1.5.19 没有关闭目录规则的设置（--settings 拒收 memoryRulesDisabled、rulesDiscoveryConfig，文档无此类键），"
+                      "外部话题靠把 cwd 设成产物目录来隔离；主目录在 git 工作树里时 agy 会读到仓库根的 AGENTS.md，隔离不成立"
+                      "（这时 cwd 不改，core/home.py external_start）",
     ("话题 · 群成员只读", "agy"): "agy 没声明 read_only：群成员只读的群里这一轮不启动（app/tool_limits.py refusal）。"
                                   "它给负责人用的 deny 规则（READ_ONLY_SETTINGS）也能守住只读，待接上",
     ("话题 · 群成员只读", "dsh"): "dsh 没声明 read_only：同上；它给负责人用的 --permission-mode read-only 待接上",
@@ -852,6 +923,168 @@ class LookRowTest(HarnessCellsCase):
         self.assertTrue(all(why.strip() for why in (*BOUNDS.values(), *EXTENSION_CELLS.values())))
 
 
+EXTERNAL_GOLDEN = Path(__file__).resolve().parent / "golden" / "external_topic_prompt.txt"
+FORMS = ("seed", "接管")  # A home Covey made (core/home.py seed_home) and a taken-over one with its own AGENTS.md.
+
+
+class ExternalRowTest(HarnessCellsCase):
+    """话题 · 外部话题 × Harness (T923 §5 and §10, VERIFY-P1 第 5 节): a topic the butler or a lead opened with ``local`` false
+    (T922: reading a paper) in a seed home and a taken-over one. Its first turn's whole prompt (the rules, the message, the
+    tail, the read-only note) has its outputs directory and the boundary line and nothing of the home's repositories; each
+    Harness leaves the home's instruction files out its own way (``EXTERNAL_SEEN``), Antigravity only outside a git work
+    tree; a topic without the field (T877: reading training code) is as before, and ``covey repo use`` still works in an
+    external one."""
+
+    TOPIC = "e" * 32
+    NOT_SAID = ("仓库地图", "repos.md", "covey repo use <仓库> --write", "先遵守这里的 AGENTS.md", "alpha", "回一句就行", "按 X 做了")
+
+    def setUp(self):
+        super().setUp()
+        self.user = self.root / "user"  # The user's HOME: the home is under it, its ~/.claude/CLAUDE.md the user's own.
+        (self.user / ".claude").mkdir(parents=True)
+        (self.user / ".claude" / "CLAUDE.md").write_text("USER_OWN\n")
+        patch = mock.patch.dict(os.environ, {"HOME": str(self.user)})
+        patch.start()
+        self.addCleanup(patch.stop)
+        topic_repos.cache.clear()
+
+    def make_home(self, form) -> Path:
+        """A home of ``form`` under the user's HOME, its home.json and repo map (``alpha``, a repository in it) written."""
+        home = self.user / f"work-{form}"
+        home.mkdir()
+        if form == "seed":
+            covey_home.seed_home(home)
+            covey_home.write(self.state, covey_home.HomeConfig())
+        else:
+            (home / "AGENTS.md").write_text("先遵守这里的规矩：主人的工作区。\n")
+            covey_home.write(self.state, covey_home.HomeConfig(
+                runs_template="{home}/misc-tasks/runs/{date}-{slug}-{topic8}/{run}",
+                sessions_template="{home}/misc-tasks/sessions/{date}-{slug}-{topic8}"))
+        alpha = home / "alpha"
+        (alpha / ".git").mkdir(parents=True)
+        (alpha / "AGENTS.md").write_text("ALPHA_RULES\n")
+        repomap.write(self.state, [repomap.Repo(name="alpha", path=str(alpha), write_mode="inplace")])
+        repomap.render(self.state, home)
+        return home
+
+    def topic_ctx(self, home, name, *, local=False, readonly=True):
+        origin = {"kind": "main", "request": "r1", "job_key": "main-job", "why": "解读论文", "readonly": readonly,
+                  "user_requested": True, "title": "解读论文", "at": T0}
+        if local is not None:
+            origin["local"] = local
+        history = self.state / "topics" / self.TOPIC / "history.jsonl"
+        write_topic(make_context(self.root, history_path=history), {
+            "harness_id": name, "binding_revision": 1, "origin": origin, "home_start": True, "started_at": T0,
+            "slug": "paper", "topic_number": 922, "workspace_name": "home", "workdir": str(home), "workspace_locked": True})
+        return make_context(self.root, workdir=home, default_workdir=home, state_dir=self.state, history_path=history,
+                            topic_id=self.TOPIC, workspace_name="home")
+
+    def turn(self, name, ctx, number=1, session=None, *, read_only=True):
+        """(the prompt and rules of a turn, its context after app/runs.py set it up, its job) on ``name``: the topic's first
+        turn read-only (LOOK) unless ``read_only`` is false."""
+        from support import make_job
+
+        job = make_job(job_id=number, message_id=f"om_ext-{number}", topic_id=self.TOPIC, chat_id=self.chat,
+                       user_text="解读论文 2611.02440", read_only=read_only and number == 1, result_backend=name,
+                       checkpoint_path=str(self.state / "checkpoints" / f"om_ext-{number}.json"))
+        live = SimpleNamespace(ctx=ctx, rules_session=False)
+        prompt, rules, _system, _ = self.apps[name].runs._prompt(live, job, session)
+        return prompt, rules, live.ctx, job
+
+    def test_an_external_topic_is_told_nothing_of_the_homes_repositories_and_each_harness_leaves_its_files_out(self):
+        for form in FORMS:
+            home = self.make_home(form)
+            for name in CORE_HARNESSES:
+                with self.subTest(form=form, harness=name):
+                    prompt, rules, ctx, _ = self.turn(name, self.topic_ctx(home, name))
+                    whole = rules + "\n" + prompt
+                    found = ctx.options.get(EXTERNAL) or {}
+                    self.assertEqual(found.get("home"), str(home))
+                    self.assertTrue(Path(found.get("dir", "")).is_dir())
+                    self.assertIn(home_turn.static_block(ctx), rules)
+                    self.assertIn(home_turn.EXTERNAL, whole)
+                    self.assertIn("本话题产物目录：" + found["dir"], whole)
+                    for words in self.NOT_SAID:
+                        self.assertNotIn(words, whole, words)
+                    self.assertNotIn(str(repomap.rendered_path(self.state, home)), whole)
+                    isolated, _ = EXTERNAL_SEEN[name]
+                    self.assertEqual(isolated(ctx, home), held(EXT_FILES, name), gap_words(EXT_FILES, name))
+            # Its outputs directory, made by the turn, under the home's runs root (never the home's root).
+            (runs, _sessions) = covey_home.task_roots(covey_home.read(self.state), home)
+            self.assertTrue(found["dir"].startswith(runs + os.sep), runs)
+
+    def test_the_external_part_of_the_prompt_is_the_golden_one(self):
+        """The home block of an external topic and the end of its read-only first turn, the paths put as placeholders: a
+        change of them shows here (tests/golden/external_topic_prompt.txt)."""
+        for form in FORMS:
+            home = self.make_home(form)
+            with self.subTest(form=form):
+                prompt, rules, ctx, job = self.turn("claude", self.topic_ctx(home, "claude"))
+                found = ctx.options[EXTERNAL]["dir"]
+                shown = (home_turn.static_block(ctx) + "\n\n" + tool_limits.note(ctx).strip() + "\n").replace(
+                    found, "<产物目录>").replace(job.checkpoint_path, "<检查点>")
+                self.assertIn(tool_limits.note(ctx).strip(), prompt)
+                self.assertEqual(shown, EXTERNAL_GOLDEN.read_text(encoding="utf-8"))
+
+    def test_a_home_in_a_git_work_tree_keeps_antigravity_where_it_was(self):
+        for form in FORMS:
+            home = self.make_home(form)
+            init_git_repo(home)
+            for name in CORE_HARNESSES:
+                with self.subTest(form=form, harness=name):
+                    _, _, ctx, _ = self.turn(name, self.topic_ctx(home, name))
+                    isolated, _ = EXTERNAL_SEEN[name]
+                    self.assertEqual(isolated(ctx, home), held(EXT_GIT, name), gap_words(EXT_GIT, name))
+                    if name == "agy":
+                        self.assertEqual(covey_home.external_cwd(ctx), str(home))
+
+    def test_a_topic_without_the_field_is_as_before(self):
+        """T877 (reading training code, ``local`` left out): the home block with the repo map and the write command, and
+        no Harness leaves anything out; ``local`` true is the same."""
+        for form in FORMS:
+            home = self.make_home(form)
+            for name in CORE_HARNESSES:
+                for local in (None, True):
+                    with self.subTest(form=form, harness=name, local=local):
+                        _, rules, ctx, _ = self.turn(name, self.topic_ctx(home, name, local=local))
+                        self.assertNotIn(EXTERNAL, ctx.options)
+                        self.assertIn(f"主目录：{home}（本话题从这里启动，先遵守这里的 AGENTS.md）", rules)
+                        self.assertIn("仓库地图：", rules)
+                        self.assertIn("covey repo use <仓库> --write", rules)
+                        self.assertNotIn(home_turn.EXTERNAL, rules)
+                        _, free = EXTERNAL_SEEN[name]
+                        self.assertTrue(free(ctx), gap_words(EXT_FREE, name))
+
+    def test_the_rules_stay_the_same_and_covey_repo_use_still_works(self):
+        """The system rules' version of an external topic is the same on its first turn and its second; after ``covey repo
+        use alpha`` (read) the second turn's repository block lists alpha, with no write command, and its rules are the same.
+        Neither turn read-only: a LOOK turn's runtime note is its own (Codex's sandbox, Antigravity's deny rules)."""
+        home = self.make_home("接管")
+        for name in ("claude", "codex", "agy"):
+            with self.subTest(harness=name):
+                ctx = self.topic_ctx(home, name, readonly=False)
+                _, rules, first, _ = self.turn(name, ctx, read_only=False)
+                task = self.state / "runs" / f"om_ext-{name}"
+                topic_repos.add_request(task, {"at": T0, "name": "alpha", "path": str(home / "alpha"), "mode": "read",
+                                               "rules_file": "AGENTS.md"})
+                job = SimpleNamespace(topic_id=self.TOPIC, job_id=1, message_id="om_ext-1", tool_trace=None)
+                repos_turn.settle(first, job, task)
+                tail = repos_turn.tail(ctx, job)
+                self.assertIn("- alpha（读，", tail)
+                self.assertNotIn("--write", tail)
+                _, again, second, _ = self.turn(name, ctx, number=2, read_only=False)
+                self.assertEqual(rules_sent.version(again), rules_sent.version(rules))
+                self.assertEqual(second.options.get(EXTERNAL), first.options.get(EXTERNAL))
+
+    def test_claude_code_keeps_the_users_own_files_when_the_home_is_home(self):
+        """A home that is the user's HOME itself: its .claude/ is the user's (CLAUDE.md, rules), never left out."""
+        ctx = make_context(self.root, workdir=self.user, default_workdir=self.user,
+                           options={EXTERNAL: {"home": str(self.user), "dir": str(self.root / "out")}})
+        excluded = claude_argv.md_excludes(ctx)
+        self.assertIn(str(self.user / "AGENTS.md"), excluded)
+        self.assertFalse([path for path in excluded if "/.claude/" in path])
+
+
 class RulesRowTest(HarnessCellsCase):
     """规则 × Harness (W2-A, gate G8): what each core Harness's turn is told and does, asked the same way of each. A cell
     that does not hold is in GAPS with why (and fails here once it holds); an extension's Harness is in EXTENSION_CELLS."""
@@ -995,7 +1228,7 @@ class KnownGapsTest(HarnessCellsCase):
         RulesRowTest): one that holds now fails there; this one keeps GAPS to cells those tests ask."""
         self.assertLessEqual({cell for cell, _ in GAPS}, {"话题 · 群成员只读", "话题 · 敏感词脱敏", LOOK_GATE, LOOK_GIT,
                                                           LOOK_SHELL, RULE_ASK, RULE_LOOK, RULE_ANCHOR, RULE_CONTEXT,
-                                                          RULE_NUDGE, RULE_SEARCH, RULE_WALK})
+                                                          RULE_NUDGE, RULE_SEARCH, RULE_WALK, EXT_FILES, EXT_GIT, EXT_FREE})
 
 
 # 重启后再点一次 (WAVE12 G4, T904): each module that writes a mid-state (tests/golden/midstates.json, which test_structure's

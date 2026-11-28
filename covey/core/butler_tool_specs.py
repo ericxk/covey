@@ -65,6 +65,10 @@ REPOS_ARG = {"type": "array", "maxItems": 10, "description": "可选，要用的
              "items": {"type": "object", "required": ["name", "mode"], "properties": {
                  "name": {"type": "string"}, "mode": {"type": "string", "enum": ["read", "write"]}}}}
 WORKSPACE_ARG = {"type": "string", "description": "旧参数，同 repos 里只读的一项"}
+# Whether a topic uses this machine's repositories and files (topic.json ``origin.local``, app/home_turn.py local): set when
+# it opens, never changed after; left out, true.
+# Short: agy's room (backends/agy/home.py EAGER_BYTES).
+LOCAL_ARG = {"type": "boolean", "description": "只解读、调研论文、网页、飞书文档或写报告，用不上本机仓库和文件时填 false"}
 WHY_ARG = {"type": "string", "description": "一行中文：为什么这样配置"}
 
 # 记忆 (docs/butler.md 记忆): one set of tools for the owner's 规矩 and 资料 (app/butler_knowledge.py memory_save,
@@ -145,11 +149,10 @@ TOOLS = (
     {"name": "topic_start",
      "description": "为一件新的事开一个话题去做" + START_OWN +
                     "话题挂在主人这条提问下面；和已有话题是同一件事时不要新开，用 topic_send。"
-                    "一件独立的事一个话题；"
                     "prompt 是交给话题的任务说明：用主人的说法写清楚要做什么、范围和主人提的约束（路径、别做什么、怎么交付），"
-                    "可以补指代的是哪个话题、之前定过什么（最多 200 字，只写对话里的事实）。不要写“开个话题”“单开一个”"
-                    "“放到 T 号里”这类路由的话，不要写对你说的话，不要抄附件的本机路径；不加你自己的计划和验收标准。"
-                    "主人这条消息的原文和附件 Bridge 会自动附在后面。话题从主目录直接开工，马上返回，不要等它做完：进展会出现在之后消息的快照里。"
+                    "可以补指代的是哪个话题、之前定过什么（最多 200 字，只写对话里的事实）。不写路由的话、"
+                    "对你说的话和附件的本机路径，不加你自己的计划和验收标准；主人原话和附件 Bridge 会附上。"
+                    "话题从主目录直接开工，马上返回，不要等它做完：进展在之后消息的快照里。"
                     + DONE,
      "input_schema": {"type": "object", "required": ["title", "prompt", "readonly", "user_requested", "why"],
                       "properties": {
@@ -159,6 +162,7 @@ TOOLS = (
          "repos": REPOS_ARG,
          "workspace": WORKSPACE_ARG,
          "readonly": {"type": "boolean", "description": "只看只答时为 true：不改仓库和现网，可写检查点和产物目录"},
+         "local": LOCAL_ARG,
          "user_requested": {"type": "boolean", "description": "主人在最新这条消息里亲口要求做这件事（直接下令、“去做”“开个话题”）为 true；你自己推断的为 false"},
          "why": WHY_ARG,
          "criteria": CRITERIA,
@@ -302,6 +306,7 @@ PROJECT_TOOLS = (
          "repos": REPOS_ARG,
          "workspace": WORKSPACE_ARG,
          "readonly": {"type": "boolean", "description": "只看只答时为 true：不改仓库和现网，可写检查点和产物目录"},
+         "local": LOCAL_ARG,
          "attachments": LEAD_ATTACHMENTS,
          "user_requested": {"type": "boolean", "description": "主人在这个专项里亲口要求做这件事为 true；你自己推断的为 false"},
          "why": WHY_ARG,

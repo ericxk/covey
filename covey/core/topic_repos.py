@@ -108,6 +108,26 @@ def of_topic(data) -> list[TopicRepo]:
     return [repo for repo in map(from_dict, found if isinstance(found, list) else ()) if repo is not None]
 
 
+def works_with(repo: TopicRepo) -> bool:
+    """Whether a topic works with ``repo``: it was named for it (declared, ``covey repo use``, a checkpoint) or the topic
+    wrote it. One its steps only read (touched, read) stays in topic.json for the record but is shown nowhere: not in the
+    repository block (app/repos_turn.py tail), not in the workspace gists' scope (app/workspace_gists.py scope)."""
+    return repo.source != "touched" or repo.mode == "write"
+
+
+def skip_roots(state_dir, home) -> tuple[str, ...]:
+    """Where a git repository the map does not list is never taken in (``touched``'s ``skip``): the data root, and the
+    home's run and session roots (core/home.py task_roots, by ``home.json``'s templates; a seed home's ``tasks/runs`` and
+    ``tasks/sessions``), whose repositories are topics' drafts and fixtures."""
+    from covey.core import home as homes
+    from covey.core.paths import data_home
+
+    found = [str(data_home())]
+    if home:
+        found += homes.task_roots(homes.read(state_dir), home)
+    return tuple(dict.fromkeys(found))
+
+
 def where(repo: TopicRepo) -> str:
     """The directory a topic works in for ``repo``: its worktree, else the repository itself."""
     return repo.worktree or repo.path
@@ -385,8 +405,9 @@ def touched(trace, repos, *, workdir=None, home=None, skip=(), now=None) -> list
     """The repositories a turn's tool calls (``trace``) touched, by the repo map ``repos`` (core/repomap.py ``Repo``s):
     one TopicRepo per repository and checkout (``worktree`` the linked worktree's top, '' for the repository's own
     checkout), ``mode`` write when a step changed a file there, ``rules_read_at`` ``now`` when a step read its rules.
-    A git repository the map does not list counts when it is under ``home`` and not under any of ``skip`` (the data
-    root): it comes back with its directory's name and ``source`` touched, for the map to take in."""
+    A git repository the map does not list counts when it is under ``home`` and not under any of ``skip`` (``skip_roots``:
+    the data root, the home's run and session roots): it comes back with its directory's name and ``source`` touched, for
+    the map to take in once it was written (core/repomap.py note_used)."""
     now = time.time() if now is None else now
     known = sorted({(form, repo.name): (form, repo) for repo in repos
                     for form in (os.path.normpath(repo.path), os.path.realpath(repo.path))}.values(),

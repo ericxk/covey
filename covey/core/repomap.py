@@ -310,8 +310,9 @@ def migrate_v1(state_dir, workdir) -> str:
 
 
 def note_used(state_dir, used, *, now=None) -> None:
-    """Take the repositories a turn used (TopicRepos) into the map: ``last_used`` of those listed, and the ones it
-    touched that the map does not list (``added_by`` touched). Nothing before the map is there."""
+    """Take the repositories a turn used (TopicRepos) into the map: ``last_used`` of those listed, and the ones it wrote
+    that the map does not list (``added_by`` touched); one it only read the map does not take in. Nothing before the map is
+    there."""
     now = time.time() if now is None else now
     used = list(used)
     if not used or not path(state_dir).exists():
@@ -325,6 +326,8 @@ def note_used(state_dir, used, *, now=None) -> None:
             if index is not None:
                 repos[index] = replace(repos[index], last_used=now)
                 continue
+            if item.mode != "write":
+                continue  # Only read (a draft, a fixture, something looked at): not the map's.
             name = item.name if item.name not in names else f"{item.name}-{len(repos)}"
             repos.append(Repo(name=name, path=item.path, added_by="touched", last_used=now))
             listed[os.path.normpath(item.path)] = len(repos) - 1

@@ -12,8 +12,9 @@ workspace within DAYS, newest first; each gist is cut to its essence and goal. N
 the turn.
 
 Whose topics (``scope``): a topic in a project reads the other topics of the same project (any workspace); a topic that
-started in the home (``home_start``) reads only those that used one of the repositories it declared (``repos``), none
-when it declared none, so the home's root never mixes topics together; any other topic reads its workspace's, as before.
+started in the home (``home_start``) reads only those that used one of the repositories it works with (``repos``: named
+for it or written, core/topic_repos.py works_with; one its steps only read counts on neither side), none when it has
+none, so the home's root never mixes topics together; any other topic reads its workspace's, as before.
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ from covey.core.redaction import topic_redaction
 from covey.core.state import epoch_seconds
 from covey.core import projects
 from covey.core.text import cut
-from covey.core.topic_repos import of_topic, repo_of
+from covey.core.topic_repos import of_topic, repo_of, works_with
 from covey.core.topics import home_start, label_title, load_topic, proxy_topic
 
 ENV = "COVEY_WORKSPACE_GISTS"
@@ -110,13 +111,15 @@ def scope(state_dir, topic_id, workspace):
         return workspace, same_project
     if not home_start(data):
         return workspace, None
-    mine = {repo_of(repo.path) for repo in of_topic(data)} - {""}
+    own = [repo for repo in of_topic(data) if works_with(repo)]  # Not one its steps only read.
+    mine = {repo_of(repo.path) for repo in own} - {""}
     if not mine:
         return "", False
-    name = "、".join(dict.fromkeys(repo.name for repo in of_topic(data)))
+    name = "、".join(dict.fromkeys(repo.name for repo in own))
 
     def used(other, record):
-        theirs = {repo_of(repo.path) for repo in of_topic(_data(state_dir, other))} | {repo_of(record.get("workdir"))}
+        theirs = ({repo_of(repo.path) for repo in of_topic(_data(state_dir, other)) if works_with(repo)}
+                  | {repo_of(record.get("workdir"))})
         return bool(mine & theirs)
     return name, used
 

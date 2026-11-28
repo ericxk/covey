@@ -4,11 +4,12 @@ session's subagent transcripts are (subagents_dir). Which models its subagents r
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from covey.backends.claude import redaction, subagents, tool_guard
 from covey.backends.claude.sessions import ClaudeSessionStore, claude_projects_root
-from covey.core.harness import CONSULT, LEAD, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
+from covey.core.harness import CONSULT, EXTERNAL, LEAD, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
 from covey.core.home import home_dir
 
 # No MCP server at all: the catalog's probe, and a turn held to READ, PROXY or CONSULT (none of the owner's MCP servers).
@@ -18,6 +19,12 @@ READ_TOOLS = ("Read", "Grep", "Glob")
 # What a LOOK turn goes without where its writes are not held (a device's: ``look_hooks``): Claude Code's tools that change files.
 FILE_TOOLS = ("Edit", "Write", "NotebookEdit")
 NO_AUTO_MEMORY = "CLAUDE_CODE_DISABLE_AUTO_MEMORY"  # Claude Code's auto memory off for the one process (turn_env).
+# The instruction files of a topic that keeps off this machine's files (``options[EXTERNAL]``) that its turn's
+# ``claudeMdExcludes`` leaves out (``md_excludes``): these in the home, the top-level ones in each directory above it. Never a
+# ``.claude/`` above the home: under the user's HOME that is ~/.claude/CLAUDE.md, the user's own (its
+# CLAUDE_CODE_DISABLE_CLAUDE_MDS would drop that too: T923 VERIFY-P1 V2).
+HOME_MDS = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", ".claude/rules/**")
+ABOVE_MDS = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md")
 # Claude Code hooks an extension's ``claude_turn`` (core/extensions.py) gives the turn: event name -> matcher groups, as
 # Claude Code's settings write them. Each package puts its own here; backends/claude/bridge.py merges every package's by
 # event (merge_hooks) and they go into the turn's one --settings, never on a 代答 turn (its hooks are its tool guard's alone)
@@ -64,6 +71,32 @@ def look_hooks(ctx) -> dict:
     if ctx.options.get(TOOL_LIMIT) != LOOK or getattr(ctx, "device", "") or not roots.get("held"):
         return {}
     return tool_guard.look_settings(roots.get("file", ""), roots.get("dir", ""))
+
+
+def md_excludes(ctx) -> list:
+    """The ``claudeMdExcludes`` of a turn of a topic that keeps off this machine's files (``options[EXTERNAL]``): the home's
+    own instruction files (``HOME_MDS``) and the top-level ones of every directory above it (``ABOVE_MDS``), by its path as
+    given and its real path; [] for any other turn. A home that is the user's own HOME keeps its ``.claude/`` (the user's
+    CLAUDE.md, ``user_claude``). A repository's own files are elsewhere and load as before."""
+    found = ctx.options.get(EXTERNAL) or {}
+    if not isinstance(found, dict) or not found.get("home"):
+        return []
+    users = user_claude()
+    out = []
+    for form in dict.fromkeys((os.path.normpath(str(found["home"])), os.path.realpath(str(found["home"])))):
+        home = Path(form)
+        out += [str(home / name) for name in HOME_MDS
+                if not (name.startswith(".claude/") and os.path.realpath(home / ".claude") in users)]
+        out += [str(folder / name) for folder in home.parents for name in ABOVE_MDS]
+    return list(dict.fromkeys(out))
+
+
+def user_claude() -> set:
+    """The real paths of the user's own Claude Code directory (``CLAUDE_CONFIG_DIR``, ``~/.claude``)."""
+    found = {os.path.realpath(os.path.join(os.path.expanduser("~"), ".claude"))}
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        found.add(os.path.realpath(os.environ["CLAUDE_CONFIG_DIR"]))
+    return found
 
 
 def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""):
@@ -143,8 +176,12 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
         # One --settings: a redacted topic's turn, its compaction included, talks to the model through the term relay;
         # a 代答 turn's shell and edit tools go through its PreToolUse hook (backends/claude/tool_guard.py); a turn started
         # from the home has the home-search hook (home_hooks), a held LOOK turn the look hook (look_hooks), ahead of the
-        # extensions' (TURN_HOOKS), in any but a CONSULT one.
+        # extensions' (TURN_HOOKS), in any but a CONSULT one; a topic that keeps off this machine's files leaves the home's
+        # instruction files out (``md_excludes``).
         settings = redaction.settings(ctx)
+        excluded = md_excludes(ctx)
+        if excluded:
+            settings["claudeMdExcludes"] = excluded
         if limit == PROXY:
             settings["hooks"] = tool_guard.settings(ctx.options.get(TOOL_NOTES, ""))
         elif limit != CONSULT:

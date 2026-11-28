@@ -1,7 +1,8 @@
 """The repositories' part of a turn: the dynamic repository block at the prompt's tail, and settling a task's requests.
 
 ``tail`` is the block app/runs.py puts after the checkpoint note each turn (never in the cached rules): the
-repositories the topic uses and whether their rules were read, a repository's rules inlined (its first
+repositories the topic works with (core/topic_repos.py works_with: not one its steps only read) and whether their rules
+were read, a repository's rules inlined (its first
 ``RULES_INLINE_BYTES``) when the butler or the lead declared it and its rules were not read yet, or when the last turn
 wrote to it without reading them, and a reminder when the last turn changed a repository's main checkout instead of
 the topic's worktree. Rules inlined (or printed by ``covey repo use``) whole count as read; a head cut short does not:
@@ -20,8 +21,8 @@ from __future__ import annotations
 import os
 import time
 
+from covey.app import home_turn
 from covey.core import home, repomap, topic_repos
-from covey.core.paths import data_home
 from covey.core.state import read_json
 from covey.core.topics import home_start, topic_file, update_repos
 
@@ -97,9 +98,11 @@ def tail(ctx, job) -> str:
     mapped = _map(ctx)
     raw = {str(item.get("name")): item for item in data.get("repos") or () if isinstance(item, dict)}
     parts = []
-    if home_start(data) or any(entry.source in ("declared", "cli") for entry in entries):
-        parts.append("本话题用到的仓库：\n" + "\n".join(_row(entry, mapped) for entry in entries)
-                     + "\n要改别的仓库：covey repo use <仓库> --write。")
+    shown = [entry for entry in entries if topic_repos.works_with(entry)]  # Not one its steps only read.
+    if shown and (home_start(data) or any(entry.source in ("declared", "cli") for entry in entries)):
+        # A topic that keeps off this machine's files (app/home_turn.py local) is not told how to change another.
+        more = "\n要改别的仓库：covey repo use <仓库> --write。" if home_turn.local(data) else ""
+        parts.append("本话题用到的仓库：\n" + "\n".join(_row(entry, mapped) for entry in shown) + more)
     for entry in entries:
         if raw.get(entry.name, {}).get(CHECKOUT_WRITES):
             parts.append(f"上一轮改到了 {entry.name} 的主检出（{entry.path}）。之后改用 `covey repo use {entry.name} --write` "
@@ -160,6 +163,17 @@ def _workdir_repo(data) -> dict | None:
             "source": "touched", "first_at": now, "rules_read_at": now, "rules_miss": 0}
 
 
+def start_of(ctx, job, data) -> str:
+    """Where the Harness process of ``job``'s turn started, which its tool calls' relative paths are of: its workdir, or for
+    a Harness that starts a topic keeping off this machine's files in its outputs directory (``external_cwd``,
+    core/home.py external_start) that directory."""
+    if getattr(getattr(job, "harness_capabilities", None), "external_cwd", False):
+        found = home.external_start(home_turn.external(ctx, data, make=False))
+        if found:
+            return found
+    return str(ctx.workdir)
+
+
 def settle(ctx, job, task_dir, *, later=False):
     """Fold what ``job``'s turn did with repositories into its topic: the ``covey repo use`` requests of its task
     (core/topic_repos.py ``requests``; their rules were printed, so read), the repositories its steps touched (rules
@@ -176,8 +190,8 @@ def settle(ctx, job, task_dir, *, later=False):
     asked = topic_repos.requests(task_dir) if task_dir else []
     repos = repomap.read(ctx.state_dir)
     where = home.of(ctx)
-    found = topic_repos.touched(getattr(job, "tool_trace", None), repos, workdir=ctx.workdir, home=where,
-                                skip=(data_home(),), now=now)
+    found = topic_repos.touched(getattr(job, "tool_trace", None), repos, workdir=start_of(ctx, job, data), home=where,
+                                skip=topic_repos.skip_roots(ctx.state_dir, where), now=now)
     listed, patterns = {os.path.normpath(repo.path) for repo in repos}, repomap.exclude(ctx.state_dir)
     found = [repo for repo in found
              if os.path.normpath(repo.path) in listed or not repomap.excluded(os.path.basename(repo.path), patterns)]

@@ -490,7 +490,7 @@ read、refused、withdrawn：终态
 
 每一轮的执行约定（`core/checkpoint.py` 的 `CHECKPOINT_RULES`）里有两条管模型问不问：
 
-- `ASK_RULE`：部署上线和发布、删除和其他撤不回的操作、花钱、对外发送、占机器（`ASK_KINDS`，简称 `ASK_SHORT`）照常问，主人这一轮明说要自己定的也问；其余能撤回、有明确推荐的不问，按推荐做，结论里写一行“按 X 做了；要改成 Y，回一句就行”（有开关、配置项、提交号就写那个）。要问的留到最后合成一次问，不在半路停下来等。问题卡、Claude 的 `AskUserQuestion`、Codex 的 `request_user_input` 都照这条。
+- `ASK_RULE`：部署上线和发布、删除和其他撤不回的操作、花钱、对外发送、占机器（`ASK_KINDS`，简称 `ASK_SHORT`）照常问，主人这一轮明说要自己定的也问；其余能撤回、有明确推荐的不问，按推荐做，结论里写明替主人选了什么、要改回怎么做（有开关、配置项、提交号就写那个）；这一轮没替主人做这类取舍（纯解读、问答、调研）就不写，结尾也不追加“要不要再做 X”。要问的留到最后合成一次问，不在半路停下来等。问题卡、Claude 的 `AskUserQuestion`、Codex 的 `request_user_input` 都照这条。
 - `PLAN_RULE`：主人要方案、设计、提案时，先交完整方案（推荐做法写全，缺的信息按假设写并标出），待定项列在方案后面，不先发问题卡问细节；待定项里有照常要问的那几类才进 `questions`。
 
 管家和负责人派活时不用自己写“别发问题卡”：开话题的工具说明（`core/butler_tool_specs.py` 的 `ASK_NOTE`，在 `topic_start`、`topic_fork`、`project_topic_start` 的 `prompt` 上）和负责人规则都告诉它话题自己知道什么时候问；负责人交给话题的 Bridge 说明（`app/butler_handoff.py` 的 `lead_note`）只点 `ASK_SHORT` 照常问。Bridge 不替模型答题，卡片也没有默认答案：这只是模型问不问的规则。问得多不多用 `scripts/question_stats.py` 比，见[运维 · 问题卡问得多不多](operations.md#问题卡问得多不多)。

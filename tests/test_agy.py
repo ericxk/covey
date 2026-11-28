@@ -81,6 +81,26 @@ class AntigravityTests(unittest.TestCase):
                                           "--model", "gemini-3.8-pro-high", "--effort", "high"])
         self.assertEqual(Path(record["cwd"]).resolve(), Path(self.ctx.workdir).resolve())
 
+    def test_a_topic_that_keeps_off_this_machines_files_starts_agy_in_its_outputs_directory(self):
+        """T923 §5 (VERIFY-P1 V1): agy has no setting that keeps the home's AGENTS.md out, so a topic opened with ``local``
+        false (``options[EXTERNAL]``) runs its process in the topic's outputs directory, its file tools let out of that
+        workspace; the workdir is not changed. A home in a git work tree keeps the workdir (agy reads up to the top)."""
+        from covey.core.harness import EXTERNAL
+        from support.git import init_git_repo
+        home, outputs = self.root / "home", self.root / "home" / "tasks" / "runs" / "t1"
+        outputs.mkdir(parents=True)
+        ctx = dataclasses.replace(self.ctx, workdir=home, default_workdir=home,
+                                  options={**self.ctx.options, EXTERNAL: {"home": str(home), "dir": str(outputs)}})
+        result, _events, _replies, _sessions, record = self.run_agy("ok", ctx=ctx)
+        self.assertFalse(result.is_error, result.text)
+        self.assertEqual(Path(record["cwd"]).resolve(), outputs.resolve())
+        self.assertEqual(json.loads(record["argv"][record["argv"].index("--settings") + 1]), {"allowNonWorkspaceAccess": True})
+        self.assertEqual(ctx.workdir, home)
+        init_git_repo(home)
+        result, _events, _replies, _sessions, record = self.run_agy("ok", ctx=ctx)
+        self.assertEqual(Path(record["cwd"]).resolve(), home.resolve())
+        self.assertNotIn("--settings", record["argv"])
+
     def test_the_answer_is_what_the_model_wrote_after_its_last_tool_subagent_or_system_message(self):
         # agy's result.response joins the progress lines and the waits before the answer (T588 #5298, #5309).
         result, events, replies, *_rest = self.run_agy("waits")

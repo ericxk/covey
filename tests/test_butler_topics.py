@@ -149,7 +149,7 @@ class TopicStartTest(ButlerTopicsCase):
         self.assertEqual(topic["binding_revision"], 1)
         self.assertEqual(topic["origin"], {"kind": "main", "request": "r1", "job_key": "main-job",
                                            "why": "日志在这个仓库", "readonly": True, "user_requested": False,
-                                           "title": "查日志", "at": topic["origin"]["at"]})
+                                           "local": True, "title": "查日志", "at": topic["origin"]["at"]})
         self.assertEqual(topic["root_id"], data["root_message_id"])
         job = self.job("r1")
         self.assertEqual((job.user_text, job.topic_id, job.harness_id), ("看看昨晚的失败", data["topic_id"], "codex"))

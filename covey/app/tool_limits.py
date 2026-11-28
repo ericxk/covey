@@ -48,10 +48,12 @@ MEMBER_NOTE = ("[Bridge 说明] 这一轮只读：发起这一轮的是群成员
 # The end of a LOOK turn's message (``note``): LOOK_HELD where its Harness holds the writes to the two places (``look_roots``
 # held), LOOK_WORDS where the words are all there is (or its sandbox writes nothing at all).
 LOOK_HEAD = "[Bridge 说明] 这一轮只读：这件事被判断为只要查看和回答，所以没等主人点开始就开工了。"
+LOOK_TAIL = "不需要改东西的，回复里不用交代只读、没改文件。"  # Both end so: an answer that changed nothing does not say it.
 LOOK_HELD = (LOOK_HEAD + "不改任何代码仓库、工作区、.git 和现网状态，不执行有副作用的命令；能写的只有本轮检查点 {file} "
-             "和本话题产物目录 {dir}（结论、报告放这里），别处的写入会被拒绝。要改东西才能做完的，在回复里写清楚要改什么，等主人下一句。")
+             "和本话题产物目录 {dir}（结论、报告放这里），别处的写入会被拒绝。要改东西才能做完的，在回复里写清楚要改什么，等主人下一句。"
+             + LOOK_TAIL)
 LOOK_WORDS = (LOOK_HEAD + "不改任何代码仓库、工作区、.git 和现网状态，不执行有副作用的命令；只写本轮检查点 {file}（写不了就略过）"
-              "和本话题产物目录 {dir}，别处都不写。要改东西才能做完的，在回复里写清楚要改什么，等主人下一句。")
+              "和本话题产物目录 {dir}，别处都不写。要改东西才能做完的，在回复里写清楚要改什么，等主人下一句。" + LOOK_TAIL)
 # The end of a CONSULT turn's message (app/collab_channel.py puts the ask above it).
 CONSULT_NOTE = ("[Bridge 说明] 这一轮是只读咨询：只能读文件和搜索，不能改文件、不能执行命令、不能联网，"
                 "不写检查点、不提问。回复就是给对方的答复：先写结论，再写依据（文件路径、哪一轮做的结论）；"

@@ -77,9 +77,12 @@ class RulesTest(unittest.TestCase):
         for kind in ASK_SHORT.split("、"):
             self.assertIn(kind, ASK_KINDS, kind)
         for words in (ASK_KINDS + "照常问", "AskUserQuestion", "request_user_input", "能自己查清的事先查，不问。",
-                      "能撤回、你有明确推荐的不问", "按推荐直接做", "要改成 Y，回一句就行", "revert 的提交号",
-                      "要问的留到最后", "合成一次问"):
+                      "能撤回、你有明确推荐的不问", "按推荐直接做", "替主人选了什么", "要改回怎么做", "revert 的提交号",
+                      "没替主人做过这类取舍", "结尾也不追加", "要问的留到最后", "合成一次问"):
             self.assertIn(words, ASK_RULE, words)
+        # T923 §6: no line to copy as it stands (every answer ended "要改成 Y，回一句就行", a reading one too).
+        for words in ("回一句就行", "按 X 做了"):
+            self.assertNotIn(words, CHECKPOINT_RULES, words)
         # Asked the old way below it: the form, and 推荐 kept for what is still asked.
         lines = CHECKPOINT_RULES.split("\n")
         self.assertEqual(lines.index(ASK_RULE) + 1, next(i for i, line in enumerate(lines) if line.startswith("- 要用户决策时：")))

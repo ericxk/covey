@@ -70,6 +70,14 @@
 
 判为只读（`readonly`）又直接开工的，第一轮的任务说明末尾写“这一轮只读”（`app/tool_limits.py` 的 `LOOK_NOTE`；请求记录的计划里记 `read_only`，任务记录也记），并且照 Harness 能做到的限住（`TOOL_LIMIT` 的 `look`）：Claude Code 没有改文件的工具（Edit、Write、NotebookEdit，子 Agent 也没有；命令行还在，给只读的命令用），Codex 在只读沙箱里跑（命令能跑，写不了文件、上不了网），别的 Harness 只有那句话。只管这一轮：主人之后在话题里说的话、点重试或检查并继续，照常跑；等启动卡、主人点了开始的也照常。
 
+### 外部话题
+
+只解读、调研外部资料（论文、网页、飞书文档和消息）或写报告的事，用不上本机的仓库和文件。管家开话题（`topic_start`）、负责人开话题（`project_topic_start`）时带 `local: false`，记进话题记录的 `origin.local`，开话题时定下、以后不变（系统规则也就不变）；不填就是 `true`，之前开的话题没有这个字段，都按本机话题算。它和 `readonly` 不绑在一起：外部话题之后的轮次照样能写产物目录。这样的话题：
+
+- 规则里的主目录段换成外部版（`app/home_turn.py` 的 `EXTERNAL`）：只有本话题产物目录、“只用任务给的材料和外部来源，主人没要求时不翻本地仓库”的边界句、主人点名要看本地代码时先 `covey repo use <仓库>`（不知道名字用 `covey repo list`），和不要递归搜大目录；不给仓库地图路径，不写“先遵守主目录的 AGENTS.md”和改仓库的命令。之后用过 `covey repo use` 的，每轮的仓库清单照常列它，只是不带“要改别的仓库”那一句。
+- 各 Harness 不加载主目录自己的说明文件（`core/harness.py` 的 `EXTERNAL`）：Claude Code 在这一轮的 `--settings` 里加 `claudeMdExcludes`，列主目录的 `AGENTS.md`、`CLAUDE.md`、`CLAUDE.local.md`、`.claude/CLAUDE.md`、`.claude/rules/**`，和主目录各级上级目录的前三个，不排除上级目录的 `.claude/`（主目录在你的 HOME 下时那是你自己的 `~/.claude/CLAUDE.md`）；Codex 的 app-server 加 `-c project_doc_max_bytes=0`；Antigravity 没有能关目录规则的设置，主目录不在 git 工作树里时把 agy 进程的启动目录设成话题产物目录，并在 `--settings` 里加 `allowNonWorkspaceAccess`（话题的工作区仍是主目录，只改 agy 进程从哪儿启动）；主目录在 git 工作树里时 agy 会一路读到仓库根，这时不改，隔离不成立（`tests/test_matrix.py` 的 `GAPS`）。DeepSeek Harness 没有实测过的办法，只靠外部版主目录段。设备上的话题不受影响。
+- 管不到的：Codex 用户级的 `~/.codex/AGENTS.md`（`CODEX_HOME` 下）和 Antigravity 用户级的 `~/.gemini/config/GEMINI.md` 照样加载（Covey 把后者拼进 agy 的私有 HOME）。这两份是你自己的文件，里面写了主目录或工作区入口的，外部话题也会读到；要不要删掉那几行由你定，Covey 不改。
+
 ### 管家规则
 
 `COVEY_BUTLER_RULES` 开着（默认）时，[直答与转交](#直答与转交)的前两条换成 `app/prompts.py` 的 `BUTLER_RULES`（两条），让管家只快答和分派，这样它接得住主人的连问；`topic_start` 的工具说明里同样的话也换了；其余规则不动；设成 `0` 就回到只读的自己做完、超过一两分钟交给话题的老说法。
@@ -176,7 +184,7 @@ Bridge 进程 ── app/butler_tools.py：pending → claim → 核对 job_key 
 | `topics_search` | clues*、limit | 按线索找是哪个话题哪一轮做的 |
 | `topic_read` | topic*、job、turns | 读话题最近几轮：问题、结论、检查点、没答的问题 |
 | `repos_list` | 无 | 列主目录、仓库地图（名字、状态：可写、只读、冻结，原地改的标出，用途、路径）和调用的这个话题在改、在读的仓库（`app/repos_turn.py` 的 `repos_list`，结构化结果另放在 `data` 里）；地图里还没有仓库时列登记的工作区 |
-| `topic_start` | title*、prompt*、readonly*、user_requested*、why*、repos、workspace、attachments、criteria、harness、model、effort、basis、redaction | 为新的事开话题，从主目录直接开工；`repos` 是要用的仓库（`[{name, mode: read|write}]`，最多 10 项，冻结或只读的仓库不能写）；旧参数 `workspace` 当作一项只读仓库；新话题默认脱敏而所选 Harness 不能脱敏时拒绝，写明先问主人（[敏感词脱敏](usage.md#敏感词脱敏)）；填了 harness、model、effort 要写 basis（见下面[点名配置的依据](#点名配置的依据)） |
+| `topic_start` | title*、prompt*、readonly*、user_requested*、why*、repos、workspace、local、attachments、criteria、harness、model、effort、basis、redaction | 为新的事开话题，从主目录直接开工；`local: false` 是用不上本机仓库和文件的外部话题（见[外部话题](#外部话题)）；`repos` 是要用的仓库（`[{name, mode: read|write}]`，最多 10 项，冻结或只读的仓库不能写）；旧参数 `workspace` 当作一项只读仓库；新话题默认脱敏而所选 Harness 不能脱敏时拒绝，写明先问主人（[敏感词脱敏](usage.md#敏感词脱敏)）；填了 harness、model、effort 要写 basis（见下面[点名配置的依据](#点名配置的依据)） |
 | `topic_send` | topic*、text*、note、title、criteria、attachments | 把主人的话追加给已有话题 |
 | `topic_fork` | topic*、title*、prompt*、attachments | 从已有话题分叉 |
 | `question_answer` | topic*、answers* | 替主人答选择题 |

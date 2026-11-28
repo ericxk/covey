@@ -558,6 +558,8 @@ def bind_topic(env, app, request, path, record, args, event, config, kind="main"
     target = topic_context(app.harness.context, event, app.store.sessions_dir)
     origin = {"kind": kind, "request": request.id, "job_key": request.job_key, "why": record["why"],
               "readonly": args.get("readonly") is True, "user_requested": args.get("user_requested") is True,
+              # Uses this machine's repositories and files (app/home_turn.py local): false only when the call said so.
+              "local": args.get("local") is not False,
               "title": title, "at": record["at"], **said_in(env, request)}
     lead = lead_of(env, request)
     if not record.get("topic_id"):

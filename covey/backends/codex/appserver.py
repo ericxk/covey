@@ -23,7 +23,7 @@ from covey.backends.codex import consult
 from covey.core import repomap, topic_repos
 from covey.core.butler_tool_specs import LEAD_ASK_TOOL
 from covey.core.failure import said_of
-from covey.core.harness import CONSULT, LEAD, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, JobCancelled, RunResult
+from covey.core.harness import CONSULT, EXTERNAL, LEAD, LOOK, LOOK_ROOTS, PROXY, READ, TOOL_LIMIT, JobCancelled, RunResult
 from covey.core.paths import entry_script
 from covey.core.process import device_of
 from covey.core.protocol import deliver_event
@@ -244,14 +244,21 @@ def thread_params(ctx, session_id, instructions="", process=None):
     return params, fork
 
 
+NO_PROJECT_DOC = "project_doc_max_bytes=0"  # No AGENTS.md of the working directory or above it (``server_flags``).
+
+
 def server_flags(ctx) -> list:
     """The app server's -c switches after its thread limit: request_user_input on, as before; a CONSULT turn's
     (backends/codex/consult.py FLAGS) instead: apps, plugins, memories, hooks and the question off; a READ, LOOK or LEAD
     turn's (READING_FLAGS): apps, plugins, memories and hooks off, the question on; a 代答 turn's (``PROXY_FLAGS``): the
-    question on and Codex's memories neither read into the turn nor made by this server."""
+    question on and Codex's memories neither read into the turn nor made by this server. A turn of a topic that keeps off
+    this machine's files (``options[EXTERNAL]``) reads no project doc (``NO_PROJECT_DOC``): not the home's AGENTS.md, nor
+    one above it; the user's own in CODEX_HOME is still read."""
     limit = ctx.options.get(TOOL_LIMIT)
     flags = (consult.FLAGS if limit == CONSULT else consult.READING_FLAGS if limit in (READ, LOOK, LEAD)
              else PROXY_FLAGS if limit == PROXY else (QUESTION_FLAG,))
+    if ctx.options.get(EXTERNAL):
+        flags = (*flags, NO_PROJECT_DOC)
     return [part for flag in flags for part in ("-c", flag)]
 
 
