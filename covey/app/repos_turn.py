@@ -28,7 +28,7 @@ import os
 import time
 
 from covey.app import home_turn
-from covey.core import device_access, devices, home, repomap, topic_repos
+from covey.core import device_access, home, repomap, topic_repos
 from covey.core.harness import TOOL_LIMIT
 from covey.core.state import read_json
 from covey.core.topics import home_start, topic_file, update_devices, update_repos
@@ -321,11 +321,11 @@ def settle(ctx, job, task_dir, *, later=False):
 
 
 def start_devices(ctx, job, access, log=None) -> None:
-    """With COVEY_DEVICES on, before the turn runs: its limit (core/harness.py TOOL_LIMIT) and its chat's device space
+    """With COVEY_DEVICES on and a device listed (core/device_access.py ``listed``), before the turn runs: its limit (core/harness.py TOOL_LIMIT) and its chat's device space
     (app/access.py ``device_space``, rule 11) into its run directory, for ``covey device`` (core/device_access.py
     ``note_turn``). Nothing for a turn on a device, or one without a run directory; a failure is logged and the turn
     runs (``covey device`` then refuses it)."""
-    if not devices.enabled() or getattr(ctx, "device", ""):
+    if getattr(ctx, "device", "") or not device_access.listed():
         return
     try:
         task_dir = topic_repos.task_dir_of(ctx.state_dir, job)

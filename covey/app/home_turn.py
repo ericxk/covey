@@ -15,7 +15,7 @@ map, the home's AGENTS.md or the write command; and its turns carry ``external``
 each Harness leaves the home's own instruction files out. Decided once when it opens, so its rules never change. A topic
 without the field (every one before it) is local.
 
-With COVEY_DEVICES on, a local topic's home block ends with ``DEVICE_RULE``: how to use another device (core/device_access.py,
+With COVEY_DEVICES on and a device listed, a local topic's home block ends with ``DEVICE_RULE``: how to use another device (core/device_access.py,
 ``covey device``). The devices themselves are listed at the end of ``repos.md``, read on demand, so a change of the list
 changes no rules; an EXTERNAL topic is not told (``covey device`` still works there when the owner names a device).
 """
@@ -24,7 +24,7 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
-from covey.core import devices, home, repomap, topic_repos
+from covey.core import device_access, home, repomap, topic_repos
 from covey.core.harness import EXTERNAL as EXTERNAL_OPTION
 from covey.core.state import read_json
 from covey.core.topics import home_start
@@ -86,8 +86,9 @@ def static_block(ctx) -> str:
     outputs = outputs_dir(ctx, data)
     if outputs:
         lines.append(OUTPUTS_LINE.format(outputs))
-    # The switch, not the list: the line stays the same while devices.json changes, so the rules do too.
-    return "\n".join(lines) + "\n" + RULES + ("\n" + DEVICE_RULE if devices.enabled() else "")
+    # Whether there is a device at all, not which: the line stays the same while the list changes, so the rules do too
+    # (only the first device listed, or the last one taken off, changes them once).
+    return "\n".join(lines) + "\n" + RULES + ("\n" + DEVICE_RULE if device_access.listed() else "")
 
 
 def outputs_of(ctx, data=None) -> str:

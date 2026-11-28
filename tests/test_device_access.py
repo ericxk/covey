@@ -391,15 +391,23 @@ class TurnEndsTest(ChannelCase):
         return SimpleNamespace(state_dir=self.state, topic_id=TOPIC, device="", options={TOOL_LIMIT: LOOK},
                                workdir=self.root, default_workdir=self.root, history_path=self.state / "topics" / TOPIC / "h")
 
-    def test_the_turns_start_writes_its_limit_and_its_chats_space_only_with_devices_on(self):
+    def test_the_turns_start_writes_its_limit_and_its_chats_space_only_with_a_device_listed(self):
         job = SimpleNamespace(topic_id=TOPIC, chat_id="oc_owner", job_id=1)
         seen = SimpleNamespace(device_space=lambda chat: "owner_private" if chat == "oc_owner" else "")
+        listing = self.root / "devices.json"
+        listing.write_text(json.dumps({"schema": 1, "devices": {}}))
+        for switch in ("0", "1"):  # Off, and on with no device: as before.
+            with self.subTest(switch=switch), \
+                    mock.patch.object(repos_turn.topic_repos, "task_dir_of", lambda state, j: self.task), \
+                    mock.patch.dict(os.environ, {"COVEY_DEVICES": switch, "COVEY_DEVICES_FILE": str(listing)}):
+                devices._CACHE.clear()
+                repos_turn.start_devices(self.ctx(), job, seen)
+                self.assertFalse(access.listed())
+                self.assertFalse((self.task / DEVICE_TURN).exists())
+        listing.write_text(json.dumps(CONFIG))
         with mock.patch.object(repos_turn.topic_repos, "task_dir_of", lambda state, j: self.task), \
-                mock.patch.dict(os.environ, {"COVEY_DEVICES": "0"}):
-            repos_turn.start_devices(self.ctx(), job, seen)
-        self.assertFalse((self.task / DEVICE_TURN).exists())
-        with mock.patch.object(repos_turn.topic_repos, "task_dir_of", lambda state, j: self.task), \
-                mock.patch.dict(os.environ, {"COVEY_DEVICES": "1"}):
+                mock.patch.dict(os.environ, {"COVEY_DEVICES": "1", "COVEY_DEVICES_FILE": str(listing)}):
+            devices._CACHE.clear()
             repos_turn.start_devices(self.ctx(), job, seen)
         written = json.loads((self.task / DEVICE_TURN).read_text())
         self.assertEqual((written["limit"], written["space"], written["topic"]), (LOOK, "owner_private", TOPIC))

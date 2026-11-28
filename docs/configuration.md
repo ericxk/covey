@@ -444,7 +444,7 @@
 
 主目录里的话题不搬到设备上，也能去设备上干活：Harness 留在 Bridge 这台机器上，从自己的 shell 调 `covey device`（`bin/covey_device.py`，经 `<数据根>/bin/covey` 转发，实现在 `core/device_cli.py` 和 `core/device_access.py`），命令在设备上跑、文件取回本机改。回退、压缩、Bridge 工具照常（Harness 没离开 Hub），设备上只要 Python 3.9 起和免密 ssh，不用装 Harness、不用登录。结构和护栏见[架构 · 设备通道](architecture.md#设备通道)，三家 Harness 的差别见 [Harness · 设备通道](harnesses.md#设备通道)。
 
-**打开**：和多设备同一个开关，`COVEY_DEVICES=1` 加 `devices.json`（上一节），不另加开关。关着时 `covey device` 只回一句“设备通道没开”（退出 3），一轮开始不写设备通道的文件，结束时只看一眼本任务有没有 `devices.jsonl`（没有就什么都不做），提示词也和原来一字不差。
+**打开**：和多设备同一个开关，`COVEY_DEVICES=1` 加 `devices.json`（上一节），不另加开关。关着时（开着但 `devices.json` 里一台设备都没有也一样）一轮开始不写设备通道的文件、主目录段不加那句设备用法，结束时只看一眼本任务有没有 `devices.jsonl`（没有就什么都不做），提示词和原来一字不差；关着时 `covey device` 只回一句“设备通道没开”（退出 3）。
 
 ```bash
 covey device list                                              # 设备名单：能不能用、可写还是只读

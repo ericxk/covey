@@ -113,6 +113,19 @@ class Turn:
         return self.limit in READ_LIMITS or not self.known
 
 
+def listed(environ=None) -> bool:
+    """Whether the channel is there: COVEY_DEVICES on and devices.json listing at least one device (with ssh or only
+    watched). Off, or on with none listed (or a devices.json that cannot be read), a turn is as before (core/devices.py:
+    a switch on with no device behaves as off): no turn file, no line in the rules."""
+    if not devices.enabled(environ):
+        return False
+    try:
+        config = devices.current(environ)
+    except devices.DeviceConfigError:
+        return False
+    return bool(config.devices or config.watched)
+
+
 def note_turn(task_dir, *, limit="", space="", topic="", outputs="") -> Path | None:
     """Write what ``covey device`` needs of a turn into its run directory (``device-turn.json``): its limit
     (core/harness.py TOOL_LIMIT, '' none), its chat's device space (app/access.py ``device_space``, '' none), the topic

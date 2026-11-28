@@ -658,7 +658,7 @@ cancelled、superseded：终态
 
 **外壳**：`core/device_cli.py`（`bin/covey_device.py`；`<数据根>/bin/covey` 的转发壳 `device)` 一行，`core/home.py` 的 `SHIM_TEXT`，每次部署重写），只解析参数、调 `Channel`、把结果说成给模型看的话；退出码 3 拦下、4 没答复、124 超时，`run` 的其余是设备上命令的。
 
-**一轮的起止**（都在任务进程里，开关关着时什么都不做）：
+**一轮的起止**（都在任务进程里，开关关着或没有设备时什么都不做）：
 - **开始**：`app/runs.py` 定下这一轮的限制之后调 `app/repos_turn.py` 的 `start_devices`，写 `device-turn.json`（`limit`、`space`、`topic`、本话题产物目录）。写不了只记日志，这一轮照跑，`covey device` 届时拒绝。
 - **结束**：`app/worker.py` 的 `settle_repos` 在结果出卡之后、记录收尾之前调 `settle_devices`：读 `devices.jsonl`（没有就直接返回，不开任何连接），并进 `topic.json` 的 `devices`（`core/device_access.py` 的 `fold`；`core/topics.py` 的 `update_devices`，和 `repos` 同一种写法：先不加锁读，变了才在 `LOCK` 下写），在执行过程加一条「设备」（`trace_text`，最近 12 次调用）。答案发出后再 `reap_turn`：对开始了没答复的 `run` 所在的设备按标记 `reap`；主人点停止结束的一轮（`cancelled`）另外 `stop` 这一轮起的 `job`。设备当场连不上就在 `<状态目录>/devices/<别名>/pending-reap.json` 登记键为 `mark-<标记>` 的条目（原因 `turn_end`，`core/device_reap.py` 的 `register`），`app/devices.py` 的后台线程每分钟探活时重放（`reap_one` 见到 `mark` 就按标记收割）。
 - **话题记录**：`topic.json` 的 `devices` 每台设备一条：`alias`、`first_at`、`last_at`、`calls`、`ops`（各操作次数）、`jobs`（最近 20 个任务号）、`files`（最近 50 个取回或放过的路径和 sha256）。`covey device put` 用 `fetched_sha` 先查本任务的审计、再查这里，得到“取回时的 sha256”，设备上的文件变了就拒绝覆盖。
@@ -667,9 +667,9 @@ cancelled、superseded：终态
 
 **和执行设备的分别**：执行设备把整个 Harness 搬到设备上（`DeviceProcess`、`DEVICE_OFF` 关掉的那些能力）；设备通道只把命令和文件送过去，设备上不需要 Harness、登录和模型目录。两者共用 `devices.json`、`core/device_transport.py` 的 ssh 主连接和设备端小程序；`pending-reap.json` 里两种条目并存（任务键的、`mark-` 开头的），同一个后台线程重放。
 
-**提示词**：本机话题的主目录段（`app/home_turn.py` 的 `static_block`）在开关开着时末尾加 `DEVICE_RULE` 一句；取决于开关而不是名单，所以名单变了系统规则不变。外部话题的 `EXTERNAL` 段不加。设备名单在 `repos.md` 末尾（`core/repomap.py` 的 `device_rows`），按需读。
+**提示词**：本机话题的主目录段（`app/home_turn.py` 的 `static_block`）在开关开着、`devices.json` 里至少有一台设备时（`core/device_access.py` 的 `listed`）末尾加 `DEVICE_RULE` 一句；只看有没有设备、不看是哪几台，所以名单增减不改系统规则，只有加上第一台、去掉最后一台时变一次。外部话题的 `EXTERNAL` 段不加。设备名单在 `repos.md` 末尾（`core/repomap.py` 的 `device_rows`），按需读。
 
-**关着时不变**：`COVEY_DEVICES` 关着时，`start_devices` 直接返回，`settle_devices` 只看一眼 `devices.jsonl` 不在就返回，主目录段没有那一句，`covey device` 退出 3；旧 release 的任务进程和 Bridge 不认 `device-turn.json`、`devices.jsonl`，留着不动（`tests/golden/run_dir.json` 记着这两个名字）。
+**关着时不变**：`COVEY_DEVICES` 关着时（开着但一台设备都没有也一样，`core/devices.py` 的老规矩），`start_devices` 直接返回，`settle_devices` 只看一眼 `devices.jsonl` 不在就返回，主目录段没有那一句，`covey device` 退出 3；旧 release 的任务进程和 Bridge 不认 `device-turn.json`、`devices.jsonl`，留着不动（`tests/golden/run_dir.json` 记着这两个名字）。
 
 ## 节点（默认关）
 
