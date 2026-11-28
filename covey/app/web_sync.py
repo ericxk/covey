@@ -46,11 +46,11 @@ import threading
 import time
 from pathlib import Path
 
-from covey.app import card_lanes, self_upgrade, web_files, web_images, web_memory, web_quota
+from covey.app import card_lanes, self_upgrade, web_files, web_images, web_memory, web_pairing, web_quota
 from covey.app.web_collect import Collector, Shared
-from covey.app.web_ops import Ops
+from covey.app.web_ops import TOKEN, Ops
 from covey.app.web_push_client import Client, WebError
-from covey.core import avatars, store, web_sync
+from covey.core import avatars, board_read, projects, store, web_sync
 from covey.core.loops import Stuck, Worker
 from covey.core.state import epoch_seconds, read_object, write_json
 
@@ -79,6 +79,8 @@ HELD_LOG_SECONDS = 60.0  # A push that finds its lock held says so at most this 
 CENTER_LOCK_WAIT = 5.0  # A push before the page's ack waits this long for a build the pass is making, then goes without.
 INBOX_WAIT = 8  # Seconds a page that knows ``wait`` holds an empty /sync/inbox (it answers ``waited``); within the client's TIMEOUT.
 OP_WAIT = 5.0  # Seconds an inbox step waits for the operations it handed to their lanes before it asks again.
+# Seconds an answer's question item waits for another thread's batch to go up before its ack (push_question); then the touch sends it.
+QUESTION_WAIT = 3.0
 PACE_SECONDS = 60.0  # A quick look's, a touch's and a reread's step times are logged once this often (Pace).
 # 换线程重读 (web-reread, ``reread_once``): a topic a look left out because its read hangs on the network disk is read again in a thread
 # of its own, so a running topic does not stand still on the page for the minutes such a read can last (2026-11-26 T837: T732 from 18:17:05
@@ -1278,6 +1280,8 @@ class WebSync:
             self.wake.set()  # The quick look builds what the operation touched now, not at its next tick.
             if kind in ("settings", "launch", "tidy_decide", "memory_edit", "upgrade", "quota_refresh"):
                 self.before_ack(kind)  # The page reads the new settings, the tidy list, the memory when it sees done.
+            if kind == "answer" and state == "done":
+                self.push_question(row)  # The page reads the question closed when it sees done, not once the touch rebuilt the topic.
             pushed = time.monotonic()
             try:
                 self.client.request("POST", "/sync/ack", {"results": [{"seq": seq, "op_id": op_id, "state": state, "message": ledger.get(op_id)["message"]}]})
@@ -1298,6 +1302,49 @@ class WebSync:
             card_lanes.run_follow_ups(later, self.runtime.log)
             if touched:
                 self.touch_soon(touched)  # And what they made (the answer's new turn).
+
+    def push_question(self, row) -> None:
+        """An answer the page sent (提交回答, 不处理) that left its question no longer waiting: the question's item, as its record has it
+        now, goes up before the ack, so the page that sees done reads the question closed. The topic itself is built whole by the touch
+        after the ack, seconds on the network disk and more behind a stuck read; until it came the page held the question locked under
+        已执行，等页面更新 and showed no answer (2026-11-28 T959). The read takes its seq first, as every read does (Collector.build), so a
+        look that read the topic before the answer is not sent after it (fresh_items). A question opened again (撤销) waits for the
+        touch: where it goes on the page (``turn_key``) needs the topic's turns. Never raises; it gives up (the touch sends it) when another
+        thread's batch holds the posting for QUESTION_WAIT seconds."""
+        token = str((row.get("payload") or {}).get("token") or "")
+        chat = self.runtime.access.owner_chat()
+        if not TOKEN.fullmatch(token) or not chat or not self.env.state_dir or not self.sent_loaded:
+            return
+        state = Path(self.env.state_dir)
+        seq = self.shared.next_seq()
+        try:
+            record = read_object(state / "questions" / (token + ".json"))
+            topic = str(record.get("topic_id") or "")
+            if record.get("chat_id") != chat or not topic or record.get("status", "pending") == "pending":
+                return
+            # Its topic's number and project as Collector.topic_items gives them: a project's lead has no number.
+            found = projects.topic_project(state, topic)
+            lead = found is not None and found.role == projects.LEAD and projects.enabled()
+            label = "" if lead else board_read.topic_label(state, topic)[0]
+            made = web_pairing.question(record, topic, 0, found.id if found is not None else "", int(label[1:]) if label[1:].isdigit() else 0)
+        except Exception as exc:  # noqa: BLE001 - the ack goes on; the touch builds the topic all the same
+            self.runtime.log(f"web sync question before ack failed: {type(exc).__name__}")
+            return
+        if not made or not self.post_lock.acquire(timeout=QUESTION_WAIT):
+            return
+        try:
+            item = web_sync.item("question", token, made)
+            with self.backlog_lock:
+                items = self.fresh_items([(topic, seq, [item])])
+            if items:
+                self.client.request("POST", "/sync/upsert", {"items": items, "deleted": []})
+                with self.backlog_lock:
+                    self.sent[("question", token)] = item["rev"]
+                self.sent_changed = True
+        except WebError as exc:
+            self.runtime.log(f"web sync question before ack failed: {self.why(exc) or type(exc).__name__}")
+        finally:
+            self.post_lock.release()
 
     def before_ack(self, kind) -> None:
         """What the page must read when it sees done: the settings and the tidy list for a change of either (a launch changes what the

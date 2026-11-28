@@ -117,6 +117,8 @@ class Shared:
         # topic id -> (its inputs as the pass's last build of it read them, ((type, key), rev) of each item that build made, when it
         # is built again whatever its inputs say): Collector.unchanged. Only the pass's thread writes it.
         self.prints = {}
+        # The room's record files as last read (app/web_room.py Files): a collector made again, or the touch's, reads only what changed.
+        self.room_files = web_room.Files()
 
     def next_seq(self) -> int:
         return next(self.seq)
@@ -201,7 +203,8 @@ class Collector:
         self.leads = {}  # lead topic id -> its project's record (COVEY_PROJECTS=1 only), from this look.
         self.projects = {}  # project id -> its record, from this look (a member topic's ``joined_at``).
         self.log = log  # The bridge.log writer (WebSync's runtime.log); None: nothing logged.
-        self.room = web_room.Room()  # Whom the butler's turns handed on to and which topic turns went to the private chat (data contract v23).
+        # Whom the butler's turns handed on to and which topic turns went to the private chat (data contract v23).
+        self.room = web_room.Room(self.shared.room_files)
         self.origins = None  # web_said.Origins of the owner's chat: who wrote each hand-on, read once.
         self.moved = 0.0  # Monotonic time of the last progress of a look and its push: a topic built, a batch sent (WebSync.loop's stuck check).
         self.collab_cache, self.collab_primed = {}, False  # name -> ((mtime_ns, size), record) of <state>/collab/ (read_collabs).
@@ -1020,6 +1023,7 @@ class Collector:
         the page's own (role event); so is a member's end (the inbox's ``thread_end`` receipt). All in the order they happened."""
         out, shown, waking = [], set(), False
         running = {job_key(job.get("message_id"), job.get("job_id")) for job in records if job.get("status") in RUNNING or job.get("status") == "waiting_user"}
+        reported = self.reported_by(state, topic, project)
         for row, job, asked in web_pairing.pair(rows, records, questions):
             at = epoch_seconds(row.get("time")) or 0
             if row.get("role") == "user":
@@ -1035,7 +1039,7 @@ class Collector:
                     out.append((at, data, None))
                 continue
             key = job_key(job.get("message_id"), job.get("job_id")) if job is not None else ""
-            if waking and (job is None or projects.woken(job) and not project_loop.reported(state, topic, key)):
+            if waking and (job is None or projects.woken(job) and not reported(key)):
                 waking = False
                 continue
             waking = False
@@ -1058,6 +1062,18 @@ class Collector:
             out.append((at, {"role": "event", "body": words, "status": "done", "job_id": "", "started_at": at, "ended_at": at, "artifacts": []}, None))
         out.sort(key=lambda entry: entry[0])
         return out
+
+    @staticmethod
+    def reported_by(state, topic, project):
+        """project_loop.reported for the turns of the lead topic ``topic``, its project's record read once a build: ``project`` (this look's,
+        read_projects) when the topic says it leads that project, else read as reported reads it. Asked once a wake-up turn, reported read
+        the 120 KB record again each time: 195 reads of it for one build of a busy lead, the build that answering its question waits for
+        (2026-11-28 T959)."""
+        found = projects.topic_project(state, str(topic or ""))
+        if found is None:
+            return lambda key: False
+        record = project if str(project.get("id") or "") == found.id else projects.read_record(state, found.id)
+        return lambda key: bool(project_loop.report_rows(state, found.id, record, key))
 
     def member_ends(self, state, project) -> list:
         """[(time, "T34 做完了")] of the project's inbox: only the receipts of a member's end, which the owner reads as they are."""

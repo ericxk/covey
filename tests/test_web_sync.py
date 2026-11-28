@@ -13,6 +13,7 @@ import os
 import threading
 import time
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -2083,13 +2084,33 @@ class LeadTest(WebCase):
 
     def test_a_wake_up_reply_the_lead_meant_for_the_owner_is_its_answer(self):
         self.conversation()
-        with mock.patch.object(app_collect.project_loop, "reported", return_value=True):
+        with mock.patch.object(app_collect.project_loop, "report_rows", return_value=[{"kind": "report", "text": "已派出 T831"}]):
             self.sync.push_once(T0)
         bodies = [item["data"]["body"] for item in self.web.items("turn") if item["data"]["role"] == "agent"]
         self.assertIn("已派出 T831", bodies)
         agent = next(item["data"] for item in self.web.items("turn") if item["data"]["body"] == "已派出 T831")
         self.assertEqual([row["number"] for row in agent["started_topics"]], [831])
         self.assertFalse([item for item in self.web.items("turn") if item["data"]["role"] == "event" and "派出" in item["data"]["body"]])
+
+    def test_one_build_of_the_lead_reads_its_projects_record_once_not_once_a_wake_up_turn(self):
+        """2026-11-28 T959: asked once a wake-up turn, project_loop.reported read the busy lead's 120 KB record 195 times a build,
+        the build that answering its question on the page waits for."""
+        now = self.conversation()
+        for n in range(2, 8):
+            self.lead_job(f"lead-w{n}", job_id=10 + n, status="done", message_id=projects.wake_id(PID, n), timings={"backend_started": now - 40 + n})
+            self.history(("user", project_lead_wake(), projects.wake_id(PID, n)), ("assistant", f"第 {n} 次看了一下", ""))
+        path = str(projects.record_path(self.state, PID))
+        real, reads = app_collect.read_object, []
+
+        def counted(where, *args, **kwargs):
+            if str(where) == path:
+                reads.append(where)
+            return real(where, *args, **kwargs)
+        with mock.patch.object(projects, "read_object", side_effect=counted):
+            self.sync.toucher.collect_touched(CHAT, [LEAD], T0)
+        self.assertLessEqual(len(reads), 2)  # read_projects' read of every record, and none a turn.
+        bodies = [item["data"]["body"] for _, _, mine in self.sync.toucher.groups for item in mine if item["type"] == "turn"]
+        self.assertNotIn("第 3 次看了一下", bodies)  # A wake-up reply not meant for the owner stays out, as before.
 
     def test_a_lead_is_not_pushed_without_projects_and_not_before_it_has_spoken(self):
         self.sync.push_once(T0)
@@ -2843,6 +2864,48 @@ class RoomTest(WebCase):
         self.assertNotIn("relayed_at", self.turn(BUTLER, 2))
 
 
+class RoomFilesTest(RoomTest):
+    """2026-11-28 T959: the room's two folders hold about 1,800 records; each time one was written to, every collector read them all
+    again, about 4.5 s on the network disk, and the touch after a web answer, which looks seldom, nearly always did. Only the records
+    whose stamp changed are read again, and what was read is shared by the collectors of one WebSync."""
+
+    def moved(self, folder):
+        """The folder written to, its mtime surely another (a coarse clock can give two writes the same one)."""
+        stat = folder.stat()
+        os.utime(folder, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+
+    def test_the_room_reads_again_only_the_records_that_changed_and_shares_them(self):
+        from covey.app import web_room
+        self.opened("r1", job_key="om_b1", topic_id=TOPIC)
+        self.opened("r2", job_key="om_b1", topic_id=OTHER, at=T0 + 1)
+        self.relay("om_t1")
+        files, reads, real = web_room.Files(), [], web_room.read_object
+
+        def counted(path):
+            reads.append(Path(path).name)
+            return real(path)
+        with mock.patch.object(web_room, "read_object", side_effect=counted):
+            web_room.Room(files).refresh(self.state)
+            self.assertEqual(sorted(reads), ["om_t1.json", "r1.json", "r2.json"])
+            reads.clear()
+            room = web_room.Room(files)  # A collector made again, or another thread's: nothing changed, nothing is read.
+            room.refresh(self.state)
+            self.assertEqual(reads, [])
+            self.assertEqual([row["topic_id"] for row in room.opened["om_b1"]], [TOPIC, OTHER])
+            self.assertEqual(room.relays, {"om_t1": T0 + 5})
+            self.opened("r2", job_key="om_b1", topic_id=OTHER, at=T0 + 1, answer={"ok": False})  # Written again: its call failed.
+            (self.state / butler_opened.OPENED / "r1.json").unlink()
+            self.opened("r3", job_key="om_b2", topic_id=TOPIC)
+            self.moved(self.state / butler_opened.OPENED)
+            room.refresh(self.state)
+            self.assertEqual(sorted(reads), ["r2.json", "r3.json"])  # Not r1 (gone), not the relays (their folder did not change).
+            self.assertEqual(list(room.opened), ["om_b2"])
+            self.assertFalse([key for key in files.rows if key.endswith(os.sep + "r1.json")])
+        self.assertIs(self.sync.collector.room.files, self.sync.toucher.room.files)
+        self.sync.start_over_touch()
+        self.assertIs(self.sync.toucher.room.files, self.sync.shared.room_files)
+
+
 class OpLaneTest(WebCase):
     """T765 (2026-11-25): the page's operations are acknowledged as soon as each is done, their follow-ups after (as a card click's,
     app/card_lanes.py after_ack), in order within a topic and side by side across topics; one still running is not failed."""
@@ -3133,6 +3196,156 @@ class TouchPastStuckTest(WebCase):
         self.web.fail = 0
         self.assertGreater(self.sync.touch_once(T0 + 2), 0)
         self.assertEqual(self.web.items("question")[-1]["data"]["state"], "answered")
+
+
+class AnswerBeforeAckTest(WebCase):
+    """2026-11-28 T959: the owner answered the lead's question on the page at 22:22:57. Covey took it in 95 ms, gave it to the task in 2 s
+    and acknowledged it, and the task started within a second; the page held the question locked under 已执行，等页面更新 and showed no
+    answer until the touch had built the whole topic again, seconds on the network disk and more behind a stuck read. The question's
+    item, as its record has it after the answer, goes up before the ack: the page that sees done reads the question closed."""
+
+    def wait_for(self, check, seconds=3.0):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if check():
+                return True
+            time.sleep(0.02)
+        return check()
+
+    def answering(self, status="submitting", **more):
+        """submit_answer as app/questions.py does it: the answer saved (submitting) before the ack, the next turn after it."""
+        path = self.state / "questions" / f"{TOKEN}.json"
+
+        def submit(ctx, chat, token, fields, event, by=None):
+            write_json(path, {**read_object(path), "status": status, "answers": {"q1": {"answers": ["B"]}}, "answer_event": event, **more})
+            card_lanes.after_ack(lambda: write_json(path, {**read_object(path), "status": "answered", "answered_at": T0 + 3}))
+        self.app.questions.submit_answer = submit
+
+    def requests(self):
+        """[(path, body)] of what the page was sent, in order: an upsert's items, an ack's results."""
+        upserts, acks, out = iter(self.web.upserts), iter([[ack] for ack in self.web.acks]), []
+        for _, path, _ in self.web.seen:
+            if path.startswith("/sync/upsert"):
+                out.append(("upsert", next(upserts)["items"]))
+            elif path.startswith("/sync/ack"):
+                out.append(("ack", next(acks)))
+        return out
+
+    def test_the_answered_question_is_on_the_page_before_its_ack(self):
+        self.topic(status="waiting_user")
+        self.question()
+        self.sync.push_once(T0)
+        before = len(self.web.seen)
+        self.answering()
+        self.web.op("answer", 1, "op-q1", TOPIC, token=TOKEN, answers={"q1": "B"})
+        self.sync.inbox_once()
+        self.assertTrue(self.wait_for(lambda: not self.sync.op_lanes.lanes))
+        sent = [(kind, body) for kind, body in self.requests()[len([p for _, p, _ in self.web.seen[:before] if p.startswith(("/sync/upsert", "/sync/ack"))]):]]
+        self.assertEqual([kind for kind, _ in sent], ["upsert", "ack"])  # No touch ran: the question went up on its own, then the ack.
+        [item] = sent[0][1]
+        self.assertEqual((item["type"], item["key"]), ("question", TOKEN))
+        data = item["data"]
+        self.assertEqual((data["state"], data["closed_by"], data["answer"], data["topic_key"], data["topic_number"], data["project_key"]),
+                         ("answered", "owner", "B", TOPIC, 7, ""))
+        self.assertEqual(sent[1][1][0]["state"], "done")
+        self.assertTrue(any(line.startswith("web op answer seq=1 ") for line in self.logs))
+
+    def test_a_read_of_the_topic_from_before_the_answer_does_not_open_it_again(self):
+        self.topic(status="waiting_user")
+        self.question()
+        self.sync.push_once(T0)
+        self.sync.collector.collect_touched(CHAT, [TOPIC], T0 + 1)  # A quick look read the topic before the answer and posts it after.
+        self.answering()
+        self.web.op("answer", 1, "op-q2", TOPIC, token=TOKEN, answers={"q1": "B"})
+        self.sync.inbox_once()
+        self.assertTrue(self.wait_for(lambda: not self.sync.op_lanes.lanes))
+        self.assertEqual(self.sync.post_fresh(self.sync.collector), 0)
+        self.assertEqual(self.web.items("question")[-1]["data"]["state"], "answered")
+        self.sync.touch_soon([TOPIC])  # The touch builds the whole topic after the ack, as before.
+        self.assertGreater(self.sync.touch_once(T0 + 2), 0)
+        self.assertEqual(self.web.items("question")[-1]["data"]["state"], "answered")
+
+    def test_set_aside_goes_up_before_its_ack_and_its_undo_waits_for_the_touch(self):
+        self.topic(status="waiting_user")
+        self.question()
+        self.sync.push_once(T0)
+        path = self.state / "questions" / f"{TOKEN}.json"
+
+        def set_aside(ctx, chat, token, event, *, by=""):
+            write_json(path, {**read_object(path), "status": "set_aside", "set_aside_at": T0 + 2, "set_aside_event": event})
+            return True
+
+        def restore(ctx, chat, token, event):
+            write_json(path, {**read_object(path), "status": "pending"})
+            return True
+        self.app.questions.set_aside, self.app.questions.restore = set_aside, restore
+        self.web.op("answer", 1, "op-q3", TOPIC, token=TOKEN, aside=True)
+        self.sync.inbox_once()
+        self.assertTrue(self.wait_for(lambda: not self.sync.op_lanes.lanes))
+        data = self.web.items("question")[-1]["data"]
+        self.assertEqual((data["state"], data["closed_by"], data["restorable"]), ("answered", "set_aside", True))
+        count = len(self.web.items("question"))
+        self.web.op("answer", 2, "op-q4", TOPIC, token=TOKEN, restore=True)
+        self.sync.inbox_once()
+        self.assertTrue(self.wait_for(lambda: not self.sync.op_lanes.lanes))
+        self.assertEqual([row["state"] for row in self.web.acks], ["done", "done"])
+        self.assertEqual(len(self.web.items("question")), count)  # Open again, it needs the topic's turns: the touch sends it.
+        self.sync.touch_soon([TOPIC])
+        self.sync.touch_once(T0 + 3)
+        self.assertEqual(self.web.items("question")[-1]["data"]["state"], "open")
+
+    def test_a_batch_going_up_leaves_the_question_to_the_touch_and_the_ack_goes_on(self):
+        self.topic(status="waiting_user")
+        self.question()
+        self.sync.push_once(T0)
+        count = len(self.web.items("question"))
+        self.answering()
+        self.web.op("answer", 1, "op-q5", TOPIC, token=TOKEN, answers={"q1": "B"})
+        with mock.patch.object(app_web, "QUESTION_WAIT", 0.05), self.sync.post_lock:
+            self.sync.inbox_once()
+            self.assertTrue(self.wait_for(lambda: not self.sync.op_lanes.lanes))
+        self.assertEqual(self.web.acks[0]["state"], "done")
+        self.assertEqual(len(self.web.items("question")), count)
+        self.sync.touch_soon([TOPIC])
+        self.assertGreater(self.sync.touch_once(T0 + 2), 0)
+        self.assertEqual(self.web.items("question")[-1]["data"]["state"], "answered")
+
+    def test_an_answer_that_failed_or_a_page_that_refuses_the_question_still_gets_its_ack(self):
+        self.topic(status="waiting_user")
+        self.question()
+        self.sync.push_once(T0)
+        count = len(self.web.items("question"))
+        self.web.op("answer", 1, "op-q6", TOPIC, token="unknown12345", answers={"q1": "B"})
+        self.sync.inbox_once()
+        self.assertTrue(self.wait_for(lambda: not self.sync.op_lanes.lanes))
+        self.assertEqual(self.web.acks[-1]["state"], "failed")
+        self.assertEqual(len(self.web.items("question")), count)  # Nothing changed: nothing goes up before the ack.
+        self.answering()
+        real = self.sync.client.request
+
+        def request(method, path, body=None):
+            if path.startswith("/sync/upsert") and any(each["type"] == "question" for each in (body or {}).get("items") or ()):
+                raise WebError("HTTP 500", 500)
+            return real(method, path, body)
+        self.web.op("answer", 2, "op-q7", TOPIC, token=TOKEN, answers={"q1": "B"})
+        with mock.patch.object(self.sync.client, "request", side_effect=request):
+            self.sync.inbox_once()
+            self.assertTrue(self.wait_for(lambda: not self.sync.op_lanes.lanes))
+        self.assertEqual(self.web.acks[-1]["state"], "done")
+        self.assertTrue(any(line.startswith("web sync question before ack failed") for line in self.logs))
+
+    def test_the_leads_question_goes_up_with_its_project_and_no_number(self):
+        self.env.topics.apps = {"claude": self.app}
+        write_topic(self.state, topic_id=LEAD, chat_id=CHAT, harness_id="claude", project={"id": PID, "role": projects.LEAD})
+        self.question(topic_id=LEAD, origin="project_ask")
+        self.sync.push_once(T0)
+        self.answering()
+        self.web.op("answer", 1, "op-q8", LEAD, token=TOKEN, answers={"q1": "B"})
+        self.sync.inbox_once()
+        self.assertTrue(self.wait_for(lambda: not self.sync.op_lanes.lanes))
+        self.assertEqual(self.web.acks[-1]["state"], "done")
+        data = self.web.items("question")[-1]["data"]
+        self.assertEqual((data["state"], data["topic_key"], data["project_key"], data["topic_number"]), ("answered", LEAD, PID, 0))
 
 
 class RereadTest(WebCase):
