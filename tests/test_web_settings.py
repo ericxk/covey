@@ -125,7 +125,7 @@ class WebSettingsTest(SettingsCase):
         self.assertNotIn("lead", self.snap()["config"])
         with mock.patch.dict(os.environ, {"COVEY_PROJECTS": "1"}):
             lead = self.snap()["config"]["lead"]
-            self.assertEqual((lead["title"], lead["note"]), ("专项负责人", cards.LEAD_NOTE))
+            self.assertEqual((lead["title"], lead["note"]), ("专项负责人", web_settings.LEAD_NOTE))
             harness, = lead["rows"]  # Following the butler: the Harness row alone.
             self.assertEqual((harness["kind"], harness["current"], harness["editable"]), (cards.LEAD_HARNESS, "", True))
             from covey.core.roster import CORE_HARNESSES  # An enabled extension's (covey_internal's MASO) may be among them.
@@ -1206,8 +1206,17 @@ class StampCoverageTest(SettingsCase):
             self.addCleanup(each.stop)
 
     def reads(self) -> set:
-        """The files under the state directory one ``snapshot`` reads: Path.read_text and read_bytes (core/state.py read_json and
-        read_object end in the first) and open() for reading."""
+        """The files under the state directory one ``snapshot`` reads, every part built."""
+        seen = self.reads_of(self.snap)
+        data = self.last
+        for tab in ("config", "repos", "groups", "nodes", "proxy"):
+            self.assertIn(tab, data)
+            self.assertNotIn("error", data[tab], tab)
+        return seen
+
+    def reads_of(self, call) -> set:
+        """The files under the state directory ``call`` reads: Path.read_text and read_bytes (core/state.py read_json and
+        read_object end in the first) and open() for reading; what it returned is ``last``."""
         import builtins
         seen, state = set(), str(self.state)
 
@@ -1230,10 +1239,7 @@ class StampCoverageTest(SettingsCase):
             return opened(file, mode, *args, **kwargs)
         with mock.patch.object(Path, "read_text", text), mock.patch.object(Path, "read_bytes", raw), \
                 mock.patch.object(builtins, "open", open_):
-            data = self.snap()
-        for tab in ("config", "repos", "groups", "nodes", "proxy"):
-            self.assertIn(tab, data)
-            self.assertNotIn("error", data[tab], tab)
+            self.last = call()
         return seen
 
     def uncovered(self, read) -> list:
@@ -1252,6 +1258,24 @@ class StampCoverageTest(SettingsCase):
         self.assertTrue(any(name.startswith("proxy/contacts/") for name in names), names)
         self.assertTrue(any(name.startswith("launch-") for name in names), names)
         self.assertEqual(self.uncovered(read), [])
+
+    def test_each_part_reads_only_files_its_own_sources_stand_for(self):
+        """T970: a push between full looks builds again only the parts whose sources moved, so each part's reads must be its own
+        sources' (part_sources), not only some tab's."""
+        self.snap()
+        every = lambda: self.web.snapshot("dm", fresh=False)  # noqa: E731
+        common = self.reads_of(every)  # Nothing built again: what every snapshot reads (the tabs, the 代答 panel).
+        sources = self.web.part_sources(self.web.context())
+        parts = sorted(self.web.built)
+        self.assertEqual(set(parts), {"launch", "config", "repos", "groups", "nodes", "proxy", "workspace"})
+        for part in parts:
+            with self.subTest(part):
+                self.web.built.pop(part)
+                read = self.reads_of(every) - common
+                self.assertIn(part, self.web.built)
+                own = set(sources[part])
+                self.assertEqual(sorted(str(path.relative_to(self.state)) for path in read
+                                        if path not in own and path.parent not in own), [])
 
     def test_the_gate_names_a_file_a_source_leaves_out(self):
         read = self.reads()
@@ -1304,7 +1328,94 @@ class StampCoverageTest(SettingsCase):
         shutil.rmtree(self.state / "groups")
         stamps = self.web.stamps()
         self.assertIn(0, stamps)
-        self.assertEqual(len(stamps), len(self.web.sources(self.web.context())))
+        self.assertEqual(len(stamps), len(self.web.sources(self.web.context())) + 1)  # And the worktrees' scan (T970).
+
+
+class PartsTest(SettingsCase):
+    """T970 (2026-11-29 on the live page: a 代答 model picked took 6 to 8 s to show, the push before its ack built every tab again,
+    the worktrees' scan 1 to 4 s of it): between full looks a push builds again only the parts whose files moved; the worktrees, once
+    scanned, are scanned again in a thread of their own; the push before a 设置 op's ack waits for the other thread's."""
+
+    def counted(self, *names):
+        found = {}
+        for name in names:
+            patch = mock.patch.object(self.web, name, wraps=getattr(self.web, name))
+            found[name] = patch.start()
+            self.addCleanup(patch.stop)
+        return found
+
+    def test_a_push_between_full_looks_builds_only_the_parts_whose_files_moved(self):
+        first = self.web.snapshot("dm")
+        calls = self.counted("config", "repos", "groups", "workspaces")
+        built = lambda: {name: mock_.call_count for name, mock_ in calls.items()}  # noqa: E731
+        self.assertEqual(self.web.snapshot("dm", fresh=False), first)  # Nothing moved: nothing built, the same item.
+        self.assertEqual(built(), {"config": 0, "repos": 0, "groups": 0, "workspaces": 0})
+        settings.update(self.ctx.state_dir, compact_tokens=0)  # main-thread.json: 配置 and the old 工作区 page read it.
+        again = self.web.snapshot("dm", fresh=False)
+        self.assertEqual(built(), {"config": 1, "repos": 0, "groups": 0, "workspaces": 1})
+        self.assertNotEqual(again["config"], first["config"])
+        self.assertIs(again["repos"], first["repos"])
+        chat = "oc_group0123456789"
+        group_records.save_group(self.ctx.state_dir, chat, lambda record: {**record, "chat_id": chat, "active": True})
+        self.web.snapshot("dm", fresh=False)
+        self.assertEqual(built(), {"config": 1, "repos": 0, "groups": 1, "workspaces": 1})
+        self.web.snapshot("dm", fresh=False, background=True)
+        self.web.snapshot("dm")  # A full look: every part.
+        self.assertEqual(built(), {"config": 2, "repos": 1, "groups": 2, "workspaces": 2})
+
+    def test_a_part_that_cannot_be_read_is_built_again_next_time(self):
+        self.web.snapshot("dm")
+        with mock.patch.object(self.web, "groups", side_effect=OSError("stuck")):
+            self.web.built.pop("groups")
+            self.assertIn("error", self.web.snapshot("dm", fresh=False)["groups"])
+        self.assertNotIn("groups", self.web.built)
+        self.assertNotIn("error", self.web.snapshot("dm", fresh=False)["groups"])
+
+    def test_the_worktrees_are_scanned_again_in_their_own_thread_and_a_new_scan_moves_the_stamps(self):
+        scans = []
+
+        def page(state_dir, now):
+            scans.append(now)
+            return {"total": len(scans), "prunable": []}
+
+        def total(**kwargs):
+            return self.web.snapshot("dm", time.time(), **kwargs)["repos"]["worktrees"]["total"]
+        with mock.patch.object(web_settings, "worktrees_page", side_effect=page), mock.patch.object(web_settings, "WORKTREE_CACHE", 0.3):
+            self.assertEqual(total(background=True), 1)  # The first: in the build.
+            before = self.web.stamps()
+            time.sleep(0.35)
+            self.assertEqual(total(background=True), 1)  # Older: as it was, at once, and scanned again in a thread.
+            for _ in range(200):
+                if not self.web.scanning:
+                    break
+                time.sleep(0.01)
+            self.assertEqual(len(scans), 2)
+            self.assertNotEqual(self.web.stamps(), before)  # Found something new: the next push has it.
+            self.assertEqual(total(fresh=False, background=True), 2)
+            self.assertEqual(len(scans), 2)
+            time.sleep(0.35)
+            # Without ``background`` (a caller that wants it now) an older scan is done again in the build, as before.
+            self.assertEqual(total(), 3)
+
+    def test_the_push_before_a_settings_ack_waits_for_the_other_threads_push(self):
+        import threading
+        with mock.patch.dict(os.environ, {web_sync.ENV: "1"}):
+            sync = WebSync(self.app.runtime, self.env)
+        sync.client.request = mock.Mock(return_value={})
+        self.assertTrue(sync.settings_lock.acquire(blocking=False))
+        threading.Timer(0.2, sync.settings_lock.release).start()
+        self.assertEqual(sync.push_settings("dm", time.time(), wait=5.0), 1)
+        self.assertEqual(sync.client.request.call_args.args[:2], ("POST", "/sync/upsert"))
+        self.assertTrue(sync.settings_lock.acquire(blocking=False))
+        try:
+            self.assertEqual(sync.push_settings("dm", time.time()), 0)  # The pass thread's own turn does not wait.
+        finally:
+            sync.settings_lock.release()
+        with mock.patch.object(sync, "push_settings", return_value=0) as push, \
+                mock.patch.object(self.app.runtime.access, "owner_chat", return_value="dm"):
+            sync.before_ack("settings")
+            sync.before_ack("launch")
+        self.assertEqual([call.kwargs.get("wait") for call in push.call_args_list], [web_sync_app.SETTINGS_LOCK_WAIT, 0.0])
 
 
 class LockHeldTest(SettingsCase):

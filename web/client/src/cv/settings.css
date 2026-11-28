@@ -1,7 +1,8 @@
 /* 设置页（v7）：颜色只用 token，组件照 docs/ui.md：每块一个主按钮，其余边框或文字按钮；危险操作用危险色文字 */
 .cv .st-wrap{flex:1;min-height:0;overflow-y:auto}
-.cv .st-in{max-width:780px;margin:0 auto;padding:14px 24px 48px}
-.cv .st-tabs{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--line);margin:0 0 16px;scrollbar-width:none}
+.cv .st-in{max-width:960px;margin:0 auto;padding:0 24px 48px}
+/* 页签（T970）：滚动时贴在顶上，长的配置页往下翻也能换页 */
+.cv .st-tabs{position:sticky;top:0;z-index:6;display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--line);margin:0 0 16px;padding-top:14px;background:var(--bg);scrollbar-width:none}
 .cv .st-tabs::-webkit-scrollbar{display:none}
 .cv .st-tabs a{padding:9px 14px;font-size:13.5px;color:var(--t3);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
 .cv .st-tabs a:hover{color:var(--t1)}
@@ -9,8 +10,6 @@
 .cv .st-top{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
 .cv .st-sum{flex:1;min-width:0;color:var(--t3);font-size:12.5px;line-height:1.5;padding-top:6px}
 .cv .st-top .btn{flex:none}
-.cv .st-fx{display:inline-flex;flex-direction:column;align-items:flex-end;gap:4px}
-.cv .st-hint{font-size:12px;color:var(--t3);text-align:right}
 .cv .st-h{font-size:14px;font-weight:600;color:var(--t1);margin:16px 0 6px}
 .cv .st-h4{font-size:13px;font-weight:600;color:var(--t2);margin:14px 0 6px}
 .cv .st-sec .st-h{margin:18px 0 6px}
@@ -87,7 +86,6 @@
 .cv .st-tag{font-size:11.5px;color:var(--t3);border:1px solid var(--line2);border-radius:10px;padding:0 7px;line-height:18px}
 
 /* v15：设备、白名单、确认、添加表单 */
-.cv .st-top .st-fx{flex:none}
 .cv .st-ask{padding:4px 0 0}
 .cv .st-end{margin-left:auto}
 .cv .st-acts2{display:inline-flex;gap:14px}
@@ -149,7 +147,6 @@
    格子默认 2 列（手机），容器 ≥640px 4 列（电脑）；模型、工作区这类字长的项（wd）和两个长选项的分段按钮手机上占整行，
    grid-auto-flow:dense 让短的格子补进空位。设置页的「配置」、新话题面板（lx-r）、话题页换配置共用 */
 .cv .st-list,.cv .lx-panel{container-type:inline-size}
-.cv .st-in.wide{max-width:1000px}
 .cv .st-gr.cfg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-flow:dense;gap:6px;padding:8px;border-top:1px solid var(--line)}
 .cv .st-list>.st-gr.cfg:first-child,.cv .lx-panel>.st-gr.cfg:first-child{border-top:0}
 .cv .lx-panel>.st-gr.cfg{padding-left:0;padding-right:0}
@@ -217,4 +214,43 @@
   .cv .st-rec-r:not(.bad):not(.off) .st-rec-y{display:none}
   .cv .st-rec-t{grid-area:t}
   .cv .st-rec-a{grid-area:a;justify-self:end}
+}
+
+/* 配置页顶上一句（T970）：这些只有你能改，管家改不了；不再有概况和「去飞书改」 */
+.cv .st-lock{margin:0 2px 4px;font-size:12px;line-height:1.5;color:var(--t3)}
+
+/* 管家与负责人（T970）：一段一个框，每个角色一块：左边角色名，右边它的格子；手机上角色名在上 */
+.cv .st-role{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:start;border-top:1px solid var(--line)}
+.cv .st-roles>.st-role:first-child{border-top:0}
+.cv .st-role-l{padding:17px 0 0 16px;font-size:13px;font-weight:600;line-height:1.4;color:var(--t2);white-space:nowrap}
+.cv .st-role-c{min-width:0;container-type:inline-size}
+.cv .st-role-c>.st-gr.cfg{border-top:0;padding-left:0}
+.cv .st-role-c>.st-gr.cfg+.st-gr.cfg{padding-top:0}
+@container (max-width:520px){
+  .cv .st-role{grid-template-columns:1fr}
+  .cv .st-role-l{padding:10px 12px 0}
+  .cv .st-role-c>.st-gr.cfg{padding-left:8px}
+}
+
+/* 一行设置（T970「其他」）：标签和一句说明在左，下拉在右，同配置页格子里的下拉 */
+.cv .st-line{position:relative;display:flex;align-items:center;gap:16px;padding:12px 16px;border-top:1px solid var(--line)}
+.cv .st-list>.st-line:first-child{border-top:0}
+.cv .st-line-t{flex:1;min-width:0}
+.cv .st-line-l{font-size:13.5px;line-height:1.4;color:var(--t1)}
+.cv .st-line-d{margin-top:2px;font-size:12px;line-height:1.5;color:var(--t3)}
+.cv .st-line-c{position:relative;flex:none;width:280px;max-width:50%}
+.cv .st-line .st-sel{width:100%;height:32px;padding:0 30px 0 10px;border-radius:8px;border:1px solid var(--line2);background-color:var(--s2);color:var(--t1);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;appearance:none;-webkit-appearance:none;background-repeat:no-repeat;background-position:right 10px center;background-size:12px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%238b92a2' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
+.cv .st-line .st-sel:hover:not(:disabled){border-color:var(--a1)}
+.cv .st-line .st-sel:focus-visible{outline:2px solid var(--a1);outline-offset:1px}
+.cv .st-line .st-one{display:block;text-align:right}
+.cv .st-line.saving .st-sel{opacity:.55}
+.cv .st-line.saving .st-line-c::after{content:"";position:absolute;top:50%;margin-top:-5px;right:28px;width:10px;height:10px;box-sizing:border-box;border:2px solid var(--line2);border-top-color:var(--a1);border-radius:50%;animation:st-spin .7s linear infinite;pointer-events:none}
+.cv .st-line .st-pop{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;padding:6px 10px;border:1px solid var(--fail);border-radius:8px;background:var(--s1);color:var(--fail);font-size:12px;line-height:1.5}
+@media (prefers-reduced-motion:reduce){.cv .st-line.saving .st-line-c::after{animation:none}}
+@media (max-width:767px){
+  .cv .st-in{padding:0 12px 96px}
+  .cv .st-tabs{padding-top:10px}
+  .cv .st-line{flex-direction:column;align-items:stretch;gap:8px;padding:12px}
+  .cv .st-line-c{width:100%;max-width:none}
+  .cv .st-line .st-sel{height:40px;font-size:14px}
 }

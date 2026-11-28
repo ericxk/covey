@@ -77,6 +77,9 @@ CENTER_WAIT, CENTER_WAIT_MAX = 60.0, 1800.0  # The memory center's keys after a 
 CENTER_REST = 20.0
 HELD_LOG_SECONDS = 60.0  # A push that finds its lock held says so at most this often an item (WebSync.lock_held).
 CENTER_LOCK_WAIT = 5.0  # A push before the page's ack waits this long for a build the pass is making, then goes without.
+# The settings pushed before a 设置 op's ack wait this long for the other thread's push, then go without (T970: a page that saw done
+# before the new settings drew the old value again until the next push).
+SETTINGS_LOCK_WAIT = 3.0
 INBOX_WAIT = 8  # Seconds a page that knows ``wait`` holds an empty /sync/inbox (it answers ``waited``); within the client's TIMEOUT.
 OP_WAIT = 5.0  # Seconds an inbox step waits for the operations it handed to their lanes before it asks again.
 # Seconds an answer's question item waits for another thread's batch to go up before its ack (push_question); then the touch sends it.
@@ -905,9 +908,11 @@ class WebSync:
         lock held, so a push that is skipped again keeps it."""
         return self.held.pop(name, None) is not None or full
 
-    def settings_items(self, chat, now, full) -> list:
+    def settings_items(self, chat, now, full, fresh=None) -> list:
         """The ``settings`` item (app/web_settings.py) when it is due: on a full look, after the page changed a setting, when main-thread.json
-        or the workspace list or the term list changed (three stats); else none. Never raises (a 设置 that cannot be read stops nothing)."""
+        or the workspace list or the term list changed (three stats); else none. Never raises (a 设置 that cannot be read stops nothing).
+        ``fresh`` (``full`` unless said): every part of it built again; else only the parts whose files moved (WebSettings ``snapshot``),
+        the worktrees scanned in a thread of their own."""
         if getattr(self.env, "settings", None) is None:
             return []
         builder = self.ops.web_settings
@@ -916,7 +921,8 @@ class WebSync:
             if not (full or self.settings_due or stamps != self.settings_stamps):
                 return []
             self.settings_due, self.settings_stamps = False, stamps
-            items = [web_sync.item("settings", web_sync.SETTINGS_KEY, builder.snapshot(chat, now))]
+            fresh = full if fresh is None else fresh
+            items = [web_sync.item("settings", web_sync.SETTINGS_KEY, builder.snapshot(chat, now, fresh=fresh, background=True))]
             if full:  # 本周用量 as the card counts it (data contract v15): once a full look, its rev changes as tasks run.
                 items.append(web_sync.item("settings", web_sync.USAGE_KEY, builder.usage(now)))
             return items
@@ -924,20 +930,21 @@ class WebSync:
             self.runtime.log(f"web settings not built: {type(exc).__name__}")
             return []
 
-    def push_settings(self, chat, now, full=False) -> int:
+    def push_settings(self, chat, now, full=False, wait=0.0) -> int:
         """The ``settings`` item posted on its own when it is due and changed (``settings_items``): from the pass thread each step (a few
         stats of its files: a change on the card is on the page a second later, however long the quick looks take) and on a full pass;
-        and from the inbox thread right after the page changed a setting, so it is on the page before the operation's ack. One at a
-        time (``settings_lock``); a turn that finds the lock held leaves a mark (``lock_held``) and the next one pushes in full. How many went (0 or 1);
-        a failed post is logged and tried on the next look."""
-        if not self.settings_lock.acquire(blocking=False):
+        and from the inbox thread right after the page changed a setting, so it is on the page before the operation's ack (``wait``:
+        seconds it waits for the other thread's push, SETTINGS_LOCK_WAIT). One at a time (``settings_lock``); a turn that finds the lock
+        held leaves a mark (``lock_held``) and the next one pushes in full, building again only the parts that moved (a full look builds
+        them all). How many went (0 or 1); a failed post is logged and tried on the next look."""
+        if not (self.settings_lock.acquire(timeout=wait) if wait > 0 else self.settings_lock.acquire(blocking=False)):
             # The other thread posts it, or a look left behind still holds it (a read on the network disk that hangs): the item is due
             # again, and the next turn pushes it in full.
             self.settings_due = True
             return self.lock_held("settings")
         try:
-            full = self.catch_up("settings", full)
-            due = [each for each in self.settings_items(chat, now, full)
+            caught = self.catch_up("settings", full)
+            due = [each for each in self.settings_items(chat, now, caught, fresh=full)
                    if self.sent.get((each["type"], each["key"])) != each["rev"]]
             if not due:
                 return 0
@@ -1387,7 +1394,7 @@ class WebSync:
             return
         if kind in ("settings", "launch"):
             self.settings_due = True
-        self.push_settings(chat, time.time())
+        self.push_settings(chat, time.time(), wait=SETTINGS_LOCK_WAIT if kind == "settings" else 0.0)
         if kind == "tidy_decide":
             self.tidy_stamps = None
         if kind == "memory_edit":

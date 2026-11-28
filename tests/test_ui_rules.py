@@ -441,10 +441,34 @@ class MoreFoldTest(unittest.TestCase):
         self.assertEqual(len(FOLDED), 5)
 
 
+class WebSettingsLayoutTest(unittest.TestCase):
+    """U16: the web page's 设置 is one width on every tab, 管家 and 专项负责人 are one section with a block each, 更多 is 其他 with
+    a row a setting, and no tab has 去飞书改 at its top (read off the page's source, as the page's own tests do)."""
+
+    def setUp(self):
+        cv = REPO / "web" / "client" / "src" / "cv"
+        self.tsx = (cv / "Settings.tsx").read_text(encoding="utf-8")
+        self.css = (cv / "settings.css").read_text(encoding="utf-8")
+
+    def test_one_width(self):
+        self.assertIn('<div className="st-in">', self.tsx)
+        self.assertNotIn("' wide'", self.tsx)
+        self.assertNotIn(".st-in.wide", self.css)
+        self.assertEqual(len(re.findall(r"\.st-in\{max-width:", self.css)), 1)
+
+    def test_roles_together_other_as_lines_and_no_feishu_button(self):
+        self.assertIn("'管家与负责人'", self.tsx)
+        self.assertRegex(self.tsx, r"<RolesSection main=\{p\.main\} lead=\{p\.lead\}")
+        self.assertIn('<h3 className="st-h">其他</h3>', self.tsx)
+        self.assertNotIn('<h3 className="st-h">更多</h3>\n        <Grid', self.tsx)
+        self.assertNotIn("去飞书改", self.tsx.replace("「去飞书改」已下线", ""))
+        self.assertNotIn("FeishuBtn", self.tsx)
+
+
 # The rules of this module, by their number in docs/ui.md 13.
 RULES = {"U1": "BandTest", "U2": "HeaderTest", "U3": "SpeakerRowTest", "U4": "QuestionButtonsTest", "U5": "ModelChoiceTest",
          "U6": "ButtonWordsTest", "U11": "BoardBandTest", "U13": "TidyFailedTest", "U14": "AssistSectionTest",
-         "U15": "MoreFoldTest"}
+         "U15": "MoreFoldTest", "U16": "WebSettingsLayoutTest"}
 
 
 def decisions() -> list:

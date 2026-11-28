@@ -112,32 +112,21 @@ const Receipt: React.FC<{ s?: Phase; cell?: boolean }> = ({ s, cell }) => {
 const TONE: Record<SettingsTone, string> = { green: 'result', orange: 'waiting', red: 'stopped', neutral: 'queued', blue: 'running' };
 const Tag: React.FC<{ tone: SettingsTone; text: string }> = ({ tone, text }) => <span className={`pill tone-${TONE[tone] ?? 'queued'}`}>{text}</span>;
 
-/** 去飞书改：有链接就在新窗口打开机器人；没有就提示去哪里改 */
-const FeishuBtn: React.FC<{ feishu: string; link?: boolean }> = ({ feishu, link }) => {
-  const [hint, setHint] = useState<boolean>(false);
-  const cls: string = link ? 'st-link' : 'btn';
-  if (feishu) {
-    return (
-      <a className={cls} href={feishu} target="_blank" rel="noopener noreferrer">
-        去飞书改{link ? null : <ExternalLink />}
-      </a>
-    );
-  }
-  return (
-    <span className="st-fx">
-      <button type="button" className={cls} onClick={() => setHint(!hint)}>去飞书改</button>
-      {hint ? <span className="st-hint">在飞书机器人菜单「设置」里改</span> : null}
-    </span>
-  );
-};
+/** 去飞书：只用在网页上做不了、非得去飞书卡上处理的地方（代答的网页登录要扫码）；有链接就在新窗口打开机器人，没有就写去哪里。
+ * 各页顶上的「去飞书改」已下线（T970）：网页上能改的都在页面上，改不了的那一行说明里写着去哪 */
+const FeishuLink: React.FC<{ feishu: string; text: string }> = ({ feishu, text }) =>
+  feishu ? (
+    <a className="st-link" href={feishu} target="_blank" rel="noopener noreferrer">{text}<ExternalLink /></a>
+  ) : <span className="st-faint">在飞书机器人菜单里处理</span>;
 
-const Top: React.FC<{ summary: string; feishu: string; extra?: React.ReactNode }> = ({ summary, feishu, extra }) => (
-  <div className="st-top">
-    <div className="st-sum">{summary}</div>
-    {extra}
-    <FeishuBtn feishu={feishu} />
-  </div>
-);
+/** 页头：一句概况，右边是这一页自己的主按钮（开启代答、刷新）；两样都没有就不占位 */
+const Top: React.FC<{ summary: string; extra?: React.ReactNode }> = ({ summary, extra }) =>
+  summary || extra ? (
+    <div className="st-top">
+      <div className="st-sum">{summary}</div>
+      {extra}
+    </div>
+  ) : null;
 
 /** 两步确认：先点“移除”，行内换成“确认移除 / 取消”；文案写清楚丢什么 */
 const Confirm: React.FC<{ text: string; ok: string; busy?: boolean; onOk: () => void; onNo: () => void }> = ({ text, ok, busy, onOk, onNo }) => (
@@ -176,7 +165,7 @@ const Choice: React.FC<{ row: SettingsRow; busy: boolean; onPick: (v: string) =>
 /** 字长的项：手机上占整行 */
 const WIDE: Set<string> = new Set(['t_model', 'model', 'r_model', 'l_model', 'a_model', 't_space', 'space', 'subagent', 'assist']);
 
-const RowView: React.FC<{ row: SettingsRow; ops: Ops; feishu: string; mk?: (row: SettingsRow, option: string) => Record<string, unknown>; cell?: boolean; stale?: boolean }> = ({ row, ops, feishu, mk, cell, stale }) => {
+const RowView: React.FC<{ row: SettingsRow; ops: Ops; mk?: (row: SettingsRow, option: string) => Record<string, unknown>; cell?: boolean; stale?: boolean }> = ({ row, ops, mk, cell, stale }) => {
   const s: Phase | undefined = ops.st[row.key];
   const busy: boolean = s?.phase === 'saving';
   // 点了就先照选的画，Covey 推来新快照（current 变了）再以快照为准；没成功就回到快照的值
@@ -203,7 +192,7 @@ const RowView: React.FC<{ row: SettingsRow; ops: Ops; feishu: string; mk?: (row:
             }}
           />
         ) : (
-          <div className="st-ro"><span className="st-val" title={row.text}>{row.text}</span><FeishuBtn feishu={feishu} link /></div>
+          <div className="st-ro"><span className="st-val" title={`${row.text}（网页上只读，在飞书设置卡上改）`}>{row.text}</span></div>
         )}
         <Receipt s={s} cell={cell} />
       </div>
@@ -211,15 +200,15 @@ const RowView: React.FC<{ row: SettingsRow; ops: Ops; feishu: string; mk?: (row:
   );
 };
 
-const Rows: React.FC<{ rows: SettingsRow[]; ops: Ops; feishu: string; head?: React.ReactNode; mk?: (row: SettingsRow, option: string) => Record<string, unknown> }> = ({ rows, ops, feishu, head, mk }) => (
+const Rows: React.FC<{ rows: SettingsRow[]; ops: Ops; head?: React.ReactNode; mk?: (row: SettingsRow, option: string) => Record<string, unknown> }> = ({ rows, ops, head, mk }) => (
   <div className="st-list">
     {head}
-    {rows.map((r: SettingsRow) => <RowView key={r.key} row={r} ops={ops} feishu={feishu} mk={mk} />)}
+    {rows.map((r: SettingsRow) => <RowView key={r.key} row={r} ops={ops} mk={mk} />)}
   </div>
 );
 
 /** 联动：Harness → 供应商 → 模型 → 思考预算。同一组里前面的项正在保存，后面的项在新快照到来前显示“更新中…”；辅助模型的 Harness 行 key 是 assist */
-const LINK = /^(?:t_|r_|l_|a_)?(harness|provider|model|effort)$/;
+const LINK = /^(?:t_|r_|l_|a_|p_)?(harness|provider|model|effort)$/;
 const LINK_ORDER: string[] = ['harness', 'provider', 'model', 'effort'];
 const role = (key: string): string => (key === 'assist' ? 'harness' : LINK.exec(key)?.[1] ?? '');
 const linked = (g: SettingsRow[], i: number, ops: Ops): boolean => {
@@ -232,7 +221,7 @@ const linked = (g: SettingsRow[], i: number, ops: Ops): boolean => {
 };
 
 /** 配置页的紧凑排版：按 key 分行（每行一组格子），数据里没有的 key 跳过；不认识的 key 放到最后一行。start（直接开工）在下线，有就照旧一行显示 */
-const Grid: React.FC<{ rows: SettingsRow[]; layout: string[][]; ops: Ops; feishu: string; mk?: (row: SettingsRow, option: string) => Record<string, unknown> }> = ({ rows, layout, ops, feishu, mk }) => {
+const Grid: React.FC<{ rows: SettingsRow[]; layout: string[][]; ops: Ops; mk?: (row: SettingsRow, option: string) => Record<string, unknown>; bare?: boolean }> = ({ rows, layout, ops, mk, bare }) => {
   const by: Record<string, SettingsRow> = {};
   rows.forEach((r: SettingsRow) => { by[r.key] = r; });
   const known: Set<string> = new Set(layout.flat());
@@ -240,39 +229,37 @@ const Grid: React.FC<{ rows: SettingsRow[]; layout: string[][]; ops: Ops; feishu
   const rest: SettingsRow[] = rows.filter((r: SettingsRow) => !known.has(r.key));
   if (rest.length) groups.push(rest);
   if (!groups.length) return null;
-  return (
-    <div className="st-list">
-      {groups.map((g: SettingsRow[]) => (
-        <div key={g[0].key} className={`st-gr cfg n${Math.min(g.length, 4)}`}>
-          {g.map((r: SettingsRow, i: number) => <RowView key={r.key} row={r} ops={ops} feishu={feishu} mk={mk} cell stale={linked(g, i, ops)} />)}
-        </div>
-      ))}
+  const body = groups.map((g: SettingsRow[]) => (
+    <div key={g[0].key} className={`st-gr cfg n${Math.min(g.length, 4)}`}>
+      {g.map((r: SettingsRow, i: number) => <RowView key={r.key} row={r} ops={ops} mk={mk} cell stale={linked(g, i, ops)} />)}
     </div>
-  );
+  ));
+  return bare ? <>{body}</> : <div className="st-list">{body}</div>;
 };
 const TOPIC_LAYOUT: string[][] = [['t_harness', 't_provider', 't_model', 't_effort'], ['t_space', 't_run_mode']];
-const MAIN_LAYOUT: string[][] = [['harness', 'provider', 'model', 'effort'], ['space', 'compact'], ['mode']];
-/** v36 专项负责人：新建的专项，负责人用的 Harness、模型、思考预算（开了专项才有这一段） */
+/** 管家与负责人（T970 并成一段）：每个角色一块、一组格子，压缩阈值接在思考预算后面（4 列放不下就换到下一行，不另起一组） */
+const MAIN_LAYOUT: string[][] = [['harness', 'provider', 'model', 'effort', 'compact', 'space'], ['mode']];
+/** v36 专项负责人：新建的专项，负责人用的 Harness、模型、思考预算（开了专项才有） */
 const LEAD_LAYOUT: string[][] = [['l_harness', 'l_provider', 'l_model', 'l_effort']];
-const MORE_LAYOUT: string[][] = [['subagent']];
+/** 代答话题的模型（T970）：和配置页同一套格子，Harness → 供应商 → 模型 → 思考预算联动 */
+const PROXY_LAYOUT: string[][] = [['p_harness', 'p_provider', 'p_model', 'p_effort']];
 /** 辅助模型（T884）：分流、整理专项、记忆自己长这些后台活都用这一个；T924 起和上面几段一样，选了 Harness 再选供应商、模型、思考预算；管家关着也能改 */
 const ASSIST_LAYOUT: string[][] = [['assist', 'a_provider', 'a_model', 'a_effort']];
 
 const Note: React.FC<{ text?: string }> = ({ text }) => (text ? <p className="st-note">{text}</p> : null);
 
-const ErrorPage: React.FC<{ error: string; feishu: string }> = ({ error, feishu }) => (
+const ErrorPage: React.FC<{ error: string }> = ({ error }) => (
   <div className="st-empty">
     <p>{error}</p>
-    <FeishuBtn feishu={feishu} />
   </div>
 );
 const isErr = (p: unknown): p is SettingsError => !!p && typeof p === 'object' && typeof (p as SettingsError).error === 'string';
 
 /* ---------- 各页 ---------- */
-const TopicTab: React.FC<{ p: SettingsTopicPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => (
+const TopicTab: React.FC<{ p: SettingsTopicPage; ops: Ops }> = ({ p, ops }) => (
   <>
-    <Top summary={p.summary} feishu={feishu} />
-    <Rows rows={p.rows} ops={ops} feishu={feishu} />
+    <Top summary={p.summary} />
+    <Rows rows={p.rows} ops={ops} />
     <Note text={p.note} />
     <Note text={p.start_note} />
     {p.trusted ? (
@@ -295,7 +282,7 @@ const TopicTab: React.FC<{ p: SettingsTopicPage; ops: Ops; feishu: string }> = (
     {p.more.length ? (
       <>
         <h3 className="st-h">更多</h3>
-        <Rows rows={p.more} ops={ops} feishu={feishu} />
+        <Rows rows={p.more} ops={ops} />
         <Note text={p.more_note} />
       </>
     ) : null}
@@ -347,12 +334,12 @@ const RecentTable: React.FC<{ lines: RecentLine[] }> = ({ lines }) => (
 );
 
 /** 辅助模型：Harness（自动跟随管家、各 Harness、不用模型），选了 Harness 再有供应商、模型、思考预算；说明，现在实际用的，后台活最近一次 */
-const AssistSection: React.FC<{ p: SettingsConfigAssist; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
+const AssistSection: React.FC<{ p: SettingsConfigAssist; ops: Ops }> = ({ p, ops }) => {
   const now: number = Math.floor(useTick(30000));
   return (
     <section className="st-sec st-assist">
       <h3 className="st-h">{p.title}</h3>
-      <Grid rows={p.rows} layout={ASSIST_LAYOUT} ops={ops} feishu={feishu} />
+      <Grid rows={p.rows} layout={ASSIST_LAYOUT} ops={ops} />
       <Note text={p.note} />
       {p.words ? <p className="st-note st-now">{p.words}</p> : null}
       <RecentTable lines={recentLines(p.recent, now)} />
@@ -360,56 +347,101 @@ const AssistSection: React.FC<{ p: SettingsConfigAssist; ops: Ops; feishu: strin
   );
 };
 
-/** 配置（v22）：和飞书设置卡的「配置」同一页同几段；卡片一次只展开一段（放不下），网页没有这个限制，各段都展开 */
-const ConfigTab: React.FC<{ p: SettingsConfigPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => (
-  <>
-    <Top summary={p.summary} feishu={feishu} />
-    <Note text={p.locked} />
-    <section className="st-sec">
-      <h3 className="st-h">{p.topic.title}</h3>
-      <Grid rows={p.topic.rows} layout={TOPIC_LAYOUT} ops={ops} feishu={feishu} />
-      <Note text={p.topic.note} />
-      {p.topic.start_note ? <Note text={p.topic.start_note} /> : null}
-      {p.topic.trusted ? <Trusted items={p.topic.trusted} ops={ops} /> : null}
-    </section>
-    {p.main ? (
-      <section className="st-sec">
-        <h3 className="st-h">{p.main.title}</h3>
-        <Grid rows={p.main.rows} layout={MAIN_LAYOUT} ops={ops} feishu={feishu} />
-        <Note text={p.main.note} />
-      </section>
-    ) : null}
-    {p.lead ? (
-      <section className="st-sec">
-        <h3 className="st-h">{p.lead.title}</h3>
-        <Grid rows={p.lead.rows} layout={LEAD_LAYOUT} ops={ops} feishu={feishu} />
-        <Note text={p.lead.note} />
-      </section>
-    ) : null}
-    {p.assist ? <AssistSection p={p.assist} ops={ops} feishu={feishu} /> : null}
-    {p.more.length ? (
-      <section className="st-sec">
-        <h3 className="st-h">更多</h3>
-        <Grid rows={p.more} layout={MORE_LAYOUT} ops={ops} feishu={feishu} />
-        <Note text={p.more_note} />
-      </section>
-    ) : null}
-  </>
-);
+/** 一行设置（标签和一句说明在左，控件在右）：「其他」里这种单独一项用它，不用格子。点了先照选的画，快照回来以快照为准 */
+const LineView: React.FC<{ row: SettingsRow; ops: Ops; desc?: string }> = ({ row, ops, desc }) => {
+  const s: Phase | undefined = ops.st[row.key];
+  const busy: boolean = s?.phase === 'saving';
+  const [want, setWant] = useState<string | null>(null);
+  useEffect(() => setWant(null), [row.current]);
+  const shown: SettingsRow = want !== null && busy ? { ...row, current: want, text: row.options.find((o) => o.value === want)?.text ?? row.text } : row;
+  return (
+    <div className={`st-line${busy ? ' saving' : ''}`}>
+      <div className="st-line-t">
+        <div className="st-line-l">{row.label}</div>
+        {desc ? <div className="st-line-d">{desc}</div> : null}
+      </div>
+      <div className="st-line-c">
+        {row.editable ? (
+          <Choice compact row={shown} busy={busy} onPick={(v: string) => { setWant(v); void ops.run(row.key, { what: 'row', kind: row.kind, option: v }); }} />
+        ) : <span className="st-one" title={`${row.text}（网页上只读，在飞书设置卡上改）`}>{row.text}</span>}
+        <Receipt s={s} cell />
+      </div>
+    </div>
+  );
+};
 
-const MainTab: React.FC<{ p: SettingsMainPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => (
+/** 说明开头重复了标签（“子 Agent 对所有……”）就去掉，放在标签下面不念两遍 */
+const descOf = (note: string, label: string): string => (note.startsWith(label) ? note.slice(label.length).trim() : note);
+
+/** 管家与负责人（T970）：两个角色一段，每个角色一块（左边角色名，右边它的格子），说明一句；只有其中一个时标题就是它 */
+const RolesSection: React.FC<{ main?: SettingsConfigPage['main']; lead?: SettingsConfigPage['lead']; ops: Ops }> = ({ main, lead, ops }) => {
+  if (!main && !lead) return null;
+  const title: string = main && lead ? '管家与负责人' : main ? main.title : (lead?.title ?? '');
+  const notes: string[] = [main?.note ?? '', lead?.note ?? ''].filter((t: string) => !!t);
+  return (
+    <section className="st-sec">
+      <h3 className="st-h">{title}</h3>
+      <div className="st-list st-roles">
+        {main ? (
+          <div className="st-role">
+            <div className="st-role-l">管家</div>
+            <div className="st-role-c"><Grid bare rows={main.rows} layout={MAIN_LAYOUT} ops={ops} /></div>
+          </div>
+        ) : null}
+        {lead ? (
+          <div className="st-role">
+            <div className="st-role-l">负责人</div>
+            <div className="st-role-c"><Grid bare rows={lead.rows} layout={LEAD_LAYOUT} ops={ops} /></div>
+          </div>
+        ) : null}
+      </div>
+      {notes.map((t: string) => <Note key={t} text={t} />)}
+    </section>
+  );
+};
+
+/** 配置（v22）：和飞书设置卡的「配置」同几项；卡片一次只展开一段（放不下），网页各段都展开。
+ * T970：顶上的概况不再写（下面各段就是），管家和专项负责人并成一段，「更多」改叫「其他」、一项一行 */
+const ConfigTab: React.FC<{ p: SettingsConfigPage; ops: Ops }> = ({ p, ops }) => {
+  const one: boolean = p.more.length === 1;
+  return (
+    <>
+      {p.locked ? <p className="st-lock">{p.locked}</p> : null}
+      <section className="st-sec">
+        <h3 className="st-h">{p.topic.title}</h3>
+        <Grid rows={p.topic.rows} layout={TOPIC_LAYOUT} ops={ops} />
+        <Note text={p.topic.note} />
+        {p.topic.start_note ? <Note text={p.topic.start_note} /> : null}
+        {p.topic.trusted ? <Trusted items={p.topic.trusted} ops={ops} /> : null}
+      </section>
+      <RolesSection main={p.main} lead={p.lead} ops={ops} />
+      {p.assist ? <AssistSection p={p.assist} ops={ops} /> : null}
+      {p.more.length ? (
+        <section className="st-sec">
+          <h3 className="st-h">其他</h3>
+          <div className="st-list">
+            {p.more.map((r: SettingsRow) => <LineView key={r.key} row={r} ops={ops} desc={one ? descOf(p.more_note, r.label) : undefined} />)}
+          </div>
+          {one ? null : <Note text={p.more_note} />}
+        </section>
+      ) : null}
+    </>
+  );
+};
+
+const MainTab: React.FC<{ p: SettingsMainPage; ops: Ops }> = ({ p, ops }) => (
   <>
-    <Top summary={p.summary} feishu={feishu} />
+    <Top summary={p.summary} />
     <Rows
       rows={p.rows}
       ops={ops}
-      feishu={feishu}
+     
       head={p.harness ? <div className="st-r"><div className="st-l">Harness</div><div className="st-c"><div className="st-ro"><span className="st-val">{p.harness}</span></div></div></div> : undefined}
     />
     {p.more?.length ? (
       <>
         <h3 className="st-h">更多</h3>
-        <Rows rows={p.more} ops={ops} feishu={feishu} />
+        <Rows rows={p.more} ops={ops} />
       </>
     ) : null}
     <Note text={p.note} />
@@ -510,11 +542,11 @@ const WorkspaceAdd: React.FC<{ p: SettingsWorkspacePage; ops: Ops }> = ({ p, ops
   );
 };
 
-const WorkspaceTab: React.FC<{ p: SettingsWorkspacePage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
+const WorkspaceTab: React.FC<{ p: SettingsWorkspacePage; ops: Ops }> = ({ p, ops }) => {
   const now: number = useTick(60000);
   return (
     <>
-      <Top summary={p.summary} feishu={feishu} />
+      <Top summary={p.summary} />
       <div className="st-list">
         {p.items.length ? p.items.map((it) => <WsItem key={it.name} it={it} page={p} ops={ops} now={now} />) : <div className="st-r st-tr"><span className="st-faint">还没有工作区</span></div>}
       </div>
@@ -713,7 +745,7 @@ const Filter: React.FC<{ label: string; value: string; options: { value: string;
   </div>
 );
 
-const ReposTab: React.FC<{ p: SettingsReposPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
+const ReposTab: React.FC<{ p: SettingsReposPage; ops: Ops }> = ({ p, ops }) => {
   const now: number = useTick(60000);
   const [place, setPlace] = useState<string>('');
   const [kind, setKind] = useState<RP.KindFilter>('');
@@ -723,7 +755,7 @@ const ReposTab: React.FC<{ p: SettingsReposPage; ops: Ops; feishu: string }> = (
   const shown: SettingsRepoItem[] = RP.filterItems(p.items, at, kinds ? kind : '');
   return (
     <>
-      <Top summary={RP.summaryText(p)} feishu={feishu} />
+      <Top summary={RP.summaryText(p)} />
       {places.length || kinds ? (
         <div className="rp-filters">
           {places.length ? <Filter label="在哪" value={at} options={places} onPick={setPlace} /> : null}
@@ -795,9 +827,9 @@ const GroupRow: React.FC<{ g: SettingsGroupItem; ops: Ops }> = ({ g, ops }) => {
   );
 };
 
-const GroupsTab: React.FC<{ p: SettingsGroupsPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => (
+const GroupsTab: React.FC<{ p: SettingsGroupsPage; ops: Ops }> = ({ p, ops }) => (
   <>
-    <Top summary={p.summary} feishu={feishu} />
+    <Top summary={p.summary} />
     <div className="st-list">
       {p.items.length ? p.items.map((g) => <GroupRow key={g.key} g={g} ops={ops} />) : <div className="st-r st-tr"><span className="st-faint">还没有群</span></div>}
     </div>
@@ -992,7 +1024,7 @@ const DeviceAdd: React.FC<{ ops: Ops }> = ({ ops }) => {
   );
 };
 
-const DevicesTab: React.FC<{ p: SettingsNodesPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
+const DevicesTab: React.FC<{ p: SettingsNodesPage; ops: Ops }> = ({ p, ops }) => {
   const now: number = useTick(30000);
   const rs: Phase | undefined = ops.st['node:refresh'];
   const rows: SettingsDeviceRow[] = p.rows ?? [];
@@ -1000,7 +1032,6 @@ const DevicesTab: React.FC<{ p: SettingsNodesPage; ops: Ops; feishu: string }> =
     <>
       <Top
         summary={p.summary}
-        feishu={feishu}
         extra={<button type="button" className="btn" disabled={rs?.phase === 'saving'} onClick={() => void ops.run('node:refresh', { what: 'refresh' })}>刷新</button>}
       />
       <Receipt s={rs} />
@@ -1032,19 +1063,18 @@ const DevicesTab: React.FC<{ p: SettingsNodesPage; ops: Ops; feishu: string }> =
   );
 };
 
-const NodesTab: React.FC<{ p: SettingsNodesPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
-  if (DV.hasRows(p)) return <DevicesTab p={p} ops={ops} feishu={feishu} />;
-  return <OldNodesTab p={p} ops={ops} feishu={feishu} />;
+const NodesTab: React.FC<{ p: SettingsNodesPage; ops: Ops }> = ({ p, ops }) => {
+  if (DV.hasRows(p)) return <DevicesTab p={p} ops={ops} />;
+  return <OldNodesTab p={p} ops={ops} />;
 };
 
 /** 旧 Covey（v45 及以前）：只有节点 */
-const OldNodesTab: React.FC<{ p: SettingsNodesPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
+const OldNodesTab: React.FC<{ p: SettingsNodesPage; ops: Ops }> = ({ p, ops }) => {
   const rs: Phase | undefined = ops.st['node:refresh'];
   return (
     <>
       <Top
         summary={p.summary}
-        feishu={feishu}
         extra={<button type="button" className="btn" disabled={rs?.phase === 'saving'} onClick={() => void ops.run('node:refresh', { what: 'refresh' })}>刷新</button>}
       />
       <Receipt s={rs} />
@@ -1094,11 +1124,11 @@ const ContactRow: React.FC<{ c: SettingsProxyContact; ops: Ops }> = ({ c, ops })
 const ProxyTab: React.FC<{ p: SettingsProxyPage; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
   const s: Phase | undefined = ops.st['proxy:toggle'];
   const probs: string[] = p.problems ?? [];
+  const mk = (row: SettingsRow, option: string): Record<string, unknown> => ({ what: 'proxy', op: 'row', kind: row.kind, option });
   return (
     <>
       <Top
         summary={p.summary}
-        feishu={feishu}
         extra={
           <button type="button" className={`btn${p.enabled ? '' : ' pri'}`} disabled={s?.phase === 'saving'} onClick={() => void ops.run('proxy:toggle', { what: 'proxy', op: p.enabled ? 'disable' : 'enable' })}>
             {p.enabled ? '关闭代答' : '开启代答'}
@@ -1108,16 +1138,24 @@ const ProxyTab: React.FC<{ p: SettingsProxyPage; ops: Ops; feishu: string }> = (
       <Receipt s={s} />
       <div className="st-login">
         <i className={`st-dot ${p.login_ok ? 'ok' : 'tight'}`} aria-hidden="true" />
-        <span className={p.login_ok ? 'st-usev' : 'st-warn'}>{p.login_ok ? '网页登录正常' : '网页登录需要在飞书代答卡上处理'}</span>
-        {p.login_ok ? null : <FeishuBtn feishu={feishu} link />}
+        <span className={p.login_ok ? 'st-usev' : 'st-warn'}>{p.login_ok ? '网页登录正常' : '网页登录要在飞书代答卡上扫码'}</span>
+        {p.login_ok ? null : <FeishuLink feishu={feishu} text="去飞书处理" />}
       </div>
       {probs.length ? <ul className="st-problems">{probs.map((t: string, i: number) => <li key={i}>{t}</li>)}</ul> : null}
-      <Rows rows={p.rows} ops={ops} feishu={feishu} mk={(row: SettingsRow, option: string) => ({ what: 'proxy', op: 'row', kind: row.kind, option })} />
-      <h3 className="st-h">白名单</h3>
-      <div className="st-list">
-        {p.contacts.length ? p.contacts.map((c) => <ContactRow key={c.key} c={c} ops={ops} />) : <div className="st-r st-tr"><span className="st-faint">白名单是空的</span></div>}
-      </div>
-      <Note text="按名字查找添加联系人、扫码登录请到飞书代答卡上做。" />
+      {p.rows.length ? (
+        <section className="st-sec">
+          <h3 className="st-h">代答话题的模型</h3>
+          <Grid rows={p.rows} layout={PROXY_LAYOUT} ops={ops} mk={mk} />
+          <Note text="新的联系人话题用它；已有的话题空闲时也换过去。" />
+        </section>
+      ) : null}
+      <section className="st-sec">
+        <h3 className="st-h">白名单</h3>
+        <div className="st-list">
+          {p.contacts.length ? p.contacts.map((c) => <ContactRow key={c.key} c={c} ops={ops} />) : <div className="st-r st-tr"><span className="st-faint">白名单是空的</span></div>}
+        </div>
+        <Note text="按名字查找添加联系人、扫码登录在飞书代答卡上做。" />
+      </section>
     </>
   );
 };
@@ -1128,18 +1166,18 @@ const SessionsPanel = lazy(() => import('@client/src/selfhost/SessionsPanel'));
 const Body: React.FC<{ data: SettingsData; tab: string; ops: Ops }> = ({ data, tab, ops }) => {
   const page = (data as unknown as Record<string, unknown>)[tab];
   const f: string = data.feishu;
-  if (isErr(page)) return <ErrorPage error={page.error} feishu={f} />;
-  if (!page) return <ErrorPage error="这一页 Covey 还没推过来" feishu={f} />;
+  if (isErr(page)) return <ErrorPage error={page.error} />;
+  if (!page) return <ErrorPage error="这一页 Covey 还没推过来" />;
   switch (tab) {
-    case 'config': return <ConfigTab p={page as SettingsConfigPage} ops={ops} feishu={f} />;
-    case 'topic': return <TopicTab p={page as SettingsTopicPage} ops={ops} feishu={f} />;
-    case 'main': return <MainTab p={page as SettingsMainPage} ops={ops} feishu={f} />;
-    case 'repos': return <ReposTab p={page as SettingsReposPage} ops={ops} feishu={f} />;
-    case 'workspace': return <WorkspaceTab p={page as SettingsWorkspacePage} ops={ops} feishu={f} />;
-    case 'groups': return <GroupsTab p={page as SettingsGroupsPage} ops={ops} feishu={f} />;
-    case 'nodes': return <NodesTab p={page as SettingsNodesPage} ops={ops} feishu={f} />;
+    case 'config': return <ConfigTab p={page as SettingsConfigPage} ops={ops} />;
+    case 'topic': return <TopicTab p={page as SettingsTopicPage} ops={ops} />;
+    case 'main': return <MainTab p={page as SettingsMainPage} ops={ops} />;
+    case 'repos': return <ReposTab p={page as SettingsReposPage} ops={ops} />;
+    case 'workspace': return <WorkspaceTab p={page as SettingsWorkspacePage} ops={ops} />;
+    case 'groups': return <GroupsTab p={page as SettingsGroupsPage} ops={ops} />;
+    case 'nodes': return <NodesTab p={page as SettingsNodesPage} ops={ops} />;
     case 'proxy': return <ProxyTab p={page as SettingsProxyPage} ops={ops} feishu={f} />;
-    default: return <ErrorPage error="这一页网页还不会画" feishu={f} />;
+    default: return <ErrorPage error="这一页网页还不会画" />;
   }
 };
 
@@ -1183,7 +1221,8 @@ const SettingsPage: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <Head title="设置" />
       <div className="st-wrap">
-        <div className={`st-in${tab === 'config' || tab === MEMORY_TAB.key || tab === QUOTA_TAB.key ? ' wide' : ''}`}>
+        {/* T970：各页签同一个宽度（以前配置、记忆、额度 1000，别的 780） */}
+        <div className="st-in">
           {q.isLoading ? <p className="st-faint">读取中…</p> : snap ? (
             <>
               <nav className="st-tabs" aria-label="设置分页">
@@ -1200,10 +1239,10 @@ const SettingsPage: React.FC = () => {
           ) : (
             <div className="st-empty">
               <p>Covey 还没推送设置（需要部署新版 Covey）</p>
-              <FeishuBtn feishu="" />
             </div>
           )}
-          {SELFHOST ? <Suspense fallback={null}><SessionsPanel /></Suspense> : null}
+          {/* 自托管的“已登录的浏览器”只放在配置页末尾，不再每个页签都挂一份 */}
+          {SELFHOST && tab === 'config' ? <Suspense fallback={null}><SessionsPanel /></Suspense> : null}
         </div>
       </div>
     </div>

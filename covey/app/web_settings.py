@@ -29,6 +29,11 @@ itself draws and writes with. Nothing here is a second copy of a rule.
   A row's change is the card's own (app/butler_panel.py ButlerPanel ``changes`` then core/butler_settings.py ``update``), so both write the one
   main-thread.json and the card and the page show the same; the page's receipt is the card's (``SAVED``). Only the owner: app/access.py
   ``is_owner`` of the owner the Bridge knows (the page's own check is its login).
+- What is built for a push (T970): each part of the item (a tab, ``launch``, the old 工作区 page) is kept with the stamps of the files it
+  reads (``part_sources``), and a push between two full looks builds only the parts whose files moved, so a change of one tab (a 代答
+  model, a group) is on the page without the others' reads (the groups' names asked of Feishu, the jobs, the model menus); a full look
+  builds them all. The worktrees of 常用路径 are scanned once in the build, then again in a thread of their own once WORKTREE_CACHE old
+  (``worktree_view``: seconds on the network disk); a scan that found something new moves ``stamps``, so it is pushed.
 """
 from __future__ import annotations
 
@@ -82,6 +87,9 @@ APPLINK = "https://applink.feishu.cn/client/bot/open?appId="
 OWNER_ONLY = "只有机器人主人能改设置"
 GONE = "这个选项已不可用，页面会按最新设置重画"
 READ_ONLY = "这一项网页上只读，请到飞书设置卡上改"
+# The page's line under 专项负责人 (T970: it sits under 管家 in one section, whose Harness row already says 跟管家一样); the card keeps
+# cards/butler_panel.py LEAD_NOTE.
+LEAD_NOTE = "负责人只管新建的专项，已有的在专项卡上「换配置」；只列能接 Bridge 工具的 Harness。"
 # 敏感词脱敏 is retired: what a page drawn before it was taken out asks for is refused with this (the rows' kinds as the cards had them).
 REDACTION_RETIRED = "敏感词脱敏已下线，这次没有改任何设置"
 REDACTION_KINDS = frozenset({"bridge_main_redaction", "bridge_main_topic_redaction"})
@@ -140,6 +148,7 @@ PATH_SIZE = 80  # Characters of a path the page gets: its tail (cards/workspace_
 WORKTREE_SCAN = 200  # The most worktree directories the page counts (two levels of worktree_root(), no deeper).
 WORKTREE_SECONDS = 4.0  # The scan's time: what it found by then is what the page gets.
 WORKTREE_CACHE = 30.0  # Seconds the scan is kept (the settings are pushed more often than worktrees come and go).
+SLOW_BUILD = 1.0  # Seconds past which a build of the item says where its time went (``snapshot``), one line.
 PRUNABLE_AFTER = 86400  # A worktree is offered for cleaning once its topic ended this long ago.
 GIT_SECONDS = 20  # ``git worktree remove``'s time.
 DIR_SECONDS = 5  # The check of a directory added as a repository.
@@ -536,6 +545,9 @@ class WebSettings:
         self.names = {}  # chat id -> (name, when asked)
         self.node_aliases = None  # ((state dir, registry mtime), aliases) of node_files.
         self.worktrees = None  # (when, state dir, the page) of the last worktree scan (WORKTREE_CACHE).
+        self.scan_lock, self.scanning = threading.Lock(), False  # A scan of the worktrees in its own thread (``worktree_view``).
+        self.worktree_gen = 0  # Moved by a scan that found something new and by a prune: a source of ``stamps`` and of 常用路径's.
+        self.built = {}  # part -> (its key, its data): each part of ``snapshot`` as last built (``part_key``).
 
     @property
     def hub(self):
@@ -616,53 +628,93 @@ class WebSettings:
         own settings do. A path's stamp is (mtime_ns, size), 0 for one that is not there; never raises. Three files change all the
         time while the bot works, and one stamp each per COARSE_SECONDS keeps them from pushing the item every second: the jobs'
         index (a repository's running topics) and a node's latest sample (``coarse``)."""
-        out = []
-        for path in self.sources(SimpleNamespace(state_dir=Path(self.env.state_dir))):
-            try:
-                stat = path.stat()
-            except OSError:
-                out.append(0)
-                continue
-            out.append(stat.st_mtime_ns // (COARSE_SECONDS * 10 ** 9) if self.coarse(path) else (stat.st_mtime_ns, stat.st_size))
-        return tuple(out)
+        out = [self.stamp(path) for path in self.sources(SimpleNamespace(state_dir=Path(self.env.state_dir)))]
+        return (*out, self.worktree_gen)
+
+    @classmethod
+    def stamp(cls, path):
+        """One path's stamp as ``stamps`` has it: (mtime_ns, size), the minute for one that changes all the time (``coarse``), 0 when
+        it is not there."""
+        try:
+            stat = path.stat()
+        except OSError:
+            return 0
+        return stat.st_mtime_ns // (COARSE_SECONDS * 10 ** 9) if cls.coarse(path) else (stat.st_mtime_ns, stat.st_size)
 
     @staticmethod
     def coarse(path) -> bool:
         return path.name == "latest.json" or path.parts[-2:] == ("jobs", ".index")
 
+    def part_sources(self, ctx) -> dict:
+        """{part: [path]}: the files each part of ``snapshot`` reads (``tab_sources``): 代答 also the model choices (配置's), the
+        page's chat box's ``launch`` and the old 工作区 page also 常用路径's (the workspaces, the devices)."""
+        tabs = self.tab_sources(ctx)
+        both = [*tabs[CONFIG], *tabs[REPOS]]
+        return {**tabs, PROXY_TAB: [*tabs[PROXY_TAB], *tabs[CONFIG]], "launch": both, WORKSPACE: both}
+
+    def part_key(self, ctx, part, chat, seen) -> tuple:
+        """What a part was built from: the state directory, the chat, its sources' stamps (``seen``: path -> stamp, each path stat'ed
+        once a build) and, for 常用路径, the worktrees' scan (``worktree_gen``)."""
+        paths = self.part_sources(ctx).get(part, ())
+        stamps = tuple(seen[path] if path in seen else seen.setdefault(path, self.stamp(path)) for path in paths)
+        return (str(ctx.state_dir), chat, stamps, self.worktree_gen if part == REPOS else 0)
+
     # -- the snapshot ------------------------------------------------------------------------------------------------------------
 
-    def snapshot(self, chat, now=None) -> dict:
-        """The item's data: {tabs: [{key, label}], feishu, <tab key>: what it shows}."""
+    def snapshot(self, chat, now=None, fresh=True, background=False) -> dict:
+        """The item's data: {tabs: [{key, label}], feishu, <tab key>: what it shows}. ``fresh``: every part built again (a full look; a
+        caller that wants the settings as they are now); else only the parts whose files moved since they were built (``part_key``),
+        the others as they were. ``background``: the worktrees, once scanned, are scanned again in a thread of their own
+        (``worktree_view``), not in this build."""
         now = time.time() if now is None else now
+        began = time.monotonic()
         ctx = self.context()
         tabs = web_tabs(ctx.state_dir)
-        settings = butler_harness.drawn(butler_settings.load(ctx.state_dir), self.apps())  # Never saved.
-        choices = self.choices(ctx)
         labels = {**LABELS, **PAGE_LABELS, PROXY_TAB: PROXY_LABEL}
         tabs = [*tabs, *([PROXY_TAB] if self.proxy_panel() is not None else [])]
         # ``ops``: the page's operations this Covey does (core/web_sync.py KINDS, data contract v34), so a page shows a button only
         # for what is done (收尾、停止 of a project, 不对 on a memory line) and an older Covey's page stays as it was.
         data = {"tabs": [{"key": tab, "label": labels[tab]} for tab in tabs], "feishu": self.feishu(), "ops": page_ops()}
-        build = {CONFIG: lambda: self.config(ctx, settings, choices, chat),
-                 REPOS: lambda: self.repos(ctx, now),
+        read = {}  # What the parts built now share: the butler's settings and the model choices, read once.
+
+        def settings():
+            if "settings" not in read:
+                read["settings"] = butler_harness.drawn(butler_settings.load(ctx.state_dir), self.apps())  # Never saved.
+            return read["settings"]
+
+        def choices():
+            if "choices" not in read:
+                read["choices"] = self.choices(ctx)
+            return read["choices"]
+        build = {"launch": lambda: web_launch.catalog(self.env, ctx, chat),  # 开新话题's choices for the page's chat box (v17), not a tab.
+                 CONFIG: lambda: self.config(ctx, settings(), choices(), chat),
+                 REPOS: lambda: self.repos(ctx, now, background),
                  GROUPS: lambda: self.groups(ctx, now), NODES: lambda: self.nodes(ctx),
-                 PROXY_TAB: lambda: web_panels.proxy_tab(ctx, self.proxy_panel(), row, LIMIT)}
-        try:  # 开新话题's choices for the page's chat box (data contract v17), not a tab.
-            data["launch"] = web_launch.catalog(self.env, ctx, chat)
-        except Exception as exc:  # noqa: BLE001 - the rest of the settings go on
-            self.env.runtime.log(f"web settings launch unreadable: {type(exc).__name__}")
-        for tab in tabs:
+                 PROXY_TAB: lambda: web_panels.proxy_tab(ctx, self.proxy_panel(), row, LIMIT),
+                 WORKSPACE: lambda: self.workspaces(ctx, settings())}  # The old 工作区 page, for a page that still draws it (v43: ``repos`` is the tab now).
+        seen, took = {}, []
+        for part in ("launch", *tabs, WORKSPACE):
+            key = self.part_key(ctx, part, chat, seen)
+            kept = self.built.get(part)
+            if not fresh and kept is not None and kept[0] == key:
+                data[part] = kept[1]
+                continue
+            start = time.monotonic()
             try:
-                data[tab] = build[tab]()
-            except Exception as exc:  # noqa: BLE001 - one tab that cannot be read leaves the others
-                self.env.runtime.log(f"web settings tab {tab} unreadable: {type(exc).__name__}")
-                data[tab] = {"error": "这一页现在读不出来，请到飞书设置卡上看"}
-        try:  # The old 工作区 page, for a page that still draws it (v43: ``repos`` is the tab now).
-            data[WORKSPACE] = self.workspaces(ctx, settings)
-        except Exception as exc:  # noqa: BLE001
-            self.env.runtime.log(f"web settings tab {WORKSPACE} unreadable: {type(exc).__name__}")
-            data[WORKSPACE] = {"error": "这一页现在读不出来，请到飞书设置卡上看"}
+                found = build[part]()
+            except Exception as exc:  # noqa: BLE001 - one part that cannot be read leaves the others
+                self.env.runtime.log(f"web settings tab {part} unreadable: {type(exc).__name__}")
+                self.built.pop(part, None)  # Built again next time.
+                if part != "launch":
+                    data[part] = {"error": "这一页现在读不出来，请到飞书设置卡上看"}
+                continue
+            finally:
+                took.append(f"{part}={(time.monotonic() - start) * 1000:.0f}ms")
+            self.built[part] = (key, found)
+            data[part] = found
+        spent = time.monotonic() - began
+        if spent >= SLOW_BUILD:
+            self.env.runtime.log(f"web settings built in {spent * 1000:.0f}ms: {' '.join(took) or 'nothing new'}")
         return data
 
     def feishu(self) -> str:
@@ -711,7 +763,7 @@ class WebSettings:
         if on:
             found["main"] = {"title": cards.SECTIONS[cards.BUTLER_PART], **self.butler(ctx, settings, choices)}
         if projects.enabled():
-            found["lead"] = {"title": cards.SECTIONS[cards.LEAD_PART], "note": cards.LEAD_NOTE,
+            found["lead"] = {"title": cards.SECTIONS[cards.LEAD_PART], "note": LEAD_NOTE,
                              "rows": rows_of(cards.lead_setting_list(settings, choices, LIMIT))}
         try:  # 辅助模型: whether the butler is on or not (the background calls run without it).
             found["assist"] = self.assist(ctx, settings, choices)
@@ -765,10 +817,10 @@ class WebSettings:
                 "note": cards.WORKSPACE_NOTE if notes else "", "note_length": NOTE_LENGTH,
                 "missing": len(missing_workspaces(config, status))}
 
-    def repos(self, ctx, now) -> dict:
+    def repos(self, ctx, now, background=False) -> dict:
         """仓库 (v43 ``repos``, SettingsReposPage): ``home`` (the tail of the home), the map's repositories (repo_entries: repos.json,
         or before it exists the old workspace list read only) each with how many topics run in it (``live_counts``), and the worktrees
-        (``worktrees_page``, kept WORKTREE_CACHE seconds). A path is its tail (PATH_SIZE)."""
+        (``worktree_view``). A path is its tail (PATH_SIZE)."""
         repos, _ = repo_entries(ctx.state_dir, ctx.default_workdir)
         repos = repos[:200]
         live = live_counts(ctx.state_dir, [repo for repo in repos if not repo.device])
@@ -777,11 +829,43 @@ class WebSettings:
                   "kind": repo.kind, "device": repo.device,
                   **({"last_used": int(repo.last_used)} if repo.last_used else {}), "live_topics": live.get(repo.name, 0)}
                  for repo in repos]
-        kept = self.worktrees
-        if kept is None or kept[1] != str(ctx.state_dir) or not 0 <= now - kept[0] < WORKTREE_CACHE:
-            kept = self.worktrees = (now, str(ctx.state_dir), worktrees_page(ctx.state_dir, now))
-        return {"home": {"tail": tail(str(ctx.default_workdir or ""), PATH_SIZE)}, "items": items, "worktrees": kept[2],
-                "devices": self.path_devices()}
+        return {"home": {"tail": tail(str(ctx.default_workdir or ""), PATH_SIZE)}, "items": items,
+                "worktrees": self.worktree_view(ctx.state_dir, now, background), "devices": self.path_devices()}
+
+    def worktree_view(self, state_dir, now, background=False) -> dict:
+        """The worktrees (``worktrees_page``) as last scanned, kept WORKTREE_CACHE seconds. Older, or none yet, they are scanned again
+        in this build; with ``background`` and a scan to show they are shown as they were and scanned again in a thread of its own
+        (one at a time, ``rescan``), so a push does not wait seconds on the network disk for them."""
+        with self.scan_lock:
+            kept = self.worktrees
+            mine = kept is not None and kept[1] == str(state_dir)
+            if mine and 0 <= now - kept[0] < WORKTREE_CACHE:
+                return kept[2]
+            if mine and background:
+                if not self.scanning:
+                    self.scanning = True
+                    threading.Thread(target=self.rescan, args=(state_dir, kept[2]), name="web-worktrees", daemon=True).start()
+                return kept[2]
+        found = worktrees_page(state_dir, now)
+        with self.scan_lock:
+            self.worktrees = (now, str(state_dir), found)
+        return found
+
+    def rescan(self, state_dir, before) -> None:
+        """``worktree_view``'s scan in its own thread: kept as the last scan; one that differs from ``before`` moves ``worktree_gen``
+        (a source of ``stamps``), so the next push has it. Never raises."""
+        now = time.time()
+        try:
+            found = worktrees_page(state_dir, now)
+        except Exception as exc:  # noqa: BLE001 - the last scan stays; the next build tries again
+            self.env.runtime.log(f"web settings worktrees not scanned: {type(exc).__name__}")
+            found = None
+        with self.scan_lock:
+            self.scanning = False
+            if found is not None and self.worktrees is not None and self.worktrees[1] == str(state_dir):
+                self.worktrees = (now, str(state_dir), found)
+                if found != before:
+                    self.worktree_gen += 1
 
     @staticmethod
     def path_devices() -> list:
@@ -1018,7 +1102,9 @@ class WebSettings:
             raise ValueError("要点名要删的 worktree（paths）")
         if len(paths) > PRUNE_MAX:
             raise ValueError(f"一次最多删 {PRUNE_MAX} 个")
-        self.worktrees = None  # The next page is scanned again.
+        with self.scan_lock:
+            self.worktrees = None  # The next page is scanned again,
+            self.worktree_gen += 1  # and built again.
         return prune_worktrees(paths)
 
     def nodes_panel(self):
