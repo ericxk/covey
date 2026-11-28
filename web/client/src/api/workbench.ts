@@ -33,11 +33,12 @@ export async function fetchSnapshot(since: string | null = null): Promise<Snapsh
   return res.data as SnapshotResponse;
 }
 
-export async function fetchTurns(key: string, after: number | null): Promise<TurnsResponse> {
+/** after：增量的起点（seq）；since：上一份响应的 cursor，这之后改过的轮次也一起回来（旧服务端不认，照旧只按 after） */
+export async function fetchTurns(key: string, after: number | null, since: string | null = null): Promise<TurnsResponse> {
   const res = await axiosForBackend({
     url: `/api/topics/${encodeURIComponent(key)}/turns`,
     method: 'GET',
-    params: after === null ? undefined : { after },
+    params: after === null ? undefined : { after, ...(since ? { since } : {}) },
   });
   return res.data as TurnsResponse;
 }

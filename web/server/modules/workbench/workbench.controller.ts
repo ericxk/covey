@@ -121,10 +121,11 @@ export class WorkbenchController {
     @Res({ passthrough: true }) res: Response,
     @Param('key') key: string,
     @Query('after') after?: string,
+    @Query('since') since?: string,
   ): Promise<TurnsResponse> {
     mustBeOwner(req);
     const n: number = after === undefined || after === '' ? NaN : Number(after);
-    return timed(res, () => this.svc.turns(key, Number.isFinite(n) ? n : null));
+    return timed(res, () => this.svc.turns(key, Number.isFinite(n) ? n : null, since ? String(since) : null));
   }
 
   @Get('room')

@@ -679,6 +679,8 @@ export interface TurnsResponse {
   collabs?: CollabView[];
   /** v31：话题自己的记忆（Covey 推在话题条目的 memory 里；没有就不带） */
   memory?: MemoryItem[];
+  /** 下次增量取数带回来的 since：这之后改过的轮次也一起回来（排在在跑那一轮前面、后来补上图的那一行）。旧服务端不带 */
+  cursor?: string;
 }
 
 /** 大厅：管家、各负责人的对话和发到私聊的话题结论排在一条时间线上（按 room_at 排）；cursor 是增量取数的起点 */

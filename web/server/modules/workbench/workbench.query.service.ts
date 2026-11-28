@@ -717,14 +717,23 @@ export class WorkbenchQueryService {
   }
 
   /** 增量 turns：seq > after 的，加上在跑的那一轮（每次都带）；after 省略 = 最近 200 轮 */
-  async turns(key: string, after: number | null): Promise<TurnsResponse> {
-    const [headRes, turnRes, qRes, outbox] = await Promise.all([
+  /**
+   * after：增量取数的起点（seq），只取它之后的和在跑的。since（上一次响应的 cursor）：另外带上这之后改过的轮次，排在在跑那一轮
+   * 前面、后来才补全的那几行（你那一行的图后传上来、编辑并进原消息、答题记上回答）也换成新的，不用刷新页面。每次响应都带 cursor，
+   * 和快照一样是数据库的 now() 往前留 CURSOR_OVERLAP_S 秒；since 不合法就当没带。
+   */
+  async turns(key: string, after: number | null, sinceRaw: string | null = null): Promise<TurnsResponse> {
+    const sinceMs: number = sinceRaw ? Date.parse(sinceRaw) : NaN;
+    const since: string | null = Number.isNaN(sinceMs) ? null : new Date(sinceMs).toISOString();
+    const changed = since ? sql` or _updated_at > ${since}::timestamptz` : sql``;
+    const [cursorRes, headRes, turnRes, qRes, outbox] = await Promise.all([
+      this.db.execute(sql`select now() - make_interval(secs => ${CURSOR_OVERLAP_S}) as c`),
       this.db.execute(sql`${SNAP_TOPICS} where t.key = ${key}`),
       after === null
         ? this.db.execute(sql`select * from (select ${TURN_COLS} from turns where topic_key = ${key}
             order by seq desc limit 200) x order by seq asc`)
         : this.db.execute(sql`select ${TURN_COLS} from turns where topic_key = ${key}
-            and (seq > ${after} or status = 'running') order by seq asc limit 500`),
+            and (seq > ${after} or status = 'running'${changed}) order by seq asc limit 500`),
       this.db.execute(sql`select key, topic_key, turn_key, state, data from questions
         where topic_key = ${key} and (state = 'open' or data->>'restorable' = 'true') order by _created_at desc limit 1`),
       this.outboxFor('topic_key', key, 20),
@@ -746,6 +755,7 @@ export class WorkbenchQueryService {
     return {
       topic: { ...this.snapTopic(head), workspace: extra?.workspace ?? '', project_title: extra?.project_title ?? null },
       turns: asRows<TurnRow>(turnRes).map((r: TurnRow) => this.turnView(r)),
+      cursor: new Date(asRows<{ c: string | Date }>(cursorRes)[0]?.c ?? Date.now()).toISOString(),
       question: q ? this.questionView(q) : null,
       outbox,
       ...(collabs.length ? { collabs } : {}),

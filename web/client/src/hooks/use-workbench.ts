@@ -148,7 +148,8 @@ export function afterOf(prev: TurnsResponse | undefined): number | null {
 
 export async function fetchMerged(qc: QueryClient, key: string): Promise<TurnsResponse> {
   const prev: TurnsResponse | undefined = qc.getQueryData<TurnsResponse>(turnsKey(key));
-  const res: TurnsResponse = await fetchTurns(key, afterOf(prev));
+  // since：排在在跑那一轮前面、后来才补全的行（你那一行的图后传上来）也要换新的；只按 after 取，它们要刷新页面才看得到（2026-11-28 T932）
+  const res: TurnsResponse = await fetchTurns(key, afterOf(prev), prev?.cursor ?? null);
   if (!prev) return res;
   const byKey = new Map<string, TurnView>(prev.turns.map((t: TurnView) => [t.key, t]));
   for (const t of res.turns) byKey.set(t.key, t);

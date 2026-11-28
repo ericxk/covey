@@ -366,6 +366,30 @@ test('更快的取数（v38）：取件 wait 挂着等、快照 since 增量、�
   const bad = await (await api('/api/snapshot?since=不是时间', { cookie })).json();
   assert.ok(!bad.partial && bad.topics.some((t) => t.key === 't1'));
 
+  // 话题的轮次（2026-11-28 T932）：你那一行先推来没图（图还没传上），它后面那一轮在跑；页面只按 after 增量取，那一行再也不换。
+  // 带上次的 cursor 做 since：这之后改过的行一起回来；不带 since 和以前一样，只回 after 之后的和在跑的
+  await open('upsert', { method: 'POST', key: SECOND_KEY, body: { items: [
+    { type: 'turn', key: 't1:3', rev: 'img-a', data: { topic_key: 't1', seq: 3, role: 'owner', status: 'done', body: '看这张图\n附件：图片 1 张' } },
+    { type: 'turn', key: 't1:4', rev: 'img-a', data: { topic_key: 't1', seq: 4, role: 'agent', status: 'running', body: '' } },
+  ] } });
+  const first = await (await api('/api/topics/t1/turns', { cookie })).json();
+  assert.ok(typeof first.cursor === 'string', '每次都带 cursor');
+  const later = new Date(Date.now() + 1000).toISOString();
+  const plain = await (await api(`/api/topics/t1/turns?after=3&since=${encodeURIComponent(later)}`, { cookie })).json();
+  assert.deepEqual(plain.turns.map((t) => t.key), ['t1:4'], '之后没改过：只有在跑的');
+  const mark3 = new Date().toISOString();
+  await sleep(50);
+  await open('upsert', { method: 'POST', key: SECOND_KEY, body: { items: [
+    { type: 'turn', key: 't1:3', rev: 'img-b', data: { topic_key: 't1', seq: 3, role: 'owner', status: 'done', body: '看这张图\n附件：图片 1 张', images: [{ id: 'abc', kind: 'sent', w: 10, h: 10 }] } },
+  ] } });
+  const fresh = await (await api(`/api/topics/t1/turns?after=3&since=${encodeURIComponent(mark3)}`, { cookie })).json();
+  assert.deepEqual(fresh.turns.map((t) => t.key), ['t1:3', 't1:4']);
+  assert.equal(fresh.turns[0].images?.[0]?.id, 'abc', '换成带图的那一版');
+  const old = await (await api('/api/topics/t1/turns?after=3', { cookie })).json();
+  assert.deepEqual(old.turns.map((t) => t.key), ['t1:4'], '不带 since：和以前一样');
+  const badSince = await (await api('/api/topics/t1/turns?after=3&since=不是时间', { cookie })).json();
+  assert.deepEqual(badSince.turns.map((t) => t.key), ['t1:4'], '不合法的 since 当没带');
+
   // 回执：还没回执时挂着等，Covey 回执后马上回；等满了没回执返回 new；没有这条发件仍是 404
   const none = Date.now();
   assert.equal((await api('/api/outbox/不存在?wait=5', { cookie })).status, 404);
