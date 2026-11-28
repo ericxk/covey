@@ -1,9 +1,10 @@
 """The device channel (设备通道): what a topic's Harness does from the home on a device of devices.json, in one place.
 
 Every Harness reaches it the same way, ``covey device`` from its shell (bin/covey_device.py, through ``<数据根>/bin/covey``):
-``list``, ``run``, ``ls``, ``stat``, ``get``, ``put`` and ``job start|log|status|stop``. The Harness stays on the hub, so
-rewind, compaction and the Bridge's tools work as on any turn; a device needs Python 3.9 and ssh keys only
-(docs/architecture.md 设备通道). The guards are written here and nowhere else:
+``list``, ``run``, ``ls``, ``stat``, ``get``, ``put`` and ``job start|log|status|stop``; a turn held to reading whose
+shell cannot run it has the reading ones as tools of its ``bridge_workspace`` server instead (core/device_tools.py). The
+Harness stays on the hub, so rewind, compaction and the Bridge's tools work as on any turn; a device needs Python 3.9 and
+ssh keys only (docs/architecture.md 设备通道). The guards are written here and nowhere else:
 
 - **G1 名单** (``Channel.device``): an alias devices.json lists with ``ssh``, used from a chat whose space is one of the
   device's ``spaces``. The space is app/access.py ``device_space`` (rule 11): the turn's start writes it with the turn's
@@ -25,8 +26,8 @@ rewind, compaction and the Bridge's tools work as on any turn; a device needs Py
   refuses such a command before G4 is asked (G2, G3).
 - **G5 凭据**: the command on the device gets devices.py ``effective_env`` with the Bridge's names and anything named
   like a secret dropped (``device_env``), never the hub's environment; the ssh client runs with the hub's environment
-  less the same names (``ssh_env``); ``get`` and ``put`` refuse a path through SECRET_NAMES, and so does a read-only
-  ``run`` naming one.
+  less the same names (``ssh_env``); ``get`` and ``put`` refuse a path through SECRET_NAMES, ``get`` the path the device
+  resolves it to too (a link to ``~/.ssh``), and so does a read-only ``run`` naming one.
 - **G6 审计**: one JSON line per call in ``runs/<任务键>/devices.jsonl`` (``audit``; ``<state>/devices/terminal.jsonl``
   outside a task): when, device, op, the command (secrets hidden, core/text.py ``redact``), directory, exit code, bytes,
   seconds. A ``run`` writes a ``start`` line before it asks the device, so one cut short (its command's own timeout
@@ -159,10 +160,16 @@ def turn_from_env(environ=None) -> Turn:
     topic = str(cenv.get("COVEY_TOPIC", "", environ) or "").strip()
     if not named:
         return Turn(Path(state), None, topic=topic, space=TERMINAL_SPACE)
-    data = read_object(Path(named) / DEVICE_TURN)
+    return turn_of(state, named, topic)
+
+
+def turn_of(state_dir, task_dir, topic="") -> Turn:
+    """The ``Turn`` of the task whose run directory is ``task_dir``, as its turn file (``note_turn``) says it; not known
+    (G1 refuses it everything) when its start wrote none."""
+    data = read_object(Path(task_dir) / DEVICE_TURN)
     if not data:
-        return Turn(Path(state), Path(named), topic=topic, known=False)
-    return Turn(Path(state), Path(named), topic=str(data.get("topic") or topic), limit=str(data.get("limit") or ""),
+        return Turn(Path(state_dir), Path(task_dir), topic=topic, known=False)
+    return Turn(Path(state_dir), Path(task_dir), topic=str(data.get("topic") or topic), limit=str(data.get("limit") or ""),
                 space=str(data.get("space") or ""), outputs=str(data.get("outputs") or ""))
 
 
@@ -876,20 +883,47 @@ class Channel:
         """``remote`` from ``alias`` written to ``local`` (default: ``<outputs>/devices/<alias>/<its name>``; in a
         held turn only under the outputs directory): ``{path, bytes, sha256}``."""
         self.device(alias, "get")
-        found = secret_path(remote)
-        if found:
-            reason = f"`{found}` 里是钥匙或登录信息，不取"
-            self.refused(alias, "get", reason)
-            raise Refused(reason)
+        self.fetchable(alias, remote, lexical=True)
         target = self.local_target(alias, remote, local)
         started = self.clock()
-        data = self.link(alias).get_file(str(remote), max_bytes=GET_MAX)
+        data = self.fetch(alias, remote, GET_MAX)
         digest = hashlib.sha256(data).hexdigest()
         ensure_private_dir(target.parent)
         atomic_write_bytes(target, data)
         audit(self.turn, {"device": alias, "op": "get", "path": str(remote), "local": str(target), "bytes": len(data),
                           "sha256": digest, "seconds": round(self.clock() - started, 3)})
         return {"path": str(target), "bytes": len(data), "sha256": digest}
+
+    def read(self, alias, remote, max_bytes=GET_MAX) -> bytes:
+        """``remote``'s bytes from ``alias``, at most ``max_bytes``, written nowhere (core/device_tools.py ``device_get``):
+        the guards and the audit line of a ``get``, without ``local``."""
+        self.device(alias, "get")
+        self.fetchable(alias, remote, lexical=True)
+        started = self.clock()
+        data = self.fetch(alias, remote, max_bytes)
+        audit(self.turn, {"device": alias, "op": "get", "path": str(remote), "bytes": len(data),
+                          "sha256": hashlib.sha256(data).hexdigest(), "seconds": round(self.clock() - started, 3)})
+        return data
+
+    def fetchable(self, alias, remote, *, lexical=False) -> None:
+        """``Refused`` when ``remote`` names a secret (G5): as given with ``lexical``, else as the device resolves it."""
+        if lexical:
+            found = secret_path(remote)
+        else:
+            answer = self.link(alias).call("stat", paths=[str(remote)], patience=30.0)
+            found = secret_path(((answer.get("results") or [{}])[0]).get("realpath") or "")
+        if found:
+            reason = f"`{found}` 里是钥匙或登录信息，不取"
+            self.refused(alias, "get", reason)
+            raise Refused(reason)
+
+    def fetch(self, alias, remote, max_bytes) -> bytes:
+        """``remote``'s bytes once the path it resolves to on the device names no secret either (a link to ``~/.ssh``)."""
+        self.fetchable(alias, remote)
+        try:
+            return self.link(alias).get_file(str(remote), max_bytes=max_bytes)
+        except dt.TooLarge:
+            raise Refused(f"设备上的 {remote} 超过 {max_bytes} 字节，一次取不了") from None
 
     def local_target(self, alias, remote, local) -> Path:
         name = posixpath.basename(str(remote).rstrip("/")) or "file"

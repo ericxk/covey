@@ -24,6 +24,8 @@ when it starts to hold, so the list stays true.
 """
 from __future__ import annotations
 
+import dataclasses
+import io
 import json
 import os
 import shlex
@@ -56,7 +58,7 @@ from covey.backends.claude.hooks import TurnHooks
 from covey.backends.codex import appserver
 from covey.backends.codex.turn import context_of as codex_context_of
 from covey.backends.dsh import bridge as dsh_bridge
-from covey.core import butler, butler_mcp, butler_settings, home as covey_home, placement, projects, repomap, topic_repos
+from covey.core import butler, butler_mcp, butler_settings, device_tools, home as covey_home, placement, projects, repomap, topic_repos
 from covey.core.butler import butler_topic_id
 from covey.core.butler_tool_specs import HANDING
 from covey.core.harness import EXTERNAL, LEAD, READ, TOOL_LIMIT, backend_capabilities
@@ -264,9 +266,14 @@ RULE_ASK, RULE_ANCHOR, RULE_CONTEXT, RULE_NUDGE, RULE_SEARCH, RULE_WALK = (
     "规则 · 主目录搜索 · 命令行", "规则 · 主目录搜索 · 程序内递归")
 EXT_FILES, EXT_GIT, EXT_FREE = ("话题 · 外部话题 · 不读主目录说明文件", "话题 · 外部话题 · 主目录在 git 工作树里",
                                  "话题 · 外部话题 · 普通话题照旧")
+# 负责人 · 设备通道 (core/device_tools.py, F2c): a lead's turn, which has no shell that reaches the devices (Codex's read-only
+# sandbox, agy's deny rules, Claude Code's Read/Grep/Glob), reaches them through its bridge_workspace server's device tools.
+DEV_LEAD = "负责人 · 设备通道 · 够得着"
 # Cells that do not hold on a Harness, on purpose or not yet, with why. A cell here that starts to hold fails
 # test_the_known_gaps_are_still_gaps: take it off.
 GAPS = {
+    (DEV_LEAD, "dsh"): "dsh 的负责人轮（--permission-mode read-only）没接设备只读工具，shell 在这个权限下能不能跑 covey device "
+                       "也没实测过",
     (EXT_FILES, "dsh"): "dsh 会不会读工作目录的 AGENTS.md、有没有关掉的设置都没实测过（T923 VERIFY-P1 只测了 Claude Code、Codex、"
                         "agy）：外部话题只靠外部版主目录段和边界句",
     (EXT_GIT, "dsh"): "同上：没有实测过的隔离办法",
@@ -1035,12 +1042,31 @@ def device_reach(name, ctx) -> bool:
     return True
 
 
+def device_tool_args(name, ctx) -> list:
+    """The arguments of the server a turn of Harness ``name`` with context ``ctx`` gets the device tools from
+    (core/device_tools.py: ``--run-dir`` among them when it does), [] when it has no such server: Codex's workspace server,
+    the ``bridge_workspace`` of Antigravity's private home or of Claude Code's --mcp-config; dsh has none."""
+    if name == "codex":
+        return appserver.thread_params(ctx, None)[0]["config"]["mcp_servers.bridge_workspace.args"]
+    if name == "agy":
+        return (((agy_bridge.home_config(ctx) or {}).get("mcpServers") or {}).get("bridge_workspace") or {}).get("args", [])
+    if name == "claude":
+        argv = claude_argv.stream_argv(ClaudeBackend(), ctx)
+        if "--mcp-config" not in argv:
+            return []
+        servers = json.loads(argv[argv.index("--mcp-config") + 1]).get("mcpServers") or {}
+        return (servers.get("bridge_workspace") or {}).get("args", [])
+    return []
+
+
 class DeviceRowTest(HarnessCellsCase):
     """话题 · 设备通道 (core/device_access.py, F2a) × Harness: a home topic (local) and an external one (``local`` false),
     each against a writable device and a read-only one, over the real device program under a temporary HOME
     (LocalTransport). The rules say how to use a device only to a local topic; every turn's start writes its limit and its
     chat's space for ``covey device``; what the channel lets each do is the same on every Harness (the guards are the
-    channel's), and each turn's shell reaches it (``device_reach``)."""
+    channel's), and each turn's shell reaches it (``device_reach``). A lead's turn, whose shell does not, reaches the
+    devices through its workspace server's device tools on every Harness but dsh (``device_tool_args``, DEV_LEAD), only from
+    a local topic; a call through that server is audited like a command's and every device is read-only to it."""
 
     TOPIC = "d" * 32
 
@@ -1125,6 +1151,58 @@ class DeviceRowTest(HarnessCellsCase):
                     rows = device_access.read_audit(task)
                     self.assertTrue(rows and all(row.get("device") for row in rows), "every call is in the audit")
                     self.assertTrue(device_reach(name, turn_ctx), f"{name} {kind}: its shell reaches covey device")
+                    with mock.patch.dict(os.environ, {"COVEY_TASK_DIR": str(task)}):
+                        self.assertNotIn("--run-dir", device_tool_args(name, turn_ctx), "a turn with a shell has no tools")
+
+    def through_tools(self, args, task) -> None:
+        """A device_ls, a device_get and a refused one through a server started with ``args`` (its ``--state`` and
+        ``--run-dir``), as the Harness calls them, each a line of the task's audit."""
+        from covey.backends.codex import workspace_reader
+        from covey.core import device_access
+        state, run_dir = args[args.index("--state") + 1], args[args.index("--run-dir") + 1]
+        self.assertEqual(Path(run_dir), task)
+        (self.device_home / "train.log").write_text("loss 0.5\n")
+        before = len(device_access.read_audit(task))
+        calls = [("device_ls", {"device": "gpu1"}), ("device_get", {"device": "peer", "path": "~/train.log"}),
+                 ("device_get", {"device": "gpu1", "path": "~/.ssh/id_rsa"})]
+        rows = [{"jsonrpc": "2.0", "id": at, "method": "tools/call", "params": {"name": name, "arguments": given}}
+                for at, (name, given) in enumerate(calls)]
+        out = io.StringIO()
+        root = self.root if "--root" in args else None
+        with mock.patch.object(device_access, "_ssh_link", self.connect):
+            workspace_reader.serve(root, io.StringIO("".join(json.dumps(row) + "\n" for row in rows)), out,
+                                   state=state, run_dir=run_dir)
+        answers = [json.loads(line)["result"] for line in out.getvalue().splitlines()]
+        self.assertEqual([answer["isError"] for answer in answers], [False, False, True], "a secret is refused")
+        self.assertIn("1: loss 0.5", answers[1]["content"][0]["text"])
+        audited = device_access.read_audit(task)[before:]
+        self.assertEqual([(row["device"], row["op"], bool(row.get("refused"))) for row in audited],
+                         [("gpu1", "ls", False), ("peer", "get", False), ("gpu1", "get", True)])
+
+    def test_a_lead_reaches_the_devices_through_its_tools_from_a_local_topic(self):
+        from covey.core import device_access
+        home = self.root / "home"
+        covey_home.seed_home(home)
+        covey_home.write(self.state, covey_home.HomeConfig())
+        task = self.state / "runs" / "om_lead-1"
+        task.mkdir(parents=True)
+        bridge = {"mcpServers": {"bridge": {"command": "mcp", "args": []}}}
+        for name in CORE_HARNESSES:
+            for local in (True, False):
+                with self.subTest(harness=name, local=local), mock.patch.dict(os.environ, {"COVEY_TASK_DIR": str(task)}):
+                    device_access.note_turn(task, limit=LEAD, space="owner_private", topic=self.TOPIC,
+                                            outputs=str(self.root / "out"))
+                    ctx = self.topic_ctx(home, name, local=local)
+                    ctx = dataclasses.replace(ctx, options={**ctx.options, TOOL_LIMIT: LEAD, "mcp_config": bridge,
+                                                            **({} if local else {EXTERNAL: {"dir": str(home)}})})
+                    tools = device_tool_args(name, ctx)
+                    self.assertEqual("--run-dir" in tools, local and held(DEV_LEAD, name),
+                                     gap_words(DEV_LEAD, name) if local else "an external topic gets no device tools")
+                    if "--run-dir" in tools:
+                        self.through_tools(tools, task)
+                        rows = device_access.Channel(device_access.turn_of(self.state, task), config=self.config,
+                                                     connect=self.connect).list()
+                        self.assertEqual([row["writable"] for row in rows], [False, False], "every device read-only")
 
 
 class KnownGapsTest(HarnessCellsCase):
@@ -1132,7 +1210,8 @@ class KnownGapsTest(HarnessCellsCase):
         """The cells GAPS lists are asked above (test_a_group_members_read_only_turn, RulesRowTest): one that holds now
         fails there; this one keeps GAPS to cells those tests ask."""
         self.assertLessEqual({cell for cell, _ in GAPS}, {"话题 · 群成员只读", RULE_ASK, RULE_ANCHOR, RULE_CONTEXT,
-                                                          RULE_NUDGE, RULE_SEARCH, RULE_WALK, EXT_FILES, EXT_GIT, EXT_FREE})
+                                                          RULE_NUDGE, RULE_SEARCH, RULE_WALK, EXT_FILES, EXT_GIT, EXT_FREE,
+                                                          DEV_LEAD})
 
 
 # 重启后再点一次 (WAVE12 G4, T904): each module that writes a mid-state (tests/golden/midstates.json, which test_structure's
@@ -1217,7 +1296,8 @@ class RestartColumnTest(unittest.TestCase):
 class AgyBudgetTest(unittest.TestCase):
     """管家、负责人 × Antigravity: agy loads a turn's tools up front within EAGER_BYTES and drops the largest whole past it
     (T750). Every tool but SECONDARY, of the butler and of a lead under every switch, fits strictly within the room, so
-    each of them is loaded up front; the memory tools and repos_list are SECONDARY, and the old names are not listed."""
+    each of them is loaded up front; the memory tools and repos_list are SECONDARY, and the old names are not listed. A
+    lead's device tools (bridge_workspace, after the Bridge's server) take only what the room has left."""
 
     SWITCHES = {"COVEY_PROJECT_LEAD": ("", "p1"), "COVEY_KNOWLEDGE": ("0", "1"), "COVEY_HISTORY_CMD": ("", "/bin/true"),
                 "COVEY_BUTLER_RULES": ("0", "1"), "COVEY_PROJECTS": ("0", "1"), "COVEY_PROJECT_TIDY": ("off", "suggest"),
@@ -1239,6 +1319,16 @@ class AgyBudgetTest(unittest.TestCase):
                 self.assertFalse(listed & self.OLD)
                 self.assertLess(used, agy_home.EAGER_BYTES, "the tools agy loads first outgrew its room: shorten them")
                 self.assertLessEqual(names(first), set(agy_home.eager_names(tools, agy_home.EAGER_BYTES)))
+                # A lead's device tools (core/device_tools.py) come after, in the same room: the Bridge's eager tools
+                # stay what they were and all of them together stay within it.
+                listed = {"bridge": tools, "bridge_workspace": device_tools.TOOLS}
+                config = {"mcpServers": {name: {"command": name} for name in listed}}
+                with mock.patch.object(agy_home, "listed_tools", lambda server, env: listed[server["command"]]):
+                    servers, _ = agy_home.agy_servers(config, {})
+                eager = {name: set((servers[name].get("tools") or {})) for name in listed}
+                self.assertEqual(eager["bridge"], set(agy_home.eager_names(tools, agy_home.EAGER_BYTES)))
+                self.assertLessEqual(sum(agy_home.tool_size(tool) for name in listed for tool in listed[name]
+                                         if tool["name"] in eager[name]), agy_home.EAGER_BYTES)
 
 
 if __name__ == "__main__":

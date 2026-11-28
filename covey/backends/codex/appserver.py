@@ -20,7 +20,7 @@ from covey.backends.codex.rpc import AppServer, RpcError, failed
 from covey.backends.codex.turn import close_turn, logged_words, paused_question_end, read_turn, said_words
 from covey.backends.codex.usage import CodexTurnUsage
 from covey.backends.codex import consult
-from covey.core import repomap, topic_repos
+from covey.core import device_tools, repomap, topic_repos
 from covey.core.butler_tool_specs import LEAD_ASK_TOOL
 from covey.core.failure import said_of
 from covey.core.harness import CONSULT, EXTERNAL, LEAD, PROXY, READ, TOOL_LIMIT, JobCancelled, RunResult
@@ -123,6 +123,17 @@ def bridge_servers(ctx):
                        prefix + "tool_timeout_sec": BRIDGE_TOOL_SECONDS,
                        **({prefix + "default_tools_approval_mode": "approve"} if approve else {})})
     return config
+# The turns whose read-only sandbox keeps their shell off the devices (VERIFY-F2A U2): the device channel's reading tools
+# are the workspace server's for them (core/device_tools.py). Not a CONSULT one: a 协作 ask gets none of the Bridge's.
+DEVICE_TOOLS = (LEAD, READ)
+
+
+def device_args(ctx) -> tuple[list, dict]:
+    """The workspace server's ``--state``/``--run-dir`` and environment for the device tools of a turn in the read-only
+    sandbox (``DEVICE_TOOLS``) that may use the devices (core/device_tools.py ``mount``); ``([], {})`` for any other."""
+    return device_tools.mount(ctx, DEVICE_TOOLS)
+
+
 def sandbox_mode(ctx) -> str:
     """The turn's sandbox: read-only for a turn held to READ, CONSULT or LEAD (core/harness.py TOOL_LIMIT), else the
     Harness's --sandbox (danger-full-access unless it says otherwise). A 代答 turn keeps it: in a sandbox lark-cli could
@@ -176,6 +187,7 @@ def thread_params(ctx, session_id, instructions="", process=None):
     started with; they are sent on every turn all the same. On a device (``ctx.device``) the paths are the
     device's: its working directory, its task directory as the writable root and its copy of the workspace
     reader (``process``, the app server's ``DeviceProcess``, pushes and names it)."""
+    devices, device_env = [], {}
     if device_of(ctx):
         cwd = ctx.remote_workdir
         writable = [str(process.task_dir)]
@@ -199,6 +211,8 @@ def thread_params(ctx, session_id, instructions="", process=None):
                 "--extra-root", str(ctx.history_path.parent / "handoff")]
         for root in reader_roots(ctx, data):
             args += ["--extra-root", root]
+        devices, device_env = device_args(ctx)
+        args += devices
     params = {
         "model": ctx.model,
         "cwd": cwd,
@@ -211,6 +225,11 @@ def thread_params(ctx, session_id, instructions="", process=None):
             "mcp_servers.bridge_workspace.command": command,
             "mcp_servers.bridge_workspace.args": args,
             "mcp_servers.bridge_workspace.enabled": True,
+            # Its device tools run without asking: with the approval policy ``never`` Codex refuses an MCP tool that asks
+            # (as the Bridge's tools of a LEAD turn, bridge_servers); what a device allows is the server's check. The
+            # server finds the devices by the variables it is given (Codex gives an MCP server few of its own).
+            **({"mcp_servers.bridge_workspace.default_tools_approval_mode": "approve",
+                "mcp_servers.bridge_workspace.env": device_env} if devices else {}),
             **({} if device_of(ctx) else bridge_servers(ctx)),
         },
         # Kept from the thread's start (``thread_instructions``): the bridge rules at the system level (app/rules_sent.py).

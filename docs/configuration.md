@@ -474,7 +474,8 @@ covey device job stop gpu1 job-0123456789                      # 停整个进程
 - **审计**：每次调用（含被拒的）追加一行到 `runs/<任务键>/devices.jsonl`：时间、设备、操作、命令（遮掉像密钥的值，至多 400 字）、目录、退出码、字节数、耗时。一轮结束时 Bridge 把它并进话题记录 `topic.json` 的 `devices`（每台设备一条：首末次时间、次数、各操作次数、起过的任务号、取回或放过的文件的 sha256），任务卡的执行过程里多一条「设备」，列最近 12 次调用（「gpu1：run `make test`，退出 0（3.2 秒）」）。
 - **每轮提示**：本机话题的主目录段多一句固定的话（“要用别的设备：设备和设备上的常用路径在仓库地图末尾，用 covey device……只读设备只能看，不能改。”），设备名单本身在 `repos.md` 末尾的「常用设备」表里按需读，名单变了系统规则不变，缓存不破。外部话题（`local: false`）不加这一句、不提设备；主人点名要用时命令照样能用，护栏一样。
 - **退出码**：`run` 是设备上命令的（超时 124）；3 被护栏拦下（原因在 stderr 的 `[covey device]` 行，给模型看的中文）；4 设备没有答复或出错；2 命令行写错。加 `--json` 打一个 JSON 对象。
-- **已知限制**：Codex 的只读轮在只读沙箱里，连不上 ssh 主连接的套接字、也写不了审计，这些轮次里 Codex 用不了设备通道（[Harness · 设备通道](harnesses.md#设备通道)）。设备上不建 worktree、不做改动对比；文件目录不能整个 `get`（先在设备上打包）。
+- **只读轮的设备工具**：shell 够不着 `covey device` 的只读轮（Codex 的只读沙箱；Antigravity、Claude Code 的负责人和群成员只读轮没有 shell）改用 `bridge_workspace` 服务里的 `device_list`、`device_ls`、`device_stat`、`device_get`，护栏和审计同上，由 Bridge 自己挂（不用另配）；外部话题、没有这一轮聊天能用的设备时不挂，见 [Harness · 设备通道](harnesses.md#设备通道)。
+- **已知限制**：设备上不建 worktree、不做改动对比；文件目录不能整个 `get`（先在设备上打包）；只读轮的工具只能看（列目录、查属性、读文本或取回），跑只读命令（`nvidia-smi`、`ps`、`git log`）还得用有 shell 的轮次。
 
 ### 节点与机器状况（默认关）
 
@@ -675,7 +676,8 @@ Bridge 的参数：默认 Harness（Codex）和 Bridge 自己的写在服务命�
 | `--state`、`--limit`、`--json` | `core/inbound_ledger.py`（`bin/covey_inbound.py`，查主人消息的去向） | 状态目录（必填）、`recent` 最多列几条（10）、JSON 输出；子命令 `where <消息 id>`、`recent` | 否 |
 | `--state-dir`、`--no-probe`、`--json` | `service/device_check.py`（`bin/covey_devices.py`） | 见 `--help`；见[多设备](#多设备开发中默认关)的「自检」 | 否 |
 | `--json`、`--write`、`--dir`、`--timeout`、`--approved` | `core/device_cli.py`（`bin/covey_device.py`：子命令 `list`、`run`、`ls`、`stat`、`get`、`put`、`job`（`start`、`log`、`status`、`stop`）） | `--json` 打一个 JSON 对象；`--write` 是 `put` 的：设备上已有、这个话题又没取回过的文件确定整个覆盖；`--dir` 是 `run` 和 `job start` 的：设备上的工作目录（默认设备的家目录）；`--timeout` 是 `run` 的：最多等几秒（默认 120，1 到 3600），超时按进程组杀掉、退出 124；`--approved` 是 `run` 的：主人回答的问题号，这一版只记进审计，危险命令的硬拦留到后面的版本。见[设备通道](#设备通道随多设备开) | 否 |
-| `--root`、`--extra-root` | `backends/codex/workspace_reader.py` | 见 `--help` | 否 |
+| `--root`、`--extra-root` | `backends/codex/workspace_reader.py` | 见 `--help`（不给 `--root` 时只有设备工具，要带 `--state`、`--run-dir`） | 否 |
+| `--state`、`--run-dir` | `backends/codex/workspace_reader.py`：只读轮的设备工具（`core/device_tools.py`），给了这两个才多 `device_list`、`device_ls`、`device_stat`、`device_get`，Bridge 自己传，见 [Harness · 设备通道](harnesses.md#设备通道) | 空：没有设备工具 | 否 |
 | `--mode`、`--notes`、`--home` | `backends/claude/tool_guard.py`（`bin/covey_tool_guard.py`：Claude Code 的 PreToolUse 钩子，Bridge 自己写进那一轮的 `--settings`。`--mode proxy` 是代答话题的，`--notes` 是联系人的笔记目录；`--mode home-search` 是从主目录启动的一轮的，`--home` 是主目录，只拦目标是主目录根（或它的上级）又没限深度的递归搜索，`cd <仓库> && rg`、具体子目录、`find -maxdepth` 照常跑，自己出错时放行；`--mode shim <命令名> <参数…>` 是 `<数据根>/bin` 里的搜索垫片问的（主目录取 `$COVEY_HOME`，规则同上，拒绝退出码 3，由垫片转成 2，出错一律放行）） | `proxy`；`--notes` 空：编辑工具哪里都不能写 | 否 |
 | `--home`、`--start`、`--idle`、`--max`、`--dy` | `feishu/web_client.py`（`bin/covey_feishu_web.py`） | 见 [浏览器服务](testing.md#浏览器服务) | 否 |
 | `--app-id`、`--home`、`--plan`、`--login-from`、`--console`、`--login-seconds` | `feishu/app_console.py`（`bin/covey_app_console.py`） | 见[自动补齐飞书应用](feishu-app.md#自动补齐飞书应用) | 否 |

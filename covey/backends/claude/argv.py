@@ -10,12 +10,16 @@ from pathlib import Path
 from covey.backends.claude import subagents, tool_guard, upstream
 from covey.backends.claude.sessions import ClaudeSessionStore, claude_projects_root
 from covey.core.harness import CONSULT, EXTERNAL, LEAD, PROXY, READ, TOOL_LIMIT, TOOL_NOTES
+from covey.core import device_tools
 from covey.core.home import home_dir
 
 # No MCP server at all: the catalog's probe, and a turn held to READ, PROXY or CONSULT (none of the owner's MCP servers).
 NO_MCP = ["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
 # A READ, CONSULT or LEAD turn's tools (core/harness.py): a project lead's (app/project_lead.py) keeps its Bridge tools.
 READ_TOOLS = ("Read", "Grep", "Glob")
+# The turns without a shell (READ_TOOLS alone), so without covey device: the device channel's reading tools are their
+# ``bridge_workspace`` server's (core/device_tools.py). A CONSULT one gets no MCP server at all.
+DEVICE_TOOLS = (LEAD, READ)
 NO_AUTO_MEMORY = "CLAUDE_CODE_DISABLE_AUTO_MEMORY"  # Claude Code's auto memory off for the one process (turn_env).
 # The instruction files of a topic that keeps off this machine's files (``options[EXTERNAL]``) that its turn's
 # ``claudeMdExcludes`` leaves out (``md_excludes``): these in the home, the top-level ones in each directory above it. Never a
@@ -133,10 +137,14 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
         if ctx.skip_permissions:
             argv += ["--dangerously-skip-permissions"]
         limit = ctx.options.get(TOOL_LIMIT)
+        # A lead's or read turn that may use the devices: their reading tools (core/device_tools.py), after its Bridge tools.
+        devices = device_tools.server(ctx, DEVICE_TOOLS)
         if ctx.options.get("mcp_config") and limit != CONSULT:
             # The butler's turn (the app sets it): its Bridge tools beside the user's own MCP servers, each
             # allowed without asking. Every other run has none of this.
             config = ctx.options["mcp_config"]
+            if devices:
+                config = {**config, "mcpServers": {**config.get("mcpServers", {}), "bridge_workspace": devices}}
             argv += ["--mcp-config", json.dumps(config, ensure_ascii=False, separators=(",", ":")),
                      "--allowedTools", ",".join("mcp__" + name for name in config.get("mcpServers", {}))]
         if limit == CONSULT:
@@ -148,7 +156,12 @@ def stream_argv(backend, ctx, session_id=None, *, catalog=False, instructions=""
             # Its tools narrowed (core/harness.py TOOL_LIMIT), with none of the owner's MCP servers; a turn with Bridge
             # tools of its own (the butler's, a lead's) is never one of these.
             argv += ["--tools", ",".join(READ_TOOLS if limit == READ else tool_guard.TOOLS)]
-            argv += [] if ctx.options.get("mcp_config") else NO_MCP
+            if devices and not ctx.options.get("mcp_config"):
+                argv += ["--strict-mcp-config", "--mcp-config",
+                         json.dumps({"mcpServers": {"bridge_workspace": devices}}, ensure_ascii=False, separators=(",", ":")),
+                         "--allowedTools", "mcp__bridge_workspace"]
+            else:
+                argv += [] if ctx.options.get("mcp_config") else NO_MCP
         elif limit == LEAD:
             # A project's lead (core/harness.py LEAD, app/project_lead.py): Claude Code's own tools narrowed to reading; the
             # MCP tools above (its Bridge tools) are not among the built-in ones --tools names, so they stay.

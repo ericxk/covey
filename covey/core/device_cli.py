@@ -18,6 +18,10 @@ from covey.core.state import read_object
 from covey.core.topics import topic_file
 
 REFUSED, UNREACHABLE, TIMED_OUT = 3, 4, 124
+# A turn held to reading whose sandbox keeps its shell off the devices (Codex's) has their reading tools instead
+# (core/device_tools.py): said where its command could not reach a device.
+HELD_HINT = ("[covey device] 这一轮只读，命令行可能连不上设备：改用 bridge_workspace 的 device_list、device_ls、device_stat、"
+             "device_get 工具")
 EPILOG = """\
 例子：
   covey device list
@@ -230,6 +234,8 @@ def main(argv=None) -> int:
     except (dt.DeviceError, OSError) as exc:
         reason = devices.OFFLINE_REASONS.get(type(exc).__name__, type(exc).__name__)
         print(f"[covey device] {getattr(args, 'alias', '')} 没有答复或出错（{reason}）：{str(exc)[:300]}", file=sys.stderr)
+        if channel.turn.held:
+            print(HELD_HINT, file=sys.stderr)
         return UNREACHABLE
     finally:
         channel.close()

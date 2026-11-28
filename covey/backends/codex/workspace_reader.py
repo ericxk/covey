@@ -1,5 +1,7 @@
 """Small read-only MCP server scoped to one task workspace (and the topic's received
-attachments); never runs commands and never writes."""
+attachments); never runs commands and never writes. For a turn whose shell cannot reach the devices, given the devices
+(``--state``/``--run-dir``, core/device_tools.py ``mount``), it also has the device channel's reading tools; without
+``--root`` it has those alone (Antigravity's and Claude Code's ``bridge_workspace``, core/device_tools.py ``server``)."""
 from __future__ import annotations
 
 import argparse
@@ -9,6 +11,14 @@ import os
 from pathlib import Path
 import stat
 import sys
+
+
+
+def device_tools():
+    """core/device_tools.py, imported only for a turn given the devices (``--run-dir``): this file is also pushed alone to
+    a device and run there (core/device_link.py workspace_reader), where the package is not."""
+    from covey.core import device_tools as module
+    return module
 
 
 MAX_FILE = 4 * 1024 * 1024
@@ -24,17 +34,19 @@ TOOLS = [
 
 
 class WorkspaceReader:
-    def __init__(self, root, extra_roots=()):
-        self.root = Path(root).resolve(strict=True)
-        if not self.root.is_dir():
+    def __init__(self, root, extra_roots=(), *, state="", run_dir="", connect=None):
+        self.root = Path(root).resolve(strict=True) if root else None
+        if self.root is not None and not self.root.is_dir():
             raise ValueError("Workspace must be a directory")
         # Read-only extra roots, such as the topic's incoming_media. One may not
         # exist yet when the server starts; it is checked on each read.
         self.extra_roots = [Path(extra).absolute() for extra in extra_roots]
+        # A turn given the devices: its state and run directory (core/device_tools.py); none, no device tool.
+        self.devices = device_tools().Tools(state, run_dir, connect=connect) if state and run_dir else None
 
     def tools(self) -> list:
-        """What ``tools/list`` answers: the two reading tools."""
-        return TOOLS
+        """What ``tools/list`` answers: the two reading tools of a workspace, the device tools of a turn given them."""
+        return (TOOLS if self.root is not None else []) + (device_tools().TOOLS if self.devices else [])
 
     def open(self, value, *, directory=False):
         if not isinstance(value, str) or not value or len(value) > 4096:
@@ -76,7 +88,9 @@ class WorkspaceReader:
     def call(self, name, args):
         if not isinstance(args, dict):
             raise ValueError("Tool arguments must be an object")
-        spec = next((x for x in TOOLS if x["name"] == name), None)
+        if self.devices and name in device_tools().NAMES:
+            return self.devices.call(name, args)
+        spec = next((x for x in TOOLS if x["name"] == name), None) if self.root is not None else None
         if spec is None or set(args) - set(spec["inputSchema"]["properties"]):
             raise ValueError("Unknown tool or argument")
         for key, default, low, high in (("start_line", 1, 1, MAX_FILE), ("offset", 0, 0, 10000),
@@ -127,8 +141,8 @@ class WorkspaceReader:
             os.close(fd)
 
 
-def serve(root, source=sys.stdin, destination=sys.stdout, extra_roots=()):
-    reader = WorkspaceReader(root, extra_roots)
+def serve(root, source=sys.stdin, destination=sys.stdout, extra_roots=(), state="", run_dir="", connect=None):
+    reader = WorkspaceReader(root, extra_roots, state=state, run_dir=run_dir, connect=connect)
     for line in source:
         try:
             row = json.loads(line)
@@ -165,8 +179,12 @@ def serve(root, source=sys.stdin, destination=sys.stdout, extra_roots=()):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="covey_workspace_reader.py", description=__doc__)
-    parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--root", type=Path, help="the task workspace; without it, only the device tools (--run-dir)")
     parser.add_argument("--extra-root", action="append", default=[], type=Path,
                         help="additional read-only directory, e.g. the topic's received attachments")
+    parser.add_argument("--state", default="", help="with --run-dir: the state directory of a turn given the device tools")
+    parser.add_argument("--run-dir", default="", help="with --state: that turn's run directory (its device-turn.json)")
     args = parser.parse_args()
-    serve(args.root, extra_roots=args.extra_root)
+    if args.root is None and not (args.state and args.run_dir):
+        parser.error("--root is required unless --state and --run-dir are given")
+    serve(args.root, extra_roots=args.extra_root, state=args.state, run_dir=args.run_dir)

@@ -58,7 +58,7 @@ from covey.core.harness import (BackendConfig, BackendRuntime, HARNESS_REGISTRY,
                                 for_device)
 from covey.core import env as cenv
 from covey.core import home as covey_home
-from covey.core import extensions, procfs
+from covey.core import device_tools, extensions, procfs
 from covey.core.process import device_of, is_owned, process_identity, stop_group, stream_subprocess_lines
 from covey.core.process_env import child_process_env, process_device
 from covey.core.reply_state import ReplyState
@@ -595,7 +595,9 @@ class AntigravityBackend(BackendRuntime):
 
     def prompt_runtime_note(self, ctx):
         if ctx.options.get(TOOL_LIMIT) == LEAD:
-            return "Antigravity 权限模式：只读，这一轮写文件、执行命令和读网址都会被拒绝，Bridge 工具照常可用"
+            return ("Antigravity 权限模式：只读，这一轮写文件、执行命令和读网址都会被拒绝，Bridge 工具照常可用"
+                    + ("；别的设备用 bridge_workspace 的 device_list、device_ls、device_stat、device_get 看（只读）"
+                       if device_server(ctx) else ""))
         return ("Antigravity 权限模式：always-proceed（--dangerously-skip-permissions）" if ctx.skip_permissions
                 else "Antigravity 权限模式：request-review，要批准的操作会被跳过")
 
@@ -615,10 +617,26 @@ def settings_args(ctx) -> list:
     return ["--settings", json.dumps(found, separators=(",", ":"))] if found else []
 
 
+# The turns whose shell READ_ONLY_SETTINGS holds (command(*) refused), so covey device is out of their reach: the device
+# channel's reading tools are their ``bridge_workspace`` server's (core/device_tools.py). A CONSULT one gets none of the
+# Bridge's.
+DEVICE_TOOLS = (LEAD, READ)
+
+
+def device_server(ctx) -> dict:
+    """The device tools' MCP server of a turn held to ``DEVICE_TOOLS`` that may use the devices (core/device_tools.py
+    ``server``: bin/covey_workspace_reader.py with them alone); {} for any other turn."""
+    return device_tools.server(ctx, DEVICE_TOOLS)
+
+
 def home_config(ctx) -> dict | None:
-    """The --mcp-config of a turn's private home (``Homes``): the butler's or a lead's Bridge tools (``mcp_config``); None
-    when there are none (no private home)."""
+    """The --mcp-config of a turn's private home (``Homes``): the butler's or a lead's Bridge tools (``mcp_config``), then
+    a lead's or read turn's device tools (``device_server``, as ``bridge_workspace``); None when there are none (no
+    private home)."""
     servers = dict(((ctx.options.get("mcp_config") or {}).get("mcpServers") or {}))
+    devices = device_server(ctx)
+    if devices:
+        servers["bridge_workspace"] = devices
     return {"mcpServers": servers} if servers else None
 
 

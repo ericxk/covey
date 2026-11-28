@@ -15,6 +15,8 @@ STEP_NAMES = {"commandExecution": "bash", "fileChange": "edit", "webSearch": "we
               "dynamicToolCall": "调用工具", "plan": "更新计划"}
 # The Bridge's own workspace tools (server bridge_workspace), named for what they do, their path as the detail.
 WORKSPACE_TOOLS = {"workspace_read_file": "读取文件", "workspace_list_directory": "浏览目录"}
+# Its device tools (core/device_tools.py), their device and path as the detail.
+DEVICE_TOOLS = {"device_list": "列设备", "device_ls": "浏览设备目录", "device_stat": "查设备文件", "device_get": "读设备文件"}
 FAILED = {"failed", "declined", "errored", "interrupted", "cancelled"}
 
 
@@ -75,10 +77,13 @@ class CodexEventAdapter:
             return  # Before reading the rest: a late start of an ended item is dropped whatever it holds.
         name, detail = STEP_NAMES[kind], item.get("command") or item.get("query") or item.get("tool") or ""
         if kind == "mcpToolCall" and item.get("server") == "bridge_workspace":
-            name = WORKSPACE_TOOLS.get(item.get("tool"), name)
+            name = WORKSPACE_TOOLS.get(item.get("tool")) or DEVICE_TOOLS.get(item.get("tool"), name)
             args = item.get("arguments")
             if item.get("tool") in WORKSPACE_TOOLS and isinstance(args, dict) and isinstance(args.get("path"), str):
                 detail = args["path"]
+            elif item.get("tool") in DEVICE_TOOLS and isinstance(args, dict):
+                where = args.get("path") if isinstance(args.get("path"), str) else " ".join(map(str, args.get("paths") or []))
+                detail = ":".join(filter(None, (str(args.get("device") or ""), where))) or detail
         if kind == "fileChange":
             detail = ", ".join(str(c.get("path", "")) for c in (item.get("changes") or []))
         if kind == "webSearch":

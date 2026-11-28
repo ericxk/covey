@@ -123,12 +123,16 @@ def eager_room(env) -> int:
 
 def agy_servers(config, env) -> tuple[dict, dict]:
     """``config`` (an --mcp-config: {"mcpServers": {name: {command, args, env}}}) as agy's mcp_config.json entries, and
-    the names of the tools each server listed ({name: [tool]})."""
+    the names of the tools each server listed ({name: [tool]}). The servers share the one room (agy's budget is the
+    turn's): each in ``config``'s order takes what the ones before it left, so the Bridge's server, first, keeps all of
+    it and the workspace server after it (a lead's device tools, core/device_tools.py) takes only the rest."""
     servers, listed, room = {}, {}, eager_room(env)
     for name, server in ((config or {}).get("mcpServers") or {}).items():
         tools = listed_tools(server, env)
         listed[name] = [tool["name"] for tool in tools]
-        eager = {tool: {"eager": True} for tool in eager_names(tools, room)}
+        names = eager_names(tools, room)
+        room -= sum(tool_size(tool) for tool in tools if tool["name"] in names)
+        eager = {tool: {"eager": True} for tool in names}
         servers[name] = {"command": server["command"], "args": list(server.get("args") or ()),
                          "env": dict(server.get("env") or {}), "timeoutSeconds": TOOL_SECONDS,
                          **({"tools": eager} if eager else {})}

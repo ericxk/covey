@@ -192,9 +192,11 @@ dsh 是 DeepSeek 开源的 Agent Harness（npm 包 `@deepseek-ai/dsh`，预览�
 
 | Harness | 怎么调 | 只读的轮次 |
 | --- | --- | --- |
-| Claude Code | Bash 里跑 `covey device …` | 负责人、群成员只读的轮只有 Read、Grep、Glob，没有 Bash，用不了设备通道；别的轮由通道自己按只读设备拦 |
-| Codex | `exec_command` 里跑 `covey device …`（默认 `danger-full-access`） | 只读轮（负责人、群成员只读）在只读沙箱里：沙箱不让连 ssh 主连接的套接字、也解析不了主机名，运行目录只读写不了审计，所以这些轮次里 Codex 用不了设备通道：`covey device list` 还能列名单，别的子命令报设备没有答复（退出 4）。只读轮里的设备工具（沙箱外的工作区读取器里加只读的 `ls`、`stat`、`get`）在后面的版本补上 |
-| Antigravity（`agy`） | `run_command` 里跑 `covey device …` | Covey 现行参数（`--dangerously-skip-permissions`，不传 `--mode`、`--sandbox`，权限模式 `always-proceed`）下 `run_command` 能出网，能用已有的 ssh 主连接，也能新开连接；负责人、群成员只读的轮拒绝所有 shell 命令（`command(*)`），用不了设备通道 |
+| Claude Code | Bash 里跑 `covey device …` | 负责人、群成员只读的轮只有 Read、Grep、Glob，没有 Bash，改用设备只读工具（下文）：`--mcp-config` 里多一个 `bridge_workspace`（负责人的排在它的 Bridge 工具后面；群成员只读的轮照旧 `--strict-mcp-config`，只有这一个） |
+| Codex | `exec_command` 里跑 `covey device …`（默认 `danger-full-access`） | 只读轮（负责人、群成员只读）在只读沙箱里：沙箱不让连 ssh 主连接的套接字、也解析不了主机名，运行目录只读写不了审计，`covey device` 在这些轮次连不上设备（退出 4，并提示改用工具）；改用设备只读工具：沙箱外的工作区读取器（`bridge_workspace`）多带 `--state`、`--run-dir` 和找设备名单用的环境，这几个工具不经审批就跑。Codex 0.172 把 MCP 工具都放在 `tool_search` 后面按需加载，多几个工具不改开头的工具列表 |
+| Antigravity（`agy`） | `run_command` 里跑 `covey device …` | Covey 现行参数（`--dangerously-skip-permissions`，不传 `--mode`、`--sandbox`，权限模式 `always-proceed`）下 `run_command` 能出网，能用已有的 ssh 主连接，也能新开连接；负责人、群成员只读的轮拒绝所有 shell 命令（`command(*)`），改用设备只读工具：私有主目录的 `mcp_config.json` 里多一个 `bridge_workspace`（不带 `--root` 的工作区读取器，只有设备工具），排在 Bridge 工具后面 |
+
+- **设备只读工具**（`core/device_tools.py`）：`device_list`、`device_ls`、`device_stat`、`device_get`（按行读文本，`save=true` 时取回到本话题产物目录），给 shell 够不着设备的只读轮用。调用都走 `core/device_access.py` 的 `Channel`，和 `covey device` 同一套护栏：名单和聊天空间、所有设备只读、拒取钥匙和登录信息、每次调用记进 `devices.jsonl`、一轮结束并进话题记录和任务卡。只在设备通道开着、`devices.json` 里有这一轮聊天能用的设备、本机话题（不是外部话题）、不在设备上跑的这几种轮次才挂；别的轮次的服务参数和工具列表和原来一字不差。协作的咨询轮（`consult`）不挂。Antigravity 一轮的工具预算由各服务共用（`backends/agy/home.py` 的 `agy_servers`）：Bridge 的工具先占，设备工具只用剩下的，放不下的按名字列在提示里，不挤掉派活的工具。dsh 的负责人轮没接（`tests/test_matrix.py` 的 GAPS）。
 
 - **怎么告诉模型**：本机话题的主目录段（系统规则，话题内不变）多一句固定的用法，和其余主目录规矩一起给到每家 Harness；设备名单在 `repos.md` 末尾按需读，或 `covey device list`。名单增删不改系统规则，Prompt 缓存不受影响。外部话题（`local: false`）不给这一句。
 - **改设备上的文件**：三家都是 `covey device get` 到本话题产物目录、用自己的编辑工具改、再 `covey device put` 回去（`put` 核对取回时的 sha256）；Antigravity 的文件工具默认只碰工作区，产物目录在本机话题的可写范围里，不用放宽 `allowNonWorkspaceAccess`。
