@@ -3,6 +3,7 @@ what holds a question and what does not, that a held question is not a failed de
 lead's two tools, the gate words (E4), the 分流记录 and the 不对 correction, and that with the switch off nothing is different."""
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import threading
@@ -20,7 +21,7 @@ from covey.app.project_loop import ProjectLoop
 from covey.app.questions import recover_question_delivery
 from covey.cards import project_card
 from covey.cards.question_cards import HELD_NOTE, question_card, question_element
-from covey.core import butler, butler_tool_specs, project_gates, project_library, project_memory, projects, recovery, triage
+from covey.core import butler, butler_tool_specs, memstore, project_gates, project_library, project_memory, projects, recovery, triage, turn_source
 from covey.core.jobs import find_job_record, upsert_job_record
 from covey.core.state import read_object, write_json
 
@@ -1492,6 +1493,176 @@ class StrandedCheckpointQuestionTest(HeldFixture):
         self.app.questions.publish_question_card.return_value = True
         self.sweep(triage.of(data)["at"] + 10 * flow.RESHOW_EVERY)
         self.assertEqual(self.app.questions.publish_question_card.call_count, 1)
+
+
+
+class SourceTableTest(ToolsCase):
+    """T908 M5: whether project_answer stands on a ground, source by source, before M5 and after it. ``grounds`` judges as it
+    did (the style line, voided, done, only for that once, none of the owner's with an origin, another question's decision
+    alone: each refused as before); M5 only adds the two rows the plan names: a line the owner wrote on the web page's 记一条
+    is his (its origin the page's operation), and a ground from a topic with redaction on is left out of a topic that has it
+    off. ``BEFORE`` is the table as 8b6b9134 judged it (``scripts/test_map.py prove --base`` runs this test there: only those
+    rows fail), ``AFTER`` as it judges now; the test checks both that the rows judge as ``AFTER`` says and that ``BEFORE`` and
+    ``AFTER`` differ in those rows alone."""
+
+    # source: (verdict, level of the ground); a refusal's verdict names its reason (``reason``).
+    BEFORE = {
+        "主人原话": ("ok", "owner"), "问题卡回答": ("ok", "owner"), "网页写的": ("not_owner", ""), "网页改负责人记的": ("not_owner", ""),
+        "管家写的": ("ok", "owner"), "负责人记的": ("not_owner", ""), "无出处的旧行": ("not_owner", ""), "风格行": ("style", ""),
+        "只限当次": ("once", ""), "已办完": ("history", ""), "已作废": ("void", ""), "答别的题": ("other", ""),
+        "脱敏条目答没开脱敏的话题": ("ok", "owner"), "脱敏话题里的原话答没开脱敏的话题": ("ok", "owner"),
+        "脱敏条目答开了脱敏的话题": ("ok", "owner"),
+    }
+    AFTER = {**BEFORE, "网页写的": ("ok", "owner"), "脱敏条目答没开脱敏的话题": ("hidden", ""),
+             "脱敏话题里的原话答没开脱敏的话题": ("hidden", "")}
+    ALLOWED = {"网页写的": "网页写的变成主人级", "脱敏条目答没开脱敏的话题": "脱敏被过滤", "脱敏话题里的原话答没开脱敏的话题": "脱敏被过滤"}
+    REASONS = (("hidden", "来自开了脱敏的话题"), ("style", "汇报风格"), ("void", "已作废"), ("history", "进了历史记录"),
+               ("once", "只限当次"), ("other", "另一道题"), ("not_owner", "不是主人说的"), ("missing", "不在这个专项的记忆里"))
+
+    def setUp(self):
+        super().setUp()
+        mock.patch.dict(os.environ, SWITCH).start()
+        self.addCleanup(mock.patch.stopall)
+        mock.patch.object(project_loop, "lead_busy", return_value=False).start()
+        # Two questions alike both ways only when they are the same words (``other_question``'s measure, made exact).
+        mock.patch("covey.core.memory_search.mutual_similarity",
+                   side_effect=lambda a, b, **_: (1.0, True) if a.strip() == b.strip() else (0.05, False)).start()
+        self.topic = self.tool("project_topic_start", request_id="m1", title="导出旧账单", prompt="把旧库账单导出", workspace="project",
+                               readonly=True, why="脚本在这个仓库")["data"]["topic_id"]
+        self.label = "T" + str(json.loads((self.state / "topics" / self.topic / "topic.json").read_text())["topic_number"])
+        self.secret = self.tool("project_topic_start", request_id="m2", title="开了脱敏的话题", prompt="看密钥轮换", workspace="project",
+                                readonly=True, why="同一个仓库")["data"]["topic_id"]
+        self.redact(self.secret, True)
+        app = self.env.topics.target(self.state, self.topic, CHAT)[0]
+        mock.patch.object(app.questions, "submit_answer", side_effect=self.landed).start()
+        self.paths = []
+        # A decision's question words, which ``other_question`` reads off its line (W1-B; test_answer_sources gives them so).
+        self.asked = {}
+        rows_of = flow.ground_rows
+        mock.patch.object(flow, "ground_rows", side_effect=lambda state, project: {
+            key: {**row, **({"question": self.asked[key]} if key in self.asked else {})}
+            for key, row in rows_of(state, project).items()}).start()
+
+    def redact(self, topic, on):
+        path = self.state / "topics" / topic / "topic.json"
+        data = json.loads(path.read_text())
+        data["redaction"] = on
+        path.write_text(json.dumps(data, ensure_ascii=False))
+
+    def landed(self, ctx, chat, token, fields, event_id, *, by=None):
+        path = self.state / "questions" / (token + ".json")
+        write_json(path, {**read_object(path), "status": "answered", "answers": {"0": {"answers": ["旧版"]}}}, ensure_ascii=False)
+
+    def hold(self, n):
+        """A choice question of the topic held for the lead, the one project_answer answers next (the earlier ones gone)."""
+        for path in self.paths:
+            path.unlink(missing_ok=True)
+        token = f"{n:02d}" + "c" * 14
+        path = self.state / "questions" / (token + ".json")
+        write_json(path, question(topic=self.topic, job_key=f"x-{n}", token=token), ensure_ascii=False)
+        flow.Triage(runtime=SimpleNamespace(log=print), cards=mock.Mock())._route(SimpleNamespace(state_dir=self.state), read_object(path))
+        self.assertEqual(triage.state(read_object(path)), triage.HELD)
+        self.paths.append(path)
+        return path
+
+    def owner_answer(self, token, text="主人答：用哪个库版本？→旧版") -> str:
+        record = {"token": token, "topic_id": self.topic, "job_id": 3, "questions": CHOICE, "answers": {"0": {"answers": ["旧版"]}}}
+        [(entry, _)] = project_memory.note_answers(self.state, PID, record, [{"index": 1, "item": "0", "text": text}])
+        return entry["id"]
+
+    def sources(self) -> dict:
+        """source -> (the evidence project_answer is given, whether the answered topic has redaction on)."""
+        from covey.app import web_memory
+        from covey.core import memory_gate
+
+        state = self.state
+        write_job(state, "om_said1", topic_id=LEAD, chat_id=CHAT, job_id=9, message_id="om_said1", status="done",
+                  user_text="这一批都用旧版")
+        write_job(state, "om_secret1", topic_id=self.secret, chat_id=CHAT, job_id=10, message_id="om_secret1", status="done",
+                  user_text="这一批都用旧版（脱敏话题里说的）")
+        def page(payload, op_id):  # As app/web_ops.py memory_edit calls it (8b6b9134's took no op_id: ``BEFORE``'s run).
+            more = {"op_id": op_id} if "op_id" in inspect.signature(web_memory.edit_v43).parameters else {}
+            return web_memory.edit_v43(state, {"v": 43, **payload}, token=web_memory.token_of(op_id), **more)
+
+        web = memstore.find(state, page({"action": "add", "kind": "rule", "scope": "project", "project_key": PID,
+                                         "text": "账单导出一律用旧版库"}, "op-web1")["refs"][0])
+        lead_line, _ = project_memory.add(state, PID, "导出都用旧版，兼容现有脚本", "constraint", "lead")
+        edited = memstore.find(state, f"project:{PID}:{lead_line['id']}")
+        page({"action": "edit", "keys": [edited.ref], "text": "导出都用旧版，兼容现有的导出脚本"}, "op-web2")
+        butler = memory_gate.write(state, kind="rule", scope="project", owner_key=PID, text="账单相关的库版本以后都选旧版",
+                                   proof=memory_gate.Proven(memory_gate.Proof(message_id="om_b1", quote="以后都选旧版", via="butler"),
+                                                            turn_source.LEVEL_OWNER), by="butler", source="butler").entry
+        lead_note, _ = project_memory.add(state, PID, "这个专项一律用旧版", "decision", "lead")
+        unsourced, _ = project_memory.add(state, PID, "以后都用旧版", "constraint", "owner")
+        style, _ = project_memory.add(state, PID, "汇报风格：只报里程碑", "style", "owner", origin={"message_id": "om_style"})
+        once = self.owner_answer("1" * 16)
+        project_memory.fix(state, PID, once, "once", origin={"message_id": "om_fix1"})
+        done = self.owner_answer("2" * 16)
+        project_memory._edit(state, PID, lambda rows, meta: meta.__setitem__(done, {**meta.get(done, {}), "valid": "done"}))
+        voided = self.owner_answer("3" * 16)
+        project_memory.delete(state, PID, voided)
+        other = self.owner_answer("4" * 16, text="主人答：部署到哪个机房？→北京")
+        self.asked[other] = "部署到哪个机房？"
+        hidden, _ = project_memory.add(state, PID, "旧版库的账号在密钥轮换话题里定了", "constraint", "owner", redacted=True,
+                                       origin={"message_id": "om_secret1"})
+        return {
+            "主人原话": (["msg:om_said1"], False), "问题卡回答": ([self.owner_answer("5" * 16)], False),
+            "网页写的": ([web.code], False), "网页改负责人记的": ([edited.code], False), "管家写的": ([butler.code], False),
+            "负责人记的": ([lead_note["id"]], False), "无出处的旧行": ([unsourced["id"]], False), "风格行": ([style["id"]], False),
+            "只限当次": ([once], False), "已办完": ([done], False), "已作废": ([voided], False), "答别的题": ([other], False),
+            "脱敏条目答没开脱敏的话题": ([hidden["id"]], False), "脱敏话题里的原话答没开脱敏的话题": (["msg:om_secret1"], False),
+            "脱敏条目答开了脱敏的话题": ([hidden["id"]], True),
+        }
+
+    def reason(self, text) -> str:
+        return next((name for name, words in self.REASONS if words in text), "other_refusal:" + text[:60])
+
+    def judged(self) -> dict:
+        table = {}
+        for n, (source, (evidence, redacted)) in enumerate(self.sources().items()):
+            self.redact(self.topic, redacted)
+            path = self.hold(n)
+            answer = self.tool("project_answer", thread=self.label, answers={"0": "旧版"}, evidence=evidence)
+            if answer["ok"]:
+                (row,) = [row for row in self.reload()["triage"] if row.get("token") == path.stem]
+                table[source] = ("ok", "owner" if any(item["level"] == turn_source.LEVEL_OWNER for item in row["evidence"]) else "agent")
+            else:
+                self.assertEqual(answer["data"]["refused"], "evidence", (source, answer))
+                self.assertEqual(triage.state(read_object(path)), triage.HELD, source)  # Refused: still the lead's, nothing sent.
+                table[source] = (self.reason(answer["text"]), "")
+        return table
+
+    def test_each_source_judges_as_the_table_says(self):
+        self.assertEqual(self.judged(), self.AFTER)
+
+    def test_before_and_after_differ_in_the_two_rows_the_plan_names_alone(self):
+        self.assertEqual(set(self.BEFORE), set(self.AFTER))
+        differ = {source for source in self.BEFORE if self.BEFORE[source] != self.AFTER[source]}
+        self.assertEqual(differ, set(self.ALLOWED))
+        self.assertEqual(set(self.ALLOWED.values()), {"网页写的变成主人级", "脱敏被过滤"})
+        self.assertEqual(self.AFTER["网页写的"], ("ok", "owner"))  # The page's line: the owner's now,
+        self.assertTrue(all(self.AFTER[source][0] == "hidden" for source in self.ALLOWED if self.ALLOWED[source] == "脱敏被过滤"))
+        # and every refusal stays a refusal: nothing judges looser than before but the page's line.
+        loosened = {source for source in self.BEFORE if self.BEFORE[source][0] != "ok" and self.AFTER[source][0] == "ok"}
+        self.assertEqual(loosened, {"网页写的"})
+
+    def test_the_note_of_an_answer_says_none_of_the_old_three_parts(self):
+        sources = self.sources()
+        for n, source in enumerate(("问题卡回答", "管家写的", "网页写的")):
+            self.redact(self.topic, False)
+            self.hold(40 + n)
+            evidence = sources[source][0] + sources["负责人记的"][0]
+            answer = self.tool("project_answer", thread=self.label, answers={"0": "旧版"}, evidence=evidence)
+            self.assertTrue(answer["ok"], (source, answer))
+        rows = [row["text"] for row in self.reload()["triage"]]
+        notes = [call.args[3]["supplement"] for call in self.env.topics.target(self.state, self.topic, CHAT)[0]
+                 .questions.submit_answer.call_args_list]
+        for text in (*rows, *notes):
+            for old in ("长期约定", "当前决定", "待核对参考", "你说的", "它总结的"):
+                self.assertNotIn(old, text)
+        self.assertTrue(any("你定的·决定" in note for note in notes), notes)
+        self.assertTrue(any("你定的·规矩" in note for note in notes), notes)
+        self.assertTrue(all("负责人记的·资料" in note for note in notes), notes)
 
 
 if __name__ == "__main__":

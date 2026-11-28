@@ -354,8 +354,8 @@ PROJECT_TOOLS = (
      "description": "改专项记忆里已有的一条（id 是专项记忆每行开头〔〕里的）：口径变了、记错了、两条说的是一件事，都用它，"
                     "不要再追加一条“XXX 作废”。op：update 改这条的正文或种类（改之前的原文留在修改记录里）；"
                     "supersede 用新的替代旧的（text 写新条，或 by 写已有的一条的 id 来合并重复），旧的收进历史、不再每轮带上；"
-                    "retire 这条不再成立或已办完，收进历史。不能改、替代或作废主人的长期约定和他留下的限制（要改请问主人）；"
-                    "主人的当前决定不能改正文，办完了才能 retire，主人有了更新的答复才能被那条 supersede。",
+                    "retire 这条不再成立或已办完，收进历史。不能改、替代或作废主人定的规矩和他留下的限制（要改请问主人）；"
+                    "主人的决定不能改正文，办完了才能 retire，主人有了更新的答复才能被那条 supersede。",
      "input_schema": {"type": "object", "required": ["op", "id"], "properties": {
          "op": {"type": "string", "enum": ["update", "supersede", "retire"],
                     "description": "update 改正文或种类；supersede 用新条或已有的一条替代旧的；retire 收进历史"},
@@ -383,7 +383,7 @@ TRIAGE_ENV = "COVEY_PROJECT_TRIAGE"
 TRIAGE_TOOLS = (
     {"name": "project_answer",
      "description": "替主人答专项里一个话题交给你的选择题（题目在“专项状态”的“交给你的话题问题”里）。只答能依据专项记忆和主人定过的事回答的"
-                    "（专项记忆里的“待核对参考”是你整理的，不能单独作为依据）；"
+                    "（专项记忆里标“负责人记的”是你整理的，不能单独作为依据）；"
                     "每题都要答，答案必须是选项原文，多选的给数组。拿不准就用 project_escalate，不要猜。回答会注明是负责人替主人答的，话题照常往下做，"
                     "也会记进专项卡的分流记录，主人看得到、可以点“不对”。",
      "input_schema": {"type": "object", "required": ["thread", "answers"], "properties": {
@@ -441,7 +441,7 @@ BACKGROUND_ARG = {"type": "string", "description": "背景，300 字内"}
 EVIDENCE = {"type": "array", "minItems": 1, "maxItems": 6, "items": {"type": "string"},
             "description": "替主人答题的依据：专项记忆条目的 id（状态包专项记忆每行开头〔〕里的，如 0123456789abcdef-2），"
                            "或主人在这个专项里的原话 msg:<消息 id>（状态包“主人在专项里说过的话”里的）。"
-                           "只有主人说的、仍有效的才算依据；待核对参考、作废、做完、被替代或只限当次的会被拒绝，"
+                           "只有主人说的、仍有效的才算依据；负责人记的、作废、做完、被替代或只限当次的会被拒绝，"
                            "被拒了就用 project_escalate 转给主人。"}
 EVIDENCE_NOTE = "要写 evidence：Bridge 核对每条依据，没有主人说的、仍有效的依据就拒绝，回答记着依据，主人核对得到。"
 PROJECT_NAMES = tuple(tool["name"] for tool in PROJECT_TOOLS + TRIAGE_TOOLS + CHECKLIST_TOOLS)

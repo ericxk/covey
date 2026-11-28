@@ -157,8 +157,17 @@ def take(ctx, record, text, marked, quote="", *, kind="rule", scope="", access=N
     if written.done != memstore.SAME or asks:
         notes.append({"kind": "remembered", "text": entry.text, "scope": words, "entry_id": memstore.parse_ref(entry.ref)[2],
                       "ref": entry.ref, **({"code": entry.code} if entry.code else {}), **({"redacted": True} if marked else {}),
-                      **({"entry_kind": "note"} if entry.kind == "note" else {}), **({"review": asks} if asks else {})})
+                      **({"entry_kind": "note"} if entry.kind == "note" else {}), **({"review": asks} if asks else {}),
+                      **({"over": True} if _over_room(state, entry) else {})})
     return notes
+
+
+def _over_room(state_dir, entry) -> bool:
+    """Whether the owner's rule ``entry`` went into a scope already full: the turns carry only its title (app/memory_turn.py
+    over_room), and the answer card says so (cards/answer_card.py OVER_WORDS, T908 M5)."""
+    from covey.app.memory_turn import over_room
+
+    return entry.said == "owner" and over_room(state_dir, entry)
 
 
 def _void(ctx, record, item):

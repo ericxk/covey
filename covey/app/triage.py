@@ -20,8 +20,10 @@ question goes to the project's lead before the owner, and the owner sees it only
   project's ``triage`` list (the 专项卡's 分流记录); an answer's row had a 不对 button once (retired, T898: the owner says it in the member topic).
 - With 协作 on (COVEY_COLLAB=1), or whenever the lead names them, an answer stands on grounds the Bridge checks (``grounds``,
   docs/projects.md 分流的依据; by id or short code, the decisions of decisions.jsonl too): entries of the project's memory that the owner said and that still hold, or the owner's own
-  messages in the project; the lead's notes (待核对参考) never alone, a line voided, done, superseded or only for that once
-  never. The grounds go into the answer's note and its 分流记录 row.
+  messages in the project; the lead's notes (负责人记的) never alone, a line voided, done, superseded or only for that once
+  never; a line the owner wrote on the web page's 记一条 is his (its origin the page's operation, app/web_memory.py); one from
+  a topic with redaction on is left out when the answered topic has it off. The grounds go into the answer's note and its
+  分流记录 row, said as 你定的·规矩, 你定的·决定, 负责人记的·资料 (``ground_tag``).
 
 Rules 1 and 4 (AGENTS.md): a record is changed under its own lock (``update_question``) and nothing is sent from under it; the
 triage state moves only along core/triage.py TRIAGE_TRANSITIONS."""
@@ -533,9 +535,10 @@ NO_GROUNDS = ("要写 evidence：你依据的专项记忆条目 id（状态包�
 ESCALATE = "依据不够就用 project_escalate 转给主人（写清你推荐哪个），不要换个说法再答。"
 NOT_OWNER = ("这些依据都不是主人说的：待核对参考是你整理的口径，（无出处）的旧记录条件可能不全，都不能单独作为替主人答题的依据。"
              "用 project_escalate 转给主人，写清你推荐哪个、为什么。")
-WHO = {turn_source.LEVEL_OWNER: "你说的", turn_source.LEVEL_AGENT: "它总结的"}
 OTHER_QUESTION = ("这条“当前决定”答的是另一道题（和这次问的不是同一件事），不能单独作为替主人答这道题的依据。"
                   "用 project_escalate 转给主人，写清你推荐哪个、为什么。")
+HIDDEN = "{refs} 来自开了脱敏的话题，被答的话题没开脱敏，不能写进它的回答"  # A ground the answered topic may not read (T908 M5).
+WHO_SAID = {turn_source.LEVEL_OWNER: "你定的", turn_source.LEVEL_AGENT: "负责人记的"}  # The 补充说明's words (T908 M5).
 
 
 def ground_id(text) -> str:
@@ -611,7 +614,17 @@ def other_question(env, row, asked) -> bool:
     return float(similarity) < question_dedup.MUTUAL_DUP
 
 
-def grounds(env, project, evidence, asked="") -> list:
+def hidden_from(state_dir, topic) -> bool:
+    """Whether a ground from ``topic`` is hidden from a topic with redaction off: its own redaction is on, or cannot be read."""
+    from covey.core.redaction import topic_redaction
+
+    try:
+        return bool(topic_redaction(Path(state_dir), str(topic or "")))
+    except ValueError:
+        return True
+
+
+def grounds(env, project, evidence, asked="", topic="") -> list:
     """The grounds the lead gave for answering in the owner's place (project_answer's ``evidence``), each checked here and
     never taken from what the model says of it: [{ref, kind (memory or message), level, layer, part, text}]. An entry id is a
     line of the project's memory (core/project_memory.py entries; its level and layer core/memory.py describe's); msg:<message
@@ -619,7 +632,10 @@ def grounds(env, project, evidence, asked="") -> list:
     answer is not sent: none given, one that is not there (made up), a style line, one voided, done, superseded or only for
     that once (``ONCE``), or none of the owner's words among them (the lead's notes, 待核对参考, and the owner's older lines
     without an origin are never the ground alone). ``asked``: the held question's words: a decision of another question
-    (``other_question``) is kept as a ground but never the owner's word for this one."""
+    (``other_question``) is kept as a ground but never the owner's word for this one. ``topic``: the topic whose question is
+    answered: with its redaction off, a line from a topic with it on, or the owner's message in one (``hidden_from``), is
+    left out of the grounds (its words would go into that topic's answer), and with nothing else given that is why (T908
+    M5). Nothing else is judged otherwise than before."""
     given = evidence if isinstance(evidence, list) else SPLIT.split(evidence) if isinstance(evidence, str) else []
     given = list(dict.fromkeys(ground_id(item) for item in given if ground_id(item)))
     if not given:
@@ -627,7 +643,8 @@ def grounds(env, project, evidence, asked="") -> list:
     if len(given) > GROUNDS_MAX:
         raise ValueError(f"依据最多 {GROUNDS_MAX} 条，这次写了 {len(given)} 条：只留真正依据的那几条。")
     rows = ground_rows(env.state_dir, project)
-    found, problems = [], []
+    found, problems, hidden = [], [], []
+    shown_all = bool(topic) and project_context_marked(env.state_dir, topic)
     for ref in given:
         ref, code = coded(env.state_dir, project, ref, rows)
         if not ref:
@@ -639,6 +656,9 @@ def grounds(env, project, evidence, asked="") -> list:
             if not record:
                 problems.append(f"{ref} 不是主人在这个专项里说的话（消息 id 抄状态包“主人在专项里说过的话”里的）")
                 continue
+            if not shown_all and hidden_from(env.state_dir, record.get("topic_id")):
+                hidden.append(MSG + message)
+                continue
             found.append({"ref": MSG + message, "kind": "message", "level": turn_source.LEVEL_OWNER, "layer": "", "part": "",
                           "text": cut(record.get("user_text"), 200)})
             continue
@@ -648,6 +668,9 @@ def grounds(env, project, evidence, asked="") -> list:
             continue
         code = code or str(row.get("code") or "")
         facts = core_memory.describe(row)
+        if row.get("redacted") and not shown_all:
+            hidden.append(code or ref)
+            continue
         if row.get("kind") == "style":
             problems.append(f"{ref} 是汇报风格，不是答题的依据")
         elif row.get("deleted") or facts["valid"] == "void":
@@ -660,19 +683,46 @@ def grounds(env, project, evidence, asked="") -> list:
             other = row.get("kind") == "decision" and other_question(env, row, asked)
             found.append({"ref": ref, "kind": "memory", "level": turn_source.LEVEL_AGENT if other else facts["level"],
                           "layer": facts["layer"], "part": facts["part"] or "", "text": cut(row.get("text"), 200),
-                          "applies": facts["applies"], **({"code": code} if code else {}), **({"other": True} if other else {})})
+                          "applies": facts["applies"], "said": facts.get("asserted_by") or "", "kind3": memstore_kind(row),
+                          **({"code": code} if code else {}), **({"other": True} if other else {})})
     if problems:
         raise ValueError("；".join(problems) + "。" + ESCALATE)
+    if hidden and not found:
+        raise ValueError(HIDDEN.format(refs="、".join(hidden)) + "。" + ESCALATE)
     if not any(item["level"] == turn_source.LEVEL_OWNER for item in found):
         raise ValueError(OTHER_QUESTION if any(item.get("other") for item in found) else NOT_OWNER)
     return found
 
 
+def project_context_marked(state_dir, topic) -> bool:
+    """Whether ``topic`` reads the lines from topics with redaction on (app/project_context.py marked)."""
+    from covey.app.project_context import marked
+
+    return marked(Path(state_dir), topic)
+
+
+def memstore_kind(row) -> str:
+    """The kind the one store gives a line of the project's memory (core/memstore.py kind3_of): rule, decision or note."""
+    from covey.core import memstore
+
+    return memstore.kind3_of(row, source=memstore.PROJECT)[0]
+
+
+KIND_WORDS = {"rule": "规矩", "decision": "决定", "note": "资料"}
+
+
 def ground_tag(item) -> str:
-    """Who said a ground and which layer it is, short: 你说的·当前决定, 主人原话, 它总结的·待核对参考."""
+    """Who said a ground and what it is, in the words every reader of the memory has (T908 M5: none of the three parts'
+    old names): 你定的·决定, 主人原话, 负责人记的·资料; the owner's line with no origin 你定的（无出处）, his decision of
+    another question 你定的·决定（答的是别的题）."""
     if item["kind"] == "message":
         return "主人原话"
-    return WHO.get(item["level"], "它总结的") + "·" + core_memory.PART_WORDS.get(item["part"], core_memory.LAYER_WORDS.get(item["layer"], ""))
+    kind = KIND_WORDS.get(item.get("kind3") or "", "")
+    if (item.get("said") or (turn_source.PARTY_OWNER if item["level"] == turn_source.LEVEL_OWNER else "")) == turn_source.PARTY_OWNER:
+        who = "你定的" + ("" if item["level"] == turn_source.LEVEL_OWNER or item.get("other") else "（无出处）")
+    else:
+        who = WHO_SAID[turn_source.LEVEL_AGENT]
+    return who + (f"·{kind}" if kind else "") + ("（答的是别的题）" if item.get("other") else "")
 
 
 def ground_note(found) -> str:

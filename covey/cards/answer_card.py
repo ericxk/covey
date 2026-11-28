@@ -321,6 +321,8 @@ EDIT_LABEL = "改"
 ACCEPT_LABEL = "采纳"
 NOTE_WORDS = "（相关时才带）"  # After a 资料 the owner asked to be noted (a note's ``entry_kind``): not carried every turn.
 WIDER_WORDS = "先{scope}，要管全局吗"  # A rule held where it was said while 待审核 asks about 全局 (a note's ``review``).
+# The owner's rule written into a scope already full (a note's ``over``, app/memory_collect.py): the turns carry only its title.
+OVER_WORDS = {"管这个专项": "这个专项放不下了，只带标题", "管这个话题": "这个话题放不下了，只带标题", "管全局": "全局放不下了，只带标题"}
 
 
 def memory_element(notes, topic_id="", job_id="", url=None):
@@ -350,6 +352,8 @@ def memory_element(notes, topic_id="", job_id="", url=None):
         if asks and scope:
             scope = WIDER_WORDS.format(scope=scope)
         words = f"{label}：{text}" + (f" · {scope}" if kind in UNDOABLE and scope else "")
+        if kind == "remembered" and note.get("over"):
+            words += " · " + OVER_WORDS.get(str(note.get("scope") or ""), "放不下了，只带标题")
         line = md(grey(words), size="notation")
         if kind in UNDOABLE:
             value = {"topic_id": topic_id, "job_id": job_id, "entry_id": str(note.get("entry_id") or "")}

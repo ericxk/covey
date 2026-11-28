@@ -15,12 +15,18 @@ the query has counts neither for nor against (no entry has it); ``sim`` is absol
 words in common, or one rare one). The order is core/memory_rank.py rank of ``sim`` times the scope's weight (SCOPE_WEIGHTS:
 the topic's own, its project's, 全局, another project's, one done or put away) with the entry's use (core/memory_usage.py
 counts). Decisions of the same question are listed once. Who reads what: a 代答 topic nothing; 全局 entries only on the owner's
-turn (``owner``); one from a topic with redaction on only with ``redacted``; 待审核 and void entries never.
+turn (``owner``); one from a topic with redaction on only with ``redacted``; 待审核 and void entries never. A turn's lookup
+(``turn_context``, and so the command's ``search``, ``show`` and ``list``) reads 代答 and redaction off the topic's own record,
+never off what the command line says (``--redacted`` is read past when ``--topic`` names a topic); ``show`` without
+``--owner`` reads only what ``search`` would (``_allowed``: the turn's own topic and project). Known limit (T908 M5): ``--owner``
+is still the command line's word, held to the owner's own turn by the turn's rules alone: a token of the Bridge's that proves
+it would be a new concept, not this release's.
 
 ``DEFAULT_TAU`` (a hit worth showing) and ``DEFAULT_TAU_DUP`` (a question answered before, an entry written twice) were set on
 the private blind set of real queries (scripts/memory_eval.py prints the same figures for any set). The index of a state
-directory is kept in the process while the memory's sentinel (``memory/.rev``) and the projects' folder stay as they were.
-Standard library and core only."""
+directory is kept in the process while the memory's sentinel (``memory/.rev``) and the projects' folder stay as they were; the
+use counts it ranks by (``memory/usage.json``, written after nearly every turn) are read on their own (``usage_of``), so a
+turn's use no longer builds the index anew. Standard library and core only."""
 from __future__ import annotations
 
 import argparse
@@ -211,34 +217,49 @@ def _topic_projects(state_dir) -> dict:
     return found
 
 
+def _stat(path) -> tuple | None:
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return info.st_mtime_ns, info.st_size
+
+
 def stamp(state_dir) -> tuple:
-    """What the index of ``state_dir`` was made from: the sentinel, the projects' folder and the usage file, as stat says."""
+    """What the index of ``state_dir`` was made from: the sentinel and the projects' folder, as stat says (the usage file is
+    not: ``usage_of``)."""
     state = Path(state_dir)
-    out = []
-    for path in (memstore.rev_path(state), state / "projects", memstore.usage_path(state)):
-        try:
-            info = path.stat()
-            out.append((info.st_mtime_ns, info.st_size))
-        except OSError:
-            out.append(None)
-    return tuple(out)
+    return tuple(_stat(path) for path in (memstore.rev_path(state), state / "projects"))
 
 
 _indexes: dict = {}
+_usages: dict = {}
+
+
+def usage_of(state_dir) -> dict:
+    """The use counts of ``state_dir``'s entries (core/memory_usage.py counts), read again only when the usage file changed."""
+    key = str(Path(state_dir).resolve())
+    made_from = _stat(memstore.usage_path(Path(state_dir)))
+    found = _usages.get(key)
+    if found is not None and found[0] == made_from and made_from is not None:
+        return found[1]
+    counts = memory_usage.counts(state_dir)
+    _usages[key] = (made_from, counts)
+    return counts
 
 
 def index(state_dir) -> Index:
     """The index of every entry of ``state_dir`` (any status: the lookups choose), kept while nothing changed (the module's
-    docstring)."""
+    docstring), with the use counts as they are now (``usage_of``)."""
     key = str(Path(state_dir).resolve())
     made_from = stamp(state_dir)
     found = _indexes.get(key)
-    if found is not None and found.stamp == made_from and made_from[0] is not None:
-        return found
-    made = build(memstore.entries(state_dir, statuses=None), topic_projects=_topic_projects(state_dir),
-                 usage=memory_usage.counts(state_dir), stamp=made_from)
-    _indexes[key] = made
-    return made
+    if found is None or found.stamp != made_from or made_from[0] is None:
+        found = build(memstore.entries(state_dir, statuses=None), topic_projects=_topic_projects(state_dir),
+                      usage={}, stamp=made_from)
+        _indexes[key] = found
+    found.usage = usage_of(state_dir)
+    return found
 
 
 def _bm25(index_, wanted: dict, tf: dict, length: float) -> tuple[float, set]:
@@ -454,10 +475,25 @@ def _proxy(state_dir, topic_id) -> bool:
         return False
 
 
+def _redacted(state_dir, topic_id, given) -> bool:
+    """Whether a lookup reads the entries from topics with redaction on: with a topic, whether its own record says it chose
+    redaction (core/redaction.py topic_redaction; off when it cannot be read), whatever ``given`` (the command line's
+    ``--redacted``) says; ``given`` only for a lookup of no topic (a person at a terminal)."""
+    if not topic_id:
+        return bool(given)
+    from covey.core.redaction import topic_redaction
+
+    try:
+        return bool(topic_redaction(Path(state_dir), str(topic_id)))
+    except ValueError:
+        return False
+
+
 def turn_context(state_dir, topic_id="", *, owner=False, redacted=False) -> dict:
-    """The context of a lookup from a turn of ``topic_id``: its project, who may read what."""
+    """The context of a lookup from a turn of ``topic_id``: its project, who may read what, its 代答 and its redaction read
+    off its own record (``_proxy``, ``_redacted``)."""
     return {"topic": str(topic_id or ""), "project": _topic_project(state_dir, topic_id), "owner": bool(owner),
-            "redacted": bool(redacted), "proxy": _proxy(state_dir, topic_id)}
+            "redacted": _redacted(state_dir, topic_id, redacted), "proxy": _proxy(state_dir, topic_id)}
 
 
 def search(state_dir, query, topic_id="", *, owner=False, redacted=False, workspace="", limit=LIMIT) -> list:
@@ -492,12 +528,17 @@ def render(rows, query) -> str:
 
 def show(state_dir, key, *, topic_id="", owner=False, redacted=False) -> dict | None:
     """The whole entry ``key`` (a short code, a ref or an old id) names, as the context may read it; counted as the
-    ``show`` signal (core/memory_rank.py SIGNAL_WEIGHTS). None when none is, or the turn may not read it."""
+    ``show`` signal (core/memory_rank.py SIGNAL_WEIGHTS). None when none is, or the turn may not read it: a 代答 topic
+    nothing, one from a topic with redaction on only in such a topic (both off the topic's record, ``turn_context``), and
+    without ``owner`` only what the turn's ``search`` reads (``_allowed``: its own topic's and its project's, never 全局,
+    another project's or another topic's; T908 M5)."""
     entry = memstore.find(state_dir, key)
     if entry is None or entry.status in ("void", "pending"):
         return None
-    context = turn_context(state_dir, topic_id, owner=owner, redacted=redacted)
-    if context["proxy"] or (entry.scope == "global" and not owner and topic_id) or (entry.redacted and not redacted):
+    context = _context({**turn_context(state_dir, topic_id, owner=owner, redacted=redacted), "statuses": SEARCHED})
+    if context["proxy"] or (entry.redacted and not context["redacted"]):
+        return None
+    if not owner and not _allowed(entry, context):
         return None
     try:
         memory_usage.signal(state_dir, [entry.ref], "show")
@@ -537,7 +578,7 @@ def listing(state_dir, topic_id="", *, owner=False, redacted=False, limit=50) ->
     rows = []
     for doc in index(state_dir).docs:
         entry = doc.entry
-        if entry.status != "active" or (entry.scope == "global" and not owner) or (entry.redacted and not redacted):
+        if entry.status != "active" or (entry.scope == "global" and not owner) or (entry.redacted and not context["redacted"]):
             continue
         if topic_id and entry.scope != "global" and entry.owner_key != topic_id and doc.project != context["project"]:
             continue

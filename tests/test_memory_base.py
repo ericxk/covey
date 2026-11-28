@@ -8,9 +8,10 @@ app/project_lead.py, app/web_collect.py): three faults it once had and must not 
   answers pushed out what the lead had noted for good. Now 长期约定, 当前决定 and 待核对参考 are chosen each in its own room, and
   a full file lets answers go first, into memory-archive.json, not into nothing.
 - The lead's pack read the last 20 lines as "[kind] text", and a resumed lead turn read none: a line deleted in between was
-  still the lead's to follow. Now the lead's pack (every turn), a member topic's turn and the web page take one read
-  (core/memory.py project_view), with the same version, and a resumed turn of either is told what was voided since its previous
-  turn."""
+  still the lead's to follow. Then the lead's pack (every turn), a member topic's turn and the web page took one read
+  (core/memory.py project_view), with the same version; since T908 M5, with COVEY_MEMORY on, the lead reads the one store's
+  规矩, 决定 and 资料 as a member topic's turn names them (app/project_lead.py store_memory, its own room), and a resumed turn
+  of either is told what was voided since its previous turn."""
 from __future__ import annotations
 
 import json
@@ -25,7 +26,7 @@ from support import UNSET_OFF
 from support.records import state_dir, write_job, write_topic
 
 from covey.app import memory_turn, project_context, project_lead, project_tools
-from covey.app.prompts import PROJECT_PART_HEADS, VOIDED_HEAD
+from covey.app.prompts import PROJECT_PART_HEADS
 from covey.app.web_collect import Collector
 from covey.core import butler
 from covey.core import memory as core_memory
@@ -368,9 +369,9 @@ class ReadCase(Case):
         job.user_text = words
         return memory_turn.tail(self.ctx(), job, lambda: True)
 
-    def lead(self, full):
+    def lead(self, full, words=""):
         pack = project_lead.state_pack(self.state, self.record(), "lead-4", full=full, receipts=[],
-                                       since=None if full else previous_start(self.state, LEAD, 4))
+                                       since=None if full else previous_start(self.state, LEAD, 4), words=words)
         return re.sub(r"〔[0-9A-Za-z-]+〕", "", pack)  # The lead's lines start with their short codes (project_memory_revise takes them).
 
     def web(self):
@@ -385,17 +386,18 @@ class OneReadTest(ReadCase):
     def test_the_lead_a_member_and_the_page_read_one_version_with_the_same_speakers(self):
         version = project_memory.version(project_memory.entries(self.state, self.record()))
         member, fresh, resumed, page = self.member(), self.lead(True), self.lead(False), self.web()
-        for text in (fresh, resumed):
-            self.assertIn(f"专项记忆版本 {version}。", text)
         self.assertEqual(page["memory_version"], version)
         self.assertRegex(member, r"- R[0-9A-Z]{4,6} 发布只在周六\n")  # The member's rules carry the rules alone.
         tail = self.member_tail("对账一致怎么算完")
         self.assertRegex(tail, r"- D[0-9A-Z]{4,6} 主人答：第一批迁哪些表？→账单和流水一起（T\d+ · \d\d-\d\d）")
         self.assertRegex(tail, r"- N[0-9A-Z]{4,6} 对账一致才算完（负责人记的）")
-        for pack in (fresh, resumed):
-            for layer, text in ((core_memory.RULE, "- [constraint] 发布只在周六"), (core_memory.DECISION, "- [decision] 主人答：第一批迁哪些表？"),
-                                (core_memory.REFERENCE, "- [constraint] 对账一致才算完")):
-                self.assertLess(pack.index(PROJECT_PART_HEADS[layer]), pack.index(text))
+        for pack in (fresh, resumed):  # T908 M5: the store's kinds, named as the member's turn names them.
+            self.assertLess(pack.index(project_lead.STORE_RULES), pack.index("- 发布只在周六\n"))
+            self.assertLess(pack.index(project_lead.STORE_DECISIONS), pack.index("- 主人答：第一批迁哪些表？→账单和流水一起（T"))
+            for old in ("长期约定", "当前决定", "待核对参考", "[constraint]", "[decision]"):
+                self.assertNotIn(old, pack)
+            self.assertNotIn("对账一致才算完", pack)  # The lead's note is a 资料: carried when the turn's questions find it,
+        self.assertIn("- 对账一致才算完（负责人记的）", self.lead(False, "对账一致怎么算完").partition(project_lead.STORE_NOTES)[2])
         rows = {row["text"]: row for row in page["memory"]}
         self.assertEqual({text: tuple(row[key] for key in ("asserted_by", "recorded_by", "level", "layer", "part", "valid", "carried",
                                                           "said_by")) for text, row in rows.items()}, {
@@ -416,19 +418,18 @@ class OneReadTest(ReadCase):
         member, resumed, page = self.member() + self.member_tail("对账一致怎么算完"), self.lead(False), self.web()
         self.assertNotIn("对账一致才算完", member)  # Gone from the member's turn: its rules never had it, its tail no longer.
         for text in (resumed,):
-            self.assertIn(f"专项记忆版本 {version}。", text)
-            head, _, voided = text.partition(VOIDED_HEAD)
+            head, _, voided = text.partition(project_lead.STORE_VOIDED)
             self.assertNotIn("对账一致才算完", head)
-            self.assertIn("对账一致才算完", voided.split("专项记忆版本", 1)[0])
+            self.assertIn("- 对账一致才算完", voided.split("\n\n", 1)[0])
         self.assertEqual(page["memory_version"], version)
         self.assertNotIn("对账一致才算完", [row["text"] for row in page["memory"]])
-        self.assertNotIn(VOIDED_HEAD, self.lead(True))  # A new session never read it: nothing to take back.
+        self.assertNotIn(project_lead.STORE_VOIDED, self.lead(True))  # A new session never read it: nothing to take back.
 
     def test_a_line_noted_since_the_previous_turn_is_marked_new(self):
         project_memory.add(self.state, PID, "流水表放到第二个窗口", "decision", "lead", now=NOW + 20)
         self.assertIn("流水表放到第二个窗口（负责人记的）", self.member_tail("流水表放到哪个窗口"))
-        self.assertIn("- [decision] 流水表放到第二个窗口（新）", self.lead(False))
-        self.assertNotIn("（新）", self.lead(True))
+        self.assertIn("- 流水表放到第二个窗口（负责人记的 · 新）", self.lead(False, "流水表放到哪个窗口"))
+        self.assertNotIn("新）", self.lead(True, "流水表放到哪个窗口"))
 
     def test_the_source_is_the_path_that_wrote_a_line_not_what_a_model_says(self):
         self.addCleanup(butler.configure_state, butler.configure_state(self.state))
@@ -461,7 +462,7 @@ class FixTest(ReadCase):
             "asserted_by": "owner", "recorded_by": "bridge", "level": "owner", "layer": "rule", "part": "rule",
             "origin": {"message_id": "web-op-1"}})
         self.assertRegex(self.member(), r"- R[0-9A-Z]{4,6} 对账一致才算完\n")  # The owner's now: a rule, without 负责人记的.
-        self.assertLess(self.lead(False).index(PROJECT_PART_HEADS[core_memory.RULE]), self.lead(False).index("对账一致才算完"))
+        self.assertLess(self.lead(False).index(project_lead.STORE_RULES), self.lead(False).index("- 对账一致才算完\n"))
         page = self.web()
         self.assertNotEqual(page["memory_version"], before)
         row = next(row for row in page["memory"] if row["text"] == "对账一致才算完")

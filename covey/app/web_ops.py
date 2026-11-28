@@ -877,7 +877,7 @@ class Ops:
             raise ValueError("只有主人能改记忆")
         if payload.get("v") != web_memory.V43:
             raise ValueError("这个页面版本太旧，刷新网页后到「记忆」里改")
-        done = web_memory.edit_v43(state, payload, token=web_memory.token_of(row.get("op_id")))
+        done = web_memory.edit_v43(state, payload, token=web_memory.token_of(row.get("op_id")), op_id=str(row.get("op_id") or ""))
         if done["undo_token"]:
             self.runtime.log(f"web memory_edit {payload.get('action')} refs={len(done['refs'])} token={done['undo_token']}")
         return done["message"]

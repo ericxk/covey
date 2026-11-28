@@ -4,8 +4,10 @@ how its session lives. Only a lead topic's turn (core/butler.py ``is_lead``) com
 - ``state_pack``: the project's state read from disk, put in front of every turn: the goal, the members (status, one
   sentence, deliverables), the project's memory and library, the style, the inbox since its last wake-up and the last ten
   decisions. The session is only a cache of it: a new one gets the whole pack, a resumed one the changing parts. The memory
-  is in both, read as a member topic reads it (core/memory.py project_view: the same parts, choice, version), a resumed one
-  with what was voided since the lead's previous turn, so a delete is gone at the next turn's start.
+  is in both: with COVEY_MEMORY on the one store's 规矩, 决定 and 资料, named as a member topic's turn names them, in the
+  lead's own room (``store_memory``, T908 M5; the lead's topic's own rules carry only 全局, app/memory_turn.py), else read as
+  a member topic reads it then (core/memory.py project_view: the same parts, choice, version); a resumed one with what was
+  voided since the lead's previous turn, so a delete is gone at the next turn's start.
 - ``lead_rules``: the lead's rules in layers (identity, tools, style, and the practice layer phase 3 fills for a
   specialist: nothing now).
 - ``settle_session`` (app/worker.py ``_start_turn``): the session is dropped, and the pack sent again, when the previous
@@ -122,8 +124,8 @@ IDENTITY = (
     "[负责人规则]",
     "- 你是一个专项的负责人：主人交给你一件要分成几个话题、跨几天才能做完的事，你拆、派、跟进、收尾，不自己动手干活。"
     "你这一轮是只读的：只能读文件、搜索和用 Bridge 工具，改文件、执行命令、联网都会被拒绝；改东西、跑命令、联网都是专项的话题里做的事。",
-    "- 每一轮开头有“专项状态”：目标和完成标准、话题清单、专项记忆、风格、自上次以来的收件箱、近 10 条决定。"
-    "它是磁盘上的真实状态，比你对之前几轮的印象可靠；对不上时以它为准。专项记忆每一轮都带，和专项的话题读到的是同一份，"
+    "- 每一轮开头有“专项状态”：目标和完成标准、话题清单、专项记忆（规矩、主人的决定，和这一轮相关的资料）、风格、自上次以来的收件箱、近 10 条决定。"
+    "它是磁盘上的真实状态，比你对之前几轮的印象可靠；对不上时以它为准。专项记忆每一轮都带，规矩和专项的话题读到的是同一份，"
     "写着作废的那几条不再适用。",
     "- 一轮只做这一轮该做的判断，派完就结束这一轮，不要等话题做完，不要轮询：话题有了结果，会有下一轮叫醒你。",
 )
@@ -143,7 +145,8 @@ OWNER_FIXED = "主人纠正过的做法，用 project_remember 记下，之后�
 LEAD_FIXED = "主人纠正过的做法 Bridge 会照他的原话记下，你之后照做。"
 TOOL_RULES = (
     "- 下面说的工具都是 Bridge 工具（MCP 服务 bridge 的工具，名字是 mcp__bridge__<工具名> 或 mcp_bridge_<工具名>）。开话题用 project_topic_start（写干净的任务说明：做什么、范围、约束、"
-    "交付什么；不抄本机路径；什么时候问主人话题自己知道，不用写“严禁发问题卡”“别问主人”），给已有话题加话用 project_topic_send；同时在做的话题不设上限，一件独立的事一个话题。",
+    "交付什么；不抄本机路径；什么时候问主人话题自己知道，不用写“严禁发问题卡”“别问主人”），给已有话题加话用 project_topic_send；同时在做的话题不设上限，一件独立的事一个话题。"
+    "主人刚拍板的关键决定写进交给话题的话里：别的话题问出来的决定，话题不会每轮都带。",
     "- 主人点名要比较几种做法时：用 project_topic_start 开两个只读话题（readonly 为 true），给一模一样的任务说明，最好一家一个"
     "模型（harness、model）；两边都结束后再汇总，写清采纳了哪边的哪部分、为什么，以及两边都没回答的问题。",
     "- 派活前先看已有的话题，能追加就追加：先看“专项状态”的话题清单，再用 topics_list、topics_search 看主人私聊里还没进专项的话题。"
@@ -158,7 +161,7 @@ TOOL_RULES = (
     "title 写一句不超过 40 字的标题；你记的规矩当场在这个专项生效、标“负责人记的”，主人不逐条审。主人答过的题 Bridge 已记成决定，不用再记。"
     "主人说“少打扰我”“多报一点”这类，用 project_style 改汇报风格。",
     "- 专项记忆的口径变了（记错了、主人改了主意、两条说同一件事），用 project_memory_revise 改那一条（id 写那一条开头〔〕里的短码）：update 改正文，supersede 用新条"
-    "（或 by 写已有一条的短码）替代旧条，retire 收进历史；不许再追加一条“XXX 作废”，旧条还会每轮带上。主人的长期约定和他留下的限制你不能改，"
+    "（或 by 写已有一条的短码）替代旧条，retire 收进历史；不许再追加一条“XXX 作废”，旧条还会每轮带上。主人定的规矩和他留下的限制你不能改，"
     "要改就问主人。",
     "- 不要把发版号、现网第几代、集群瞬时余量、某一刻的进度这类快照写进专项记忆（project_remember 会拒绝），它们过后就过时：写 project_note；"
     "专项记忆只放长期成立的决定、约束、联系人和事实。",
@@ -189,8 +192,8 @@ TOOL_RULES = (
 NOT_YET = "话题里问到主人的选择题，不由你答（分流还没开）。"  # The tail of a TOOL_RULES line while COVEY_PROJECT_TRIAGE is off.
 TRIAGE_RULES = (
     "- 分流：专项的话题问了选择题，会先交给你（“专项状态”里“交给你的话题问题”，收件箱里有 question 回执），3 分钟内你不处理就转给主人。"
-    "只替主人答你能依据专项记忆、决定日志和主人在这个专项里说过的话答的题（专项记忆里的“待核对参考”是你整理的口径，不能单独作为依据；"
-    "“当前决定”只管那道题问的范围，换了批次、目标或扩大范围的转给主人）：用 project_answer，每题都答，答案写选项原文，多选给数组；"
+    "只替主人答你能依据专项记忆、决定日志和主人在这个专项里说过的话答的题（专项记忆里标“负责人记的”是你整理的口径，不能单独作为依据；"
+    "主人的决定只管那道题问的范围，换了批次、目标或扩大范围的转给主人）：用 project_answer，每题都答，答案写选项原文，多选给数组；"
     "回答会注明是你替主人答的，记在专项卡的分流记录里，主人不同意会在那个话题里直接说。",
     f"- 拿不准、记忆里没有依据、涉及{ASK_SHORT}或别的撤不回的操作，都用 project_escalate 转给主人并写清 why，别猜；"
     "自由文字的问题不会交给你。" + OWNER_FIXED,
@@ -213,8 +216,8 @@ COLLAB_RULES = (
 )
 EVIDENCE_RULE = (
     "- project_answer 必须写 evidence：列出你依据的专项记忆条目短码（状态包专项记忆每行开头〔〕里的）或主人在这个专项里的原话"
-    "（msg:消息 id，见状态包“主人在专项里说过的话”）。只有长期约定、当前决定里没标（无出处）、仍有效的条目和主人原话算依据；"
-    "待核对参考是你整理的，只能一起列，不能单独作依据；作废、做完、被替代或只限当次的 Bridge 会拒绝。被拒了就用 project_escalate 转给主人，"
+    "（msg:消息 id，见状态包“主人在专项里说过的话”）。只有主人定的规矩、主人的决定里没标（无出处）、仍有效的条目和主人原话算依据；"
+    "标“负责人记的”是你整理的，只能一起列，不能单独作依据；作废、做完、被替代或只限当次的 Bridge 会拒绝。被拒了就用 project_escalate 转给主人，"
     "不要换个说法再答。回答会带上依据，记在专项卡的分流记录里。"
 )
 PRACTICE = ""  # Phase 3's layer: how this kind of specialist works (project.leader.profile). Nothing reads it yet.
@@ -533,6 +536,188 @@ def lead_background(record) -> str:
 
 LEAD_MEMORY_HEAD = "专项记忆（每一轮都带，和专项的话题读到的是同一份）："
 
+# The pack's memory with COVEY_MEMORY on (T908 M5): the store's three kinds (core/memstore.py), named as every other reader
+# names them, each in the lead's own room (the member topics' turns carry 600 characters of decisions and 5 notes; the lead,
+# who answers for the project, keeps the three parts' 1000, 1000 and 800 of core/memory.py PART_LIMITS). The 规矩 and 决定
+# are the pack's memory, versioned (``MEMORY_SAME``); the 资料 are what the questions handed to the lead and the owner's words
+# of the turn find (the project's name and goal when there are neither), said each turn, never part of the version.
+RULE_ROOM, DECISION_ROOM, NOTE_ROOM = (core_memory.PART_LIMITS[part] for part in core_memory.PARTS)
+DECISION_LINE = 240  # Characters of one decision the room counts (app/memory_turn.py DECISION_LINE).
+STORE_HEAD = "专项记忆（每一轮都带；规矩和专项的话题读到的是同一份；每行开头〔〕里是短码）："
+STORE_RULES = "规矩（照做；标“负责人记的”是你整理的口径，和主人的话冲突时让路）："
+STORE_DECISIONS = "主人的决定（主人答过的题，一题一条，只管那道题问的范围；换了批次、目标或扩大范围要重新问）："
+STORE_NOTES = "和这一轮相关的资料（参考；标“负责人记的”不能单独作为替主人答题的依据）："
+STORE_VOIDED = "上一轮之后作废、不再适用的（之前带过，现在不要再照着做）："
+SOURCELESS = "（无出处）"  # The owner's line with no origin the Bridge took it in by: never the ground of an answer alone.
+
+
+def _sourced(entry) -> bool:
+    origin = entry.origin if isinstance(entry.origin, dict) else {}
+    return any(origin.get(key) for key in turn_source.ORIGIN_KEYS)
+
+
+def store_line(entry, *, new=False, where="") -> str:
+    """"- 〔R7K2M〕正文（负责人记的）": one entry as the pack says it, its short code what project_memory_revise takes and
+    project_answer's evidence names (app/triage.py grounds); ``where`` what else is said of it (a decision's topic and day)."""
+    tags = [part for part in (where, "负责人记的" if entry.said != "owner" else "",
+                              SOURCELESS[1:-1] if entry.said == "owner" and not _sourced(entry) else "", "新" if new else "")
+            if part]
+    text = entry.text if len(entry.text) <= TEXT else entry.text[:TEXT - 1] + "…"
+    return f"- 〔{entry.code or entry.ref}〕{text}" + (f"（{' · '.join(tags)}）" if tags else "")
+
+
+def _asked_where(state_dir, entry, numbers) -> str:
+    from covey.core.topics import topic_number
+
+    asked = str((entry.origin or {}).get("topic_key") or "")
+    if asked and asked not in numbers:
+        try:
+            numbers[asked] = topic_number(state_dir, asked)
+        except (OSError, ValueError):
+            numbers[asked] = 0
+    parts = [f"T{numbers[asked]}" if numbers.get(asked) else "", stamp(entry.at, "%m-%d") if entry.at else ""]
+    return " · ".join(part for part in parts if part)
+
+
+def store_decisions(state_dir, project_id, redacted=False) -> list:
+    """The decisions the pack may carry: the project's in force, the newest first, a question once (app/memory_turn.py
+    decisions_of)."""
+    from covey.core import memstore
+
+    seen, out = set(), []
+    found = [entry for entry in memstore.entries(state_dir, scope="project", owner_key=project_id, kinds=("decision",))
+             if redacted or not entry.redacted]
+    for entry in sorted(found, key=lambda e: (-e.at, e.ref)):
+        question = (str((entry.origin or {}).get("topic_key") or ""), entry.title)
+        if question in seen:
+            continue  # The same question answered again: the newer answer holds.
+        seen.add(question)
+        out.append(entry)
+    return out
+
+
+def _fit(entries, room, size) -> tuple[list, list, int]:
+    """(taken, left, characters used) of ``entries`` in their order while ``room`` holds them: one that does not fit is
+    left, a smaller one after it may still fit (app/memory_turn.py pick_rules)."""
+    taken, left, used = [], [], 0
+    for entry in entries:
+        if used + size(entry) <= room:
+            taken.append(entry)
+            used += size(entry)
+        else:
+            left.append(entry)
+    return taken, left, used
+
+
+def _decision_size(entry) -> int:
+    return min(len(entry.text), DECISION_LINE)
+
+
+def _text_size(entry) -> int:
+    return len(entry.text)
+
+
+def store_rooms(rules, decisions, notes) -> tuple:
+    """((rules carried, rules past the room), (decisions carried, how many left), notes carried): each part in its own
+    room first (RULE_ROOM, DECISION_ROOM, NOTE_ROOM), then what the three leave unused lent to what they left out, part
+    after part (rules, decisions, notes: core/memory.py SPARE_ORDER), the notes never above core/memory.py REFERENCE_CAP in
+    all, as the lead's pack always lent it. ``rules`` in the order the room goes to (the owner's first, then the newest),
+    ``decisions`` the newest first, ``notes`` the best first."""
+    parts = [list(_fit(rules, RULE_ROOM, _text_size)), list(_fit(decisions, DECISION_ROOM, _decision_size)),
+             list(_fit(notes, NOTE_ROOM, _text_size))]
+    spare = sum(max(0, room - part[2]) for room, part in zip((RULE_ROOM, DECISION_ROOM, NOTE_ROOM), parts))
+    for index, size in enumerate((_text_size, _decision_size, _text_size)):
+        part, left = parts[index], []
+        for entry in part[1]:
+            cap = core_memory.REFERENCE_CAP - part[2] if index == 2 else spare
+            if size(entry) <= min(spare, cap):
+                spare -= size(entry)
+                part[2] += size(entry)
+                part[0].append(entry)
+            else:
+                left.append(entry)
+        part[1] = left
+    return (parts[0][0], parts[0][1]), (parts[1][0], len(parts[1][1])), parts[2][0]
+
+
+def note_queries(state_dir, record, words="") -> list:
+    """What the pack's 资料 are looked up by: each question held for the lead (the questions handed to it), the sentences
+    of the owner's words of the turn (app/memory_turn.py queries_of); the project's name and goal when there are neither."""
+    from covey.app.memory_turn import queries_of
+    from covey.app.triage_view import held_questions
+
+    found = []
+    if triage.enabled():
+        for _, row in held_questions(Path(state_dir), set(record.get("threads") or ())):
+            found += [str(item.get("question") or "") for item in row.get("questions") or () if isinstance(item, dict)]
+    found += queries_of(state_dir, "", words)
+    if not any(query.strip() for query in found):
+        found = [str(record.get("name") or ""), cut(str(record.get("goal") or lead_goal(record) or ""), 200)]
+    return [query for query in dict.fromkeys(found) if query.strip()]
+
+
+def store_notes(state_dir, record, queries, redacted=False) -> list:
+    """The project's 资料 ``queries`` find (core/memory_search.py, sim ≥ its DEFAULT_TAU), the best first."""
+    from covey.core import memory_search, memstore
+
+    if not queries:
+        return []
+    context = {"topic": str(record.get("lead_topic_id") or ""), "project": record["id"], "owner": False, "redacted": redacted,
+               "kinds": ("note",), "statuses": ("active",), "tau": memory_search.DEFAULT_TAU}
+    found = []
+    for item in memory_search.rank_many(memory_search.index(state_dir), queries, context):
+        if item["scope"] != "project" or item["owner_key"] != record["id"]:
+            continue
+        entry = memstore.find(state_dir, item["ref"])
+        if entry is not None:
+            found.append(entry)
+    return found
+
+
+def store_voided(state_dir, record, since, redacted=False) -> list:
+    """The lines of the project's memory voided after ``since`` (the lead's previous turn), as the pack says them."""
+    if since is None:
+        return []
+    rows = project_memory.entries(state_dir, record)
+    rows += project_context.decision_rows(state_dir, record["id"], rows)
+    codes = memory_codes(state_dir, record["id"])
+    gone = [row for row in rows if row.get("deleted") and row.get("kind") != "style" and float(row["deleted"]) > since
+            and (redacted or not row.get("redacted"))]
+    return [f"- 〔{codes.get(row['id']) or row.get('code') or row['id']}〕{cut(str(row.get('text') or ''), TEXT)}" for row in gone]
+
+
+def store_memory(state_dir, record, *, redacted=False, since=None, words="") -> tuple[list, list]:
+    """(the pack's memory, its 资料) with COVEY_MEMORY on: the module's ``RULE_ROOM`` part, each in its room (``store_rooms``).
+    The memory: the project's 规矩 (the owner's first, the rest by title: app/memory_turn.py titles_of), the owner's
+    decisions in force (``store_decisions``), what was voided since the previous turn (``store_voided``); ``since`` marks the
+    lines written after it 新. The 资料: ``store_notes`` of ``note_queries``. Each [] with nothing to say."""
+    from covey.app import memory_turn
+
+    found = sorted(memory_turn.scope_rules(state_dir, "project", record["id"], redacted), key=memory_turn._room_order)
+    (rules, over), (decisions, left), notes = store_rooms(
+        found, store_decisions(state_dir, record["id"], redacted),
+        store_notes(state_dir, record, note_queries(state_dir, record, words), redacted))
+    rules, over = sorted(rules, key=memory_turn._rule_order), sorted(over, key=memory_turn._rule_order)
+    titles, cut_off = memory_turn.titles_of(over)
+    voided = store_voided(state_dir, record, since, redacted)
+    fresh = (lambda entry: since is not None and entry.at > since)
+    lines = []
+    if rules or titles or cut_off:
+        lines += [STORE_RULES, *(store_line(entry, new=fresh(entry)) for entry in rules)]
+        if titles or cut_off:
+            lines.append(f"还有 {len(titles) + cut_off} 条规矩放不下，只列标题（要用时 memory_search 看全文）："
+                         + "；".join(f"{entry.code} {entry.title}" for entry in titles)
+                         + (f"；另有 {cut_off} 条负责人记的" if cut_off else ""))
+    if decisions:
+        numbers = {}
+        lines += [STORE_DECISIONS, *(store_line(entry, new=fresh(entry), where=_asked_where(state_dir, entry, numbers))
+                                     for entry in decisions)]
+        if left:
+            lines.append(f"另有 {left} 条较早的决定没列出（用 memory_search 查）。")
+    if voided:
+        lines += [STORE_VOIDED, *voided]
+    return lines, [STORE_NOTES, *(store_line(entry, new=fresh(entry)) for entry in notes)] if notes else []
+
 
 # 协作 (COVEY_COLLAB=1): what the pack says besides, for the lead to answer for the goal and name its grounds.
 
@@ -797,11 +982,14 @@ def digest(text) -> str:
     return version(text)
 
 
-def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redacted=False, sent=None, keep=None) -> str:
+def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redacted=False, sent=None, keep=None,
+               words="") -> str:
     """The pack at the head of the lead's turn ``key``. ``full``: the whole of it (a new session); else the parts that
     change between turns (members, memory, style, inbox, decisions), the goal being in the session already.
-    ``receipts``: the inbox's items when the caller has taken them. The memory is core/memory.py project_view's, as a member
-    topic reads it: ``since`` the lead's previous turn's start (a resumed session: what was voided since then is said),
+    ``receipts``: the inbox's items when the caller has taken them. The memory is the store's 规矩 and 决定 in the lead's own
+    room and the 资料 the questions handed to it and ``words`` (the owner's words of the turn) find (``store_memory``, T908
+    M5); with COVEY_MEMORY off core/memory.py project_view's, as a member topic reads it then. ``since`` the lead's previous
+    turn's start (a resumed session: what was voided since then is said),
     ``redacted`` whether the lead's topic reads the lines from topics with redaction on; with the triage on, the owner's own
     words (``owner_word_lines``: grounds project_answer may name, W0-2). With 协作 on (COVEY_COLLAB=1) also
     the 简报 (``brief_block``: its background in a new session only), the 目标检查表 and the open 协作 gaps (``checklist_block``:
@@ -845,15 +1033,23 @@ def state_pack(state_dir, record, key, *, full, receipts=None, since=None, redac
     granted = project_approvals.active_lines(record)
     if granted:
         out.append("部署授权（主人在问题卡上同意的，派部署时用 approval 带上）：\n" + "\n".join(granted))
-    rows = project_memory.entries(state_dir, record)
-    view = core_memory.project_view(rows + project_context.decision_rows(state_dir, record["id"], rows), record["id"], redacted=redacted,
-                                    since=None if full else since)
-    memory = memory_lines(view, memory_codes(state_dir, record["id"]) if view["parts"] else None)
+    notes = []
+    if core_memory.enabled():  # The store's three kinds (T908 M5); off, the three parts every reader read before.
+        memory, notes = store_memory(state_dir, record, redacted=redacted, since=None if full else since, words=words)
+        head = STORE_HEAD
+    else:
+        rows = project_memory.entries(state_dir, record)
+        view = core_memory.project_view(rows + project_context.decision_rows(state_dir, record["id"], rows), record["id"],
+                                        redacted=redacted, since=None if full else since)
+        memory = memory_lines(view, memory_codes(state_dir, record["id"]) if view["parts"] else None)
+        head = LEAD_MEMORY_HEAD
     memory_version = digest("\n".join(memory))
     if memory and isinstance(sent, dict) and sent.get("memory") == memory_version:
         out.append(MEMORY_SAME.format(version=memory_version))
     elif memory:
-        out.append(LEAD_MEMORY_HEAD + "\n" + "\n".join(memory))
+        out.append(head + "\n" + "\n".join(memory))
+    if notes:
+        out.append("\n".join(notes))
     words = owner_word_lines(state_dir, record) if triage.enabled() else []  # Grounds project_answer may name (W0-2).
     if words:
         out.append(OWNER_WORDS_HEAD + "\n" + "\n".join(words))
@@ -1090,7 +1286,7 @@ def lead_turn(ctx, job, prompt, session_id, log, release, now=None):
         pack = state_pack(ctx.state_dir, record, key, full=whole, redacted=project_context.marked(ctx.state_dir, job.topic_id),
                           since=board_read.previous_start(ctx.state_dir, job.topic_id, job.job_id) if session_id else None,
                           sent=pack_sent(ctx.state_dir, record["id"], job, session_id) if at_system and not whole else None,
-                          keep=keep)
+                          keep=keep, words=turn_words(ctx, job))
         if plan is not None:
             job.pack_pending = {"project": record["id"], **keep}
     except Exception as exc:  # noqa: BLE001 - the turn goes on with the rules alone
@@ -1098,6 +1294,20 @@ def lead_turn(ctx, job, prompt, session_id, log, release, now=None):
         pack = "[专项状态暂时读不到：先用 topic_read 看话题]"
     rules = "" if at_system else lead_rules(record.get("style"), noted=_noted(ctx))
     return ctx, "\n\n".join(part for part in (rules, pack, prompt) if part)
+
+
+def turn_words(ctx, job) -> str:
+    """The owner's own words of the lead's turn ``job`` (app/memory_turn.py owner_words), what the pack's 资料 are looked up by
+    besides the questions handed to the lead; '' for a turn whose words are not his (a wake-up's)."""
+    from covey.app.memory_turn import owner_words
+
+    try:
+        if not turn_source.behavior(job).owner_words:
+            return ""
+        return owner_words({"user_text": getattr(job, "user_text", ""), "message_id": getattr(job, "message_id", "")},
+                           ctx.state_dir)
+    except Exception:  # noqa: BLE001 - the 资料 are then looked up by the questions alone
+        return ""
 
 
 def _noted(ctx) -> bool:

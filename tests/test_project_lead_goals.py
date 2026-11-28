@@ -1216,22 +1216,22 @@ class GroundsTest(ToolsCase):
         self.assertTrue(answer["ok"], answer)
         note = self.submit.call_args.args[3]["supplement"]
         self.assertTrue(note.startswith("（负责人替主人答的，依据："), note)
-        self.assertIn(f"{owner} 你说的·当前决定「主人答：用哪个库版本？→旧版」", note)
-        self.assertIn(f"{lead['id']} 它总结的·待核对参考", note)
+        self.assertIn(f"{owner} 你定的·决定「主人答：用哪个库版本？→旧版」", note)
+        self.assertIn(f"{lead['id']} 负责人记的·资料", note)
         row = self.reload()["triage"][-1]
-        self.assertTrue(row["text"].startswith("答了（依据 你说的·当前决定、它总结的·待核对参考）："), row["text"])
+        self.assertTrue(row["text"].startswith("答了（依据 你定的·决定、负责人记的·资料）："), row["text"])
         self.assertEqual([(item["ref"], item["level"]) for item in row["evidence"]],
                          [(owner, turn_source.LEVEL_OWNER), (lead["id"], turn_source.LEVEL_AGENT)])
         self.assertEqual(project_facts.triage_lines(self.reload())[0][1], TOKEN)  # The 不对 button as before.
-        # A 长期约定 of the owner's (his own words, the message they came in kept as its origin) answers alone.
+        # A 规矩 of the owner's (his own words, the message they came in kept as its origin) answers alone.
         rule, _ = project_memory.add(self.state, PID, "以后版本都选旧版，兼容现有脚本", "constraint", "owner",
                                      origin={"message_id": "om_rule1"})
         second = self.hold("e" * 16)
         answer = self.answer([rule["id"]])
         self.assertTrue(answer["ok"], answer)
         self.assertEqual(triage.state(read_object(second)), triage.ANSWERED)
-        self.assertIn(f"{rule['id']} 你说的·长期约定「以后版本都选旧版", self.submit.call_args.args[3]["supplement"])
-        self.assertTrue(self.reload()["triage"][-1]["text"].startswith("答了（依据 你说的·长期约定）："))
+        self.assertIn(f"{rule['id']} 你定的·规矩「以后版本都选旧版", self.submit.call_args.args[3]["supplement"])
+        self.assertTrue(self.reload()["triage"][-1]["text"].startswith("答了（依据 你定的·规矩）："))
 
     def test_the_owners_own_message_in_the_project_is_a_ground(self):
         write_job(self.state, "om_said1", topic_id=LEAD, chat_id=CHAT, job_id=9, message_id="om_said1", status="done",

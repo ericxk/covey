@@ -678,19 +678,19 @@ def card_line(state, request, entry) -> None:
 
 def revise_refusal(action, entry, other=None) -> str:
     """Why the lead may not ``action`` (update, supersede or retire) the line ``entry`` (a row with its meta), '' when it may. The
-    owner's 长期约定 and his explicit limits are his alone; his 当前决定 (an answer he gave) keeps its words, is put away when it
+    owner's 规矩 and his explicit limits are his alone; his 决定 (an answer he gave) keeps its words, is put away when it
     is done, and is replaced only by a later line of the owner's (``other``, what takes its place); the lead's own are the lead's."""
     facts = memory.describe(entry)
     if facts["asserted_by"] != turn_source.PARTY_OWNER:
         return ""
     if facts["layer"] == memory.RULE or entry["kind"] == "constraint":
-        return "这是主人的长期约定（或他明确留下的限制），负责人不能改、替代或作废；要改请问主人，由主人自己在专项卡上改。"
+        return "这是主人定的规矩（或他明确留下的限制），负责人不能改、替代或作废；要改请问主人，由主人自己在专项卡上改。"
     if action == "retire":
         return ""
     if action == "update":
-        return "这是主人的当前决定，不能改正文；办完了用 retire 收进历史，主人有了新的答复就用 supersede（by 写那条新答复的 id）。"
+        return "这是主人的决定，不能改正文；办完了用 retire 收进历史，主人有了新的答复就用 supersede（by 写那条新答复的 id）。"
     newer = other is not None and memory.describe(other)["asserted_by"] == turn_source.PARTY_OWNER and other.get("at", 0) > entry.get("at", 0)
-    return "" if newer else "这是主人的当前决定，只能被主人更新的答复替代：by 写那条新答复的 id；负责人自己写的新条不行，请问主人。"
+    return "" if newer else "这是主人的决定，只能被主人更新的答复替代：by 写那条新答复的 id；负责人自己写的新条不行，请问主人。"
 
 
 def memory_key(state, pid, given) -> tuple:
@@ -720,7 +720,7 @@ def revise_decision(state, action, entry, args, origin):
     because = {"job": origin.get("job", "")}
     if action == "update":
         if not mine:
-            raise ValueError("这是主人的当前决定，不能改正文；办完了用 retire 收进历史，主人有了新的答复就用 supersede（by 写那条新答复的短码）。")
+            raise ValueError("这是主人的决定，不能改正文；办完了用 retire 收进历史，主人有了新的答复就用 supersede（by 写那条新答复的短码）。")
         text = " ".join(str(args.get("text") or "").split())[:memstore.DECISION_CHARS]
         made = memstore.edit(state, entry.ref, text=text or None, who="lead", because=because)
         return reply(True, f"已改专项记忆（{made.code}）：{made.text}。", id=made.code)
@@ -731,7 +731,7 @@ def revise_decision(state, action, entry, args, origin):
     if other is None or other.ref == entry.ref or other.owner_key != entry.owner_key:
         raise ValueError("决定只能被同一专项里已有的一条替代：by 写那一条的短码" + ("" if mine else "，而且要是主人更新的答复"))
     if not mine and (other.said != "owner" or other.at <= entry.at):
-        raise ValueError("这是主人的当前决定，只能被主人更新的答复替代：by 写那条新答复的短码；负责人自己写的新条不行，请问主人。")
+        raise ValueError("这是主人的决定，只能被主人更新的答复替代：by 写那条新答复的短码；负责人自己写的新条不行，请问主人。")
     old = memstore.supersede(state, entry.ref, other.ref, who="lead", because=because)
     return reply(True, f"已用（{other.code}）{other.title} 替代 {old.code}；旧的收进历史，不再每轮带上，仍可查。", id=other.code,
                  old=old.code, new=False)
@@ -968,7 +968,8 @@ def project_answer(env, request):
     except ValueError as exc:
         return reply(False, str(exc))
     try:
-        found = triage_flow.grounds(env, record, request.args.get("evidence"), asked=triage_flow.held_words(env, ctx.topic_id))
+        found = triage_flow.grounds(env, record, request.args.get("evidence"), asked=triage_flow.held_words(env, ctx.topic_id),
+                                    topic=ctx.topic_id)
     except ValueError as exc:
         return reply(False, f"没有替主人答：{exc}", refused="evidence")
     try:

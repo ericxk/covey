@@ -412,12 +412,12 @@ def memory_block(kept, left: int = 0, project=None, *, learn=None) -> str:
 # 记忆 from the one store (core/memstore.py, app/memory_turn.py): the 规矩 in the rules, the same every turn of a topic while they
 # are (the rules stay one cacheable prefix); what changes turn by turn (the decisions in progress, this turn's notes, the titles of
 # the related entries not carried) at the tail of the turn's message.
-RULES_HEAD = "记忆 · 规矩（照做；和主人这一轮的话冲突时听这一轮的）："
+RULES_HEAD = "记忆 · 规矩（照做；和主人这一轮的话冲突时听这一轮的；专项、话题的规矩和全局的冲突时，听范围小的）："
 RULES_SCOPES = {"global": "全局", "project": "本专项", "topic": "本话题"}
-RULES_GUIDE = (f"怎么用：标“负责人记的”是负责人整理、主人还没确认的，照做，但不能单独作为{ASK_SHORT}这类要主人点头的事的依据。"
-               "每轮消息末尾另有这一轮的决定和资料：决定只管它问的那一题、那个范围，换了批次或范围照常问；资料是参考。"
-               "这一轮照着哪几条做了（或因此没再问主人），在检查点 memory_used 写短码，如 [\"R7K2M\"]；不写检查点时略过。")
-RULES_SEARCH = "查记忆（只读）：{command}；看一条的全文把 search \"<一句话>\" 换成 show <短码>。要问主人之前，先查一下他答过没有。"
+RULES_GUIDE = (f"怎么用：标“负责人记的”照做，但不能单独作为{ASK_SHORT}这类要主人点头的事的依据。"
+               "消息末尾的决定只管它问的那一题、那个范围，换了批次或范围照常问；资料是参考。"
+               "照着哪几条做了（或因此没再问主人），在检查点 memory_used 写短码，如 [\"R7K2M\"]；不写检查点时略过。")
+RULES_SEARCH = "查记忆（只读）：{command}；看全文把 search \"<一句话>\" 换成 show <短码>。要问主人之前，先查一下他答过没有。"
 TAIL_HEAD = "记忆 · 这一轮（决定只管它问的那一题、那个范围；资料是参考，和主人这一轮的话冲突时听这一轮的）："
 TAIL_LISTED = "相关但没带的：{items}（要用时按规矩块里的命令 show <短码> 看全文）"
 
@@ -428,10 +428,11 @@ def memory_entry_line(entry, note="") -> str:
     return f"- {entry.code} {entry.text}" + (f"（{' · '.join(tags)}）" if tags else "")
 
 
-def memory_rules_block(rules, left=(), *, project_name: str = "", search: str = "") -> str:
+def memory_rules_block(rules, left=(), *, project_name: str = "", search: str = "", cut: int = 0) -> str:
     """The 规矩 a turn's rules carry (app/memory_turn.py rules_of), by scope, then the titles of those past their scope's room
-    and how to use them; ``search`` the command that looks the memory up ('' none: a device's topic). '' without a rule."""
-    if not rules and not left:
+    (app/memory_turn.py titles_of: every one of the owner's, ``cut`` of the lead's only counted) and how to use them;
+    ``search`` the command that looks the memory up ('' none: a device's topic). '' without a rule."""
+    if not rules and not left and not cut:
         return ""
     lines = [RULES_HEAD]
     for scope, word in RULES_SCOPES.items():
@@ -440,8 +441,11 @@ def memory_rules_block(rules, left=(), *, project_name: str = "", search: str = 
             lines.append(f"{word}「{project_name}」" if scope == "project" and project_name else word)
             lines += [memory_entry_line(entry) for entry in mine]
     if left:
-        lines.append(f"还有 {len(left)} 条规矩放不下，只列标题（要用时看全文）："
-                     + "；".join(f"{entry.code} {entry.title}" for entry in left))
+        lines.append(f"还有 {len(left) + cut} 条规矩放不下，只列标题（要用时看全文）："
+                     + "；".join(f"{entry.code} {entry.title}" for entry in left)
+                     + (f"；另有 {cut} 条负责人记的（用查记忆找）" if cut else ""))
+    elif cut:
+        lines.append(f"还有 {cut} 条负责人记的规矩放不下（用查记忆找）。")
     lines.append(RULES_GUIDE)
     if search:
         lines.append(RULES_SEARCH.format(command=search))

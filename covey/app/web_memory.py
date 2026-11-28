@@ -746,10 +746,18 @@ def _short_entry(entry) -> str:
     return short(entry.title or entry.text)
 
 
-def edit_v43(state_dir, payload, *, token="", now=None) -> dict:
+def web_origin(op_id) -> dict:
+    """Where an entry the owner wrote on the page's 记一条 came from: the page's operation, as the message id the Bridge gives
+    the owner's words from the page (core/web_sync.py PREFIX), so it is his with an origin (core/turn_source.py provenance:
+    project_answer may stand on it, app/triage.py grounds; T908 M5); {} without the operation's id."""
+    return {"message_id": web_sync.PREFIX + str(op_id), "via": "web"} if op_id else {}
+
+
+def edit_v43(state_dir, payload, *, token="", now=None, op_id="") -> dict:
     """One ``memory_edit`` of data contract v43 (``payload["action"]`` one of ACTIONS_V43), as the owner: {message (the
     receipt the page shows), undo_token (``token``, what ``undo`` takes back; '' for an undo, an ignore or nothing written),
-    refs (the entries written)}. ValueError says why nothing changed."""
+    refs (the entries written)}. ValueError says why nothing changed. ``op_id``: the page's operation, the origin of what
+    ``add`` writes (``web_origin``); an ``edit`` keeps the origin the entry had."""
     action = str(payload.get("action") or "")
     if action not in ACTIONS_V43:
         raise ValueError("不认识的记忆操作")
@@ -767,15 +775,15 @@ def edit_v43(state_dir, payload, *, token="", now=None) -> dict:
             if scope == "global":
                 raise ValueError("决定记在专项或话题里")
             entry = memstore.add_decision(state_dir, scope=scope, owner_key=owner, text=text or "", title=title or "",
-                                          said="owner", by="web", who=who, token=token, now=stamp)
+                                          said="owner", by="web", origin=web_origin(op_id), who=who, token=token, now=stamp)
         else:
             if kind in memstore.KINDS and scope in memstore.SCOPES:  # The store returns the live one that says the same.
                 same = memstore.same_key(text or "")
                 new = not any(memstore.same_key(e.text) == same for e in memstore.entries(
                     state_dir, scope=scope, owner_key=owner, kinds=(kind,), statuses=LIVE))
             entry = memstore.add(state_dir, kind=kind, scope=scope, owner_key=owner, text=text or "", title=title or "",
-                                 why=why or "", said="owner", by="web", repos=payload.get("repos") or (), who=who, token=token,
-                                 now=stamp)
+                                 why=why or "", said="owner", by="web", origin=web_origin(op_id), repos=payload.get("repos") or (),
+                                 who=who, token=token, now=stamp)
         refs, message = [entry.ref], ("已记下：" if new else "已有同样的一条，没再记：") + _short_entry(entry)
         if not new:
             token = ""

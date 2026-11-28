@@ -255,8 +255,12 @@ class OthersTurnTest(Case):
         self.assertIn("网关的网页改动用无头浏览器截深浅两色验收", [entry.text for entry, _ in notes])
         seen = [entry.text for entry, _ in notes] + [item["title"] + item["text"] for item in listed]
         self.assertFalse([t for t in seen if "推理服务" in t or "话题8" in t], seen)
+        # T908 M5: the owner's own turn neither carries nor lists another project's or another topic's either (its search
+        # command still reads past them: ``test_the_owners_own_turn_still_reads_past_the_project``).
         mine, mine_listed = memory_turn.notes_of(self.state, ["网关这次的网页改动怎么用无头浏览器截深浅两色验收？"], topic=T1, project=PID, owner=True)
-        self.assertTrue([t for t in [e.text for e, _ in mine] + [i["title"] + i["text"] for i in mine_listed] if "推理服务" in t])
+        seen = [e.text for e, _ in mine] + [i["title"] + i["text"] for i in mine_listed]
+        self.assertIn("网关的网页改动用无头浏览器截深浅两色验收", seen)
+        self.assertFalse([t for t in seen if "推理服务" in t or "话题8" in t], seen)
         hits = memory_search.eval_search(self.state, "网关的网页改动怎么用无头浏览器验收", {"topic": T1, "project": PID, "owner": False},
                                          limit=10)
         self.assertTrue(hits)
@@ -298,6 +302,98 @@ class PreviewTest(Case):
         self.assertEqual(len(found["decisions"]), 1)
         self.assertGreater(found["chars"], 0)
         self.assertTrue(all(set(note) == {"code", "sim"} for note in found["notes"]))
+
+
+
+class ReadingM5Test(Case):
+    """T908 M5: the lead's topic reads 全局 alone (its project's in its pack), the line of titles is cut of the lead's only,
+    the block says the narrower scope wins and keeps "先查一下他答过没有", and the owner's bottom lines are never lost."""
+
+    def setUp(self):
+        super().setUp()
+        write_topic(self.state, topic_id=LEAD, topic_number=3, chat_id=CHAT, title="负责人",
+                    project=projects.project_field(PID, projects.LEAD))
+
+    def test_the_leads_topic_reads_global_alone_and_nothing_of_its_project_at_the_tail(self):
+        self.rule("回复主人用中文")
+        self.rule("部署前先跑预检", scope="project", owner_key=PID)
+        memstore.add(self.state, kind="note", scope="project", owner_key=PID, text="网关的预检脚本在 scripts/check.sh 里")
+        self.decide("网关这批要不要先发预发？", "先发预发", LEAD, time.time() - 60)
+        self.assertEqual(memory_turn.lead_project(self.state, LEAD), PID)
+        text = self.block(LEAD, "网关预检脚本在哪，要不要先发预发")
+        self.assertIn("回复主人用中文", text)
+        self.assertNotIn("部署前先跑预检", text)  # The pack's (app/project_lead.py store_memory), never twice.
+        tail = self.tail(LEAD, "网关预检脚本在哪，要不要先发预发")
+        for words in ("先发预发", "scripts/check.sh", "部署前先跑预检"):
+            self.assertNotIn(words, tail)
+        memory_turn._plans.clear()
+        member = self.block(T1)  # A member topic reads its project's as before.
+        self.assertIn("部署前先跑预检", member)
+
+    def test_what_was_moved_to_another_scope_is_not_listed_by_its_old_copy(self):
+        made = self.rule("线上流量增加可直接扩容推理服务", title="线上流量增加可直接扩容")
+        memstore.move(self.state, made.ref, scope="project", owner_key=PID)  # 全局 -> this project: the old copy put away.
+        memory_turn._plans.clear()
+        text = self.block(LEAD, "线上流量增加了要不要扩容") + self.tail(LEAD, "线上流量增加了要不要扩容")
+        self.assertNotIn(made.code, text)  # The lead's pack has it; its old 全局 copy is not listed at the tail either.
+
+    def test_the_head_says_the_narrower_scope_wins_and_the_guide_still_says_to_look_first(self):
+        from covey.app import prompts
+        from covey.core.checkpoint import ASK_SHORT
+
+        self.rule("回复主人用中文")
+        text = self.block(T1)
+        self.assertIn("听范围小的", text.splitlines()[0])
+        self.assertIn(ASK_SHORT, prompts.RULES_GUIDE)
+        self.assertIn("要问主人之前，先查一下他答过没有", text)
+        self.assertLess(len(prompts.RULES_GUIDE), 160)  # Shorter than the 191 characters it had.
+
+    def test_the_line_of_titles_is_cut_of_the_leads_alone(self):
+        owners = [self.rule(f"主人定的第{i}条：上线前先在预发跑一遍完整的回归测试{i}" * 3, scope="project", owner_key=PID,
+                            title=f"主人的标题第{i}条很长很长很长很长很长", now=1000.0 + i) for i in range(14)]
+        leads = [self.rule(f"负责人记的第{i}条：合入前跑一遍静态检查{i}", scope="project", owner_key=PID, said="summary",
+                           title=f"负责人的标题第{i}条也挺长挺长挺长挺长", now=500.0 + i) for i in range(30)]
+        text = self.block(T1)
+        for entry in owners:
+            self.assertTrue(entry.text in text or f"{entry.code} {entry.title}" in text, entry.title)
+        named = [entry for entry in leads if entry.code in text]
+        self.assertLess(len(named), len(leads))
+        self.assertIn(f"另有 {len(leads) - len(named)} 条负责人记的", text)
+        made = memory_turn.plan(self.ctx(T1), self.job(T1), lambda: True)
+        self.assertEqual(made.cut, len(leads) - len(named))
+        listed = [row["ref"] for row in memory_turn.ids_of(made)[1]]
+        self.assertTrue(all(entry.ref not in listed for entry in leads if entry.code not in text))  # Only the shown are listed.
+        self.assertTrue(all(entry.ref in listed for entry in named))
+
+    def test_the_owners_bottom_lines_are_in_every_block_of_the_project_however_full_it_is(self):
+        """Every rule the owner said of production (deploy, stable, delete, a colleague's machine): its words or its title,
+        in each member topic's block and in the lead's pack, with the project past its room and 31 days of no use."""
+        from covey.app import project_lead
+
+        bottom = [self.rule(text, scope="project", owner_key=PID, title=title, now=100.0 + n) for n, (title, text) in enumerate((
+            ("不推 stable 通道", "任何时候都不推 stable 通道，stable 由主人自己发"),
+            ("同事机器只读", "同事的机器全程只读，不改任何东西，主人授权的批次除外"),
+            ("删除先问主人", "删除数据、强推、改线上数据之前一律先问主人"),
+            ("部署只到本机现网", "改完检查过就部署到主人本机现网，别人的机器和回滚照常问"),
+        ))]
+        for i in range(12):
+            self.rule(f"主人后来定的第{i}条：合入前先同步主干再快进合并，测试全过才合" + "并且写清楚" * 4, scope="project",
+                      owner_key=PID, title=f"后来定的第{i}条", now=5000.0 + i)
+        for i in range(25):
+            self.rule(f"负责人记的第{i}条：派活前先看已有话题，同一件事追加给原话题" * 2, scope="project", owner_key=PID, said="summary",
+                      title=f"负责人第{i}条", now=9000.0 + i)
+        later = time.time() + 31 * 86400
+        with mock.patch.object(time, "time", return_value=later):
+            memory_tidy.MemoryTidy(SimpleNamespace(log=lambda line: None)).run(
+                SimpleNamespace(state_dir=self.state), CHAT, memory_tidy.day(later), now=later)
+            for topic in (T1, T2):
+                memory_turn._plans.clear()
+                text = self.block(topic, owner=False)
+                for entry in bottom:
+                    self.assertTrue(entry.text in text or f"{entry.code} {entry.title}" in text, (topic, entry.title))
+            pack = project_lead.state_pack(self.state, projects.read_record(self.state, PID), "lead-1", full=True, receipts=[])
+            for entry in bottom:
+                self.assertTrue(entry.text in pack or f"{entry.code} {entry.title}" in pack, ("lead", entry.title))
 
 
 if __name__ == "__main__":

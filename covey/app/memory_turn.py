@@ -4,14 +4,19 @@ the turn's rules (``block``), the rest at the tail of its message (``tail``), th
 ``block`` is the 规矩 alone: 全局 ones on the owner's own turn (``owner_turn()``), the project's in an ordinary topic of a project,
 the topic's own; the owner's first, then as they were written; past a scope's room (RULE_CAPS: 全局 15 and 1,200 characters,
 专项 10 and 1,000, 话题 5 and 400, given to the owner's first and then the newest: ``pick_rules``) only their titles, never one
-dropped. It is the same every turn of a topic while its rules
+dropped: the line of titles is cut only of the lead's (``titles_of``), the owner's are always there. A project's lead topic
+reads only the 全局 ones (``lead_project``): what its project holds is in its state pack (app/project_lead.py), never twice.
+It is the same every turn of a topic while its rules
 are, so the rules stay one cacheable prefix. ``tail`` is what changes turn by turn: the decisions in progress (the topic's own
 until it ends or the same question has a newer answer; one the project's lead asked while the lead's topic is going and has
 not delivered a commit since, and at most IN_PROGRESS_HOURS old otherwise: ``in_progress``; one another topic of the project
 asked is never carried whole, only its title when the search finds it: ``sibling``), the notes that the turn's words, the
 topic's title and its 话题要点 find (core/memory_search.py, at most NOTES with sim ≥ DEFAULT_TAU and NOTE_CHARS characters),
-then the titles of the related entries not carried (a sibling's decision among them). ``preview`` is the same reckoning for
-the web page (data contract v43 MemoryPreview).
+then the titles of the related entries not carried (a sibling's decision among them). Both only of the turn's own reach
+(``in_reach``: the topic's own, its project's, 全局 on the owner's turn; T908 M5): another project's or another topic's entry
+is neither carried nor listed (the owner's own turn looks the whole memory up with the search command). A lead's tail has
+nothing of its project either (the pack has it). ``preview`` is the same reckoning for the web page (data contract v43
+MemoryPreview).
 
 Who reads what is as it was: a 代答 topic nothing; a line from a topic with redaction on only one with it on; 待审核 never.
 Nothing is written but the job record's ``memory_ids`` (carried whole: {n, ref, scope, kind, by}) and ``memory_listed``
@@ -50,6 +55,7 @@ NOTES = 5
 NOTE_CHARS = 800
 LISTED = 10
 LISTED_CHARS = 300
+TITLE_CHARS = 300  # Of the lead's rules listed by title only: past it they are counted (the owner's are never cut).
 IN_PROGRESS_HOURS = 48
 DECISION_DAYS = 14  # Another topic's decisions older than this are not in progress: their topic's records are not read.
 QUERY_CHARS = 2000  # Of the owner's words a turn's notes are looked up by.
@@ -60,7 +66,8 @@ class Plan:
     """What one turn carries of the memory."""
 
     rules: list = field(default_factory=list)  # memstore Entry, carried whole in the rules
-    left: list = field(default_factory=list)  # rules past their scope's room: titles only
+    left: list = field(default_factory=list)  # rules past their scope's room: titles only (``titles_of``)
+    cut: int = 0  # the lead's rules past the room whose titles did not fit either: counted
     decisions: list = field(default_factory=list)  # carried whole at the tail
     notes: list = field(default_factory=list)  # (Entry, sim) carried whole at the tail
     listed: list = field(default_factory=list)  # related hits not carried: dicts of core/memory_search.py
@@ -111,15 +118,15 @@ def _room_order(entry):
     return (entry.said != "owner", -entry.at, entry.code)
 
 
-def pick_rules(found, scope) -> tuple[list, list]:
-    """(carried, titles only) of one scope's rules ``found``: the room (RULE_CAPS) goes to the owner's first, then the
-    newest, so a store past its room lists only its oldest rules not the owner's; both are then in the written order
-    (``_rule_order``), the prefix the turn's rules make staying the same while the rules do. app/web_memory.py marks the
-    same ones ``over_cap``."""
-    count, chars = RULE_CAPS[scope]
+def pick_rules(found, scope, caps=None) -> tuple[list, list]:
+    """(carried, titles only) of one scope's rules ``found``: the room (RULE_CAPS, or ``caps`` (entries or None, characters):
+    the lead's pack's own) goes to the owner's first, then the newest, so a store past its room lists only its oldest rules
+    not the owner's; both are then in the written order (``_rule_order``), the prefix the turn's rules make staying the same
+    while the rules do. app/web_memory.py marks the same ones ``over_cap``."""
+    count, chars = caps or RULE_CAPS[scope]
     picked, over, used = [], [], 0
     for entry in sorted(found, key=_room_order):
-        if len(picked) < count and used + len(entry.text) <= chars:
+        if (count is None or len(picked) < count) and used + len(entry.text) <= chars:
             picked.append(entry)
             used += len(entry.text)
         else:
@@ -127,19 +134,53 @@ def pick_rules(found, scope) -> tuple[list, list]:
     return sorted(picked, key=_rule_order), sorted(over, key=_rule_order)
 
 
-def rules_of(state_dir, *, topic="", project="", owner=False, redacted_on=False) -> tuple[list, list]:
-    """(carried, titles only) of the rules a turn of ``topic`` in ``project`` reads (the module's docstring)."""
+def titles_of(left, chars=TITLE_CHARS) -> tuple[list, int]:
+    """(the rules past their room the line of titles names, how many of the lead's it leaves out): the owner's every one
+    whatever its length (T846: never one dropped), the lead's while the line stays within ``chars``; the order kept."""
+    used = sum(len(entry.code) + len(entry.title) + 2 for entry in left if entry.said == "owner")
+    shown, cut = [], 0
+    for entry in left:
+        size = len(entry.code) + len(entry.title) + 2
+        if entry.said != "owner":
+            if used + size > chars:
+                cut += 1
+                continue
+            used += size
+        shown.append(entry)
+    return shown, cut
+
+
+def scope_rules(state_dir, scope, key, redacted_on=False) -> list:
+    """The active rules of one scope a reader with ``redacted_on`` may read."""
+    return [entry for entry in memstore.entries(state_dir, scope=scope, owner_key=key, kinds=("rule",))
+            if _readable(entry, redacted_on)]
+
+
+def rules_of(state_dir, *, topic="", project="", owner=False, redacted_on=False, lead=False) -> tuple[list, list]:
+    """(carried, titles only) of the rules a turn of ``topic`` in ``project`` reads (the module's docstring); ``lead``: the
+    topic is ``project``'s lead's, which reads 全局 alone (its project's are in its state pack, app/project_lead.py)."""
     carried, left = [], []
     scopes = [("global", "")] if owner else []
-    scopes += [("project", project)] if project else []
-    scopes += [("topic", topic)] if topic else []
+    if not lead:
+        scopes += [("project", project)] if project else []
+        scopes += [("topic", topic)] if topic else []
     for scope, key in scopes:
-        found = [entry for entry in memstore.entries(state_dir, scope=scope, owner_key=key, kinds=("rule",))
-                 if _readable(entry, redacted_on)]
-        picked, over = pick_rules(found, scope)
+        picked, over = pick_rules(scope_rules(state_dir, scope, key, redacted_on), scope)
         carried += picked
         left += over
     return carried, left
+
+
+def over_room(state_dir, entry) -> bool:
+    """Whether the rule ``entry`` is past its scope's room (``pick_rules``): a turn carries only its title (the answer card
+    says so when the owner's rule is written into a full scope, cards/answer_card.py)."""
+    if entry is None or entry.kind != "rule" or entry.status != "active":
+        return False
+    try:
+        _, over = pick_rules(scope_rules(state_dir, entry.scope, entry.owner_key, entry.redacted), entry.scope)
+    except Exception:  # noqa: BLE001 - not known: nothing said
+        return False
+    return any(found.ref == entry.ref for found in over)
 
 
 # -------------------------------------------------------------------------------------------------------- the decisions
@@ -273,36 +314,48 @@ def queries_of(state_dir, topic, words="", *, title="", repos=()) -> list:
     return [query for query in dict.fromkeys(found) if query.strip()]
 
 
-def _note_like(item, topic, project) -> bool:
-    """A hit a turn may carry as 资料: a note, or another project's (or topic's) rule, active."""
-    if item["status"] != "active":
-        return False
-    if item["kind"] == "note":
+def in_reach(item, topic, project, lead=False) -> bool:
+    """Whether a hit (core/memory_search.py) is of the turn's own reach, the only one it carries as 资料 or lists (T908 M5):
+    the topic's own, its project's (a decision of it too), 全局 (the search gives a turn that is not the owner's none). Another
+    project's, or another topic's (a topic of the same project too), is not: it went into a turn as 资料 before, and with it
+    what another project's lead noted there. ``lead``: a lead's turn, whose project is its pack's alone."""
+    if item["scope"] == "global":
         return True
-    if item["kind"] != "rule":
+    if item["scope"] == "topic":
+        return bool(topic) and item["owner_key"] == topic
+    return bool(project) and not lead and item["scope"] == "project" and item["owner_key"] == project
+
+
+def moved_copy(state_dir, item) -> bool:
+    """Whether a hit put away is what an entry moved to another scope left behind (core/memstore.py move, promote: the same
+    short code on the line in force): the turn has that one, or not, by its own scope; its old copy is never listed."""
+    if item["status"] == "active" or not item.get("code"):
         return False
-    return item["scope"] != "global" and item["owner_key"] != topic and not (project and item["project"] == project)
+    live = memstore.find(state_dir, item["code"])
+    return live is not None and live.ref != item["ref"] and live.status == "active"
 
 
-def notes_of(state_dir, queries, *, topic="", project="", owner=False, redacted_on=False, carried=()) -> tuple[list, list]:
-    """((Entry, sim) carried as 资料, the related hits only listed) for ``queries`` (``queries_of``)."""
+def notes_of(state_dir, queries, *, topic="", project="", owner=False, redacted_on=False, carried=(),
+             lead=False) -> tuple[list, list]:
+    """((Entry, sim) carried as 资料, the related hits only listed) for ``queries`` (``queries_of``), both ``in_reach``."""
     if not queries:
         return [], []
     context = {"topic": topic, "project": project, "owner": owner, "redacted": redacted_on, "tau": memory_search.DEFAULT_TAU}
-    hits = memory_search.rank_many(memory_search.index(state_dir), queries, context)
+    hits = [item for item in memory_search.rank_many(memory_search.index(state_dir), queries, context)
+            if in_reach(item, topic, project, lead)]
     taken, notes, listed, used = set(carried), [], [], 0
     for item in hits:
-        if item["ref"] in taken:
+        if item["ref"] in taken or moved_copy(state_dir, item):
             continue
-        if len(notes) < NOTES and _note_like(item, topic, project) and used + len(item["text"]) <= NOTE_CHARS:
+        if (len(notes) < NOTES and item["kind"] == "note" and item["status"] == "active"
+                and used + len(item["text"]) <= NOTE_CHARS):
             entry = memstore.find(state_dir, item["ref"])
             if entry is not None:
                 notes.append((entry, item["sim"]))
                 used += len(item["text"])
                 taken.add(item["ref"])
                 continue
-        if item["kind"] == "rule" and item["status"] == "active" and (item["scope"] == "global" or item["owner_key"] == topic
-                                                                     or (project and item["project"] == project)):
+        if item["kind"] == "rule" and item["status"] == "active" and (item["scope"] == "global" or not lead):
             continue  # A rule of the turn's own scopes: in the rules already, or only its title is (``left``).
         listed.append(item)
         taken.add(item["ref"])
@@ -317,13 +370,15 @@ _PLANS_KEPT = 64
 
 
 def make_plan(state_dir, *, topic="", project="", owner=False, redacted_on=False, words="", title="", repos=(),
-              now=None, cache=None) -> Plan:
+              now=None, cache=None, lead=False) -> Plan:
     """What a turn of ``topic`` in ``project`` carries (``owner``: the owner's own turn; ``words``: the owner's words of
-    it). The same arguments and memory give the same plan."""
+    it; ``lead``: ``topic`` is ``project``'s lead's, which carries nothing of its project here: ``rules_of``, ``in_reach``).
+    The same arguments and memory give the same plan."""
     now = time.time() if now is None else now
     state_dir = Path(state_dir)
-    rules, left = rules_of(state_dir, topic=topic, project=project, owner=owner, redacted_on=redacted_on)
-    decisions = decisions_of(state_dir, topic=topic, project=project, redacted_on=redacted_on, now=now, cache=cache)
+    rules, left = rules_of(state_dir, topic=topic, project=project, owner=owner, redacted_on=redacted_on, lead=lead)
+    decisions = decisions_of(state_dir, topic=topic, project="" if lead else project, redacted_on=redacted_on, now=now,
+                             cache=cache)
     kept, shown = [], 0
     for entry in decisions:
         size = min(len(entry.text), DECISION_LINE)
@@ -334,7 +389,8 @@ def make_plan(state_dir, *, topic="", project="", owner=False, redacted_on=False
     queries = queries_of(state_dir, topic, words, title=title, repos=repos)
     carried = [entry.ref for entry in (*rules, *left, *kept)]
     notes, listed = notes_of(state_dir, queries, topic=topic, project=project, owner=owner, redacted_on=redacted_on,
-                             carried=carried)
+                             carried=carried, lead=lead)
+    left, cut = titles_of(left)
     listed = [{"ref": e.ref, "code": e.code, "kind": e.kind, "title": e.title} for e in spare] + listed
     trimmed, size = [], 0
     for item in listed:
@@ -344,7 +400,7 @@ def make_plan(state_dir, *, topic="", project="", owner=False, redacted_on=False
         trimmed.append(item)
         size += line
     name = ""
-    if project:
+    if project and not lead:
         name = str((projects.read_record(state_dir, project) or {}).get("name") or "")
     numbers = {}
     for entry in kept:
@@ -359,13 +415,22 @@ def make_plan(state_dir, *, topic="", project="", owner=False, redacted_on=False
         owner_project = entry.owner_key if entry.scope == "project" else ""
         if owner_project and owner_project != project and owner_project not in names:
             names[owner_project] = str((projects.read_record(state_dir, owner_project) or {}).get("name") or "")
-    return Plan(rules=rules, left=left, decisions=kept, notes=notes, listed=trimmed, project=project, project_name=name,
-                numbers=numbers, names=names)
+    return Plan(rules=rules, left=left, cut=cut, decisions=kept, notes=notes, listed=trimmed, project=project,
+                project_name=name, numbers=numbers, names=names)
 
 
 def _turn_project(ctx, job) -> str:
     found = project_context.member_record(ctx, job)
     return found[0] if found else ""
+
+
+def lead_project(state_dir, topic) -> str:
+    """The id of the project whose lead topic ``topic`` is ('' for any other topic, or when it cannot be read)."""
+    try:
+        found = projects.topic_project(state_dir, topic) if topic else None
+    except (OSError, ValueError):
+        return ""
+    return found.id if found is not None and found.role == projects.LEAD else ""
 
 
 def plan(ctx, job, owner_turn) -> Plan:
@@ -378,8 +443,9 @@ def plan(ctx, job, owner_turn) -> Plan:
         return found[1]  # Without the sentinel (memory/.rev) a change cannot be seen: worked out again.
     words = owner_words({"user_text": getattr(job, "user_text", ""), "message_id": getattr(job, "message_id", "")},
                         ctx.state_dir) if turn_source.behavior(job).owner_words else ""
-    made = make_plan(ctx.state_dir, topic=topic, project=_turn_project(ctx, job), owner=bool(owner_turn()),
-                     redacted_on=redacted(ctx, topic), words=words)
+    lead = lead_project(ctx.state_dir, topic)
+    made = make_plan(ctx.state_dir, topic=topic, project=lead or _turn_project(ctx, job), owner=bool(owner_turn()),
+                     redacted_on=redacted(ctx, topic), words=words, lead=bool(lead))
     if len(_plans) >= _PLANS_KEPT:
         _plans.pop(next(iter(_plans)))
     _plans[key] = (stamp, made)
@@ -417,7 +483,7 @@ def block(ctx, job, *, owner_turn) -> str:
             return ""
         made = plan(ctx, job, owner_turn)
         return memory_rules_block(made.rules, made.left, project_name=made.project_name,
-                                  search=search_command(ctx, job, owner_turn()))
+                                  search=search_command(ctx, job, owner_turn()), cut=made.cut)
     except Exception:  # noqa: BLE001 - the turn goes on without it
         return ""
 
@@ -476,7 +542,7 @@ def preview(state_dir, topic_key: str = "", *, project_key: str = "", title: str
             shown = ""
     made = make_plan(state_dir, topic=topic, project=project, owner=True, redacted_on=hidden, words=query, title=title,
                      repos=tuple(repos or ()), cache=cache)
-    text = memory_rules_block(made.rules, made.left, project_name=made.project_name, search="")
+    text = memory_rules_block(made.rules, made.left, project_name=made.project_name, search="", cut=made.cut)
     text += memory_tail_block(made.decisions, made.notes, made.listed, numbers=made.numbers, project=made.project,
                               names=made.names)
     ids, listed = ids_of(made)

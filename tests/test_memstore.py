@@ -265,7 +265,7 @@ class ConfirmLegacyTest(Case):
         self.assertEqual(project_tools.revise_refusal("update", row()), "")  # The lead's own: the lead may change it.
         memstore.confirm(self.state, made.ref, now=NOW + 1)
         self.assertEqual(memory.describe(row())["asserted_by"], turn_source.PARTY_OWNER)
-        self.assertIn("主人的长期约定", project_tools.revise_refusal("update", row()))
+        self.assertIn("主人定的规矩", project_tools.revise_refusal("update", row()))
         memstore._cache.clear()
         again = memstore.find(self.state, made.ref)
         self.assertEqual((again.said, again.kind, again.status), ("owner", "rule", "active"))

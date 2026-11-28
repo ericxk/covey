@@ -221,11 +221,23 @@ def old_risky(old, answer) -> bool:
     return category(f"{old} {answer}") in HIGH_RISK or bool(project_gates.hit([{"question": old, "options": [{"label": answer}]}]))
 
 
-def search_context(topic, project, tau, purpose) -> dict:
-    """What core/memory_search.py ``eval_search`` is given (its keys: ``topic``, ``project``, ``kinds``, ``statuses``, ``tau``):
-    the decisions in use or done, weighed for this topic and project, none of the global store (no decision is there)."""
+def redacted_topic(state_dir, topic) -> bool:
+    """Whether ``topic`` chose redaction (core/redaction.py topic_redaction, off when it cannot be read): its questions then
+    find the decisions from topics with redaction on too, as its turns read them (T908 M5: before, never)."""
+    from covey.core.redaction import topic_redaction
+
+    try:
+        return bool(topic_redaction(Path(state_dir), str(topic or "")))
+    except ValueError:
+        return False
+
+
+def search_context(topic, project, tau, purpose, redacted=False) -> dict:
+    """What core/memory_search.py ``eval_search`` is given (its keys: ``topic``, ``project``, ``kinds``, ``statuses``, ``tau``,
+    ``redacted``): the decisions in use or done, weighed for this topic and project, none of the global store (no decision is
+    there); ``redacted``: the topic's own redaction (``redacted_topic``)."""
     return {"topic": topic, "project": project, "owner": False, "kinds": ("decision",), "statuses": ("active", "done"),
-            "tau": tau, "purpose": purpose}
+            "tau": tau, "purpose": purpose, "redacted": bool(redacted)}
 
 
 def _candidates(state_dir, search, question, context, limit) -> list:
@@ -294,7 +306,7 @@ def check(ctx, record: dict, questions) -> dict:
                 continue
             words, kind = asked(question), category(query_of(question))
             figures = params_signature(question.get("question") or question.get("header"))  # What a decision keeps of it.
-            context = search_context(topic, project, tau, "dedup")
+            context = search_context(topic, project, tau, "dedup", redacted_topic(state, topic))
             best, best_mutual = None, 0.0
             for entry, item in _candidates(state, search, question, context, CANDIDATES):
                 old, answer = split(entry)

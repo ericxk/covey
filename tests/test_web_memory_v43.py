@@ -24,7 +24,8 @@ from test_web_sync import WebCase
 from covey.app import web_memory
 from covey.app import web_sync as web_sync_mod
 from covey.app.web_ops import Ops
-from covey.core import memory_review, memory_usage, memstore, principles, projects, web_sync
+from covey.core import memory as core_memory
+from covey.core import memory_review, memory_usage, memstore, principles, project_memory, projects, web_sync
 
 GOLDEN = json.loads((Path(__file__).resolve().parents[1] / "tests" / "golden" / "web_memory_v43.json").read_text(encoding="utf-8"))
 CHAT = "oc_owner_dm"
@@ -732,6 +733,43 @@ class CenterRaceTest(WebCase):
 def web_sync_error():
     from covey.app.web_push_client import WebError
     return WebError("refused")
+
+
+
+class OriginM5Test(Case):
+    """T908 M5: what the owner writes on the page's 记一条 carries the page's operation as its origin, so it is his with an
+    origin (project_answer may stand on it); an edit keeps the origin the entry had."""
+
+    def setUp(self):
+        super().setUp()
+        self.seed()
+        runtime = SimpleNamespace(owner_open_id="ou_owner", access=SimpleNamespace(is_owner=lambda open_id: True), log=lambda line: None)
+        self.ops = SimpleNamespace(runtime=runtime)
+
+    run_op = ActionsTest.run_op
+
+    def test_an_add_carries_the_operation_and_an_edit_keeps_what_was_there(self):
+        from covey.core import turn_source
+
+        self.assertTrue(self.run_op("op-r1", "add", text="账单导出一律用旧版库", kind="rule", scope="project", project_key=PID)
+                        .startswith("已记下"))
+        rule = next(e for e in memstore.entries(self.state, scope="project", owner_key=PID, kinds=("rule",))
+                    if e.text == "账单导出一律用旧版库")
+        self.assertEqual(rule.origin.get("message_id"), "web-op-r1")
+        row = next(r for r in project_memory.entries(self.state, projects.read_record(self.state, PID)) if r["id"] in rule.ref)
+        self.assertEqual(core_memory.describe(row)["level"], turn_source.LEVEL_OWNER)
+        self.run_op("op-d1", "add", title="先只读", text="第一版先做只读页", kind="decision", scope="project", project_key=PID)
+        decision = next(e for e in memstore.decisions(self.state, "project", PID) if e.title == "先只读")
+        self.assertEqual(decision.origin.get("message_id"), "web-op-d1")
+        self.run_op("op-g1", "add", text="回复主人先给结论", kind="rule", scope="global")
+        self.assertEqual(next(e for e in memstore.entries(self.state, scope="global") if e.text == "回复主人先给结论")
+                         .origin.get("message_id"), "web-op-g1")
+        lead, _ = project_memory.add(self.state, PID, "导出都用旧版，兼容现有脚本", "constraint", "lead")
+        ref = f"project:{PID}:{lead['id']}"
+        self.assertTrue(self.run_op("op-e1", "edit", [ref], text="导出都用旧版，兼容现有的导出脚本").startswith("已保存"))
+        edited = next(r for r in project_memory.entries(self.state, projects.read_record(self.state, PID)) if r["id"] == lead["id"])
+        self.assertNotIn("message_id", edited.get("origin") or {})  # 改 is not 记: the line's origin is what it was,
+        self.assertEqual(core_memory.describe(edited)["level"], turn_source.LEVEL_AGENT)  # and it is still the lead's.
 
 
 if __name__ == "__main__":

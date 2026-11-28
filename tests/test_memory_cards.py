@@ -335,5 +335,34 @@ class DigestTickTests(test_digest.Records, unittest.TestCase):
         self.assertIn("digest review count unreadable: OSError", self.logs)
 
 
+
+class OverRoomTests(unittest.TestCase):
+    """T908 M5: the owner's rule written into a scope already full: the turns carry only its title, and its answer card line
+    says so (app/memory_collect.py ``_over_room``, cards/answer_card.py OVER_WORDS)."""
+
+    def setUp(self):
+        self.state = state_dir(self)
+        projects.create(self.state, projects.new_record(chat_id="oc_owner", name="网关", project_id="a1b2c3d4e5f6", now=1.0))
+
+    def rule(self, text, said="owner", now=None):
+        return memstore.add(self.state, kind="rule", scope="project", owner_key="a1b2c3d4e5f6", text=text, said=said,
+                            by="owner" if said == "owner" else "lead", now=now)
+
+    def test_a_rule_past_the_room_says_it_is_carried_by_its_title(self):
+        for n in range(10):
+            self.rule(f"主人定的第{n}条：发布前先在预发验证一遍，确认指标正常再发", now=1000.0 + n)
+        early = self.rule("主人最早定的一条：同事机器全程只读", now=10.0)  # The newest get the room: the earliest goes by title.
+        roomy = self.rule("主人刚定的一条：合入后通知负责人", now=5000.0)
+        self.assertTrue(memory_collect._over_room(self.state, early))
+        self.assertFalse(memory_collect._over_room(self.state, roomy))
+        lead = self.rule("负责人记的：派活先看已有话题", said="summary", now=1.0)
+        self.assertFalse(memory_collect._over_room(self.state, lead))  # Said of the owner's alone.
+        with mock.patch("covey.core.web_sync.page_url", return_value=""):
+            text = text_of(cards.memory_element([{**NOTE, "over": True}], "t1", 7))
+            plain = text_of(cards.memory_element([NOTE], "t1", 7))
+        self.assertIn("记下了：选型类的事不用先问侧重点，直接开工 · 管这个专项 · 这个专项放不下了，只带标题", text)
+        self.assertNotIn("放不下", plain)
+
+
 if __name__ == "__main__":
     unittest.main()

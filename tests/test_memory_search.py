@@ -168,5 +168,58 @@ class CommandTest(Case):
         self.assertIn("镜像仓库在内网", out)
 
 
+
+class IsolationTest(Case):
+    """T908 M5: ``show`` without ``--owner`` reads what the turn's ``search`` reads (``_allowed``), and the topic's own record,
+    not the command line, says whether it is a 代答 topic and whether it reads the lines from topics with redaction on."""
+
+    def redact(self, topic, on=True, **more):
+        path = self.state / "topics" / topic / "topic.json"
+        path.write_text(json.dumps({**json.loads(path.read_text()), "redaction": on, **more}, ensure_ascii=False))
+
+    def test_show_without_owner_holds_to_the_turns_topic_and_project(self):
+        other_topic = "cd" * 32
+        write_topic(self.state, topic_id=other_topic, topic_number=8, chat_id=CHAT, project=projects.project_field(PID, projects.MEMBER))
+        mine = self.add("网关镜像仓库在内网")
+        theirs = self.add("推理服务的镜像在另一个仓库", owner_key=OTHER)
+        sibling = self.add("话题8自己的约定", scope="topic", owner_key=other_topic)
+        own = self.add("这个话题自己的约定", scope="topic", owner_key=TOPIC)
+        everyone = self.add("回复主人用中文", kind="rule", scope="global")
+        decision = memstore.add_decision(self.state, scope="project", owner_key=PID, question="先发预发吗？", answer="先发预发",
+                                         topic_key=other_topic, question_ref="cdcd1-1")
+        shown = lambda key, **kw: memory_search.show(self.state, key, topic_id=TOPIC, **kw)  # noqa: E731
+        for entry in (mine, own, decision):
+            self.assertIsNotNone(shown(entry.code), entry.text)
+        for entry in (theirs, sibling, everyone):
+            self.assertIsNone(shown(entry.code), entry.text)  # Before M5 another project's and topic's came back whole.
+            self.assertIsNotNone(shown(entry.code, owner=True), entry.text)  # --owner: as before (the known limit).
+        self.assertIsNone(memory_search.show(self.state, mine.code))  # No topic, no --owner: nothing is the turn's.
+
+    def test_redaction_and_proxy_are_read_off_the_topic_not_the_command_line(self):
+        hidden = self.add("脱敏话题里记的接口名", redacted=True)
+        self.assertIsNone(memory_search.show(self.state, hidden.code, topic_id=TOPIC, redacted=True))  # The flag is read past.
+        self.assertEqual(memory_search.search(self.state, "脱敏话题里记的接口名", TOPIC, redacted=True), [])
+        self.assertNotIn(hidden.code, [row["code"] for row in memory_search.listing(self.state, TOPIC, redacted=True)])
+        self.redact(TOPIC)
+        self.assertIsNotNone(memory_search.show(self.state, hidden.code, topic_id=TOPIC))  # The topic has it on: read.
+        self.assertTrue(memory_search.search(self.state, "脱敏话题里记的接口名", TOPIC))
+        self.assertIn(hidden.code, [row["code"] for row in memory_search.listing(self.state, TOPIC)])
+        self.redact(TOPIC, proxy=True)
+        self.assertIsNone(memory_search.show(self.state, hidden.code, topic_id=TOPIC, owner=True))
+        # No topic (a person at a terminal): the flag is what there is.
+        self.assertTrue(memory_search.search(self.state, "脱敏话题里记的接口名", owner=True, redacted=True))
+        self.assertEqual(memory_search.search(self.state, "脱敏话题里记的接口名", owner=True), [])
+
+    def test_a_turns_use_does_not_build_the_index_anew(self):
+        made = self.add("镜像仓库在内网，拉取要走代理")
+        first = memory_search.index(self.state)
+        memory_usage.signal(self.state, [made.ref], "show")
+        again = memory_search.index(self.state)
+        self.assertIs(again, first)  # The same postings: before M5 the usage file was part of the key.
+        self.assertEqual(again.usage[made.ref]["h"], 1.0)  # with the use counts as they are now.
+        self.add("另一条：发布先过预发")
+        self.assertIsNot(memory_search.index(self.state), first)  # A write still builds it anew.
+
+
 if __name__ == "__main__":
     unittest.main()

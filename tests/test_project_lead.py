@@ -1244,13 +1244,13 @@ class RecordToolsTest(ToolsCase):
         for entry in (rule, limit):
             for args in ({"op": "update", "text": "改了"}, {"op": "supersede", "text": "改了"}, {"op": "supersede", "by": mine},
                          {"op": "retire"}):
-                self.assertIn("主人的长期约定", self.refused("project_memory_revise", id=entry["id"], **args))
+                self.assertIn("主人定的规矩", self.refused("project_memory_revise", id=entry["id"], **args))
         self.assertEqual({row["valid"] if "valid" in row else "active" for row in (self.entries()[rule["id"]], self.entries()[limit["id"]])}, {"active"})
 
     def test_the_owners_confirmed_line_is_his_too(self):
         mine = self.remembered(kind="note", text="周五不发版")
         project_memory.fix(self.state, PID, mine, "confirm", origin={"message_id": "om_1"})
-        self.assertIn("主人的长期约定", self.refused("project_memory_revise", op="retire", id=mine))
+        self.assertIn("主人定的规矩", self.refused("project_memory_revise", op="retire", id=mine))
 
     def test_the_owners_answer_keeps_its_words_and_is_replaced_only_by_a_later_one_of_his(self):
         answer, _ = project_memory.add(self.state, PID, "先迁 2024 年", "decision", "owner_answer", now=NOW)
@@ -1517,6 +1517,105 @@ class OffTest(Case):
                 {"COVEY_KNOWLEDGE": "0", "COVEY_BUTLER_RULES": "0", "COVEY_PROJECTS": "0", "COVEY_PROJECT_TIDY": "off"})], list(butler_tool_specs.NAMES))
             self.assertEqual(project_lead.settle_session(ctx, job, SimpleNamespace(), SimpleNamespace(), 1, "s"), (1, "s"))
             self.assertFalse(butler.is_lead(LEAD, CHAT))
+
+
+
+class StorePackTest(Case):
+    """T908 M5: with COVEY_MEMORY on the lead's pack reads the one store's three kinds, named as a member topic's turn names
+    them, in the lead's own room (1000 / 1000 / 800 characters: not the member's 600 of decisions and 5 notes), the 资料 by
+    what the turn hands it (a held question, the owner's words; the project's goal else), outside the memory's version."""
+
+    def setUp(self):
+        super().setUp()
+        enter_context(self, mock.patch.dict(os.environ, {"COVEY_MEMORY": "1"}))
+        self.member = "bb" * 32
+        self.thread(self.member, "导出账单", 41)
+
+    def pack(self, **kw):
+        return project_lead.state_pack(self.state, self.reload(), "lead-1", full=True, receipts=[], **kw)
+
+    def add(self, text, kind="rule", said="owner", **kw):
+        return memstore.add(self.state, kind=kind, scope="project", owner_key=PID, text=text, said=said,
+                            by="owner" if said == "owner" else "lead", **kw)
+
+    def test_the_three_kinds_by_their_names_with_codes_and_who_said_them(self):
+        mine = self.add("发布只在周六", origin={"message_id": "om_r1"})
+        theirs = self.add("合入前先同步主干", said="summary")
+        old = self.add("以后都用旧版")  # No origin: never a ground alone, said so.
+        decision = memstore.add_decision(self.state, scope="project", owner_key=PID, question="第一批迁哪些表？", answer="账单和流水",
+                                         topic_key=self.member, question_ref="d" * 16 + "-1", now=NOW)
+        pack = self.pack()
+        self.assertIn(project_lead.STORE_HEAD, pack)
+        self.assertIn(f"- 〔{mine.code}〕发布只在周六\n", pack)
+        self.assertIn(f"- 〔{theirs.code}〕合入前先同步主干（负责人记的）", pack)
+        self.assertIn(f"- 〔{old.code}〕以后都用旧版（无出处）", pack)
+        self.assertIn(f"- 〔{decision.code}〕第一批迁哪些表？→账单和流水（T41 · ", pack)
+        self.assertLess(pack.index(project_lead.STORE_RULES), pack.index(project_lead.STORE_DECISIONS))
+        for word in ("长期约定", "当前决定", "待核对参考", "专项记忆版本"):
+            self.assertNotIn(word, pack)
+
+    def test_the_leads_own_room_not_the_members(self):
+        for n in range(8):  # 8 decisions of about 120 characters: 600 would hold 5, the lead's 1000 holds 8.
+            memstore.add_decision(self.state, scope="project", owner_key=PID, question=f"第{n}批迁哪些表，迁完要不要对账" + "并核对" * 30,
+                                  answer="迁", topic_key=self.member, question_ref=f"{n:016d}-1", now=NOW + n)
+        for n in range(7):  # 7 notes of the goal's words, about 100 characters each: 5 for a member, 7 fit in 800.
+            self.add(f"账单迁到新库第{n}步的做法：先导出、对账一致再切" + "的细节" * 25, kind="note", said="summary", now=NOW + n)
+        pack = self.pack()
+        decisions = pack.split(project_lead.STORE_DECISIONS, 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(decisions.count("\n- 〔D"), 8)
+        notes = pack.split(project_lead.STORE_NOTES, 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(notes.count("\n- 〔N"), 7)  # By the goal: the turn hands no question nor words.
+
+    def test_the_room_a_part_leaves_unused_is_lent_to_the_others_as_before(self):
+        for n in range(20):  # No rules and no notes: the decisions take their room (1000 + 1000 + 800 = 2800 characters).
+            memstore.add_decision(self.state, scope="project", owner_key=PID, text=f"决定{n:02d}：" + "迁" * 195,
+                                  title=f"第{n}批", topic_key=self.member, question_ref=f"{n:016d}-1", now=NOW + n)
+        pack = self.pack()
+        decisions = pack.split(project_lead.STORE_DECISIONS, 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(decisions.count("\n- 〔D"), 14)  # 2800 / 200.
+        self.assertIn("另有 6 条较早的决定没列出", decisions)
+
+    def test_the_notes_are_the_ones_the_held_question_and_the_owners_words_find(self):
+        port = self.add("演示环境的网页服务监听在 8080 端口", kind="note", said="summary")
+        mirror = self.add("镜像仓库在内网，拉取要走代理", kind="note", said="summary")
+        by_words = self.pack(words="镜像仓库拉取要走代理吗？")
+        self.assertIn(mirror.code, by_words)
+        self.assertNotIn(port.code, by_words)
+        with mock.patch.dict(os.environ, {"COVEY_PROJECT_TRIAGE": "1"}):
+            write_json(self.state / "questions" / ("c" * 16 + ".json"), {
+                "token": "c" * 16, "topic_id": self.member, "chat_id": CHAT, "job_id": 41, "status": "pending", "blocking": True,
+                "display_pending": True, "created_at": NOW, "triage": {"state": "held", "deadline": NOW + 180},
+                "questions": [{"id": "0", "question": "演示环境的网页服务端口是多少？", "options": [{"label": "8080"}, {"label": "9090"}]}]})
+            held = self.pack()
+        self.assertIn(port.code, held.split(project_lead.STORE_NOTES, 1)[1])
+
+    def test_the_notes_are_not_in_the_version_a_resumed_session_reads(self):
+        self.add("发布只在周六", origin={"message_id": "om_r1"})
+        self.add("镜像仓库在内网，拉取要走代理", kind="note", said="summary")
+        keep = {}
+        project_lead.state_pack(self.state, self.reload(), "lead-1", full=True, receipts=[], keep=keep, words="镜像仓库怎么拉")
+        again = project_lead.state_pack(self.state, self.reload(), "lead-2", full=False, receipts=[], sent=keep,
+                                        words="镜像仓库怎么拉")
+        self.assertIn(project_lead.MEMORY_SAME.format(version=keep["memory"]), again)
+        self.assertIn("镜像仓库在内网", again)  # Said each turn, never folded into the version.
+
+    def test_with_the_memory_off_the_pack_reads_the_three_parts_as_before(self):
+        project_memory.add(self.state, PID, "发布只在周六", "constraint", "owner", origin={"message_id": "om_r1"})
+        with mock.patch.dict(os.environ, {"COVEY_MEMORY": "0"}):
+            pack = self.pack()
+        self.assertIn(project_lead.LEAD_MEMORY_HEAD, pack)
+        self.assertIn("长期约定", pack)
+
+    def test_the_leads_rules_say_to_hand_on_the_decisions_just_made(self):
+        self.assertIn("主人刚拍板的关键决定写进交给话题的话里", project_lead.lead_rules())
+        with mock.patch.dict(os.environ, {"COVEY_PROJECT_TRIAGE": "1", "COVEY_COLLAB": "1"}):
+            rules = project_lead.lead_rules(noted=True)
+            tools = json.dumps(butler_tool_specs.lead_tools({"COVEY_PROJECT_TRIAGE": "1"}), ensure_ascii=False)
+        self.assertIn("project_answer 必须写 evidence", rules)
+        for word in ("长期约定", "当前决定", "待核对参考"):
+            self.assertNotIn(word, project_lead.lead_rules())
+            self.assertNotIn(word, rules)
+            self.assertNotIn(word, tools)
 
 
 if __name__ == "__main__":
