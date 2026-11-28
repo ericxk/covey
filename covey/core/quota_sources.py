@@ -3,9 +3,11 @@
 - An extension's ``quota_sources`` hook (core/extensions.py; ``plugin_sources``): ``sources(environ)`` gives Source rows
   the core reads like its own, a command or an address with the headers it sends (a gateway's key among them, so its
   ``repr`` hides them). An address is asked only when it is https or this machine's loopback (``address_ok``); no
-  redirect is followed, and the answer is read up to quota.MAX_BYTES. A 404 of a ``gateway`` source means it has no such
-  address: nothing is said and it is asked again ABSENT_SECONDS later. One source may say it is the pool behind Claude
-  Code's own login (``claude``): app/quota_failure.py reads it when a Claude turn fails on a limit.
+  redirect is followed, and the answer is read up to quota.MAX_BYTES. A 404 of a ``gateway`` source that never gave a
+  snapshot means it has no such address: nothing is said and it is asked again ABSENT_SECONDS later. Once it has given
+  one, a 404 is a failed read like any other (a gateway may answer 404 while its own readings are out of date): the last
+  snapshot stays and the page says why, rather than the source leaving the page for hours. One source may say it is the
+  pool behind Claude Code's own login (``claude``): app/quota_failure.py reads it when a Claude turn fails on a limit.
 - ``quota-sources.json`` in the data home (``configured``): ``{"sources": [{"id", "kind": "command", "argv": [...],
   "interval", "timeout"}, {"id", "kind": "url", "url": "https://…", "token_file": "/absolute/…", "interval",
   "timeout"}]}``. It names commands to run, so it is read only when it is this user's and nobody else may write it
@@ -44,6 +46,7 @@ CONFIG_FILE = "quota-sources.json"  # Under the data home.
 INTERVAL, MIN_INTERVAL = 300, 60  # Seconds between reads of a source.
 TIMEOUT, MAX_TIMEOUT = 30, 120
 ABSENT_SECONDS = 6 * 3600  # A gateway without /covey/quota is asked again after this long.
+FORGET_SECONDS = 3600  # A source no longer given loses its snapshot once it was not read this long (``forget_gone``).
 FAILED_SECONDS = 60  # A source that failed is read again no sooner than this (unless asked to).
 MAX_SOURCES = 20
 USER_AGENT = "covey-quota/1"
@@ -278,7 +281,7 @@ def read(source) -> dict:
 def due(entry, source, now) -> bool:
     """Whether ``source`` (its last ``entry``) is to be read at ``now``."""
     last = float(entry.get("read_at") or 0)
-    if entry.get("absent"):
+    if entry.get("absent") and not entry.get("ok_at"):
         return now - last >= ABSENT_SECONDS
     wait = source.interval if not entry.get("error") else max(FAILED_SECONDS, min(source.interval, 300))
     return now - last >= wait
@@ -309,20 +312,26 @@ def refresh(state_dir, found=None, *, only=(), force=False, now=None) -> list:
 
 
 def take(store, source, now=None) -> dict:
-    """Read ``source`` once and keep what it gave in ``store``; the entry as written."""
+    """Read ``source`` once and keep what it gave in ``store``; the entry as written. A gateway's 404 is ``absent`` (no
+    such address) only while the source never gave a snapshot; after one it is a failed read (see the module docstring)."""
     try:
         snapshot = read(source)
     except SourceError as exc:
-        return store.failed(source.id, source.kind, str(exc), title=source.title, absent=exc.absent, now=now)
+        absent = exc.absent and not store.read(source.id).get("ok_at")
+        return store.failed(source.id, source.kind, str(exc), title=source.title, absent=absent, now=now)
     except Exception as exc:  # Never a source's failure beyond its own entry.
         return store.failed(source.id, source.kind, f"读取出错：{type(exc).__name__}", title=source.title, now=now)
     return store.saved(source.id, source.kind, snapshot, title=source.title, now=now)
 
 
-def forget_gone(state_dir, found) -> None:
-    """Drop the entries of command, url and gateway sources no longer there (agy's are its own)."""
+def forget_gone(state_dir, found, now=None) -> None:
+    """Drop the entries of command, url and gateway sources no longer there and not read for FORGET_SECONDS (agy's are
+    its own). A source a hook or quota-sources.json failed to give for a look or two (a file on a slow disk, a hook that
+    raised) keeps its snapshot meanwhile, so the page does not lose it."""
     ids = {s.id for s in found}
+    now = time.time() if now is None else now
     store = quota.Store(state_dir)
     for entry in store.entries():
-        if entry.get("kind") in ("command", "url", "gateway") and entry.get("source") not in ids:
+        if (entry.get("kind") in ("command", "url", "gateway") and entry.get("source") not in ids
+                and now - float(entry.get("read_at") or 0) >= FORGET_SECONDS):
             store.forget(entry["source"])

@@ -3,7 +3,7 @@
 (core/quota.py Store) alone; nothing is asked of a source here.
 
 - ``view(state_dir, now)``: one entry a source ``sources[]`` ({id, kind, title, link?, collected_at, ttl, stale_after, read_at, failing,
-  usable, total, next_available_at, low, dry, accounts[]}), each account {name, login?, state, available_at, pools[]}, each pool
+  why, usable, total, next_available_at, low, dry, accounts[]}; ``why``: what the last read that failed said, '' when it did not), each account {name, login?, state, available_at, pools[]}, each pool
   {key, label, active, state, available_at, windows[{kind, label, left, resets_at, checked_at, ceiling?}]}. ``left`` is what is
   left (1 - used), null when not read. Only whitelisted fields; their texts pass core/quota.py ``scrub``, but ``login`` (agy's
   Google e-mail) does not. The page does the rest of the time-dependent words (a reading too old, a window already reset).
@@ -35,6 +35,7 @@ BUSY_MAX = 900  # A reading begun longer ago than this is not still going (the p
 TIGHT = 0.2  # A window with less than this left is red on the page, and a source with no more than this everywhere is at its bottom.
 AGY_STALE = 3600  # A spare account's /usage read is taken at a switch: older than this is grey on the page, whatever the ttl.
 REFRESH_FILE = "refresh.json"
+WHY_CHARS = 60  # A failed read's words on the page.
 FIRST = agy_accounts.GROUPS[0]
 
 
@@ -137,7 +138,7 @@ def agy_source(entries) -> dict | None:
     ents = [groups[g] for g in order]
     return {"id": "agy", "kind": "agy", "title": "agy", "collected_at": min(e["snapshot"]["collected_at"] for e in ents),
             "ttl": first.get("ttl") or quota.MIN_TTL, "stale_after": AGY_STALE,
-            "read_at": max(float(e.get("read_at") or 0) for e in ents), "failing": False,
+            "read_at": max(float(e.get("read_at") or 0) for e in ents), "failing": False, "why": "",
             "usable": counted["usable"], "total": counted["total"],
             "next_available_at": min(back) if dry and back else None, "low": low, "dry": dry, "expand": True,
             "accounts": accounts}
@@ -148,7 +149,8 @@ def plain_source(entry) -> dict:
     title = _scrub(entry.get("title") or (snapshot or {}).get("title") or entry.get("source"), quota.TITLE_CHARS)
     shown = {"id": entry["source"], "kind": entry.get("kind") if entry.get("kind") in quota.SOURCE_KINDS else "command",
              "title": title or entry["source"], "read_at": float(entry.get("read_at") or 0),
-             "failing": bool(entry.get("error")), "collected_at": (snapshot or {}).get("collected_at") or 0,
+             "failing": bool(entry.get("error")), "why": _scrub(entry.get("error"), WHY_CHARS) if entry.get("error") else "",
+             "collected_at": (snapshot or {}).get("collected_at") or 0,
              "ttl": (snapshot or {}).get("ttl") or quota.MIN_TTL}
     shown["stale_after"] = shown["ttl"]
     if snapshot is None:
@@ -182,7 +184,8 @@ def refresh_state(state_dir, now) -> dict:
 def view(state_dir, now=None) -> dict:
     """The ``quota`` item (see the module docstring); ``sources`` is empty with nothing to show."""
     now = time.time() if now is None else now
-    entries = [e for e in quota.Store(state_dir).entries() if not e.get("absent")]
+    # A gateway without the address is not there; one that answered once and is absent in an older record still is.
+    entries = [e for e in quota.Store(state_dir).entries() if not e.get("absent") or isinstance(e.get("snapshot"), dict)]
     sources = [s for s in [agy_source([e for e in entries if e.get("kind") == "agy"])] if s is not None]
     sources += [plain_source(e) for e in entries if e.get("kind") != "agy"]
     relogin = [{"source": s["title"], "name": label_of("?", a)} for s in sources for a in s["accounts"]

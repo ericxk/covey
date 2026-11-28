@@ -79,6 +79,7 @@ function sourceOf(v: unknown): QuotaSource | null {
     stale_after: Math.max(30, seconds(s.stale_after) || 600),
     read_at: seconds(s.read_at),
     failing: s.failing === true,
+    why: s.failing === true ? cut(s.why, 60) : '',
     usable: count(s.usable),
     total: count(s.total),
     next_available_at: when(s.next_available_at),

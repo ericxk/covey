@@ -61,10 +61,12 @@
 
 扩展可以在 manifest 的 `HOOKS` 里挂 `quota_sources`：模块的 `sources(environ)` 返回 `covey.core.quota_sources.Source` 的列表，核心和自己的来源一样去读、存、画。
 
-- 种类：`gateway`（GET 一个地址，带 `key` 放进 `Authorization: Bearer`；回 404 当没有额度接口，6 小时后再问）、`url`、`command`。
+- 种类：`gateway`（GET 一个地址，带 `key` 放进 `Authorization: Bearer`；从没读到过快照时回 404 当没有额度接口，不显示、6 小时后再问；读到过以后再回 404 只算一次没读到：网关自己的读数过期时也回 404，这时保留上一份、页面写原因，按平常的间隔再读）、`url`、`command`。
 - 地址只认 https，或者本机回环的 http（隧道的本地一端）；不跟随跳转，回答最多读 64 KB。
 - `claude=True` 表示这是 Claude Code 自己登录背后的号池：Claude 一轮因额度或限流失败时，失败卡按它说清几点恢复（见下文[失败说明](#失败说明)）。
 - 一个扩展的钩子出错只影响它自己的来源，`bridge.log` 里写包名。
+- 来源这一次没给出来（钩子出错、它读的配置文件一时读不了），已有的快照照留，页面照画；一小时没读过才删（`quota_sources.forget_gone`）。
+- 一个来源开始读不到时 `bridge.log` 记一行 `quota source <来源>: read failed: <原因>`，再读到时记 `read again`，各一次（`app/quota_watch.py`）。
 
 ## `quota-sources.json`
 

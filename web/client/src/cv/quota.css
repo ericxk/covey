@@ -19,12 +19,14 @@
 .cv .mq-name .nodot{width:7px;flex:none}
 .cv .mq-name .reddot,.cv .mq-gdot{width:7px;height:7px;border-radius:50%;background:var(--fail);flex:none}
 .cv .mq-gdot{margin-left:6px}
+/* 组名下一行：来源读不到时的原因（读数停在几点 · 为什么），占满一行，红字 */
+.cv .mq-grp small.mq-why{flex-basis:100%;margin-left:19px;color:var(--fail);white-space:normal}
 /* 第 3 列是时刻：最长的“12月31日 15:02 恢复”一行放得下；表窄到放不下时（下面的 @container 720px）时刻换到条下面一行 */
 .cv .mq-c{display:grid;grid-template-columns:42px minmax(40px,1fr) 118px;align-items:center;gap:0 10px;font-size:13px;min-width:0}
 .cv .mq-c .n{font-variant-numeric:tabular-nums;color:var(--t1);font-weight:500}
 .cv .mq-c .t{font-size:12px;color:var(--t3);white-space:nowrap;font-variant-numeric:tabular-nums}
 .cv .mq-c.tight .n,.cv .mq-c.out .n{color:var(--fail)}
-.cv .mq-c.stale .n,.cv .mq-c.none .n{color:var(--t3);font-weight:400}
+.cv .mq-c.stale .n,.cv .mq-c.none .n,.cv .mq-c.off .n{color:var(--t3);font-weight:400}
 .cv .mq-c .pool{font-size:11.5px;color:var(--t3);grid-column:1/-1;display:flex;align-items:center;gap:5px}
 .cv .mq-pdot{width:6px;height:6px;border-radius:50%;background:var(--a1,#3b6cf6);display:inline-block}
 .cv .mq-two{display:grid;gap:4px}

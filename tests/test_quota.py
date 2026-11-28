@@ -261,7 +261,45 @@ class Sources(unittest.TestCase):
         (self.root / quota_sources.CONFIG_FILE).chmod(0o666)
         self.assertEqual(watch.tick(ctx), [])
         self.assertEqual(len(logged), 1)
-        self.assertEqual(quota.Store(ctx.state_dir).entries(), [])  # A source no longer there goes from the page.
+        # Not given for a look or two (a file on a slow disk, a hook that raised): its snapshot stays on the page (T974) ...
+        self.assertEqual([e["source"] for e in quota.Store(ctx.state_dir).entries()], ["vps"])
+        # ... and a source no longer there goes from the page once it was not read for FORGET_SECONDS.
+        quota_sources.forget_gone(ctx.state_dir, [], now=time.time() + quota_sources.FORGET_SECONDS)
+        self.assertEqual(quota.Store(ctx.state_dir).entries(), [])
+
+    def test_a_gateway_that_answered_once_and_then_404s_keeps_its_snapshot_and_says_why(self):
+        """T974: the gateway's address answers 404 while its own readings are out of date; that hid the source from the page
+        for ABSENT_SECONDS (6 hours) as if it had no quota address at all."""
+        source = quota_sources.Source("gateway-x", "gateway", url="https://gw.example.com/covey/quota", key="fake-key")
+        store = quota.Store(self.root / "state")
+        missing = quota_sources.SourceError("HTTP 404", absent=True)
+        with mock.patch.object(quota_sources, "read", return_value=quota.parse(snapshot(account()))):
+            self.assertTrue(quota_sources.take(store, source, NOW)["ok_at"])
+        with mock.patch.object(quota_sources, "read", side_effect=missing):
+            entry = quota_sources.take(store, source, NOW + 300)
+        self.assertEqual((entry["absent"], entry["error"], entry["ok_at"]), (False, "HTTP 404", NOW))
+        self.assertEqual(entry["snapshot"]["accounts"][0]["alias"], "A1")  # The last one stays.
+        self.assertTrue(quota_sources.due(entry, source, NOW + 300 + source.interval))  # Asked again at its interval, not hours on.
+        # A record an older Covey wrote (absent, with a snapshot it had read before) is asked again then too.
+        self.assertTrue(quota_sources.due({**entry, "absent": True}, source, NOW + 300 + source.interval))
+        # A gateway that never answered is still one without the address.
+        fresh = quota.Store(self.root / "other")
+        with mock.patch.object(quota_sources, "read", side_effect=missing):
+            self.assertTrue(quota_sources.take(fresh, source, NOW)["absent"])
+
+    def test_the_log_says_when_a_source_begins_to_fail_and_when_it_reads_again(self):
+        logged = []
+        watch = quota_watch.QuotaWatch(SimpleNamespace(log=logged.append))
+        state = self.root / "state"
+        store = quota.Store(state)
+        store.saved("gw", "gateway", quota.parse(snapshot(account())), now=NOW)
+        watch.note(state, ["gw"])
+        store.failed("gw", "gateway", "连不上：URLError", now=NOW + 60)
+        watch.note(state, ["gw"])
+        watch.note(state, ["gw"])  # Still failing the same way: said once.
+        store.saved("gw", "gateway", quota.parse(snapshot(account())), now=NOW + 120)
+        watch.note(state, ["gw"])
+        self.assertEqual(logged, ["quota source gw: read failed: 连不上：URLError", "quota source gw: read again"])
 
 
 class Classifying(unittest.TestCase):

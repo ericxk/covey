@@ -1177,7 +1177,7 @@ const SettingsPage: React.FC = () => {
   const toRepos: string | null = snap ? RP.repoRedirect(tab, tabs) : null;
   if (toRepos) return <Navigate to={`/settings/${toRepos}`} replace />;
   if (tab === MEMORY_TAB.key && mem.mode === 'v43') return <Navigate to="/memory" replace />;
-  const waiting: boolean = (tab === MEMORY_TAB.key && mem.mode === 'loading') || (tab === UPGRADE_TAB.key && upgradable && up.isLoading) || (tab === QUOTA_TAB.key && quotable && qt.isLoading);
+  const waiting: boolean = (tab === MEMORY_TAB.key && mem.mode === 'loading') || (tab === UPGRADE_TAB.key && upgradable && up.isLoading) || (tab === QUOTA_TAB.key && quotable && (qt.isLoading || (qt.isError && !qt.data)));
   if (snap && first && !waiting && (!tab || !tabs.some((t) => t.key === tab))) return <Navigate to={`/settings/${first}`} replace />;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>

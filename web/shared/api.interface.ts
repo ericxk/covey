@@ -1648,6 +1648,8 @@ export interface QuotaSource {
   read_at: number;
   /** 上次读没成功，数字是更早的 */
   failing: boolean;
+  /** 上次没读到时来源说的原因（“连不上：URLError”“HTTP 404”），读到了是空串；旧 Covey 不给 */
+  why: string;
   usable: number;
   total: number;
   next_available_at: number | null;

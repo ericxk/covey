@@ -9,9 +9,10 @@ the page logs in (a login request, the owner's approval pushed as Covey pushes i
     <python with Pillow> -B scripts/web_shots.py --out /absolute/shots --install   # the four README ones into docs/media/screenshots
 
 Every page (看板, 专项, 大厅, a topic) at a desktop and a phone size, dark and light: web-<page>-<size>-<theme>.png.
-Three more, asked by name (``--pages assist,tidy,memory``; their demo data is pushed only then, so the README's four stay as
-they are): 设置's 辅助模型 with its 后台活最近一次 (``assist``, the section alone), the 看板's 整理专项 after a 整理 that failed
-(``tidy``) and the one-page 记忆 (``memory``: 待审核 on top, 全局, three projects, a topic's rule; ``demo_memory``). ``--variants`` shoots the samples of docs/ui.md 第 12 节 too (VARIANTS: A is the page as built, B and C are drawn
+Four more, asked by name (``--pages assist,tidy,memory,quota``; their demo data is pushed only then, so the README's four stay
+as they are): 设置's 辅助模型 with its 后台活最近一次 (``assist``, the section alone), the 看板's 整理专项 after a 整理 that failed
+(``tidy``), the one-page 记忆 (``memory``: 待审核 on top, 全局, three projects, a topic's rule; ``demo_memory``) and 设置's
+账号与额度 (``quota``: a gateway pool with one account spent on its week, opened; a source that stopped reading; ``demo_quota``). ``--variants`` shoots the samples of docs/ui.md 第 12 节 too (VARIANTS: A is the page as built, B and C are drawn
 over it in the browser only, never in the page's code): web-<page>-<variant>-<size>-<theme>.png.
 Only demo data: a demo-app story (a topic waiting on a question, one running, one stopped, one with an unseen result, a
 project with its lead and memory, the butler), no real name, chat, open_id or path. The server listens on 127.0.0.1
@@ -42,8 +43,10 @@ TITLES = {"claude": "Claude Code", "codex": "Codex"}  # The Harnesses the demo r
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 PAGES = {"board": "/", "project": f"/projects/{PID}", "hall": "/butler", "topic": "/topics/" + "7" * 32}
 README_PAGES = ("board", "project", "hall", "topic")  # The default: the README's.
-EXTRA = {"assist": "/settings/config", "tidy": "/", "memory": "/memory"}  # Shot only when named (samples, the one-page 记忆).
+EXTRA = {"assist": "/settings/config", "tidy": "/", "memory": "/memory", "quota": "/settings/quota"}  # Shot only when named.
 FOCUS = {"assist": ".st-assist", "tidy": ".td-panel"}  # What of the page is shot (assist: that element alone; tidy: scrolled to).
+# Done on the page before it is shot: 账号与额度 opens the gateway's pool (folded by default) to show its rows under the averages.
+PREPARE = {"quota": "() => { for (const row of document.querySelectorAll('.mq-fold')) { if (row.textContent.includes('Claude 网关')) row.click(); } }"}
 # The samples (docs/ui.md 第 12 节) drawn over the built page in the browser: (sizes, CSS, script). A is the page itself.
 SAMPLE_CSS = {
     "assist-B": ".cv .st-sample-b summary{display:flex;align-items:center;gap:6px;margin:14px 2px 6px;font-size:13px;font-weight:600;"
@@ -235,6 +238,48 @@ def demo_assist(state, now):
     return [web_sync.item("settings", web_sync.SETTINGS_KEY, settings), web_sync.item("settings", web_sync.TIDY_KEY, tidy)]
 
 
+def demo_quota(state, now):
+    """账号与额度's demo (T974): the quota snapshots under ``<state>/quota/`` (core/quota.py Store) as the sources leave them -- a
+    gateway pool of six with A4 spent on its week (its 5-hour window untouched, 100% left) and A1 idle half an hour, agy's two
+    accounts, and a command source whose last reads failed 50 minutes ago -- and the ``quota`` item app/web_quota.py makes of
+    them. Made-up names only."""
+    from covey.app import web_quota
+    from covey.core import quota, web_sync
+    store = quota.Store(state)
+
+    def win(kind, label, used, reset=None, checked=None, ceiling=None):
+        row = {"kind": kind, "label": label, "used": used, "checked_at": now - 60 if checked is None else checked}
+        row.update({k: v for k, v in (("resets_at", reset), ("ceiling", ceiling)) if v is not None})
+        return row
+
+    hour, day = 3600, 86400
+    pool = [("A1", "ok", None, 0.0, None, 0.91, now + 1.8 * day, now - 25 * 60),
+            ("A2", "ok", None, 0.56, now + 1.5 * hour, 0.55, now + 5 * day, None),
+            ("A3", "ok", None, 0.20, now + 3.5 * hour, 0.25, now + 6.4 * day, None),
+            ("A4", "spent", now + 2.1 * day, 0.0, None, 0.99, now + 2.1 * day, None),
+            ("A5", "ok", None, 0.27, now + 2.7 * hour, 0.94, now + 2.8 * day, None),
+            ("A6", "ok", None, 0.75, now + 0.2 * hour, 0.10, now + 6.8 * day, None)]
+    accounts = [{"alias": alias, "state": state_, "available_at": back,
+                 "windows": [win("5h", "5 小时", five, five_reset, checked, 0.98), win("7d", "周", week, week_reset, checked, 0.99),
+                             win("7d", "Fable 周", round(week / 2, 2), week_reset, now - 4 * hour)]}
+                for alias, state_, back, five, five_reset, week, week_reset, checked in pool]
+    store.saved("gateway-demo", "gateway", quota.parse({
+        "schema": 1, "title": "Claude 网关", "collected_at": now - 20, "ttl": 600, "link": "https://ops.example.com/",
+        "pool": {"usable": 5, "total": 6, "next_available_at": None}, "accounts": accounts}), title="Claude 网关", now=now - 20)
+    for group, recent in (("gemini", ["主号"]), ("3p", [])):
+        store.saved(f"agy.{group}", "agy", quota.parse({"schema": 1, "collected_at": now - 30, "ttl": 600, "accounts": [
+            {"alias": "主号", "state": "ok", "active": True, "windows": [win("5h", "5 小时", 0.09, now + 2 * hour, now - 600),
+                                                                      win("7d", "周", 0.61, now + 4.6 * day, now - 600)]},
+            {"alias": "副号", "state": "ok", "windows": [win("7d", "周", 0.0, now + 7 * day, now - 600)]}]}),
+            title=f"agy · {group}", now=now - 30, group=group, switched=None, recent=recent)
+    store.saved("vps", "command", quota.parse({"schema": 1, "title": "我的 VPS", "collected_at": now - 50 * 60, "ttl": 600,
+                                               "accounts": [{"alias": "V1", "state": "ok",
+                                                             "windows": [win("5h", "5 小时", 0.3, now + hour)]}]}),
+                title="我的 VPS", now=now - 50 * 60)
+    store.failed("vps", "command", "连不上：URLError", title="我的 VPS", now=now - 60)
+    return [web_sync.item("settings", web_sync.QUOTA_KEY, web_quota.view(state, now))]
+
+
 def push(state, base, key_file, now, extra=()):
     """Push the demo with Covey's own sync (two passes: what the first look learned, the lead's project, goes too), and
     本周用量 as app/web_settings.py counts it (the Bridge pushes it with its settings, which this demo has none of)."""
@@ -309,6 +354,9 @@ def shoot(base, cookie, out, browser, pages, variants=False):
                     for look, sample in looks:
                         page.goto(base + paths[name], wait_until="networkidle")
                         page.wait_for_timeout(1500)
+                        if name in PREPARE:
+                            page.evaluate(PREPARE[name])
+                            page.wait_for_timeout(300)
                         if sample:
                             key = f"{name}-{sample}"
                             if key in SAMPLE_CSS:
@@ -392,6 +440,8 @@ def main(argv=None):
             extra = demo_assist(state, now) if any(name in EXTRA for name in pages) else ()
             if "memory" in pages:
                 demo_memory(state, now)
+            if "quota" in pages:
+                extra = [*extra, *demo_quota(state, now)]
             print("pushed", push(state, base, key_file, now, extra), "items")
             shoot(base, login(base, key_file.read_text().strip()), out, args.browser, pages, args.variants)
         finally:

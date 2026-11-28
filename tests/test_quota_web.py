@@ -109,8 +109,12 @@ class ViewTest(Base):
         self.store.saved("calm", "url", snap(row("C1")), title="平静", now=NOW)
         self.store.failed("nothing", "command", "boom", title="没读到", now=NOW)
         self.store.failed("gone", "gateway", "404", absent=True, now=NOW)
+        self.store.saved("was", "gateway", snap(row("W1")), title="答过的网关", now=NOW - 900)
+        self.store.failed("was", "gateway", "HTTP 404", absent=True, now=NOW)  # As an older Covey wrote it (T974).
         sources = {s["id"]: s for s in self.view()["sources"]}
         self.assertNotIn("gone", sources)  # A gateway without the interface is not there.
+        self.assertEqual((sources["was"]["failing"], sources["was"]["why"], len(sources["was"]["accounts"])), (True, "HTTP 404", 1))
+        self.assertEqual((sources["nothing"]["why"], sources["calm"]["why"]), ("boom", ""))  # What the page says under the title.
         gateway = sources["gateway.x"]
         self.assertEqual((gateway["usable"], gateway["total"], gateway["link"], gateway["expand"]), (2, 3, "https://ops.example.com/x", False))
         self.assertEqual((sources["vps"]["expand"], sources["calm"]["expand"], sources["vps"]["relogin"]), (True, False, ["V2"]))

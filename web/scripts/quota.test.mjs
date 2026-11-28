@@ -155,12 +155,16 @@ test('号 state 是用完而读数里没有哪个窗口为 0：写在 5 小时�
 test('旧读数数字灰、悬停说多旧；已重置还没有新读数写“—”；太旧的来源整份写“—”；读取没成功的灰', () => {
   const agy = source({ kind: 'agy', stale_after: 3600 });
   const old = Q.cellOf(agy, pool([win('7d', 0.93, { checked_at: NOW - 6 * 3600, resets_at: at(9, 0, 2) })]), '7d', NOW);
-  assert.deepEqual([old.kind, old.stale, old.title], ['bar', true, '6 小时前的读数']);
+  assert.deepEqual([old.kind, old.stale], ['bar', true]);
+  assert.match(old.title, /6 小时前的读数（11月26日 08:32）/u);
   assert.equal(Q.cellOf(agy, pool([win('5h', 1, { checked_at: NOW - 600 })]), '5h', NOW).stale, false); // 10 分钟前不算旧
   const reset = Q.cellOf(agy, pool([win('5h', 0.3, { checked_at: at(10), resets_at: at(13) })]), '5h', NOW);
-  assert.deepEqual([reset.kind, reset.title], ['none', '已重置，还没有新读数']);
+  // 已重置还没有新读数：数字写“—”，时刻那里写“已重置”，悬停说几点重置、重置前剩多少（不再是一格什么都没有）
+  assert.deepEqual([reset.kind, reset.at, reset.title], ['none', '已重置', '11月26日 13:00 已重置，还没有新读数（重置前剩 30%）']);
   const stale = source({ collected_at: NOW - 3000, ttl: 600 });
-  assert.equal(Q.cellOf(stale, pool([win('5h', 0.5, { checked_at: NOW - 3000 })]), '5h', NOW).kind, 'none'); // 超过两倍 ttl
+  const gone = Q.cellOf(stale, pool([win('5h', 0.5, { checked_at: NOW - 3000 })]), '5h', NOW);
+  assert.equal(gone.kind, 'none'); // 超过两倍 ttl
+  assert.equal(gone.title, '读数停在 11月26日 13:42（50 分钟前），太旧不显示');
   const failing = source({ failing: true });
   assert.equal(Q.cellOf(failing, pool([win('5h', 0.5)]), '5h', NOW).stale, true);
 });
@@ -193,9 +197,15 @@ test('折起来的来源：各列取平均，k/n 个能用，有冷却或低额�
   ];
   const s = source({ accounts });
   const five = Q.avgCell(s, '5h', NOW);
-  assert.deepEqual([five.kind, five.pct, five.at], ['bar', 33, '平均']); // (78 + 22 + 0 用完) / 3：读不到的、要重新登录的不算
-  assert.equal(Q.avgCell(s, '7d', NOW).pct, 50);
+  // (78 + 22 + 0 冷却 + 0 要重新登录) / 4：用不了的号按 0，读不到的（A3 的 5 小时）不算
+  assert.deepEqual([five.kind, five.pct, five.at], ['bar', 25, '4 个号平均']);
+  assert.match(five.title, /^4 个号的5 小时剩余平均：（78\+22\+0\+0）÷ 4 ≈ 25%/u);
+  assert.match(five.title, /按 0 算：A4 冷却中，11月26日 15:00 恢复；A5 要重新登录/u);
+  assert.match(five.title, /没算进去：A3 读不到/u);
+  const week = Q.avgCell(s, '7d', NOW);
+  assert.deepEqual([week.pct, week.at], [30, '5 个号平均']); // (90 + 50 + 10 + 0 + 0) / 5
   assert.equal(Q.avgCell(source({ accounts: [] }), '5h', NOW).kind, 'none');
+  assert.equal(Q.avgCell(source({ accounts, collected_at: NOW - 3000 }), '5h', NOW).kind, 'none'); // 来源太旧：不拿旧状态算出个 0%
   assert.equal(Q.sourceWarn(s, NOW), true);
   assert.equal(Q.sourceWarn(source({ accounts: [acct('A1', [pool([win('5h', 0.78), win('7d', 0.9)])])] }), NOW), false);
   assert.equal(Q.groupNote(s, false), '7/8 个能用');
@@ -266,4 +276,90 @@ test('窄条侧栏（收起）：同一个 capsule 条件，带红点的图标�
   assert.match(css, /\.cv \.qcap-mini i\{position:absolute/u);
   // 条件和展开时的胶囊一样：capsuleOf 给空串就不画
   assert.equal(Q.capsuleOf({ at: NOW, read_at: NOW, relogin: [], sources: [source()], refresh: { at: 0, busy: false, cooldown: 300 } }), '');
+});
+
+// 主人 11-29 的截图（T974）：Max-5x-8 周额度用完、不能用，5 小时窗口本身还剩 100%。
+// 原来 5 小时平均把它当 100% 算（(100+44+80+100+73+25)/6≈70%），周平均却按 0 算（38%），两列口径不一样。
+const shot = () => {
+  const w5 = (left, over = {}) => win('5h', left, { label: '5 小时', ceiling: 0.98, ...over });
+  const w7 = (left, over = {}) => win('7d', left, { label: '周', ceiling: 0.99, resets_at: at(19, 59, 4), ...over });
+  const fable = (left) => win('7d', left, { label: 'Fable 周', resets_at: at(19, 59, 4), checked_at: NOW - 5 * 3600 });
+  const one = (name, windows, over = {}) => acct(name, [pool(windows, over)], over);
+  return source({
+    usable: 5, total: 6, accounts: [
+      one('Max-5x-4', [w5(1, { resets_at: undefined, checked_at: NOW - 25 * 60 }), w7(0.09, { checked_at: NOW - 25 * 60 }), fable(0.56)]),
+      one('Max-5x-7', [w5(0.44), w7(0.45), fable(0.86)]),
+      one('Max-5x-6', [w5(0.8), w7(0.75), fable(1)]),
+      one('Max-5x-8', [w5(1, { resets_at: undefined }), w7(0.01, { resets_at: at(2, 59, 5) }), fable(0.77)], { state: 'spent', available_at: at(3, 2, 5) }),
+      one('Max-5x-9', [w5(0.73), w7(0.06), fable(0.53)]),
+      one('Max-5x-10', [w5(0.25), w7(0.9), fable(1)]),
+    ],
+  });
+};
+
+test('截图那组：用完的号 5 小时按 0 算进平均，两列一个口径；悬停写出算式', () => {
+  const s = shot();
+  const five = Q.avgCell(s, '5h', NOW);
+  assert.deepEqual([five.pct, five.at], [54, '6 个号平均']); // (100+44+80+0+73+25)/6
+  assert.match(five.title, /（100\+44\+80\+0\+73\+25）÷ 6 ≈ 54%/u);
+  assert.match(five.title, /按 0 算：Max-5x-8 周用完，12月1日 03:02 恢复/u);
+  const week = Q.avgCell(s, '7d', NOW);
+  assert.deepEqual([week.pct, week.at], [38, '6 个号平均']); // (9+45+75+0+6+90)/6 = 37.5
+  assert.match(week.title, /（9\+45\+75\+0\+6\+90）÷ 6/u);
+  assert.equal(Q.usableTitle(s), '现在用不了的号\nMax-5x-8：周用完，12月1日 03:02 恢复');
+});
+
+test('用不了的号：另一列只是窗口本身的读数，灰、不红，悬停说为什么、平均里按 0；用完那一列照旧写恢复时刻', () => {
+  const s = shot();
+  const a = s.accounts[3];
+  const five = Q.cellOf(s, a.pools[0], '5h', NOW, a);
+  assert.deepEqual([five.kind, five.pct, five.off, five.tight, five.at], ['bar', 100, true, false, '未开始计时']);
+  assert.match(five.title, /^这个号现在用不了（周用完，12月1日 03:02 恢复），这一格只是窗口本身的读数，平均里按 0 算/u);
+  const week = Q.cellOf(s, a.pools[0], '7d', NOW, a);
+  assert.deepEqual([week.kind, week.at, week.off], ['out', '12月1日 03:02 恢复', false]);
+  assert.equal(Q.accountWarn(s, a, NOW), true);
+  // 能用的号不灰；不传号（旧调用）也照旧
+  const ok = s.accounts[1];
+  assert.equal(Q.cellOf(s, ok.pools[0], '5h', NOW, ok).off, false);
+  assert.equal(Q.cellOf(s, a.pools[0], '5h', NOW).off, false);
+});
+
+test('一格的悬停：同一种窗口都列出来（周、Fable 周），重置时刻、停派线；没开始计时的窗口写“未开始计时”', () => {
+  const s = shot();
+  const a = s.accounts[0];
+  const week = Q.cellOf(s, a.pools[0], '7d', NOW, a);
+  assert.equal(week.pct, 9); // 取剩得最少的
+  const lines = week.title.split('\n');
+  assert.equal(lines[0], '周 剩 9%，11月30日 19:59 重置，用到 99% 停派');
+  assert.equal(lines[1], 'Fable 周 剩 56%，11月30日 19:59 重置');
+  assert.match(lines[2], /^25 分钟前的读数/u);
+  const five = Q.cellOf(s, a.pools[0], '5h', NOW, a);
+  assert.deepEqual([five.pct, five.at, five.stale], [100, '未开始计时', true]);
+  assert.match(five.title, /还没开始计时（下次用到这个号才开始算）/u);
+  // 用过一点、来源没给重置时刻：不写“未开始计时”
+  assert.equal(Q.cellOf(s, pool([win('5h', 0.5, { resets_at: undefined })]), '5h', NOW).at, '');
+});
+
+test('来源读不到时组名下一行说清楚：读数停在几点和原因；只是上次没读到也说；读得好好的什么都不写', () => {
+  assert.equal(Q.sourceAlert(source(), NOW), '');
+  assert.equal(Q.sourceAlert(source({ failing: true, why: 'HTTP 404', collected_at: NOW - 400 }), NOW), '上次读取没成功 · HTTP 404，数字是 11月26日 14:25 的');
+  assert.equal(Q.sourceAlert(source({ failing: true, why: '连不上：URLError', collected_at: NOW - 3000 }), NOW),
+    '读数停在 11月26日 13:42（50 分钟前） · 连不上：URLError');
+  assert.equal(Q.sourceAlert(source({ collected_at: NOW - 3000 }), NOW), '读数停在 11月26日 13:42（50 分钟前）'); // 没在失败：Covey 没去读（比如 Bridge 停着）
+  assert.equal(Q.sourceAlert(source({ failing: true, why: '', collected_at: 0, total: 0 }), NOW), '读不到');
+  assert.equal(Q.groupNote(source({ failing: true, total: 0 }), false), ''); // 原因在 sourceAlert，不重复写“读不到”
+  // 服务端：原因只在 failing 时留，最多 60 字
+  const d = S.quotaOf({ sources: [{ id: 'gw', failing: true, why: 'x'.repeat(80) }, { id: 'ok', failing: false, why: 'stale' }, { id: 'old' }] });
+  assert.deepEqual(d.sources.map((x) => x.why.length), [60, 0, 0]);
+});
+
+test('页面接线：格子传号进去（用不了的号才灰）、组名下的原因、表头悬停说口径、取不到时说会再取', () => {
+  const panel = read('Quota.tsx');
+  assert.match(panel, /cellOf\(s, a\.pools\[0\], kind, now, a\)/u);
+  assert.match(panel, /sourceAlert\(s, now\)/u);
+  assert.match(panel, /className="mq-why"/u);
+  assert.match(panel, /title=\{HEAD_TITLE\}>5 小时剩余/u);
+  assert.match(panel, /q\.isError \? '这次没取到账号与额度，30 秒后自动再取'/u);
+  assert.match(read('Settings.tsx'), /tab === QUOTA_TAB\.key && quotable && \(qt\.isLoading \|\| \(qt\.isError && !qt\.data\)\)/u);
+  assert.match(read('quota.css'), /\.cv \.mq-c\.off \.n\{color:var\(--t3\)/u);
 });

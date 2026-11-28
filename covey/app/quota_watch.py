@@ -15,7 +15,7 @@ import time
 
 from covey.app import pins, quota_notice
 from covey.backends.agy import accounts
-from covey.core import quota_sources
+from covey.core import quota, quota_sources
 
 TICK = 60  # Seconds between looks.
 START_WAIT = 20  # Seconds after the Bridge starts before the first.
@@ -37,6 +37,7 @@ class QuotaWatch:
         self.runtime, self.messenger, self.voice = runtime, messenger, voice
         self.problem = ""
         self.notice = None
+        self.failing = {}  # Source id -> why its last read failed, for the log line when that changes.
 
     def threads(self):
         return ((self.name, self.run),) if wanted() else ()
@@ -59,9 +60,20 @@ class QuotaWatch:
                 self.runtime.log(f"quota: {quota_sources.CONFIG_FILE} not used: {problem}")
         quota_sources.forget_gone(ctx.state_dir, found)
         done = quota_sources.refresh(ctx.state_dir, found)
+        self.note(ctx.state_dir, done)
         done += accounts.snapshots(ctx.state_dir)
         self.tell(ctx)
         return done
+
+    def note(self, state_dir, ids) -> None:
+        """One log line when a source's reads begin to fail (and why) and one when it reads again: what the page shows as
+        上次读取没成功 can be looked up afterwards."""
+        store = quota.Store(state_dir)
+        for source in ids:
+            why = str(store.read(source).get("error") or "")
+            if why != self.failing.get(source, ""):
+                self.runtime.log(f"quota source {source}: " + (f"read failed: {why}" if why else "read again"))
+                self.failing[source] = why
 
     def tell(self, ctx) -> str:
         """The owner's notice of what turned true since the last look (app/quota_notice.py); never raises. The text sent."""
