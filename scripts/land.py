@@ -18,7 +18,8 @@ What it does (docs/testing.md 批量合入):
   whose commits conflict otherwise goes back (``kicked``) and the batch goes on without it.
 - Then the full suite once for the batch: ``test_map.py run --full``, or ``build`` when the map is stale (it
   refreshes the map, committed with the batch), with test_map.py's retry of a few failed modules.
-- Green: a fast-forward push of the batch to main. A push refused because main moved starts the batch again.
+- Green: a fast-forward push of the batch to main. Main having moved meanwhile, the batch is moved onto it and
+  pushed when the new commits touch none of its files, else the batch starts again.
 - Red: what fails on main alone is main's own (named in the results, the batch lands). Otherwise the driver runs
   only the failed modules on longer prefixes of the batch (bisection), sends back the first branch that brings a
   failure in, with the tests it breaks, and starts the batch again without it. A failure that does not come back
@@ -280,17 +281,46 @@ def drive(cwd=None, why_prefix="批量合入") -> int:
             if git("status", "--porcelain", "--", MAP, cwd=batch).strip():
                 git("add", "--", MAP, cwd=batch)
                 git("commit", "-q", "-m", f"Test map rebuilt for the batch of {', '.join(names)}", cwd=batch)
-            pushed = subprocess.run(["git", "push", "-q", REMOTE, f"HEAD:{MAIN}"], cwd=batch, capture_output=True,
-                                    text=True)
-            if pushed.returncode:
-                print(f"push refused, main moved: the batch starts again ({pushed.stderr.strip()[-200:]})")
+            landed = push(batch, base, cwd)
+            if not landed:
+                print("main moved under the batch and touched its files: the batch starts again", flush=True)
                 continue
-            for entry, commit in applied:
-                finish(state, entry, "merged", cwd=cwd, commit=commit, batch=names, **notes)
+            head, moved_onto = landed
+            for entry, commit in applied:  # Moved onto a newer main, the entries' own commits have new ids.
+                finish(state, entry, "merged", cwd=cwd, commit=head if moved_onto else commit, batch=names,
+                       **({**notes, "moved_onto_newer_main": True} if moved_onto else notes))
     finally:
         with contextlib.suppress(OSError):
             fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()
+
+
+def changed(old, new, cwd) -> set[str]:
+    return set(git("diff", "--name-only", old, new, cwd=cwd).split()) - {MAP}
+
+
+def push(batch: Path, base: str, cwd, tries=3) -> tuple[str, bool] | None:
+    """Push the batch to main -> (the main commit it is now, whether it was moved). Main having moved meanwhile with
+    commits that touch none of the batch's files, the batch is moved onto them and pushed: its own files are as
+    tested, the others as their authors tested them (its map commit is left to the next batch). None when main
+    moved over its files: the batch starts again."""
+    moved_onto = False
+    for _ in range(tries):
+        if subprocess.run(["git", "push", "-q", REMOTE, f"HEAD:{MAIN}"], cwd=batch, capture_output=True).returncode == 0:
+            return git("rev-parse", "HEAD", cwd=batch).strip(), moved_onto
+        git("fetch", "-q", REMOTE, MAIN, cwd=cwd)
+        moved = git("rev-parse", f"{REMOTE}/{MAIN}", cwd=cwd).strip()
+        if changed(base, moved, cwd) & changed(base, "HEAD", batch):
+            return None
+        if git("log", "-1", "--format=%s", cwd=batch).startswith("Test map rebuilt for the batch"):
+            git("reset", "-q", "--hard", "HEAD~1", cwd=batch)
+        rebased = subprocess.run(["git", "rebase", "-q", "--onto", moved, base], cwd=batch, capture_output=True,
+                                 text=True, env={**os.environ, "GIT_EDITOR": "true"})
+        if rebased.returncode:
+            git("rebase", "--abort", cwd=batch, check=False)
+            return None
+        base, moved_onto = moved, True
+    return None
 
 
 # --- commands -------------------------------------------------------------------------------------------------------
