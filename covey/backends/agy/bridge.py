@@ -482,12 +482,13 @@ class AntigravityBackend(BackendRuntime):
         finally:
             homes.close()
 
-    def ask_once(self, ctx, system, data, *, heavy=False, limit, cwd=None, follow=""):
+    def ask_once(self, ctx, system, data, *, heavy=False, limit, cwd=None, follow="", effort=""):
         """One question to agy and nothing else (backends/agy/judge.py): the answer's text, or AskFailed with the reason
-        ``error_code`` reads of its error. ``follow``: the model of the setting the question follows (a heavy one's)."""
+        ``error_code`` reads of its error. ``follow``, ``effort``: the model of the setting the question follows and its
+        budget (a heavy one's)."""
         from covey.backends.agy.judge import ask_once
         return ask_once(self, ctx, system, data, heavy=heavy, limit=limit, cwd=cwd, settings=READ_ONLY_SETTINGS,
-                        follow=follow, classify=error_code)
+                        follow=follow, effort=effort, classify=error_code)
 
     def ask_model(self, ctx, *, heavy=False, follow=""):
         """The model id ``ask_once`` would run on (backends/agy/judge.py model_of); '' for agy's own default, which only

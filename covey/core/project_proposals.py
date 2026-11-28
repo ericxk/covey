@@ -54,7 +54,10 @@ WEB_STARTED_WORDS = "已开始整理，进度和结果显示在整理面板上" 
 BUSY_PREFIX = "正在整理"  # ... and while one runs: 正在整理（12/40）.
 DATED = re.compile(r"(?:T\d{2,}|\d{4}[-/年.]\d{1,2}(?:[-/月.]\d{1,2}[日号]?)?|\d{1,2}[-/月.]\d{1,2}[日号]?|#\d+|第\s*\d+\s*[期轮次])")
 
-DEFAULTS = {"days": 7, "min_topics": 5, "judge_seconds": 90, "read_seconds": 60}
+# The limits are a guard against a call that hangs, not a deadline for a slow model: a heavy question runs on the budget
+# of the setting the 辅助模型 follows (app/assist.py), and Antigravity's gemini-4-neon judged 40 topics in 3 minutes at its
+# default budget and in 12 at xhigh, and read one topic's gist in up to 2 minutes at xhigh (T924, 2026-11-28).
+DEFAULTS = {"days": 7, "min_topics": 5, "judge_seconds": 1200, "read_seconds": 300}
 
 
 def raw(name, environ=None) -> str:
@@ -73,10 +76,16 @@ MODEL_RE = re.compile(r"[A-Za-z0-9._:\[\]-]{1,80}")
 
 
 def model(environ=None) -> str:
-    """The Claude Code model that writes a 话题要点 from a whole topic and judges a 整理: COVEY_PROJECT_TIDY_MODEL, else
-    DEFAULT_MODEL (more than the small one: both read whole conversations and name what a matter really is)."""
+    """The Claude Code model that writes a 话题要点 from a whole topic and judges a 整理 when the 辅助模型 follows no Claude
+    Code setting with a model (app/assist.py claude_heavy): COVEY_PROJECT_TIDY_MODEL, else DEFAULT_MODEL (more than the
+    small one: both read whole conversations and name what a matter really is)."""
+    return named_model(environ) or DEFAULT_MODEL
+
+
+def named_model(environ=None) -> str:
+    """COVEY_PROJECT_TIDY_MODEL when it names a model ('' unset or not a model id): it comes before any setting followed."""
     value = str(cenv.get(MODEL_ENV, "", environ) or "").strip()
-    return value if MODEL_RE.fullmatch(value) else DEFAULT_MODEL
+    return value if MODEL_RE.fullmatch(value) else ""
 
 
 def mode(environ=None) -> str:

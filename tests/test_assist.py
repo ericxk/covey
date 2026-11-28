@@ -75,6 +75,7 @@ class Case(unittest.TestCase):
 
     def claude_once(self, backend, ctx, data, cwd, limit, **kw):
         self.spawns.calls.append("claude")
+        self.claude_asked = {"model": kw.get("model"), "effort": kw.get("effort", "")}
         if isinstance(self.claude_answer, BaseException):
             raise self.claude_answer
         return self.claude_answer
@@ -152,6 +153,73 @@ class MatrixTest(Case):
         self.assertEqual(butler_settings.load(self.state).assist.harness, "pi")  # Not emptied into 自动.
         found = assist.route(topics)
         self.assertEqual((found.first, found.why, found.about), (None, "not_enabled", "pi"))
+
+
+class FollowedBudgetTest(Case):
+    """T924, the owner (11-28): 自动（跟随管家） means the butler's model and budget. A heavy question (整理专项 and its
+    补话题要点) goes on the followed setting's model at its budget on each Harness, never a lower one put in its place; a
+    light one (分流, 记忆自己长) keeps the light model at its lowest budget; a named Harness or a setting without a model
+    leaves it to the Harness, as before."""
+
+    def native(self, name):
+        asked = []
+
+        def ask_once(ctx, system, data, *, heavy=False, limit, cwd=None, **kw):
+            asked.append({"heavy": heavy, **kw})
+            return ANSWER
+        backend = SimpleNamespace(capabilities=lambda ctx: HarnessCapabilities(ask_once=True), ask_once=ask_once,
+                                  ask_model=lambda ctx, heavy=False, follow="": follow or name)
+        ctx = SimpleNamespace(backend_cmd=[name], state_dir=self.state, options={"harness_id": name}, device=None)
+        return harness_app(backend, ctx), asked
+
+    def test_the_route_carries_the_budget_of_the_setting_it_follows(self):
+        topics = self.topics()
+        self.setting(SETTINGS["auto"], enabled=True, harness="agy", model="gemini-4-neon", effort="xhigh",
+                     topic_defaults=butler_settings.TopicDefaults(harness="claude", model="opus", effort="ultracode"))
+        found = assist.route(topics, assist.TIDY)
+        self.assertEqual((found.first.name, found.first.follow, found.first.effort), ("agy", "gemini-4-neon", "xhigh"))
+        self.assertEqual((found.rest[0].follow, found.rest[0].effort), ("opus", "xhigh"))  # Its budget, not the orchestration.
+        self.setting(SETTINGS["auto"], enabled=True, harness="agy", model="", effort="xhigh")
+        self.assertEqual(assist.route(topics, assist.TIDY).first.effort, "")  # No model named: the Harness's own.
+        self.setting(SETTINGS["codex"])
+        self.assertEqual(assist.route(topics, assist.TIDY).first.effort, "")  # Named: nothing followed.
+
+    def test_a_heavy_question_is_asked_at_the_followed_budget_and_a_light_one_never(self):
+        app, asked = self.native("agy")
+        topics = topics_with(self.state, {"claude": claude_app(self.state), "agy": app}, default="claude")
+        topics.runtime.log = self.logs.append
+        self.setting(SETTINGS["auto"], enabled=True, harness="agy", model="gemini-4-neon", effort="xhigh")
+        for feature in (assist.TIDY, assist.BACKFILL, assist.LEARN):
+            self.call(topics, feature)
+        self.assertEqual(asked, [{"heavy": True, "follow": "gemini-4-neon", "effort": "xhigh"},
+                                 {"heavy": True, "follow": "gemini-4-neon", "effort": "xhigh"},
+                                 {"heavy": False, "follow": "gemini-4-neon"}])
+        asked.clear()
+        assist.judge(self.message(), topics=topics, log=self.logs.append)
+        self.assertEqual(asked, [{"heavy": False, "follow": "gemini-4-neon"}])  # 分流: the light model, no budget given.
+
+    def test_claude_code_follows_the_settings_model_and_budget_unless_the_variable_names_one(self):
+        topics = self.topics()
+        self.setting(SETTINGS["auto"], enabled=True, harness="claude", model="opus", effort="xhigh")
+        self.call(topics, assist.TIDY)
+        self.assertEqual(self.claude_asked, {"model": "opus", "effort": "xhigh"})
+        with mock.patch.dict(os.environ, {"COVEY_PROJECT_TIDY_MODEL": "sonnet"}):
+            self.call(topics, assist.TIDY)
+        self.assertEqual(self.claude_asked, {"model": "sonnet", "effort": ""})  # Another model: not that setting's budget.
+        self.call(topics, assist.LEARN)
+        self.assertEqual(self.claude_asked, {"model": track_judge.MODEL, "effort": ""})
+        self.setting(SETTINGS["claude"])
+        self.call(topics, assist.TIDY)
+        self.assertEqual(self.claude_asked, {"model": "sonnet", "effort": ""})  # Named: 整理专项's default, as before.
+        self.setting(SETTINGS["auto"], enabled=True, harness="claude", model="opus", effort="xhigh")
+        self.assertEqual(assist.describe(topics)["heavy"], "opus")
+
+    def test_the_claude_one_shot_takes_the_budget_on_its_command_line(self):
+        backend = SimpleNamespace(wrap_argv=lambda argv, ctx: argv)
+        ctx = SimpleNamespace(backend_cmd=["claude"])
+        argv = track_judge.claude_argv(backend, ctx, False, model="opus", effort="xhigh")
+        self.assertEqual(argv[argv.index("--effort") + 1], "xhigh")
+        self.assertNotIn("--effort", track_judge.claude_argv(backend, ctx, False, model="haiku"))
 
 
 class NoStandbyTest(Case):

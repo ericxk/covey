@@ -274,7 +274,7 @@
 
 不设就是 `suggest`，新装的和老服务都一样（`core/switches.py` 的 `DEFAULTS` 记着各转正开关不设时的值，全部见[默认已开](#默认已开)）。要关，按[改开关三步](#改开关三步)设 `COVEY_PROJECT_TIDY=off`。
 
-可调的数（都是正数，写错按默认）：`COVEY_PROJECT_TIDY_DAYS`（7，整理看最近几天的话题）、`COVEY_PROJECT_TIDY_MIN_TOPICS`（5，聊天里的话题少于这个数时不整理）、`COVEY_PROJECT_TIDY_JUDGE_SECONDS`（90，一次判断调用的上限）、`COVEY_PROJECT_TIDY_READ_SECONDS`（60，补一个话题要点的上限）。补话题要点和判断都是一问一答，去[辅助模型](#辅助模型)选的地方：Claude Code 用 `COVEY_PROJECT_TIDY_MODEL`（默认 `sonnet`：两者都要读整段对话、说出一件事的本质，小模型不够），Codex 或 Antigravity 用账号自己的模型（不用它们的轻量模型，理由同上）。判断不了时整理卡写原因、用的是谁和下一步（「换辅助模型」「看诊断」）；补话题要点时遇到登录失效、额度用完这类模型那边的问题，不把话题标成“读不了”，整理在这里停下并说明。
+可调的数（都是正数，写错按默认）：`COVEY_PROJECT_TIDY_DAYS`（7，整理看最近几天的话题）、`COVEY_PROJECT_TIDY_MIN_TOPICS`（5，聊天里的话题少于这个数时不整理）、`COVEY_PROJECT_TIDY_JUDGE_SECONDS`（1200，一次判断调用的上限）、`COVEY_PROJECT_TIDY_READ_SECONDS`（300，补一个话题要点的上限）。上限只防进程挂住，不当成慢模型的截止时间：重的一问用跟的那份设置的预算，Antigravity 的 gemini-4-neon 判断 40 个话题，默认预算（high）要 3 分钟上下，xhigh 要 12 分钟上下，补一个要点 xhigh 要半分钟到两分钟；超时不换别的 Harness 重问（不烧两份额度）。补话题要点和判断都是一问一答，去[辅助模型](#辅助模型)选的地方，是重的一问：自动跟随时用跟的那份设置的模型和思考预算；点名一个 Harness 或跟的设置没写模型时，Claude Code 用 `COVEY_PROJECT_TIDY_MODEL`（默认 `sonnet`：两者都要读整段对话、说出一件事的本质，小模型不够），Codex 或 Antigravity 用账号自己的模型（不用它们的轻量模型，理由同上）。判断不了时整理卡写原因、用的是谁和下一步（「换辅助模型」「看诊断」）；补话题要点时遇到登录失效、额度用完这类模型那边的问题，不把话题标成“读不了”，整理在这里停下并说明。
 
 ### 记忆
 
@@ -305,7 +305,7 @@
 
 任务卡上的「看看」、晚间汇总的候选和整理记忆本来就只按规则，不调模型；实时归并、巡逻（“我本来想找你的事”）和分流的待命进程已下线（见 [legacy.md](legacy.md)）。
 
-模型不单列：轻的判断（分流、记忆自己长）用这个 Harness 的轻量模型，整理类（整理专项、补话题要点）用重一档的：Claude Code 是 Haiku 和 `COVEY_PROJECT_TIDY_MODEL`（默认 `sonnet`）；Codex、Antigravity 轻的用目录里名字或说明写着轻量的第一个（Codex 如 `gpt-6-luna`；Antigravity 先找 Gemini 的 flash、lite，如 `gemini-3.8-flash`），最低一档思考，重的用账号自己的模型（Codex `medium`）。`COVEY_JUDGE_CODEX_MODEL`、`COVEY_JUDGE_AGY_MODEL` 可以指定。设置卡这一项下面一行写着现在实际用的是哪个。
+模型不单列：轻的判断（分流、记忆自己长：一个在你发消息的路上，一个每轮之后都跑）用这个 Harness 的轻量模型、最低一档思考：Claude Code 是 Haiku；Codex、Antigravity 用目录里名字或说明写着轻量的第一个（Codex 如 `gpt-6-luna`；Antigravity 先找 Gemini 的 flash、lite，如 `gemini-3.8-flash`）。整理类（整理专项、补话题要点）是重的：自动跟随时就用跟的那份设置的模型和思考预算，三家一样（管家是 Antigravity 的 `gemini-4-neon`、`xhigh`，整理就用它、`xhigh`；Codex、Claude Code 同理；`ultra`、`ultracode` 这类编排档按它的思考预算 `xhigh` 问，一问一答用不上编排），模型没有这一档时用 Harness 自己的；点名一个 Harness、或跟的设置没写模型时用 Harness 自己的：Claude Code `COVEY_PROJECT_TIDY_MODEL`（默认 `sonnet`），Codex 账号默认模型、`medium`，Antigravity agy 自己的默认。`COVEY_JUDGE_CODEX_MODEL`、`COVEY_JUDGE_AGY_MODEL`、`COVEY_PROJECT_TIDY_MODEL` 指定了就用指定的模型，这时不带跟的那份设置的预算。设置卡这一项下面一行写着现在实际用的是哪个。
 
 **失败了怎么办**（原因码和 `core/result.py` 的 `ERROR_CODES` 同一套，三家各自的报错都先按它们正式轮次的分类认一遍，原话脱敏截断后只进日志和卡上，记录里只留原因码）：
 
@@ -532,8 +532,8 @@
 | `COVEY_BUTLER`（旧名 COVEY_MAIN_THREAD、LARK_BRIDGE_MAIN_THREAD） | `core/butler.py` | 允许（模式看 `main-thread.json`）；`0` 不允许 | 否 |
 | `COVEY_TRACK_JUDGE` | `app/track_judge.py`（同时做几件事里，规则没能定的新消息交给小模型判断是并进哪件在做的事还是新开一件；`app/butler_tracks.py` 的 `Tracks.decide` 调用，`COVEY_BUTLER_TRACKS` 开着才会问） | `claude`（默认，名字沿用旧的）：问[辅助模型](#辅助模型)选的那个；`off` 不问，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准、脱敏话题都按新开一件 | 否 |
 | `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py`（`limit_ms`） | 6000：小模型硬上限（毫秒，200 到 10000），超过按新开一件（Claude Code 冷启动一问约 3.4 秒）；问的是 Codex 或 Antigravity 自己的命令行时不设默认 10000（它们一次要 6 到 12 秒），设了就按设的 | 否 |
-| `COVEY_JUDGE_CODEX_MODEL` | `backends/codex/judge.py`（`choose`：辅助模型是 Codex 时用的模型） | 空：轻量的判断用账号模型目录里 id 或说明写着轻量的第一个（如 `gpt-6-luna`），最低一档思考；整理专项用 Codex 自己的默认模型、`medium`。写一个目录里有的模型 id 就都用它（目录里没有的不用） | 否 |
-| `COVEY_JUDGE_AGY_MODEL` | `backends/agy/judge.py`（`choose`：辅助模型是 Antigravity 时用的模型） | 空：轻量的判断先找保存的模型目录里 Gemini 名字带 flash、lite 的第一个（如 `gemini-3.8-flash`），没有再找其他轻量词，最低一档；整理专项用 agy 自己的默认。写一个 `agy models` 列出的 id（带档位，如 `gemini-3.8-flash-low`）就都用它 | 否 |
+| `COVEY_JUDGE_CODEX_MODEL` | `backends/codex/judge.py`（`choose`：辅助模型是 Codex 时用的模型） | 空：轻量的判断用账号模型目录里 id 或说明写着轻量的第一个（如 `gpt-6-luna`），最低一档思考；整理专项用辅助模型跟的那份设置的模型和预算（目录里有它、模型有这一档时），没有就用 Codex 自己的默认模型、`medium`。写一个目录里有的模型 id 就都用它（目录里没有的不用），整理专项这时 `medium` | 否 |
+| `COVEY_JUDGE_AGY_MODEL` | `backends/agy/judge.py`（`choose`：辅助模型是 Antigravity 时用的模型） | 空：轻量的判断先找保存的模型目录里 Gemini 名字带 flash、lite 的第一个（如 `gemini-3.8-flash`），没有再找其他轻量词，最低一档；整理专项用辅助模型跟的那份设置的模型（目录里有它时）和预算（目录没说这个模型没有这一档时），没有就用 agy 自己的默认。写一个 `agy models` 列出的 id（带档位，如 `gemini-3.8-flash-low`）就都用它 | 否 |
 | `COVEY_AGY_EAGER_BYTES` | `backends/agy/home.py`（`eager_room`：管家和专项负责人跑在 Antigravity 上时，Bridge 的工具里预先加载的最多占多少字节，按描述加参数 schema 算；其余只在 agy 的提示里列名字，用到时模型先读说明再调）、`backends/agy/bridge.py`（`left_out` 的日志提到它） | 15000：交给话题的工具和其余常用的都预先加载，原则、知识条目、历史搜索这些排最后；`0`：全部只列名字。agy 的日志警告说丢了 Bridge 工具时调小 | 否 |
 | `COVEY_AGY_ACCOUNTS` | `backends/agy/accounts.py`（`config_path`：每轮 agy、诊断 `service/doctor.py` 的 `agy_row`、升级检查 `service/plugins.py` 的 `agy_switching` 读多账号配置在哪） | 数据根的 `agy-accounts.json`；写了两个及以上的号才开 agy 多账号，见 [quota.md agy 多账号](quota.md#agy-多账号) | 否 |
 | `AGY_ACCOUNTS_DIR` | `backends/agy/account_homes.py`（`accounts_dir`：终端命令 `agy-as` 把账号目录建在哪） | `~/.agy-accounts` | 否 |
@@ -564,11 +564,11 @@
 | `COVEY_WEB_SELFHOST_BIND` | `service/web_selfhost.py`（`bind_of`） | `0.0.0.0`：公网 HTTPS 监听的地址（IP；只在 IPv6 上听写 `::`；写不成 IP 按默认） | 否 |
 | `COVEY_WEB_SELFHOST_TLS_CERT`、`COVEY_WEB_SELFHOST_TLS_KEY` | `service/web_selfhost.py`（`own_tls`、`spec`） | 空：用网页进程生成的自签证书（`<数据根>/web/tls/`）。两个都写绝对路径（PEM 证书链和私钥）才用自己的证书，只给一个按没给；私钥权限要 600，体检只看权限、不读内容 | 否 |
 | `COVEY_PROJECT_TIDY` | `core/project_proposals.py`、`app/project_tidy.py`、`app/runs.py`、`core/butler.py`、`core/butler_tool_specs.py`、`app/web_sync.py`、`app/butler_panel.py` | 空或 `suggest`：只提议（能归进已有专项的直接归，新建要主人点）；`auto`：新建也直接做；`off`、`0` 或别的值，以及专项关着：关。见[整理专项](#整理专项) | 否 |
-| `COVEY_PROJECT_TIDY_MODEL` | `core/project_proposals.py`（`model`）、`app/project_sorter.py`（`ask`） | `sonnet`：补话题要点和整理判断用的 Claude Code 模型别名或 id；写错按默认 | 否 |
+| `COVEY_PROJECT_TIDY_MODEL` | `core/project_proposals.py`（`model`）、`app/project_sorter.py`（`ask`） | 空：辅助模型自动跟随一份 Claude Code 的设置时，补话题要点和整理判断用那份设置的模型和预算，否则 `sonnet`；写了就用这个 Claude Code 模型别名或 id（不带跟的预算）；写错按空 | 否 |
 | `COVEY_PROJECT_TIDY_DAYS` | `core/project_proposals.py`（`number`） | 7：整理看最近几天有过一轮的话题（专项里的话题不论多久都看） | 否 |
 | `COVEY_PROJECT_TIDY_MIN_TOPICS` | `core/project_proposals.py`（`number`）、`app/tidy_run.py`（`start`） | 5：聊天里的话题少于这个数时不整理（定时、手动都不） | 否 |
-| `COVEY_PROJECT_TIDY_JUDGE_SECONDS` | `core/project_proposals.py`（`number`）、`app/project_sorter.py`（`judge`） | 90：一次判断调用的硬上限，秒；超了这次判断作废，什么都不改 | 否 |
-| `COVEY_PROJECT_TIDY_READ_SECONDS` | `core/project_proposals.py`（`number`）、`app/project_sorter.py`（`backfill`） | 60：补一个老话题的要点那次调用的上限，秒；超了只跳过这个话题 | 否 |
+| `COVEY_PROJECT_TIDY_JUDGE_SECONDS` | `core/project_proposals.py`（`number`）、`app/project_sorter.py`（`judge`） | 1200：一次判断调用的硬上限，秒；超了这次判断作废，什么都不改 | 否 |
+| `COVEY_PROJECT_TIDY_READ_SECONDS` | `core/project_proposals.py`（`number`）、`app/project_sorter.py`（`backfill`） | 300：补一个老话题的要点那次调用的上限，秒；超了只跳过这个话题 | 否 |
 | `COVEY_PROJECT_UPGRADE` | `app/projects.py`（`mode`：升级、`Projects.consider`；要 `COVEY_PROJECTS=1` 和 `COVEY_DISPATCH_CARD=1`） | 空或 `butler`：管家转话时带了 `project`，派发卡就静默转成专项（`word` 是旧值，同 `butler`）；`auto`：再加该话题来回到第 3 轮（管家开这个话题算第 1 轮）；`off` 或别的值：不转成专项。同时最多 50 个活专项，满了先收起最久没动静的一个（[专项可长可短](projects.md#专项可长可短)） | 否 |
 | `COVEY_PINNED_TOPICS` | `core/topic_seen.py`（看板 `app/pins.py` 和已读消费者 `app/topic_seen.py` 都经它） | 开；`0`、`off`、`false`、`no` 关（还要 `COVEY_PINNED_OVERVIEW` 开着） | 否 |
 | `COVEY_PROXY_PROFILE` | `app/proxy.py` | 空：代答不可用 | 否 |

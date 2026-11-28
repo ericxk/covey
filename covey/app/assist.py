@@ -15,7 +15,11 @@ Which Harness (``route``), from the 设置 card's 辅助模型 (core/butler_sett
 - 自动（跟随管家）: the butler's Harness while the butler is on (core/butler.py ``available`` and the mode 管家), then the
   Harness of 新话题默认, 专项负责人 and 独立复核, each where the settings name one (none named: the Bridge's default
   Harness), each with the model's provider of that setting (``follow``: a gateway's Codex model is asked through that
-  gateway). The first that passes the checks above answers. One that fails on its environment (core/assist.py BREAKS) has
+  gateway). The first that passes the checks above answers. A heavy question (整理专项 and its 补话题要点) runs on that
+  setting's model with its budget (``effort``: the butler's gemini-4-neon at xhigh is asked at xhigh; an orchestration
+  mode at its budget alone, core/defaults.py budget_of), never a lower one put in its place; a light one (分流, 记忆自己长:
+  on the path of the owner's message or after each turn) on the Harness's light model at its lowest budget. A setting
+  that names no model leaves both to the Harness (its own default model, Codex's ``medium``). One that fails on its environment (core/assist.py BREAKS) has
   the next one take the call (at most MAX_TRIES Harnesses a call), but for 分流, which asks once and falls back to a new
   track on any failure: it is on the path of the owner's message. A timeout or a refusal never goes to another Harness.
 
@@ -47,6 +51,7 @@ from covey.app.track_judge import Failed
 from covey.core import assist as records
 from covey.core import butler, butler_settings, gateways
 from covey.core import project_proposals as proposals
+from covey.core.defaults import budget_of
 
 CLAUDE = track_judge.CLAUDE
 LIGHT, HEAVY = "light", "heavy"
@@ -81,13 +86,15 @@ class Choice:
     """One Harness a call may go through: its name, backend and context, and the model id of the setting it follows
     (``follow``: its provider is the call's; '' none). ``lane``: its core/assist.py Lane when the check worked it out (None:
     worked out when the call is kept, ``lane_for``); ``bypass``: the reason (broken, cooling, refusal_gate) a call the owner
-    asked for goes past (core/assist.py ``take_try`` before it starts), '' none."""
+    asked for goes past (core/assist.py ``take_try`` before it starts), '' none. ``effort``: the budget of the setting it
+    follows, with ``follow`` ('' none): a heavy question's (``heavy_effort``)."""
     name: str
     backend: object = None
     ctx: object = None
     follow: str = ""
     lane: object = None
     bypass: str = ""
+    effort: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -276,22 +283,23 @@ def check(state, runtime, apps, name, feature, *, manual, data, now=None, follow
 # Where a call goes -------------------------------------------------------------------------------------------------
 
 def followed(settings, apps, default) -> list:
-    """[(Harness, model id)] of 自动 in its order (the module docstring), each Harness once."""
+    """[(Harness, model id, budget)] of 自动 in its order (the module docstring), each Harness once: the budget the setting
+    runs its model with ('' with no model named: the Harness's own)."""
     from covey.app import butler_harness
     out = []
     if butler.available() and settings.enabled:
         name = butler_harness.name_of(settings, apps)
-        out.append((name, butler_harness.model_of(settings, name)[0]))
+        out.append((name, *butler_harness.model_of(settings, name)))
     for row in (settings.topic_defaults, settings.lead, settings.review):
         if row.harness:
-            out.append((row.harness, row.model))
+            out.append((row.harness, row.model, row.effort))
     if not out and default:
-        out.append((default, ""))
+        out.append((default, "", ""))
     seen, kept = set(), []
-    for name, model in out:
+    for name, model, effort in out:
         if name not in seen:
             seen.add(name)
-            kept.append((name, model))
+            kept.append((name, model, budget_of(effort) if model else ""))
     return kept
 
 
@@ -319,13 +327,13 @@ def route(topics, feature=TRACK, *, manual=False, state=None, now=None) -> Route
         backend, ctx = tools_of(apps, choice.harness)
         return Route(Choice(choice.harness, backend, ctx, "", lane, bypass), mode="named")
     passed, first_bad = [], None
-    for name, model in followed(settings, apps, default_of(topics)):
+    for name, model, effort in followed(settings, apps, default_of(topics)):
         why, detail, lane, bypass = check(state, runtime, apps, name, feature, manual=manual, data=data, now=now, follow=model)
         if why:
             first_bad = first_bad or (why, name, detail)
             continue
         backend, ctx = tools_of(apps, name)
-        passed.append(Choice(name, backend, ctx, model, lane, bypass))
+        passed.append(Choice(name, backend, ctx, model, lane, bypass, effort))
     if passed:
         return Route(passed[0], tuple(passed[1:]))
     if first_bad:
@@ -345,10 +353,27 @@ def allowed(topics, feature, harness, *, state=None) -> bool:
     if choice.harness:
         return harness == choice.harness
     settings = settings_of(state)
-    return harness in {name for name, _ in followed(settings, getattr(topics, "apps", None) or {}, default_of(topics))}
+    return harness in {row[0] for row in followed(settings, getattr(topics, "apps", None) or {}, default_of(topics))}
 
 
 # The calls ---------------------------------------------------------------------------------------------------------
+
+def claude_heavy(choice) -> str:
+    """The Claude Code model of a heavy question through ``choice``: COVEY_PROJECT_TIDY_MODEL when set, else the model of the
+    setting it follows (a Claude Code one), else 整理专项's default (core/project_proposals.py model)."""
+    if choice.name == CLAUDE and choice.follow and not proposals.named_model():
+        return choice.follow
+    return proposals.model()
+
+
+def heavy_effort(choice, model) -> str:
+    """The budget a heavy question through ``choice`` is asked at: the setting's it follows, when it runs on that setting's
+    model ('' otherwise: the Harness's own). Claude Code's runs on ``model``; a native Harness's own CLI checks it again
+    against the model it picks (backends/agy/judge.py, backends/codex/judge.py ``choose``)."""
+    if not choice.effort:
+        return ""
+    return choice.effort if choice.name != CLAUDE or model == choice.follow else ""
+
 
 def failed_of(route_) -> Failed:
     exc = Failed(route_.why or "no_backend", route_.detail)
@@ -397,10 +422,12 @@ def ask(feature, system, data, *, topics, limit, cwd, redacted: bool, manual=Fal
             log(f"assist past {choice.bypass} harness={choice.name} feature={feature}: the owner's call, once a minute")
         started = time.monotonic()
         try:
-            # Claude Code's model: the question's own, else Haiku or 整理专项's; a native Harness picks by ``heavy``.
+            # Claude Code's model: the question's own, else Haiku or the heavy one (``claude_heavy``); a native Harness
+            # picks by ``heavy`` and the setting it follows. A heavy question takes that setting's budget.
+            asked = model or (claude_heavy(choice) if heavy else track_judge.MODEL)
             raw = track_judge.ask(system, data, backend=choice.backend, ctx=choice.ctx, limit=limit, cwd=cwd,
-                                  model=model or (proposals.model() if heavy else track_judge.MODEL), heavy=heavy,
-                                  follow=choice.follow)
+                                  model=asked, heavy=heavy, follow=choice.follow,
+                                  effort=heavy_effort(choice, asked) if heavy else "")
             track_judge.answer_text(raw, CLAUDE)  # An error envelope is a failure of the call, with its reason.
         except Failed as exc:
             ms = round((time.monotonic() - started) * 1000)
@@ -475,7 +502,7 @@ def shown_model(choice, heavy) -> str:
     if choice is None:
         return ""
     if choice.name == CLAUDE:
-        return proposals.model() if heavy else track_judge.MODEL
+        return claude_heavy(choice) if heavy else track_judge.MODEL
     pick = getattr(choice.backend, "ask_model", None)
     if pick is None:
         return ""

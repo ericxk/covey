@@ -142,13 +142,16 @@ def via_of(backend, ctx, environ=None) -> str:
     return CLAUDE if backend is not None and ctx is not None else ""
 
 
-def ask_native(system: str, data: str, *, backend, ctx, limit: float, cwd, heavy: bool = False, follow: str = "") -> str:
+def ask_native(system: str, data: str, *, backend, ctx, limit: float, cwd, heavy: bool = False, follow: str = "",
+               effort: str = "") -> str:
     """One question through a native Harness's own CLI (``backend.ask_once``), its answer as Claude Code's JSON envelope
     (``answer_text`` reads it, as it reads the gateway's); Failed with its reason otherwise. ``heavy``: a question that needs
-    more than the small model (整理专项's): the Harness's own default model instead of its light one. ``follow``: the model
-    id of the setting app/assist.py follows (its provider is the question's)."""
+    more than the small model (整理专项's): the followed setting's model, else the Harness's own default, instead of its
+    light one. ``follow``: the model id of the setting app/assist.py follows (its provider is the question's); ``effort``:
+    that setting's budget, a heavy question's."""
+    extra = {**({"follow": follow} if follow else {}), **({"effort": effort} if effort else {})}
     try:
-        text = backend.ask_once(ctx, system, data, heavy=heavy, limit=limit, cwd=cwd, **({"follow": follow} if follow else {}))
+        text = backend.ask_once(ctx, system, data, heavy=heavy, limit=limit, cwd=cwd, **extra)
     except AskFailed as exc:
         raise Failed(exc.reason, exc.detail) from None
     return json.dumps({"type": "result", "is_error": False, "result": text}, ensure_ascii=False)
@@ -171,13 +174,16 @@ def payload(message: Message, tasks: list[LiveJob], question: str) -> dict:
     return out
 
 
-def claude_argv(backend, ctx, with_flag: bool, system: str = SYSTEM, model: str = MODEL, settings=None) -> list[str]:
+def claude_argv(backend, ctx, with_flag: bool, system: str = SYSTEM, model: str = MODEL, settings=None,
+                effort: str = "") -> list[str]:
     """The Claude Code's argv, like the model catalog's (backends/claude/argv.py stream_argv catalog): no MCP servers,
     hooks or tools. One-shot: the prompt arrives on standard input and the answer is one JSON object. ``system``: another
     question for the same small model (a feature's own, app/assist.py ask). ``model``: another model for a question that needs more than
     the small one (app/project_sorter.py). ``settings``: its --settings (the backend's ``one_shot`` gives the relay's
-    address with the hooks off); the hooks off without one."""
-    argv = [*ctx.backend_cmd, "-p", "--model", model, "--output-format", "json", "--max-turns", "1",
+    address with the hooks off); the hooks off without one. ``effort``: its --effort, a heavy question's that follows a
+    setting (app/assist.py heavy_effort); none: Claude Code's own."""
+    argv = [*ctx.backend_cmd, "-p", "--model", model, *(["--effort", effort] if effort else []), "--output-format", "json",
+            "--max-turns", "1",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--settings",
             json.dumps(settings, ensure_ascii=False, separators=(",", ":")) if settings else '{"disableAllHooks":true}',
             "--tools", "", "--system-prompt", system]
@@ -212,37 +218,39 @@ def slim_enabled(environ=None) -> bool:
 
 
 def ask(system: str, data: str, *, backend, ctx, limit: float, cwd, model: str = MODEL, environ=None, heavy=None,
-        follow: str = "") -> str:
+        follow: str = "", effort: str = "") -> str:
     """One question's raw answer, as Claude Code's JSON envelope (``answer_text`` reads it): through ``backend`` and
     ``ctx`` (app/assist.py chose them): a native Harness's own CLI (``ask_native``; ``heavy``, or when not given ``model``
     other than MODEL, makes it a heavy question; ``follow`` its provider), or the Claude Harness the way ``judge`` asks
-    Haiku, in ``cwd``; Failed("no_backend") with none. ``system``, ``model``: the question's own. Only app/assist.py calls
-    it (tests/test_structure.py AssistExitTest)."""
+    Haiku, in ``cwd``; Failed("no_backend") with none. ``system``, ``model``, ``effort``: the question's own. Only
+    app/assist.py calls it (tests/test_structure.py AssistExitTest)."""
     heavy = model != MODEL if heavy is None else heavy
     if native(backend, ctx):
-        return ask_native(system, data, backend=backend, ctx=ctx, limit=limit, cwd=cwd, heavy=heavy, follow=follow)
+        return ask_native(system, data, backend=backend, ctx=ctx, limit=limit, cwd=cwd, heavy=heavy, follow=follow,
+                          effort=effort)
     if backend is not None and ctx is not None:
         Path(cwd).mkdir(parents=True, exist_ok=True)
         try:
-            return claude_once(backend, ctx, data, Path(cwd), limit, system=system, model=model)
+            return claude_once(backend, ctx, data, Path(cwd), limit, system=system, model=model, effort=effort)
         except Failed as exc:
             refused(exc)
             raise
     raise Failed("no_backend")
 
 
-def claude_once(backend, ctx, data: str, cwd, limit: float, *, system: str = SYSTEM, model: str = MODEL) -> str:
+def claude_once(backend, ctx, data: str, cwd, limit: float, *, system: str = SYSTEM, model: str = MODEL,
+                effort: str = "") -> str:
     """One Claude Code one-shot's standard output: inside the backend's ``one_shot`` when it has one (the extensions'
     ``claude_turn`` hooks around it, their relay's address in its --settings), else as before."""
     env = backend.child_env(ctx) if hasattr(backend, "child_env") else os.environ.copy()
     one_shot = getattr(backend, "one_shot", None)
     if one_shot is None:
-        return run(claude_argv(backend, ctx, use_flag(), system=system, model=model), data, env, cwd, limit)
+        return run(claude_argv(backend, ctx, use_flag(), system=system, model=model, effort=effort), data, env, cwd, limit)
     from covey.core.extensions import ExtensionError
     try:
         with one_shot(ctx, env) as (ctx, env, settings):
-            return run(claude_argv(backend, ctx, use_flag(), system=system, model=model, settings=settings), data, env, cwd,
-                       limit)
+            return run(claude_argv(backend, ctx, use_flag(), system=system, model=model, settings=settings, effort=effort),
+                       data, env, cwd, limit)
     except ExtensionError as exc:  # An extension's hook that cannot wrap it: the one-shot did not start.
         raise Failed("spawn_failed", said_of(str(exc))) from None
 

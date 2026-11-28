@@ -6,6 +6,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +21,10 @@ from covey.core.state import write_json
 from covey.core.topics import label_title
 
 PROGRESS_GAP = 3.0  # Seconds between two redraws of the card while it reads.
+# Topics whose 话题要点 a 整理 reads at once: each read is its own call (killed at its limit), and one on the followed budget
+# takes a minute or more (Antigravity at xhigh, T924), so twelve topics one after another kept the judge waiting a quarter
+# of an hour.
+READS_AT_ONCE = 3
 BUSY_WORDS = proposals.BUSY_PREFIX + "（{done}/{total}）"
 FEW_WORDS = "话题还不多（不到 {} 个），先不整理专项。"
 OFF_WORDS = "整理专项没有开（COVEY_PROJECT_TIDY）。"
@@ -142,23 +147,10 @@ class Runs:
         topics = [topic for topic in topics if topic not in hidden]
         where = sorter.Where(getattr(self.env, "topics", None), assist.TIDY, manual=record.get("origin") in MANUAL)
         missing = [topic for topic in topics if sorter.needs_gist(state, topic, sorter.material(state, chat, topic, now).last_job)]
-        self.shared.progress = {"done": 0, "total": len(missing)}
-        drawn, unreadable = 0.0, []
-        for number, topic in enumerate(missing, 1):
-            label = label_title(state, topic)[0] or "话题"
-            self.shared.progress = {"done": number, "total": len(missing)}
-            view["progress"] = {"done": number, "total": len(missing), "current": label}
-            if time.monotonic() - drawn >= PROGRESS_GAP:
-                self.redraw(ctx, record)
-                self.save_run(state, record)  # The web page follows the reading (app/tidy_web.py stamps).
-                drawn = time.monotonic()
-            # Each read routed anew (app/assist.py): never a backend kept from before the loop.
-            reason = sorter.backfill(state, chat, topic, where=where, log=self.runtime.log, now=now)
-            if sorter.stops(reason):  # No model can read any of them now: the 整理 stops here and says why.
-                self.failed(view, reason, last_assist(state))
-                return
-            if reason in sorter.TOPIC_PROBLEMS:
-                unreadable.append((topic, reason))
+        unreadable, stopped = self.read_all(ctx, chat, record, missing, where, now)
+        if stopped:  # No model can read any of them now: the 整理 stops here and says why.
+            self.failed(view, stopped, last_assist(state))
+            return
         topics = [topic for topic in topics if topic not in {topic for topic, _ in unreadable}]
         # Which ones and why.
         if unreadable:
@@ -179,6 +171,48 @@ class Runs:
         self.settle(ctx, chat, record, verdict.suggestions)
         self.expire_alone(ctx)
         view["state"] = "done"
+
+    def read_all(self, ctx, chat, record, missing, where, now) -> tuple:
+        """The 话题要点 of the ``missing`` topics read (app/project_sorter.py backfill), READS_AT_ONCE at a time, the card and
+        the web page following: ([(topic, reason)] of those found unreadable, the reason that stopped the reading or '').
+        Once a read says no model can take any (``stops``) no other starts; those under way end at their limit."""
+        state, view, total = Path(ctx.state_dir), record["view"], len(missing)
+        lock, started, stopped, unreadable = threading.Lock(), [0], [], []
+
+        def show(number, label):
+            self.shared.progress = {"done": number, "total": total}
+            view["progress"] = {"done": number, "total": total, "current": label}
+
+        def read(topic):
+            with lock:
+                if stopped:
+                    return ""
+                started[0] += 1
+                show(started[0], label_title(state, topic)[0] or "话题")
+            # Each read routed anew (app/assist.py): never a backend kept from before the loop.
+            reason = sorter.backfill(state, chat, topic, where=where, log=self.runtime.log, now=now)
+            with lock:
+                if sorter.stops(reason):
+                    stopped.append(reason)
+                elif reason in sorter.TOPIC_PROBLEMS:
+                    unreadable.append((topic, reason))
+            return reason
+
+        if not missing:
+            return [], ""
+        show(1, label_title(state, missing[0])[0] or "话题")
+        self.redraw(ctx, record)
+        self.save_run(state, record)  # The web page follows the reading (app/tidy_web.py stamps).
+        drawn = time.monotonic()
+        with ThreadPoolExecutor(max_workers=READS_AT_ONCE, thread_name_prefix="project-tidy-read") as pool:
+            for future in as_completed([pool.submit(read, topic) for topic in missing]):
+                future.result()
+                if time.monotonic() - drawn >= PROGRESS_GAP:
+                    self.redraw(ctx, record)
+                    self.save_run(state, record)
+                    drawn = time.monotonic()
+        order = {topic: number for number, topic in enumerate(missing)}
+        return sorted(unreadable, key=lambda row: order[row[0]]), (stopped[0] if stopped else "")
 
     def failed(self, view, code, used) -> None:
         """The run's view failed on ``code`` (core/assist.py's reason), ``used``: {harness, model, detail} of the call."""

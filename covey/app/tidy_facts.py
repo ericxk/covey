@@ -72,10 +72,8 @@ def where_now(state, chat, topic) -> str:
 
 def latest(conclusions) -> str:
     """The first sentence of a topic's latest conclusion when it has no phase to say: where it is now, on the proposal card
-    ('' for one too short to say anything, as a lone "!")."""
-    text = " ".join(str(conclusions[-1] if conclusions else "").split())
-    first = re.split(r"(?<=[。！？!?])", text, maxsplit=1)[0] if text else ""
-    return cut(first, NOW_CHARS) if len(first) >= 6 else ""
+    ('' for one too short to say anything, as a lone "!"; app/project_sorter.py now_of, as the judge reads it)."""
+    return sorter.now_of(conclusions, NOW_CHARS)
 
 
 def foldable(state, pid) -> bool:
@@ -98,7 +96,11 @@ def live_projects(state, chat) -> list:
 
 
 def recent_topics(state, chat, now, *, scope="", records=()) -> list:
-    """The topics a 整理 looks at, the latest first: those with a turn in the last days, and every topic of a live project."""
+    """The topics a 整理 looks at, the latest first: those with a turn in the last days, and every topic of a live project,
+    MAX_TOPICS (app/project_sorter.py) at most. Those in no project come first: they are what a 整理 sorts, the projects'
+    own are there for 移出 and 拆分, and each project's row names its topics' essences too. So the projects' own take
+    MEMBER_TOPICS of the places at most (their latest), more only when there are not enough others. A 整理 of one word or
+    one project (``scope``) takes them as they come, the latest first."""
     window = now - proposals.number("days") * 86400
     members = {topic for record in records for topic in record.get("threads") or ()}
     latest = {}
@@ -108,10 +110,15 @@ def recent_topics(state, chat, now, *, scope="", records=()) -> list:
             continue
         stamp = epoch_seconds(record.get("updated_at")) or 0
         latest[topic] = max(latest.get(topic, 0), stamp)
-    chosen_ = [topic for topic, stamp in latest.items() if stamp >= window or topic in members]
+    chosen_ = sorted((topic for topic, stamp in latest.items() if stamp >= window or topic in members),
+                     key=lambda topic: -latest[topic])
     if scope:
-        chosen_ = [topic for topic in chosen_ if in_scope(state, topic, scope, records)]
-    return sorted(chosen_, key=lambda topic: -latest[topic])[:sorter.MAX_TOPICS]
+        return [topic for topic in chosen_ if in_scope(state, topic, scope, records)][:sorter.MAX_TOPICS]
+    inside = [topic for topic in chosen_ if topic in members]
+    others = [topic for topic in chosen_ if topic not in members]
+    inside = inside[:max(sorter.MEMBER_TOPICS, sorter.MAX_TOPICS - len(others))]
+    kept = {*inside, *others[:sorter.MAX_TOPICS - len(inside)]}
+    return [topic for topic in chosen_ if topic in kept]
 
 
 def in_scope(state, topic, scope, records) -> bool:

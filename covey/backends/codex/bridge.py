@@ -108,11 +108,12 @@ class CodexBackend(BackendRuntime):
                                               # start through compactions (codex-cli 0.172.0, app/rules_sent.py).
                                               system_instructions=True), ctx)
 
-    def ask_once(self, ctx, system, data, *, heavy=False, limit, cwd=None, follow=""):
+    def ask_once(self, ctx, system, data, *, heavy=False, limit, cwd=None, follow="", effort=""):
         """One question to Codex and nothing else (backends/codex/judge.py): the answer's text, or AskFailed. ``follow``:
-        the model of the setting the question follows (a model gateway's: the question goes to that gateway)."""
+        the model of the setting the question follows (a model gateway's: the question goes to that gateway); ``effort``:
+        its budget (a heavy question's)."""
         from covey.backends.codex.judge import ask_once
-        return ask_once(ctx, system, data, heavy=heavy, limit=limit, cwd=cwd, follow=follow)
+        return ask_once(ctx, system, data, heavy=heavy, limit=limit, cwd=cwd, follow=follow, effort=effort)
 
     def ask_model(self, ctx, *, heavy=False, follow=""):
         """The model id ``ask_once`` would run on (backends/codex/judge.py model_of: a gateway's with its prefix, Codex's own

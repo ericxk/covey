@@ -16,6 +16,12 @@ EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ult
 ORCHESTRATION_MODES = frozenset({"ultra", ULTRACODE})
 
 
+def budget_of(effort) -> str:
+    """The thinking budget of ``effort`` alone: an orchestration mode (ORCHESTRATION_MODES) is xhigh with the Harness's
+    own orchestration on top, which a question with no tools has no use for (app/assist.py follows a setting's budget)."""
+    return ULTRACODE_RUNS_AS if effort in ORCHESTRATION_MODES else str(effort or "")
+
+
 def recommended_effort(levels):
     """Resolve the next-to-highest budget, never silently select high. An orchestration
     mode on top does not count, so a model offering one recommends two tiers below it."""

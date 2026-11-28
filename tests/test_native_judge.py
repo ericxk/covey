@@ -320,8 +320,8 @@ class CodexJudgeTest(Case):
 
     def test_a_question_that_follows_a_gateway_model_goes_to_that_gateway(self):
         """T884: a setting followed whose model is a model gateway's (its prefix): the question goes there, a light one
-        on the gateway's light model, through a relay of its own with the gateway's provider; one of the account's own
-        changes nothing."""
+        on the gateway's light model, through a relay of its own with the gateway's provider; one of the account's own is
+        a heavy question's model (T924) and changes nothing for a light one."""
         self.catalog([("gpt-big", "Our most capable model.", ("low", "medium")),
                       ("gpt-luna", "Fast and affordable model for easier tasks.", ("low", "medium"))])
         gateway = gateways.Gateway(name="acme", display="Acme", base_url="https://gateway.invalid", key_env="ACME_KEY",
@@ -337,7 +337,7 @@ class CodexJudgeTest(Case):
             self.assertEqual(codex_judge.choose(env, heavy=True, environ={}, follow="acme/astra", ctx=ctx),
                              ("acme/astra", "medium"))
             self.assertEqual(codex_judge.choose(env, heavy=False, environ={}, follow="gpt-big", ctx=ctx), ("gpt-luna", "low"))
-            self.assertEqual(codex_judge.choose(env, heavy=True, environ={}, follow="gpt-big", ctx=ctx), ("", "medium"))
+            self.assertEqual(codex_judge.choose(env, heavy=True, environ={}, follow="gpt-big", ctx=ctx), ("gpt-big", "medium"))
             self.assertEqual(codex_judge.model_of(ctx, follow="acme/astra", environ={}), "acme/astra-mini")
             self.rows(CODEX_ROWS)
             with mock.patch.dict(os.environ, {"ACME_KEY": "fake-key-for-tests"}):
@@ -353,6 +353,24 @@ class CodexJudgeTest(Case):
                 codex_judge.ask_once(ctx, "s", "{}", limit=10, follow="acme/astra", environ={})
             self.assertEqual(caught.exception.reason, "authentication_error")
             self.assertEqual(len(self.recorded()), 1)
+
+    def test_a_heavy_question_runs_on_the_followed_model_at_its_budget(self):
+        """T924: 自动（跟随管家） means the followed setting's model and budget for a heavy question, ``medium`` only where
+        that model lacks the budget or another model runs it; a light one keeps its lowest budget."""
+        self.catalog([("gpt-big", "Our most capable model.", ("low", "medium", "high", "xhigh")),
+                      ("gpt-luna", "Fast and affordable model for easier tasks.", ("low", "medium"))])
+        env = {"HOME": str(self.home)}
+        self.assertEqual(codex_judge.choose(env, heavy=True, environ={}, follow="gpt-big", effort="xhigh"), ("gpt-big", "xhigh"))
+        self.assertEqual(codex_judge.choose(env, heavy=True, environ={}, follow="gpt-big", effort="max"), ("gpt-big", "medium"))
+        self.assertEqual(codex_judge.choose(env, heavy=True, environ={}, follow="gone", effort="xhigh"), ("", "medium"))
+        self.assertEqual(codex_judge.choose(env, heavy=True, environ={codex_judge.MODEL_ENV: "gpt-luna"}, follow="gpt-big",
+                                            effort="xhigh"), ("gpt-luna", "medium"))
+        self.assertEqual(codex_judge.choose(env, heavy=False, environ={}, follow="gpt-big", effort="xhigh"), ("gpt-luna", "low"))
+        self.rows(CODEX_ROWS)
+        codex_judge.ask_once(self.ctx("codex"), "s", "{}", heavy=True, limit=10, follow="gpt-big", effort="xhigh", environ={})
+        argv = self.recorded()[-1]["argv"]
+        self.assertEqual(argv[argv.index("-m") + 1], "gpt-big")
+        self.assertIn('model_reasoning_effort="xhigh"', argv)
 
     def test_the_model_a_question_runs_on_is_said_without_starting_anything(self):
         self.catalog([("gpt-big", "Our most capable model.", ("low", "medium")),
@@ -459,6 +477,27 @@ class AgyJudgeTest(Case):
         self.assertEqual(agy_judge.choose(catalog, heavy=True, environ={}, follow="gemini-4-neon"), ("gemini-4-neon", ""))
         self.assertEqual(agy_judge.choose(catalog, heavy=True, environ={}, follow="gone-model"), ("", ""))
         self.assertEqual(agy_judge.choose(catalog, heavy=False, environ={}, follow="gemini-4-neon")[0], "gemini-3.8-flash")
+
+    def test_a_heavy_question_takes_the_followed_settings_budget_when_its_model_has_it(self):
+        """T924: the butler's gemini-4-neon at xhigh is asked at xhigh; a budget the catalog says the model lacks, or a
+        model listed without budgets, takes none (agy refuses those); a light question keeps its own."""
+        catalog = {"gemini-4-neon": {"supported_reasoning_levels": [{"effort": "low"}, {"effort": "high"}, {"effort": "xhigh"}]},
+                   "gemini-pro-orchestrator": {"supported_reasoning_levels": []},
+                   "gemini-3.8-flash": {"supported_reasoning_levels": [{"effort": "low"}]}}
+        choose = agy_judge.choose
+        self.assertEqual(choose(catalog, heavy=True, environ={}, follow="gemini-4-neon", effort="xhigh"), ("gemini-4-neon", "xhigh"))
+        self.assertEqual(choose(catalog, heavy=True, environ={}, follow="gemini-4-neon", effort="max"), ("gemini-4-neon", ""))
+        self.assertEqual(choose(catalog, heavy=True, environ={}, follow="gemini-pro-orchestrator", effort="high"),
+                         ("gemini-pro-orchestrator", ""))
+        self.assertEqual(choose({}, heavy=True, environ={}, follow="gemini-4-neon", effort="xhigh"), ("gemini-4-neon", "xhigh"))
+        self.assertEqual(choose(catalog, heavy=False, environ={}, follow="gemini-4-neon", effort="xhigh"), ("gemini-3.8-flash", "low"))
+        self.sign_in()
+        self.rows(AGY_ROWS)
+        backend = SimpleNamespace(model_catalog=lambda ctx: catalog)
+        agy_judge.ask_once(backend, self.ctx("agy"), "只回一行 JSON", QUESTION, heavy=True, limit=10, settings=READ_ONLY_SETTINGS,
+                           follow="gemini-4-neon", effort="xhigh")
+        argv = self.recorded()[-1]["argv"]
+        self.assertEqual((argv[argv.index("--model") + 1], argv[argv.index("--effort") + 1]), ("gemini-4-neon", "xhigh"))
 
     def test_an_error_result_or_no_result_is_a_reason(self):
         self.assertEqual(agy_judge.answer_of(AGY_ROWS), '{"route":"new","target":null,"confidence":0.8}\n')

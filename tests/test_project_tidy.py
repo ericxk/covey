@@ -7,6 +7,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -818,6 +819,105 @@ class FollowTest(TidyCase):
         self.assertEqual(proposals.read_proposal(self.state, record["id"])["topics"], self.trio[1:])
 
 
+class JudgeInputTest(TidyCase):
+    """T924: the judge got 75k characters for 40 topics, 62% of them the owner's words of topics that had a gist, and 31 of
+    its 40 places were the projects' own topics. A topic with a gist is sent as its gist (the T numbers his words name, the
+    opening of its latest conclusion), the words only for one without or a read in full; the topics in no project come
+    first."""
+
+    GIST = {"essence": "推理网关稳定", "goal": "不失联", "involves": "网关", "related": ["T88"], "changed": "从排查改成修"}
+
+    def test_a_topic_with_a_gist_is_sent_as_its_gist_and_one_without_with_its_words(self):
+        said = self.topic("网关", words=["先看 T123 的网关" + "很长的话" * 400, "再对一下 T88 和 T77"])
+        plain = self.topic("没要点", words=["一些话"])
+        topic_gist.save(self.state, said, self.GIST, source="turn")
+        item = sorter.material(self.state, CHAT, said, time.time())
+        row = sorter.topic_row(1, item, {})
+        self.assertNotIn("owner", row)
+        self.assertNotIn("conclusions", row)
+        self.assertEqual(row["gist"], {key: self.GIST[key] for key in sorter.BRIEF})  # Without ``changed``.
+        self.assertEqual(row["refs"], ["T77", "T123"])  # The latest first, T88 the gist relates already.
+        self.assertTrue(row["now"].startswith("结论：再对一下"))
+        self.assertLessEqual(len(row["now"]), sorter.NOW_CHARS)
+        bare = sorter.topic_row(2, sorter.material(self.state, CHAT, plain, time.time()), {})
+        self.assertEqual((bare["owner"], bare["gist"]), (["一些话"], {}))
+        full = sorter.topic_row(1, sorter.in_full(self.state, item), {}, full=True)
+        self.assertTrue(full["full"])
+        self.assertLessEqual(sum(map(len, full["owner"])), sorter.FULL_CHARS + 20)
+        self.assertIn("refs", sorter.JUDGE_SYSTEM)
+
+    def test_a_whole_tidy_sends_the_gists_it_backfilled_and_the_words_of_the_topic_it_reads_in_full(self):
+        topics = [self.topic(f"老话题 {n}", words=[f"老话题 {n} 要做的事" * 50]) for n in range(5)]
+        self.see(lambda: topics)
+        self.verdicts.extend([{"read": [2]}, {"suggestions": []}])
+        self.tidy.start(self.ctx, origin="test", wait=True)
+        first, second = self.judged()[-2:]
+        self.assertTrue(all("owner" not in row and row["gist"]["essence"] for row in first["topics"]))
+        self.assertEqual(second["full"], [2])
+        self.assertIn("owner", second["topics"][1])
+        self.assertNotIn("owner", second["topics"][0])
+
+    def test_the_topics_in_no_project_come_first_and_the_projects_own_take_their_places_at_most(self):
+        inside = [self.topic(f"专项里的 {n}") for n in range(5)]
+        self.project("网关", inside)
+        others = [self.topic(f"游离的 {n}") for n in range(6)]
+        records = facts.live_projects(self.state, CHAT)
+        with mock.patch.object(sorter, "MAX_TOPICS", 6), mock.patch.object(sorter, "MEMBER_TOPICS", 2):
+            chosen = facts.recent_topics(self.state, CHAT, time.time(), records=records)
+            self.assertEqual((len(chosen), len(set(chosen) & set(inside))), (6, 2))
+            few = facts.recent_topics(self.state, CHAT, time.time(), records=records, scope="游离的 0")
+            self.assertEqual(few, [others[0]])  # A 整理 of one word: as they come.
+        with mock.patch.object(sorter, "MAX_TOPICS", 7), mock.patch.object(sorter, "MEMBER_TOPICS", 2):
+            for topic in others[1:]:
+                projects.add_member(self.state, records[0]["id"], topic)
+            records = facts.live_projects(self.state, CHAT)
+            chosen = facts.recent_topics(self.state, CHAT, time.time(), records=records)
+            self.assertEqual((len(chosen), len(set(chosen) - set(inside) - set(others[1:]))), (7, 1))  # Not enough others.
+
+
+class ReadAtOnceTest(TidyCase):
+    """T924: a read on the followed budget takes a minute or more, so a 整理 reads READS_AT_ONCE topics at a time; once one
+    says no model can take any (a spent quota), no other starts and the run says why."""
+
+    def test_the_topics_are_read_a_few_at_a_time(self):
+        topics = [self.topic(f"老话题 {n}") for n in range(6)]
+        self.see(lambda: topics)
+        lock, now_, most = threading.Lock(), [0], [0]
+        plain = self.ask
+
+        def ask(system, data, where, limit):
+            if system != sorter.GIST_SYSTEM:
+                return plain(system, data, where, limit)
+            with lock:
+                now_[0] += 1
+                most[0] = max(most[0], now_[0])
+            time.sleep(0.05)
+            with lock:
+                now_[0] -= 1
+            return plain(system, data, where, limit)
+        with mock.patch.object(sorter, "ask", side_effect=ask):
+            self.tidy.start(self.ctx, origin="test", wait=True)
+        self.assertEqual(sum(1 for topic in topics if topic_gist.read(self.state, topic).get("essence")), 6)
+        self.assertEqual(most[0], tidy_run.READS_AT_ONCE)
+        self.assertEqual(len(self.judged()[-1]["topics"]), 6)
+
+    def test_a_read_that_finds_no_model_stops_the_others_from_starting(self):
+        topics = [self.topic(f"老话题 {n}") for n in range(8)]
+        self.see(lambda: topics)
+        calls = []
+
+        def ask(system, data, where, limit):
+            calls.append(system)
+            raise Failed("quota_exhausted", "quota exceeded")
+        with mock.patch.object(sorter, "ask", side_effect=ask):
+            self.tidy.start(self.ctx, origin="test", wait=True)
+        self.assertLessEqual(len(calls), tidy_run.READS_AT_ONCE)
+        self.assertNotIn(sorter.JUDGE_SYSTEM, calls)
+        view = read_object(next((proposals.folder(self.state) / "runs").glob("*.json")))["view"]
+        self.assertEqual((view["state"], view["why_code"]), ("failed", "quota_exhausted"))
+        self.assertFalse(any(topic_gist.read(self.state, topic).get("unreadable") for topic in topics))
+
+
 class WhyUnreadTest(UpCase):
     def test_a_refusal_and_a_topic_too_long_are_told_apart_from_other_exits(self):
         """The owner, 2026-11-18: “读不了”的话题，要写清为什么 — Claude Code says a refusal only on stdout."""
@@ -956,6 +1056,13 @@ class NameTest(TidyCase):
 
 class TidyModelTest(UpCase):
     """整理 reads whole conversations and names what a matter really is: Sonnet by default, not the small judge's Haiku."""
+
+    def test_the_limits_leave_room_for_the_followed_budget(self):
+        """T924: on the butler's budget a judgment took 12 minutes (gemini-4-neon, xhigh) and a gist up to 2: the limits
+        guard against a hang, they are no deadline for a slow model."""
+        self.assertGreaterEqual(proposals.number("judge_seconds", {}), 900)
+        self.assertGreaterEqual(proposals.number("read_seconds", {}), 240)
+        self.assertEqual(proposals.number("judge_seconds", {"COVEY_PROJECT_TIDY_JUDGE_SECONDS": "90"}), 90)
 
     def test_the_model_is_sonnet_unless_set(self):
         from covey.core import project_proposals as proposals
