@@ -710,7 +710,7 @@ cancelled、superseded：终态
 - **活任务**：本进程登记表里家族的没结束的任务（排队、开始、在跑、在等回答），加上话题记录里 `waiting_user` 的（6 小时内；槽 0 的只在别处有活任务时才算）。每个交给路由层一条 `LiveJob`。
 - **认引用**：`parent_id` 先查补充送达记录（`merged`），再看是不是某个活任务的主人原消息、卡片或回复目标（`live_card`），再查别名（槽里有在等回答的任务时当作它的问题卡；其余是 `ended`；谁也不认识是 `unknown`）。
 - **分流**：`core/track_route.py` 的 `route` 九条规则；`ask_judge` 时调 `app/track_judge.py` 的 `judge`（处理事件的后台线程里同步等，不持锁），判完重读活任务，目标刚结束就新开一件。
-- **每问现起一个进程**：判断经辅助模型（`app/assist.py` 的 `judge`）问一次，Claude Code 是一次性进程（冷起 p50 约 3.4 秒，硬上限 `COVEY_TRACK_JUDGE_MS` 默认 6 秒），Codex、Antigravity 是它们自己的命令行（默认 10 秒）。问之间不留进程：以前的待命进程每条管家消息都先起两个、各用一次真实请求热身，只换来每问快约 1 秒，已删。
+- **每问现起一个进程**：判断经辅助模型（`app/assist.py` 的 `judge`）问一次，Claude Code 是一次性进程（冷起 p50 约 3.4 秒，硬上限 `COVEY_TRACK_JUDGE_MS` 默认 6 秒），Codex、Antigravity 是它们自己的命令行（默认 20 秒，设了按设的、最多 30 秒）。问之间不留进程：以前的待命进程每条管家消息都先起两个、各用一次真实请求热身，只换来每问快约 1 秒，已删。
 - **输入变小**（`COVEY_TRACK_JUDGE_SLIM`，默认开）：Claude Code 命令行多带 `--setting-sources user --disable-slash-commands`，不再把工作目录一路向上的项目设置、记忆文件和技能清单放在每个问题前面，输入约 800 token（以前约 4800）。凭据不变，仍是 Harness 自己的环境和登录；Claude Code 不认这两个选项时记住、之后不再带。
 
 日志行格式（`track judge route=… via=…`）不写主人的原话；`COVEY_BUTLER_TRACKS` 关了、模式不是管家、通道不是 `claude` 时不起任何进程。

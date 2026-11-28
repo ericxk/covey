@@ -92,6 +92,26 @@ class Case(unittest.TestCase):
         return notes, asked, find_job_record(self.state, job.message_id)
 
 
+class LimitTest(unittest.TestCase):
+    """T924: the read runs after the reply went out, the owner waits on nothing; Antigravity on gemini-4-neon at low took up to
+    39 s over the live turns' words, so 45 s cut it off at the edge."""
+
+    def test_the_model_has_three_minutes(self):
+        self.assertEqual(memory_learn.SECONDS, 180)
+        seen = {}
+
+        def ask(system, data, **kw):
+            seen.update(kw)
+            raise memory_learn.Failed("timeout")
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            write_topic(state, topic_id="t" * 32, chat_id="oc_x", harness_id="claude", topic_number=12)
+            record = {"key": "om_x", "job_id": 1, "topic_id": "t" * 32, "user_text": "以后都先写结论", "status": "done"}
+            runtime = mock.Mock()
+            memory_learn.learn(runtime, mock.Mock(), make_context(state), record, None, ask=ask)
+        self.assertEqual(seen.get("limit"), 180)
+
+
 class SwitchTest(unittest.TestCase):
     def test_the_old_names_turn_the_memory_and_its_learning_on(self):
         # A Manager from before the rename starts the Bridge with the manifest's LARK_BRIDGE_ names only (T778: a colleague's

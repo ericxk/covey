@@ -60,7 +60,9 @@ LASTING = tuple(word for word in memory.CUES if word not in NOT_LASTING)
 BRIDGE_IDS = ("revisit-", "main-", "review-", "lead-")  # Message ids the Bridge makes up for a turn nobody spoke: 回看, a hand-on, 复核, a lead woken.
 BRIDGE_TEXT = ("[Bridge", "【Bridge")  # What the Bridge starts its own messages with (叫醒, 唤醒, 说明, 协作…).
 PER_TURN = 2  # Lines remembered, and lines struck out, a turn.
-SECONDS = 45
+# The model's time a turn (app/assist.py ask): a thread of its own after the reply went out, the owner waits on nothing.
+# Antigravity on gemini-4-neon at low took 9 to 39 s over the live turns' words (T924), a higher budget more: room for both.
+SECONDS = 180
 SAID = 1500  # Characters of the owner's words sent: the start and the end of longer ones.
 REPLY = 300
 KNOWN = 30  # Lines already known sent (the turn's carried ones first, then the ones of 全局).

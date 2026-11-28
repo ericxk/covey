@@ -695,6 +695,14 @@ class RoutingTest(unittest.TestCase):
         self.assertEqual(track_judge.limit_ms({}), track_judge.DEFAULT_MS)
         self.assertEqual(track_judge.limit_ms({"COVEY_TRACK_JUDGE_MS": "6000"}, native=True), 6000)
 
+    def test_the_native_limit_leaves_room_for_antigravity_and_the_variable_may_go_past_ten_seconds(self):
+        """T924: gemini-4-neon at low answered 分流 in 9.8 to 16.6 s, and the old 10 s cut five of eight off (each a new track);
+        Claude Code's one-shot keeps its 6 s."""
+        self.assertEqual(track_judge.limit_ms({}, native=True), 20000)
+        self.assertEqual(track_judge.limit_ms({}), 6000)
+        self.assertEqual(track_judge.limit_ms({"COVEY_TRACK_JUDGE_MS": "25000"}, native=True), 25000)
+        self.assertEqual(track_judge.limit_ms({"COVEY_TRACK_JUDGE_MS": "999999"}, native=True), 30000)
+
 
 if __name__ == "__main__":
     unittest.main()

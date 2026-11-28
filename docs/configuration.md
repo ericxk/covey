@@ -281,7 +281,7 @@
 - 关掉：按[改开关三步](#改开关三步)设成 `0`；已经写下的记忆留着，标了常驻的原则在原则块里照样不被挤掉，整理记忆也不再跑。
 - 日志：`memory lines written=N of M job=#…`、`memory lines ignored reason=… job=#…`、`memory lines failed job=#…`、`memory line refused by the gate reason=… job=#…`。
 - `COVEY_MEMORY_LEARN`：记忆自己长，默认开，设 `0`、`off`、`false`、`no` 才关；要 `COVEY_MEMORY` 开着，`COVEY_MEMORY=0` 时它也跟着关（[管家 · 记忆自己长](butler.md#记忆自己长)）。新装的和升级上来、清单里没设过它的服务都开着；关着时以下都没有，记忆和上面写的一字不差。
-  - 每轮之后（`app/memory_learn.py`）：主人自己的一轮正常结束，他原话里有纠正的字眼，就由 Bridge 用[辅助模型](#辅助模型)（最多 45 秒，一次只问一轮）读一遍，引用核对过的长期要求这样记：只对这件事的当场记到专项或话题，答案卡上一行“记下了”带“不对”；通用的、某个工作区的先放进待审核（`memory/review.json`，类型 `learn`，带他的原话），采纳后才成条目，答案卡上写“待审核”（同一条已在待审核里或处理过就不再写）。不读：代答话题、负责人的话题、管家转交的轮次、协作轮。这时规则里不再有“以后/别再”那句检查点约定；辅助模型选了“不用模型”时这一遍读不了，那句检查点约定照旧带上。
+  - 每轮之后（`app/memory_learn.py`）：主人自己的一轮正常结束，他原话里有纠正的字眼，就由 Bridge 用[辅助模型](#辅助模型)（最多 180 秒，回复发出后在后台读，不耽误你；一次只问一轮）读一遍，引用核对过的长期要求这样记：只对这件事的当场记到专项或话题，答案卡上一行“记下了”带“不对”；通用的、某个工作区的先放进待审核（`memory/review.json`，类型 `learn`，带他的原话），采纳后才成条目，答案卡上写“待审核”（同一条已在待审核里或处理过就不再写）。不读：代答话题、负责人的话题、管家转交的轮次、协作轮。这时规则里不再有“以后/别再”那句检查点约定；辅助模型选了“不用模型”时这一遍读不了，那句检查点约定照旧带上。
   - 整理记忆不要这个开关（见上）；以前的“被新回答替代”和“新约定”（含「确认长期」「不对」）已下线。
   - 别处学到的（Harness 记忆导入）已下线：晚间不再读各 Harness 的记忆文件，网页上没有导入入口；`<state>/memory/imports.json` 原样留着，不再读写。
   - 查记忆：每轮的记忆块末尾多一行 `bin/covey_memory.py search` 的命令（设备上的话题没有），放不下的、收起的、答过的题都能查。
@@ -299,7 +299,7 @@
 
 模型的先后：设置里的（点名时选的，或自动跟的那份设置的）> 环境变量 `COVEY_PROJECT_TIDY_MODEL`（Claude Code）、`COVEY_JUDGE_CODEX_MODEL`、`COVEY_JUDGE_AGY_MODEL`（设置里没有模型时才用，这时不带预算）> Harness 自己的（Claude Code 不带 `--model`，Codex 用 `config.toml` 的模型和它自己的预算，Antigravity 用 agy 自己的）。思考预算跟着设置里的模型走，那个模型没有这一档时用 Harness 自己的。三家一样，没有给分流、记忆自己长另挑轻量模型（以前 Claude Code 用 Haiku、Codex 用 `gpt-6-luna`、Antigravity 用 `gemini-3.8-flash`），也不再给整理专项硬写 `medium`。设置卡和网页这一节下面一行写着现在实际用的（“现在：跟随管家，Antigravity · gemini-4-neon · xhigh，分流、整理专项、记忆自己长都用它。”）。
 
-慢模型的代价：分流在你发消息的路上，上限是 `COVEY_TRACK_JUDGE_MS`（Claude Code 6 秒，Codex、Antigravity 10 秒，最多 10 秒），记忆自己长 45 秒；跟着高档预算的大模型时它们常常到点没答（分流按新开一件，记忆这一轮不记），整理专项的上限见[整理专项](#整理专项)。实测 Antigravity `gemini-4-neon`：`xhigh` 补一个话题要点 35 到 116 秒，判断 40 个话题约 12 分钟；想快就在这一节点名一个 Harness，选轻一些的模型或低一些的预算。
+慢模型的代价：分流在你发消息的路上，上限是 `COVEY_TRACK_JUDGE_MS`（Claude Code 6 秒，Codex、Antigravity 20 秒，设了按设的，最多 30 秒），这段时间这句话等着分流；记忆自己长在回复发出后的后台读，上限 180 秒。实测 Antigravity `gemini-4-neon` 分流一问 `low` 10 到 17 秒、`medium`/`high` 11 到 12 秒，记忆自己长 `low` 9 到 39 秒；到点没答的分流按新开一件，记忆这一轮不记，整理专项的上限见[整理专项](#整理专项)。实测 Antigravity `gemini-4-neon`：`xhigh` 补一个话题要点 35 到 116 秒，判断 40 个话题约 12 分钟；想快就在这一节点名一个 Harness，选轻一些的模型或低一些的预算。
 
 **失败了怎么办**（原因码和 `core/result.py` 的 `ERROR_CODES` 同一套，三家各自的报错都先按它们正式轮次的分类认一遍，原话脱敏截断后只进日志和卡上，记录里只留原因码）：
 
@@ -315,7 +315,7 @@
 
 **每问现起一个进程**：问之间不留任何进程（以前分流的待命进程每条管家消息都先用一次真实调用热身，已删）。扩展的 `claude_turn` 钩子（如 covey-internal 的协议归一中继 `COVEY_CLAUDE_CLI_NORMALIZE=1`）也包住后台的一次性 Claude Code 调用：它的地址合进 `--settings`，hook 照旧关着。
 
-**慢**：Claude Code 冷启动一问约 3.4 秒，分流最多等 6 秒；Codex、Antigravity 每问都要起一次命令行，实测一次 6 到 15 秒，分流在这里最多等 10 秒（`COVEY_TRACK_JUDGE_MS` 设了就按它）。超时按新开一件，这段时间这句话等着分流。
+**慢**：Claude Code 冷启动一问约 3.4 秒，分流最多等 6 秒；Codex、Antigravity 每问都要起一次命令行，实测一次 6 到 17 秒，分流在这里最多等 20 秒（`COVEY_TRACK_JUDGE_MS` 设了就按它，最多 30 秒）。超时按新开一件，这段时间这句话等着分流。
 
 `COVEY_TRACK_JUDGE=off` 或 `cmd:/absolute/path` 比这一项优先，只管分流，和以前一样。日志只记原因、毫秒和问的是谁（`via=claude|codex|agy`），不记你的原话。
 
@@ -563,7 +563,7 @@ covey device job stop gpu1 job-0123456789                      # 停整个进程
 | `COVEY_BUTLER_TRACKS_MAX`（旧名 COVEY_MAIN_TRACKS_MAX、LARK_BRIDGE_MAIN_TRACKS_MAX） | `core/butler_tracks.py`（`limit`） | 3：同时在跑的件数上限，取值限制在 2 到 4，读不出来按 3 | 否 |
 | `COVEY_BUTLER`（旧名 COVEY_MAIN_THREAD、LARK_BRIDGE_MAIN_THREAD） | `core/butler.py` | 有管家；`0` 没有 | 否 |
 | `COVEY_TRACK_JUDGE` | `app/track_judge.py`（同时做几件事里，规则没能定的新消息交给小模型判断是并进哪件在做的事还是新开一件；`app/butler_tracks.py` 的 `Tracks.decide` 调用，`COVEY_BUTLER_TRACKS` 开着才会问） | `claude`（默认，名字沿用旧的）：问[辅助模型](#辅助模型)选的那个；`off` 不问，直接新开；`cmd:/absolute/path` 用自己的命令（标准输入一段 JSON，标准输出一行 JSON）。超时、出错、拿不准都按新开一件 | 否 |
-| `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py`（`limit_ms`） | 6000：小模型硬上限（毫秒，200 到 10000），超过按新开一件（Claude Code 冷启动一问约 3.4 秒）；问的是 Codex 或 Antigravity 自己的命令行时不设默认 10000（它们一次要 6 到 12 秒），设了就按设的 | 否 |
+| `COVEY_TRACK_JUDGE_MS` | `app/track_judge.py`（`limit_ms`） | 6000：小模型硬上限（毫秒，200 到 30000），超过按新开一件（Claude Code 冷启动一问约 3.4 秒）；问的是 Codex 或 Antigravity 自己的命令行时不设默认 20000（它们一次要 6 到 17 秒），设了就按设的 | 否 |
 | `COVEY_JUDGE_CODEX_MODEL` | `backends/codex/judge.py`（`choose`：辅助模型是 Codex 时用的模型） | 空：辅助模型的设置里没有模型时用 Codex 自己的默认模型和预算。写一个账号目录里有的模型 id：设置里没有模型时用它（目录里没有的不用），不带预算 | 否 |
 | `COVEY_JUDGE_AGY_MODEL` | `backends/agy/judge.py`（`choose`：辅助模型是 Antigravity 时用的模型） | 空：辅助模型的设置里没有模型时用 agy 自己的默认模型和预算。写一个 `agy models` 列出的 id（带档位，如 `gemini-3.8-flash-low`）：设置里没有模型时用它 | 否 |
 | `COVEY_AGY_EAGER_BYTES` | `backends/agy/home.py`（`eager_room`：管家和专项负责人跑在 Antigravity 上时，Bridge 的工具里预先加载的最多占多少字节，按描述加参数 schema 算；其余只在 agy 的提示里列名字，用到时模型先读说明再调）、`backends/agy/bridge.py`（`left_out` 的日志提到它） | 15000：交给话题的工具和其余常用的都预先加载，原则、知识条目、历史搜索这些排最后；`0`：全部只列名字。agy 的日志警告说丢了 Bridge 工具时调小 | 否 |

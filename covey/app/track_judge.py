@@ -26,7 +26,7 @@ the way a turn's result row is (backends/claude/completion.py result_failure; ``
 ``policy_refusal``), a bare stderr by its words (core/assist.py code_of_text); the detail is the CLI's own words,
 secrets hidden and cut (core/failure.py said_of), never the question.
 
-Every question starts its own process: a native Harness's CLI (5 to 9 s seen) within NATIVE_MS unless COVEY_TRACK_JUDGE_MS
+Every question starts its own process: a native Harness's CLI (5 to 17 s seen) within NATIVE_MS unless COVEY_TRACK_JUDGE_MS
 says, Claude Code's one-shot (about 3.4 s from a cold start) within DEFAULT_MS. No process is kept between questions (the
 standby kept before T898 primed one with a real call at every butler message). COVEY_TRACK_JUDGE_SLIM (default on) adds
 SLIM to the argv: about 800 input tokens instead of 4800.
@@ -60,9 +60,10 @@ MODEL = "haiku"  # Claude Code's model when a caller names none here: the tests'
 CONFIDENCE_MIN = 0.7
 DEFAULT_MS = 6000  # A Claude Code one-shot on Haiku: about 3.4 s from a cold start (with 3000 and no standby most timed out).
 # A native Harness's own CLI answering (``ask_native``): a new process each question, 5 to 7 s through Codex (up to 11, codex-cli
-# 0.171.0), about 9 through Antigravity (agy 1.5.14).
-NATIVE_MS = 10000
-MIN_MS, MAX_MS = 200, 10000
+# 0.171.0); through Antigravity (agy 1.5.18) on gemini-4-neon at low 9.8 to 16.6 s, at medium and high 10.6 to 12.1 (T924:
+# 10 s cut five of eight off, each one a new track the owner had not asked for). The message waits on it: no more than this.
+NATIVE_MS = 20000
+MIN_MS, MAX_MS = 200, 30000
 CLAUDE = "claude"
 MAX_TASKS = 3
 CLIP = 300
