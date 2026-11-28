@@ -295,7 +295,9 @@ def answer_pages(text, summary, tail=(), head=(), *, link=None, finish=None) -> 
     from covey.cards.review import ANSWER_ID, drop_part_heading, reply_body
 
     meta, rest = split_ask(head)
-    body = drop_part_heading(reply_body(text))
+    from covey.core.rich_md import card_markdown
+
+    body = card_markdown(drop_part_heading(reply_body(text)))  # Pages are markdown: 富文本块 in words.
     body = link(body) if link else body
     quoted = not meta or role_of(meta.get("who")) == "butler"  # The butler's row quotes his words itself.
     words, tail = finished(finish, [*([] if quoted else [part for part in (words_fold(meta),) if part]), *rest], tail)

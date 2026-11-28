@@ -89,6 +89,16 @@ def remember_sent(state_dir, chat_id, topic_id, messages, *, skip_errors=False) 
 LINKED_FOLDS = (FOLD_ID, "answer_reply", "mirror_output", "answer_words")
 
 
+def linked_fold(element_id) -> bool:
+    """Whether a fold's T numbers link: one of LINKED_FOLDS, or a details in the answer (cards/rich_body.py fold_id:
+    the answer's element ID and _d<n>)."""
+    from covey.cards.rich_body import FOLD_MARK
+
+    name = str(element_id or "")
+    return name in LINKED_FOLDS or any(name.startswith(fold + FOLD_MARK) and name[len(fold) + len(FOLD_MARK):].isdigit()
+                                       for fold in LINKED_FOLDS)
+
+
 def linked(state_dir, chat_id, built, text, profile=None, cards=None, skip=()):
     """The relay's card and text with each T number a link to its topic (app/topic_links.py): the owner taps
     "T44" to open it; ``cards``: {topic id: the card its T number opens}, the relayed turn's; ``skip``: topic ids left
@@ -110,7 +120,7 @@ def linked(state_dir, chat_id, built, text, profile=None, cards=None, skip=()):
                     walk(column.get("elements") if isinstance(column, dict) else ())
             elif element.get("tag") == "column":
                 walk(element.get("elements"))
-            elif element.get("tag") == "collapsible_panel" and element.get("element_id") in LINKED_FOLDS:
+            elif element.get("tag") == "collapsible_panel" and linked_fold(element.get("element_id")):
                 title = (element.get("header") or {}).get("title")
                 if isinstance(title, dict) and title.get("tag") == "markdown":
                     title["content"] = link(title.get("content") or "")

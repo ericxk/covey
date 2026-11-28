@@ -21,6 +21,7 @@ import re
 import time
 from pathlib import Path
 
+from covey.core import rich_md
 from covey.core.state import read_object, write_json
 
 FIELD = "send_as_owner"
@@ -185,6 +186,8 @@ def drafts(checkpoint) -> list[dict]:
             continue
         ref = _ref(entry, index)
         text, problem = _text(entry)
+        if rich_md.rich(text):  # Words for a person, not 富文本块 (core/rich_md.py plain).
+            text = rich_md.plain(text)
         to = _target(entry)
         if not to:
             problem = problem or "没有收件人"

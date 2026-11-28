@@ -1,0 +1,87 @@
+/* 富文本块（covey docs/ui.md 富文本块，T943）：提示框、折叠块、指标条、代码块、任务清单。都不套底色和框，贴着正文；
+   颜色只说状态（docs/ui.md 1、2.2）：提示框的五种靠图标和类型词分，不用橙、红。数值改这里，同时改规范 */
+.cv{
+.mdr{display:flex;flex-direction:column;gap:12px}
+
+/* 提示框：左边一条 2px 细线，图标 + 类型词（+ 标题）一行，正文在下面；注意、警告的线深一档 */
+.mdc{margin:0;padding:1px 0 1px 12px;border-left:2px solid var(--line2)}
+.mdc-warning,.mdc-caution{border-left-color:var(--t3)}
+.mdc-h{display:flex;align-items:center;gap:6px;min-width:0;font-size:14px;line-height:1.6;color:var(--t1)}
+.mdc-i{width:15px;height:15px;flex:none;color:var(--t2)}
+.mdc-w{font-weight:600;flex:none}
+.mdc-t{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.mdc-b{margin-top:4px}
+.mdc-b .prose{font-size:14.5px}
+
+/* 折叠块：一行灰字标题带小箭头，点开后正文左边一条发丝线；开着的状态浏览器自己记 */
+.mdd{margin:0}
+.mdd>summary{display:flex;align-items:center;gap:8px;width:fit-content;max-width:100%;padding:2px 0;cursor:pointer;list-style:none;
+  font-size:14px;font-weight:500;line-height:1.6;color:var(--t2);user-select:none;overflow-wrap:anywhere}
+.mdd>summary::-webkit-details-marker{display:none}
+.mdd>summary::before{content:"";flex:none;width:6px;height:6px;margin:0 2px 0 1px;border-right:1.5px solid var(--t3);border-bottom:1.5px solid var(--t3);
+  transform:rotate(-45deg);transition:transform .15s var(--ease)}
+.mdd[open]>summary::before{transform:rotate(45deg) translate(-1px,-1px)}
+.mdd>summary:hover{color:var(--t1)}
+.mdd>summary:focus-visible{outline:2px solid var(--a1);outline-offset:2px;border-radius:4px}
+.mdd-b{margin:6px 0 2px 4px;padding-left:12px;border-left:1px solid var(--line2)}
+
+/* 指标条：等宽小格，格与格之间一条发丝线（用阴影画，行首、首行的被裁掉），四个以内一行；手机上两列 */
+.mdm{--n:4;display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));margin:0;overflow:hidden}
+.mdm[data-n="1"]{--n:1}.mdm[data-n="2"]{--n:2}.mdm[data-n="3"]{--n:3}
+.mdm-i{min-width:0;padding:6px 14px;box-shadow:-1px 0 0 var(--line),0 -1px 0 var(--line)}
+.mdm dt{font-size:12px;line-height:1.5;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mdm-v{margin:2px 0 0;font-size:22px;font-weight:600;line-height:1.25;color:var(--t1);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.mdm-d{margin:3px 0 0;font-size:12px;line-height:1.45;color:var(--t3);overflow-wrap:anywhere}
+
+/* 代码块：上面一行是语言和复制，代码不再另套框；diff 一行一色 */
+.mdans .mdk{margin:4px 0 10px;border-radius:8px;background:var(--s3);overflow:hidden}
+.mdk-h{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 4px 0 10px;font:11px/22px var(--mono);color:var(--t3)}
+.mdk-l{text-transform:lowercase}
+.mdans .mdk .mdk-pre{margin:0;padding:2px 10px 9px;border-radius:0;background:transparent}
+.mdk-copy,.mdt-copy{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 6px;border:0;border-radius:5px;background:transparent;
+  color:var(--t3);font:11px/1 var(--font);cursor:pointer}
+.mdk-copy:hover,.mdt-copy:hover{color:var(--t1);background:var(--hover)}
+.mdk-copy svg,.mdt-copy svg{width:12px;height:12px}
+.mdk-diff code>span{display:block;margin:0 -10px;padding:0 10px}
+.mdk-diff .dl-add{background:color-mix(in srgb,var(--done) 13%,transparent);color:var(--t1)}
+.mdk-diff .dl-del{background:color-mix(in srgb,var(--fail) 12%,transparent);color:var(--t1)}
+.mdk-diff .dl-hunk{color:var(--accent-t)}
+.mdk-diff .dl-file{color:var(--t3)}
+
+/* 高亮（lowlight 的类名）：一套收着的颜色，深浅各一 */
+.hljs-comment,.hljs-quote{color:var(--t3);font-style:italic}
+.hljs-keyword,.hljs-selector-tag,.hljs-literal,.hljs-doctag{color:#b7a2ff}
+.hljs-string,.hljs-regexp,.hljs-char.escape_{color:#8fd4a8}
+.hljs-number,.hljs-symbol,.hljs-bullet{color:#e8b780}
+.hljs-title,.hljs-section,.hljs-title.function_,.hljs-title.class_{color:#86b6ff}
+.hljs-attr,.hljs-attribute,.hljs-variable,.hljs-template-variable,.hljs-type,.hljs-built_in,.hljs-property{color:#e3a6cf}
+.hljs-meta,.hljs-tag{color:var(--t2)}
+.hljs-addition{color:#8fd4a8}.hljs-deletion{color:#f19a9a}
+.hljs-emphasis{font-style:italic}.hljs-strong{font-weight:600}
+&.light .hljs-keyword,&.light .hljs-selector-tag,&.light .hljs-literal,&.light .hljs-doctag{color:#6a3fd1}
+&.light .hljs-string,&.light .hljs-regexp,&.light .hljs-char.escape_{color:#18794e}
+&.light .hljs-number,&.light .hljs-symbol,&.light .hljs-bullet{color:#a1531a}
+&.light .hljs-title,&.light .hljs-section,&.light .hljs-title.function_,&.light .hljs-title.class_{color:#1d5fc2}
+&.light :is(.hljs-attr,.hljs-attribute,.hljs-variable,.hljs-template-variable,.hljs-type,.hljs-built_in,.hljs-property){color:#9b3a86}
+&.light .hljs-addition{color:#18794e}&.light .hljs-deletion{color:#b42318}
+
+/* 表格的复制：在放大按钮左边，悬停时出来（触屏一直在） */
+.mdt-copy{position:absolute;top:8px;right:38px;z-index:2;height:24px;border:1px solid var(--line2);background:var(--s3);opacity:0;transition:opacity .15s}
+.mdt:hover .mdt-copy,.mdt-copy:focus-visible{opacity:1}
+
+/* 任务清单：不要圆点，方框代替复选框，做完的打勾 */
+.mdans .contains-task-list{list-style:none;padding-left:2px}
+.mdans .contains-task-list .contains-task-list{padding-left:22px}
+.mdans .task-list-item{list-style:none}
+.mdans .task-list-item::marker{content:none}
+.mdans .task-list-item>input[type=checkbox]{appearance:none;-webkit-appearance:none;position:relative;width:14px;height:14px;margin:0 8px 0 0;
+  vertical-align:-2px;border:1.5px solid var(--t3);border-radius:4px;background:transparent;pointer-events:none}
+.mdans .task-list-item>input[type=checkbox]:checked{border-color:var(--done);background:var(--done)}
+.mdans .task-list-item>input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:.5px;width:4px;height:8px;
+  border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+}
+@media (max-width:767px){
+  .cv .mdm{--n:2}
+  .cv .mdm-v{font-size:20px}
+}
+@media (hover:none){.cv .mdt-copy{opacity:1}}

@@ -1,7 +1,20 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Maximize2, X } from 'lucide-react';
+import { CopyButton } from './RichBody';
 import './table.css';
+
+/** 表格的字：一行一行、格子之间一个制表符（贴进飞书表格、Excel 列对得上），格子里的换行和制表符换成空格 */
+export function tableText(table: HTMLTableElement | null | undefined): string {
+  if (!table) return '';
+  return Array.from(table.rows)
+    .map((row: HTMLTableRowElement) =>
+      Array.from(row.cells)
+        .map((cell: HTMLTableCellElement) => (cell.innerText || cell.textContent || '').replace(/[\t\r\n]+/gu, ' ').trim())
+        .join('\t'),
+    )
+    .join('\n');
+}
 
 /** 回答里的 Markdown 表格（covey docs/ui.md 2.5 表格）：放进能横向滚的框，右边还有内容时右缘渐隐；
  * 右上角「放大」（悬停时出现，触屏一直在）在全屏弹层里看完整表格。列宽按内容：短的不折行，长文字列到上限才折行 */
@@ -30,6 +43,7 @@ export const MdTable: React.FC<{ children?: React.ReactNode }> = ({ children }) 
       <div className="mdt-scroll" ref={box} onScroll={measure}>
         <table>{children}</table>
       </div>
+      <CopyButton className="mdt-copy" label="复制表格" text={() => tableText(box.current?.querySelector('table'))} />
       <button type="button" className="mdt-zoom" onClick={(e: React.MouseEvent) => { e.stopPropagation(); setOpen(true); }} title="放大看完整表格" aria-label="放大看完整表格">
         <Maximize2 />
       </button>

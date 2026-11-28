@@ -8,10 +8,11 @@ over several (cards/pages.py)."""
 from __future__ import annotations
 
 from covey.cards.answer_card import change_element, check_element, details, facts_element, words_fold
-from covey.cards.elements import card, grey, json_size, md, note
+from covey.cards.elements import card, element_count, grey, json_size, md, note
 from covey.cards.review import ANSWER_CARD_BYTES, FOLD_ID, answer_lead, drop_part_heading, reply_body, reply_shown
 from covey.cards.ui import BODY_PADDING, BODY_SPACING, banded, container, speaker_row, split_ask, topic_badge
-from covey.core import look
+from covey.core import look, rich_md
+from covey.core.card_limits import TARGET_NODES
 from covey.core.failure import HEADLINE_CHARS, split_title
 from covey.core.text import literal, redact
 
@@ -107,6 +108,9 @@ def relay_card(label, outcome, *, text="", question="", reason="", inputs=None, 
         parts = details([files, change_element(None if line else shown_change), check_element(shown_change), *(notes or ())])
         tail = [*parts, *([ending] if ending else []), *(buttons or ()), reply_hint(label)]
         built = banded(card([row, *said, *reply, *tail], lead, update_multi=True, **style))
+        if element_count(built) > TARGET_NODES and rich_md.rich(shown):  # Its 富文本块 in words: one markdown element.
+            reply = reply_shown(shown, closable=True, rich=False)
+            built = banded(card([row, *said, *reply, *tail], lead, update_multi=True, **style))
         # A long 改动 fold may take a card past its limit (as cards/review.py answer_card): the reply goes on
         # several cards, its parts under the last or after them (``relay_pages``, app/relay_send.py send_once).
         return (built if json_size(built) <= ANSWER_CARD_BYTES else None), body
@@ -202,7 +206,7 @@ def relay_pages(label, *, text="", ask=None, url="", avatar="", link=None, finis
     parts = list(((bare or {}).get("body") or {}).get("elements") or [])[1:]  # Its row is drawn again with the page.
     said, tail = finished(finish, [part for part in parts if isinstance(part, dict) and part.get("element_id") == WORDS_ID],
                           [part for part in parts if not (isinstance(part, dict) and part.get("element_id") == WORDS_ID)])
-    body = drop_part_heading(reply_body(text))
+    body = rich_md.card_markdown(drop_part_heading(reply_body(text)))  # Pages are markdown: 富文本块 in words.
 
     def row(page):
         return speaker_row(meta, outcome="result", label=label, avatar=avatar, url=into(url, meta), page=page)

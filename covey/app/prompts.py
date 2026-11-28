@@ -49,6 +49,14 @@ def search_rules() -> tuple[str, ...]:
     return tuple(line if line.startswith(("- ", "  ")) else "- " + line for line in text.splitlines() if line.strip())
 
 
+# 富文本块 (core/rich_md.py, docs/ui.md 富文本块): what the cards and the web page draw beyond Markdown, in the first
+# message's rules only (a resumed turn's reminder does not repeat it).
+RICH_RULE = ("- 卡片和网页工作台还认这几种写法，只在能让风险、对比、长明细一眼看清时用，短回答照常写："
+             "`> [!NOTE]`、`[!TIP]`、`[!IMPORTANT]`、`[!WARNING]`、`[!CAUTION]` 开头的提示框（同一行可跟标题，一条回答最多两个）；"
+             "单独成行的 `<details>`、`<summary>标题</summary>` 到 `</details>`，收起十几行以上的次要明细（日志、完整清单），"
+             "结论不放进去，不嵌套；`- [ ]`、`- [x]` 清单；```metrics 指标条（每行 `标签 | 数值 | 变化`，只放实测有的数）。")
+
+
 # For a backend without a system channel the rules are only in a fresh session's message;
 # these lines restate the reply contract on each resumed turn (``resume_reminders``).
 RESUME_HEAD = (
@@ -129,6 +137,7 @@ def constraints(backend_name: str, runtime_note: str = "", notes: tuple[str, ...
         "- 只回复要发回飞书的消息正文。",
         "- 详略跟着请求走：用户要的完整方案、证据和决策背景都写全，不写空话。",
         "- 用适合飞书的 Markdown：短小节、列表、编号步骤；命令、日志、路径、diff 和代码片段放进代码块。",
+        RICH_RULE,
         "- 不写大段文字，排成一眼能扫完的结构；不加装饰性的话。",
         f"- 你在飞书桥接器里运行，{runtime_note}。",
         *(() if lead else (WORK_RULE,)),

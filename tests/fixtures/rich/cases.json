@@ -1,0 +1,330 @@
+[
+ {
+  "name": "plain",
+  "text": "结论一句。\n\n- 一\n- 二",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "结论一句。\n\n- 一\n- 二"
+   }
+  ]
+ },
+ {
+  "name": "callout_title",
+  "text": "前面一段。\n\n> [!WARNING] 迁移风险\n> 第一行 **粗**\n>\n> - 列表项\n\n后面一段。",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "前面一段。"
+   },
+   {
+    "kind": "callout",
+    "tone": "warning",
+    "title": "迁移风险",
+    "body": "第一行 **粗**\n\n- 列表项"
+   },
+   {
+    "kind": "md",
+    "source": "后面一段。"
+   }
+  ]
+ },
+ {
+  "name": "callout_lower_no_title",
+  "text": "> [!tip]\n> 小写也认",
+  "blocks": [
+   {
+    "kind": "callout",
+    "tone": "tip",
+    "title": "",
+    "body": "小写也认"
+   }
+  ]
+ },
+ {
+  "name": "callout_code_inside",
+  "text": "> [!NOTE]\n> ```bash\n> ls -la\n> ```",
+  "blocks": [
+   {
+    "kind": "callout",
+    "tone": "note",
+    "title": "",
+    "body": "```bash\nls -la\n```"
+   }
+  ]
+ },
+ {
+  "name": "callout_only_head",
+  "text": "> [!CAUTION] 只有标题",
+  "blocks": [
+   {
+    "kind": "callout",
+    "tone": "caution",
+    "title": "只有标题",
+    "body": ""
+   }
+  ]
+ },
+ {
+  "name": "callout_indented_is_quote",
+  "text": "- 列表\n  > [!NOTE] 列表里的引用\n  > 不算提示框",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "- 列表\n  > [!NOTE] 列表里的引用\n  > 不算提示框"
+   }
+  ]
+ },
+ {
+  "name": "callout_unknown_tone",
+  "text": "> [!DANGER] 不认的类型\n> 照旧是引用",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "> [!DANGER] 不认的类型\n> 照旧是引用"
+   }
+  ]
+ },
+ {
+  "name": "quote_plain",
+  "text": "> 普通引用\n> 第二行",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "> 普通引用\n> 第二行"
+   }
+  ]
+ },
+ {
+  "name": "details_next_line_summary",
+  "text": "<details>\n<summary>完整日志（120 行）</summary>\n\n```\nline 1\n</details> 在代码里\n```\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n</details>\n\n之后",
+  "blocks": [
+   {
+    "kind": "details",
+    "title": "完整日志（120 行）",
+    "body": "```\nline 1\n</details> 在代码里\n```\n\n| a | b |\n| --- | --- |\n| 1 | 2 |",
+    "open": false
+   },
+   {
+    "kind": "md",
+    "source": "之后"
+   }
+  ]
+ },
+ {
+  "name": "details_inline_summary",
+  "text": "<details><summary>点开看</summary>\n\n里面 `code`\n\n</details>",
+  "blocks": [
+   {
+    "kind": "details",
+    "title": "点开看",
+    "body": "里面 `code`",
+    "open": false
+   }
+  ]
+ },
+ {
+  "name": "details_open_no_summary",
+  "text": "<details open>\n\n直接正文\n\n</details>",
+  "blocks": [
+   {
+    "kind": "details",
+    "title": "",
+    "body": "直接正文",
+    "open": true
+   }
+  ]
+ },
+ {
+  "name": "details_unclosed",
+  "text": "<details>\n<summary>写到一半</summary>\n\n还没闭合",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "<details>\n<summary>写到一半</summary>\n\n还没闭合"
+   }
+  ]
+ },
+ {
+  "name": "details_nested_flattened",
+  "text": "<details>\n<summary>外层</summary>\n\n<details>\n<summary>内层</summary>\n\n内层正文\n\n</details>\n\n外层尾巴\n\n</details>",
+  "blocks": [
+   {
+    "kind": "details",
+    "title": "外层",
+    "body": "**内层**\n\n内层正文\n\n外层尾巴",
+    "open": false
+   }
+  ]
+ },
+ {
+  "name": "details_upper",
+  "text": "<DETAILS>\n<SUMMARY>大写</SUMMARY>\nbody\n</DETAILS>",
+  "blocks": [
+   {
+    "kind": "details",
+    "title": "大写",
+    "body": "body",
+    "open": false
+   }
+  ]
+ },
+ {
+  "name": "metrics_forms",
+  "text": "```metrics\n标签 | 数值 | 变化\n| --- | --- | --- |\n当前版本 | v0.3.15 | +6 路合入\n成功率：98.5%\n| 用时 | 3 分 | 比上次 -20 秒 | 备注 |\n乱写的一行\n```",
+  "blocks": [
+   {
+    "kind": "metrics",
+    "items": [
+     [
+      "当前版本",
+      "v0.3.15",
+      "+6 路合入"
+     ],
+     [
+      "成功率",
+      "98.5%",
+      ""
+     ],
+     [
+      "用时",
+      "3 分",
+      "比上次 -20 秒 · 备注"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "metrics_empty_is_code",
+  "text": "```metrics\n没有一行像指标\n```",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "```metrics\n没有一行像指标\n```"
+   }
+  ]
+ },
+ {
+  "name": "metrics_one_line",
+  "text": "```metrics\n通过 | 120/120\n```",
+  "blocks": [
+   {
+    "kind": "metrics",
+    "items": [
+     [
+      "通过",
+      "120/120",
+      ""
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "metrics_indented_is_code",
+  "text": "- 项\n  ```metrics\n  a | 1\n  ```",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "- 项\n  ```metrics\n  a | 1\n  ```"
+   }
+  ]
+ },
+ {
+  "name": "fence_four_backticks",
+  "text": "````markdown\n```metrics\na | 1\n```\n> [!NOTE] 代码里的\n````",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "````markdown\n```metrics\na | 1\n```\n> [!NOTE] 代码里的\n````"
+   }
+  ]
+ },
+ {
+  "name": "fence_tilde",
+  "text": "~~~\n<details>\n~~~\n\n> [!TIP] 外面的",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "~~~\n<details>\n~~~"
+   },
+   {
+    "kind": "callout",
+    "tone": "tip",
+    "title": "外面的",
+    "body": ""
+   }
+  ]
+ },
+ {
+  "name": "fence_unclosed",
+  "text": "前面\n\n```python\nprint(1)\n> [!NOTE] 还在代码里",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "前面\n\n```python\nprint(1)\n> [!NOTE] 还在代码里"
+   }
+  ]
+ },
+ {
+  "name": "crlf",
+  "text": "> [!NOTE] 标题\r\n> 正文\r\n\r\n收尾",
+  "blocks": [
+   {
+    "kind": "callout",
+    "tone": "note",
+    "title": "标题",
+    "body": "正文"
+   },
+   {
+    "kind": "md",
+    "source": "收尾"
+   }
+  ]
+ },
+ {
+  "name": "task_list",
+  "text": "- [ ] 待做\n- [x] 做完\n  - [X] 子项",
+  "blocks": [
+   {
+    "kind": "md",
+    "source": "- [ ] 待做\n- [x] 做完\n  - [X] 子项"
+   }
+  ]
+ },
+ {
+  "name": "adjacent_blocks",
+  "text": "> [!NOTE]\n> 一\n> [!TIP]\n> 二",
+  "blocks": [
+   {
+    "kind": "callout",
+    "tone": "note",
+    "title": "",
+    "body": "一"
+   },
+   {
+    "kind": "callout",
+    "tone": "tip",
+    "title": "",
+    "body": "二"
+   }
+  ]
+ },
+ {
+  "name": "starts_with_details",
+  "text": "<details><summary>先折起来</summary>\n明细\n</details>\n结论在后面",
+  "blocks": [
+   {
+    "kind": "details",
+    "title": "先折起来",
+    "body": "明细",
+    "open": false
+   },
+   {
+    "kind": "md",
+    "source": "结论在后面"
+   }
+  ]
+ }
+]

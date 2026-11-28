@@ -5,6 +5,8 @@ import { Markdown } from '@/components/ui/markdown';
 import type { SnapshotTopic } from '@shared/api.interface';
 import { useTopicByNumber } from '@client/src/hooks/use-workbench';
 import { MdTable } from './MdTable';
+import { CodeBlock, RichBody } from './RichBody';
+import { hasRich, richBlocks, type RichBlock } from './richBlocks';
 
 interface MdNode {
   type: string;
@@ -59,7 +61,30 @@ function softBreaks(node: MdNode): void {
   node.children = out;
 }
 
-/** said：你说的话（气泡、时间线里你说的那行、输入框的预览），换行照写的保留，字号和留白收紧 */
+const urlTransform = (url: string): string => (url.startsWith(SCHEME) ? url : defaultUrlTransform(url));
+
+// 组件表放在模块里、引用不变：每秒的快照重画时，表格、代码块不被当成新组件卸载重建（打开的放大弹层、点开的折叠、高亮都留着）
+const COMPONENTS = {
+  // 宽表格：横向滚动框、右缘渐隐、放大弹层、复制
+  table: MdTable,
+  // 代码块：语言标签、复制、diff 按行着色、按需高亮（T943）
+  pre: CodeBlock,
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+    if (href?.startsWith(SCHEME)) {
+      const key: string = decodeURIComponent(href.slice(SCHEME.length));
+      // 真实的路由地址：能新标签打开、能复制链接；普通点击由路由接管
+      return <Link to={`/topics/${encodeURIComponent(key)}`}>{children}</Link>;
+    }
+    return (
+      <a href={href} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    );
+  },
+} as const;
+
+/** said：你说的话（气泡、时间线里你说的那行、输入框的预览），换行照写的保留，字号和留白收紧；不认富文本块（贴进来的日志不变样）。
+ * 回答里的富文本块（提示框、折叠块、指标条，T943）切开来画，块里的 Markdown 还是这里画 */
 const MdInner: React.FC<{ body: string; dim?: boolean; said?: boolean }> = ({ body, dim, said }) => {
   const byNumber = useTopicByNumber();
   const plugin = useMemo(
@@ -69,32 +94,15 @@ const MdInner: React.FC<{ body: string; dim?: boolean; said?: boolean }> = ({ bo
     },
     [byNumber, said],
   );
+  const blocks: RichBlock[] | null = useMemo(() => (said || !hasRich(body) ? null : richBlocks(body)), [body, said]);
+  const render = (text: string): React.ReactNode => (
+    <Markdown className="break-words" remarkPlugins={[plugin]} urlTransform={urlTransform} components={COMPONENTS}>
+      {text}
+    </Markdown>
+  );
   return (
     <div className={said ? 'mdans mdsaid' : 'mdans'} style={dim ? { opacity: 0.75 } : undefined}>
-      <Markdown
-        className="break-words"
-        remarkPlugins={[plugin]}
-        urlTransform={(url: string) => (url.startsWith(SCHEME) ? url : defaultUrlTransform(url))}
-        components={{
-          // 宽表格：横向滚动框、右缘渐隐、放大弹层。直接给组件本身：包一层箭头函数的话每次重绘都是新组件，
-          // 表格会被卸载重建，打开的放大弹层也跟着没了
-          table: MdTable,
-          a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
-            if (href?.startsWith(SCHEME)) {
-              const key: string = decodeURIComponent(href.slice(SCHEME.length));
-              // 真实的路由地址：能新标签打开、能复制链接；普通点击由路由接管
-              return <Link to={`/topics/${encodeURIComponent(key)}`}>{children}</Link>;
-            }
-            return (
-              <a href={href} target="_blank" rel="noreferrer">
-                {children}
-              </a>
-            );
-          },
-        }}
-      >
-        {body}
-      </Markdown>
+      {blocks ? <RichBody blocks={blocks} render={render} /> : render(body)}
     </div>
   );
 };

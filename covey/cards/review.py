@@ -7,18 +7,19 @@ import json
 import re
 from typing import Any
 
-from covey.cards.elements import card, md
+from covey.cards.elements import card, element_count, md
 from covey.cards.ui import BODY_PADDING, BODY_SPACING, banded, labelled, role_of, speaker_row, split_ask
-from covey.core import turn_words
+from covey.core import rich_md, turn_words
+from covey.core.card_limits import TARGET_NODES
 from covey.core.text import redact
 
 STREAM_PROGRESS_STATUS_MAX_CHARS = 22000
 
 
 def plain_markdown(value: Any) -> str:
-    """Markdown as the words it shows: no code fences, heading, quote or list marks at line starts,
-    bold, inline-code backticks or link syntax; secrets redacted as in the process record."""
-    text = redact(value).replace("\r\n", "\n")
+    """Markdown as the words it shows: no 富文本块 marks (core/rich_md.py plain), code fences, heading, quote or list
+    marks at line starts, bold, inline-code backticks or link syntax; secrets redacted as in the process record."""
+    text = rich_md.plain(redact(value).replace("\r\n", "\n"))
     text = re.sub(r"(?m)^[ \t]*(?:```+|~~~+)[^\n]*$", " ", text)
     text = re.sub(r"(?m)^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+|\d{1,3}[.)][ \t]+)+", "", text)
     text = re.sub(r"!?\[([^\]\n]*)\]\([^)\n]*\)", r"\1", text)
@@ -45,7 +46,7 @@ def answer_lead(value: Any, limit: int = LEAD_CHARS) -> str:
     whole when it is a heading (or bold alone), else up to its first sentence end; trailing
     punctuation dropped. "" when there is none (only code, tables or nothing)."""
     fence = ""
-    for raw in str(value or "").replace("\r\n", "\n").split("\n"):
+    for raw in rich_md.plain(str(value or "").replace("\r\n", "\n")).split("\n"):
         line = raw.strip()
         marker = re.match(r"```+|~~~+", line)
         if fence:
@@ -311,6 +312,7 @@ def render_stream_final(job: Any, final_text: str, *, status: str = "done", answ
     on a slim card (``bare``, the butler's): the answer is the card, its status line under it says 有结果."""
     title = {"failed": "停住了", "cancelled": "已停止", "waiting_user": "等你"}.get(
         status, "有结果" if answer_elsewhere else ANSWER)
+    final_text = rich_md.card_markdown(final_text)  # One markdown element: its 富文本块 in words (core/rich_md.py).
     if bare and title == ANSWER:
         return final_text
     if outcome_shown and title != ANSWER:
@@ -394,7 +396,9 @@ def bold_minor_headings(text: str) -> str:
     return "\n".join(lines)
 
 
-_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})[^`]*")
+_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})([^`]*)")
+# Blocks a single line of which means more than its code: a metric (core/rich_md.py) and a one-line diff.
+KEEP_FENCED = ("metrics", "diff")
 
 
 def inline_one_line_code(text: str) -> str:
@@ -411,7 +415,8 @@ def inline_one_line_code(text: str) -> str:
         fence = opening.group(1)
         close = re.compile(r" {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*")
         end = next((j for j in range(i + 1, len(lines)) if close.fullmatch(lines[j])), len(lines))
-        code = lines[i + 1].strip() if end == i + 2 < len(lines) else ""
+        kept = (opening.group(2).strip().split() or [""])[0].lower() in KEEP_FENCED
+        code = lines[i + 1].strip() if end == i + 2 < len(lines) and not kept else ""
         out.extend([f"`{code}`"] if code and "`" not in code else lines[i:end + 1])
         i = end + 1
     return "\n".join(out)
@@ -435,16 +440,21 @@ def reply_size(text):
     return len(lines), len("".join(body.split())), tables
 
 
-def reply_shown(text, element_id=FOLD_ID, *, label="", closable=False) -> list:
+def reply_shown(text, element_id=FOLD_ID, *, label="", closable=False, rich=True) -> list:
     """A reply (Markdown) whole on its card, ``label`` grey before it ("这一轮输出"): the owner, 2026-11-22, after the
     folds he tried (露一截 with a line under it, then the answer itself opening with a round arrow): 不折叠，直接展示全文.
     A reply too large for a card goes as Markdown before it (the callers' CARD_TEXT_BYTES and ANSWER_CARD_BYTES). One
     element in a list, or two when the reply ends with what the turn reported on its way (core/trace.py with_stage_notes):
     those go in a closed fold after it, titled with their size (the owner, 2026-11-25: 这一轮中途的汇报 太长，默认折叠，点一下
     展开). ``closable``: a click on the fold's text closes it too (``stages_fold``), on a card the Bridge keeps and patches
-    (the relay's, app/fold_close.py); elsewhere (a question's copy, which CardKit holds) only its title closes it."""
+    (the relay's, app/fold_close.py); elsewhere (a question's copy, which CardKit holds) only its title closes it.
+    Its 富文本块 as their elements (cards/rich_body.py), or with ``rich`` False in one markdown element's words (a card
+    that would hold too many nodes with them)."""
+    from covey.cards.rich_body import reply_elements
+
     main, stages = split_stages(text)
-    shown = [md(labelled(main, label), element_id=element_id)]
+    shown = (reply_elements(main, element_id, label) if rich else
+             [md(labelled(rich_md.card_markdown(main), label, main), element_id=element_id)])
     if stages:
         shown.append(stages_fold(stages, element_id + (STAGES_CLOSABLE + "0" if closable else STAGES_SUFFIX), closable))
     return shown
@@ -488,7 +498,7 @@ def split_stages(text) -> tuple:
 ANSWER_ID = "answer_reply"  # The answer on its card, as the relay's is FOLD_ID.
 
 
-def answer_card(text: str, summary: str, tail: list | tuple = (), head: list | tuple = ()) -> dict | None:
+def answer_card(text: str, summary: str, tail: list | tuple = (), head: list | tuple = (), *, rich=True) -> dict | None:
     """A turn's answer sent on its own, as card Markdown (``bold_minor_headings``, ``inline_one_line_code``), in the
     look the relay has (docs/ui.md 5.2 聊天结果卡): the chat list previews ``summary`` where a Markdown message showed
     its first characters ("#### 先确认…"). ``head``: what goes above it, a block that becomes the card's row
@@ -500,10 +510,10 @@ def answer_card(text: str, summary: str, tail: list | tuple = (), head: list | t
     Markdown."""
     from covey.cards.answer_card import words_fold
 
-    headed = bool(head)
+    headed, given = bool(head), head
     meta, head = split_ask(head)  # The "你问" block goes into the speaker's row (cards/ui.py speaker_row).
     body = drop_part_heading(reply_body(text))
-    answer = reply_shown(body, ANSWER_ID) if body.strip() else (
+    answer = reply_shown(body, ANSWER_ID, rich=rich) if body.strip() else (
         [] if headed else [{"tag": "markdown", "content": "", "text_size": "normal_v2"}])
     elements = [*head, *answer, *tail]
     if meta:
@@ -513,4 +523,6 @@ def answer_card(text: str, summary: str, tail: list | tuple = (), head: list | t
                             padding=BODY_PADDING, spacing=BODY_SPACING))
     else:
         built = banded(card(elements, summary, update_multi=bool(tail)))
+    if rich and element_count(built) > TARGET_NODES and rich_md.rich(body):
+        return answer_card(text, summary, tail, given, rich=False)  # Its blocks in words: one markdown element.
     return built if len(json.dumps(built, ensure_ascii=False).encode("utf-8")) <= ANSWER_CARD_BYTES else None

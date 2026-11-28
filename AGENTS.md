@@ -336,6 +336,7 @@
 | `cards/relay_card.py` | The card a topic turn's outcome takes back to the butler's top level |
 | `cards/review.py` | Shared history and chat-card rendering helpers |
 | `cards/rewind.py` | The ↩️ 回退 button and card |
+| `cards/rich_body.py` | A reply's 富文本块 as card elements |
 | `cards/settings_hub.py` | The 设置 card's tab row |
 | `cards/source_note.py` | The line a topic's thread gets when the owner recalled the message it was opened or handed work from |
 | `cards/status_card.py` | The topic's status card |
@@ -472,6 +473,7 @@
 | `core/repomap.py` | The repo map: the git repositories and plain directories this deployment works in, on this machine or on a … |
 | `core/result.py` | Validated root reply identity, separate from execution and continuation rights |
 | `core/revisits.py` | 到点回来看: a topic ends its turn with `revisit` in its checkpoint (when, and what to look at) and the Bridge … |
+| `core/rich_md.py` | 富文本块: the few kinds of block a reply's Markdown may hold beyond CommonMark and GFM, told apart line by line … |
 | `core/roster.py` | The Harness backends the unified bot routes, in one table |
 | `core/run_dir.py` | The run directory of a job handed to a task runner, `<state>/runs/<job>/` |
 | `core/same_account.py` | Which providers of a Harness are one account (T786 |

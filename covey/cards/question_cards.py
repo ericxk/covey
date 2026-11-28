@@ -904,7 +904,8 @@ def mirror_fit(record, topic="", output="", ask=None, files=None) -> Fit:
     settled = SETTLED_TAGS.get(record.get("status"))
     # The turn's output first (the owner, 2026-11-22: without it the questions cannot be understood), then the question.
     # A thin rule between them (as cards/proxy_panel.py RULE), a dict of its own on each card.
-    said = [*reply_shown(reply_body(output), OUTPUT_ID, label=OUTPUT_LABEL), {"tag": "hr"}] if output else []
+    # Its 富文本块 in words (rich False): the copy's form and samples need its nodes (T884).
+    said = [*reply_shown(reply_body(output), OUTPUT_ID, label=OUTPUT_LABEL, rich=False), {"tag": "hr"}] if output else []
     words = [part for part in (words_fold(meta),) if part] if meta else []  # What he said, one line that opens.
     if settled and meta and not legacy:  # It no longer asks: "关于你 20:33 的问题", not "要你定".
         # A project's topic doing its lead's work says that still, "办负责人派的事" (cards/answer_card.py SAYS), not
@@ -961,7 +962,9 @@ def output_pages(output, topic="", ask=None, *, link=None, finish=None):
 
     def row(page):
         return speaker_row(meta, outcome="waiting", label=label, page=page)
-    body = reply_body(output)
+    from covey.core.rich_md import card_markdown
+
+    body = card_markdown(reply_body(output))  # Pages are markdown: 富文本块 in words.
     # Its 这一轮中途的汇报 folded under the last card, as on the copy (cards/relay_card.py stages_apart; the cards go
     # before the copy and are not kept, so only the fold's title closes it), else on a card of its own after them.
     head, tail = ([row("9/9")] if not legacy else [*legacy]), [note(OUTPUT_NEXT)]
