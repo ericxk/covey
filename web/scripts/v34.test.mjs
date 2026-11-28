@@ -34,13 +34,16 @@ test('收尾、停止给哪些专项：收尾给在做、等你和停住、收�
   assert.deepEqual(['在做', '等你', '停住', '收起', '做完', '已取消'].map((status) => P.canStop({ status })), [true, true, false, false, false, false]);
 });
 
-test('要你处理以 Covey 算好的为准，没推或形状不对时自己数', () => {
-  const local = { waiting: [{}, {}], stopped: [{}], stuck: [], projects: [{}] };
-  assert.deepEqual(P.askNumbers(local, undefined), { waiting: 2, stopped: 2, stuck: 0 });
-  assert.deepEqual(P.askNumbers(local, { waiting: 3, stopped: 0, stuck: 1 }), { waiting: 3, stopped: 0, stuck: 1 });
-  assert.deepEqual(P.askNumbers(local, { waiting: -1, stopped: 0, stuck: 0 }), { waiting: 2, stopped: 2, stuck: 0 });
+test('要你处理的数只从列出的条目数，Covey 另推的 snap.asks 不再盖掉它（T978：顶上 1 件、下面一件都没有）', () => {
+  const local = { waiting: [{}, {}], stopped: [{}], stuck: [], projects: [{}], proposals: [{}] };
+  assert.deepEqual(P.askCounts(local), { waiting: 3, stopped: 2, stuck: 0 });
   assert.equal(P.askSum({ waiting: 3, stopped: 0, stuck: 1 }), 4);
-  for (const f of ['Board.tsx', 'Shell.tsx']) assert.match(readFileSync(join(CV, f), 'utf8'), /askNumbers\(/u, f);
+  assert.equal(P.askNumbers, undefined);
+  for (const f of ['Board.tsx', 'Shell.tsx']) {
+    const src = readFileSync(join(CV, f), 'utf8');
+    assert.match(src, /askCounts\(/u, f);
+    assert.doesNotMatch(src, /(snap|data)\.asks\b/u, `${f} 还在用 Covey 另推的数`);
+  }
 });
 
 test('Covey 定时回看：主语是 Covey，今天的只写时刻，过了时间说已到点，正在回看单独一句', () => {

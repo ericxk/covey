@@ -1,7 +1,7 @@
 /** 侧栏的状态分组（T753，学 Cursor 的 Agents 窗口）：「要你处理」和「在做」两组排在专项上面，每行两行字：
  *  头一行是谁（话题的 T 号头像加标题，管家、负责人用头像），第二行灰字写要你定什么、停在哪、现在在做什么，右边是等了多久或做到第几步。
  *  要你处理和看板、侧栏角标同一口径（projectData.ts asks）：等你 → 停住了（含护栏停住的专项）→ 可能卡住。纯函数，单测在 scripts/status-groups.test.mjs。 */
-import type { QuestionView, SnapshotProject, SnapshotResponse, SnapshotTopic } from '@shared/api.interface';
+import type { QuestionView, SnapshotProject, SnapshotResponse, SnapshotTopic, TidyProposal } from '@shared/api.interface';
 import type { Asks } from './projectData';
 import { byNumberDesc } from './lib';
 import { splitTitle } from './topicText';
@@ -12,7 +12,7 @@ export interface StatusRow {
   key: string;
   /** 点了去哪：话题页、大厅（管家）或专项页（负责人、护栏停住的专项） */
   to: string;
-  kind: 'topic' | 'butler' | 'lead' | 'project';
+  kind: 'topic' | 'butler' | 'lead' | 'project' | 'tidy';
   tone: GroupTone;
   title: string;
   /** 第二行灰字 */
@@ -68,9 +68,15 @@ export function statusGroups(a: Asks, snap: Snap, running: SnapshotTopic[]): Sta
     key: `p:${p.key}`, to: `/projects/${encodeURIComponent(p.key)}`, kind: 'project', tone: 'stopped', title: p.title,
     sub: `停住了：${p.status_reason || '护栏停住了'}`, number: null, avatar: p.avatar, since: p.updated_at,
   }));
+  // 整理专项要你定的建议：每条一行，点了去看板（整理面板在那里），数里算了几条这里就有几行
+  const proposals: StatusRow[] = a.proposals.map((p: TidyProposal): StatusRow => ({
+    key: `tidy:${p.id}`, to: '/', kind: 'tidy', tone: 'waiting', title: '整理专项',
+    sub: `要你定：${p.headline || p.verb || '一条建议'}`, number: null, since: p.at || undefined,
+  }));
   return {
     act: [
       ...a.waiting.map((t: SnapshotTopic) => row(t, 'waiting', snap, qBy)),
+      ...proposals,
       ...a.stopped.map((t: SnapshotTopic) => row(t, 'stopped', snap, qBy)),
       ...halted,
       ...a.stuck.map((t: SnapshotTopic) => row(t, 'stuck', snap, qBy)),

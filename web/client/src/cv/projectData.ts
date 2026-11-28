@@ -1,4 +1,4 @@
-import type { ReportResponse, ReportTurn, SettingsAsks, SnapshotProject, SnapshotResponse, SnapshotTopic } from '@shared/api.interface';
+import type { ReportResponse, ReportTurn, SnapshotProject, SnapshotResponse, SnapshotTopic, TidyData, TidyProposal } from '@shared/api.interface';
 import { cacheShare, closedAt, sinceOf } from './reportData';
 import { PRESSING, type ToneKey } from './look.gen';
 import { byAsked, byNumberDesc, byRecent, isWaiting, toneOf } from './lib';
@@ -29,20 +29,25 @@ export const projectNote = (p: Pick<SnapshotProject, 'goal' | 'status' | 'status
   (p.goal || (p.status === '停住' ? '' : p.status_reason) || '').replace(/^\s*目标\s*[:：]\s*/u, '');
 
 /* ---- 要你处理（T647 P0-2）：看板、侧栏角标、手机标签栏共用这一个数，口径同 covey core/board_read.py Asks ----
- * - 等你：每个话题一件，有题在等或在等你点开始的；管家、负责人的题也算（要你定的事谁问都进等你）；
+ * - 等你：每个话题一件，有题在等或在等你点开始的；管家、负责人的题也算（要你定的事谁问都进等你）；整理专项要你定的建议每条一件
+ *   （看板上的整理面板画它们，侧栏「要你处理」每条一行）；
  * - 停住了：普通话题最新一轮停住了（跟看板分组走：看过 12 小时、点了“不管了”的不算），加上护栏停住的专项；
  * - 可能卡住：普通话题在做、可能卡住（Covey 已除去在等命令跑完的）。
- * 「不管了」（以前网页上只记在本机的“先放着”，P1-C3 并过来了）告诉 Covey 把话题从看板拿掉，Covey 推回 board 为空，这里就不算了。 */
+ * 「不管了」（以前网页上只记在本机的“先放着”，P1-C3 并过来了）告诉 Covey 把话题从看板拿掉，Covey 推回 board 为空，这里就不算了。
+ * 数只从这里列出的条目数（askCounts），不再拿 Covey 另推的 snap.asks 盖掉：那是另一条推送，和话题条目不同步，
+ * 曾经顶上写“1 件事要你处理”、下面一件都没有（T978，2026-11-29）。页面上的数永远等于页面上能点的条目。 */
 export interface Asks {
   waiting: SnapshotTopic[];
   stopped: SnapshotTopic[];
   stuck: SnapshotTopic[];
   /** 护栏停住的专项：算进停住了 */
   projects: SnapshotProject[];
+  /** 整理专项要你定的建议（state open）：算进等你；没取到整理专项（没开、还没取到）时空 */
+  proposals: TidyProposal[];
 }
 
-export function asks(snap: Pick<SnapshotResponse, 'topics' | 'projects' | 'questions'>, now: number): Asks {
-  const qKeys = new Set<string>(snap.questions.map((q) => q.topic_key));
+export function asks(snap: Pick<SnapshotResponse, 'topics' | 'projects' | 'questions'>, now: number, tidy?: Pick<TidyData, 'proposals'> | null): Asks {
+  const qKeys = new Set<string>(snap.questions.filter((q) => q.state === 'open').map((q) => q.topic_key));
   const waits = (t: SnapshotTopic): boolean => isWaiting(t) || qKeys.has(t.key);
   const topics: SnapshotTopic[] = snap.topics.filter((t: SnapshotTopic) => t.kind === 'topic');
   return {
@@ -50,12 +55,14 @@ export function asks(snap: Pick<SnapshotResponse, 'topics' | 'projects' | 'quest
     stopped: topics.filter((t: SnapshotTopic) => !waits(t) && isStopped(t, now)).sort(byRecent),
     stuck: topics.filter((t: SnapshotTopic) => !waits(t) && toneOf(t) === 'stuck').sort(byNumberDesc),
     projects: snap.projects.filter(isHalted).sort((a: SnapshotProject, b: SnapshotProject) => b.updated_at - a.updated_at || a.key.localeCompare(b.key)),
+    proposals: (tidy?.proposals ?? []).filter((p: TidyProposal) => p.state === 'open'),
   };
 }
 
-/** 各状态几件（covey board_read Asks.counts）：护栏停住的专项和停住的话题一起算停住了 */
+/** 各状态几件（covey board_read Asks.counts）：护栏停住的专项和停住的话题一起算停住了，整理专项的建议和题一起算等你。
+ *  看板结论带、统计条、侧栏角标、手机标签栏都只用它：数的就是画出来的那些条目 */
 export const askCounts = (a: Asks): { waiting: number; stopped: number; stuck: number } => ({
-  waiting: a.waiting.length,
+  waiting: a.waiting.length + a.proposals.length,
   stopped: a.stopped.length + a.projects.length,
   stuck: a.stuck.length,
 });
@@ -64,14 +71,6 @@ export const askTotal = (a: Asks): number => {
   const c = askCounts(a);
   return c.waiting + c.stopped + c.stuck;
 };
-/** 要你处理各几件（v34）：Covey 推了算好的（snap.asks，core/board_read.py Asks.counts）就以它为准，跨 24 小时的旧题、刚点过不管了的
- * 那一拍也和飞书一样；旧 Covey 没推时用本地数的（asks）。卡片和列表照旧按本地的话题画 */
-export function askNumbers(a: Asks, authority?: SettingsAsks | null): { waiting: number; stopped: number; stuck: number } {
-  if (authority && [authority.waiting, authority.stopped, authority.stuck].every((n: number) => Number.isInteger(n) && n >= 0)) {
-    return { waiting: authority.waiting, stopped: authority.stopped, stuck: authority.stuck };
-  }
-  return askCounts(a);
-}
 export const askSum = (c: { waiting: number; stopped: number; stuck: number }): number => c.waiting + c.stopped + c.stuck;
 
 /* ---- 专项的收尾、停止（v34，同飞书专项卡的停止专项、停住卡的收尾）：什么状态给哪颗；Covey 还会按守卫再核一次 ---- */

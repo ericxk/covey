@@ -301,6 +301,11 @@ class AsksFollowTest(WebCase):
         topics = [each["data"] for each in self.web.items("topic") if each["key"] == TOPIC]
         return asks["waiting"], topics[-1]["tone"] if topics else None
 
+    def open_questions(self):
+        """The topics of the questions the page has open now (its last item of each)."""
+        last = {each["key"]: each for each in self.web.items("question")}
+        return sorted(each["data"]["topic_key"] for each in last.values() if each["data"].get("state") == "open")
+
     def runs_on(self, topic=TOPIC, job_id=8):
         """The question answered on its card and the topic's next task running, as the Bridge leaves them a moment after."""
         self.question(created_at=T0 - 5, topic_id=topic, status="answered")
@@ -323,10 +328,21 @@ class AsksFollowTest(WebCase):
         write_job(self.state, f"k-{TOPIC[:4]}", status="waiting_user")
         self.question(created_at=T0 + 1, question_message_id="")  # Its card not sent yet: no 等我 (core/board_read.py asks).
         self.sync.push_once(T0 + 2)
-        self.assertEqual(self.pushed()[0], 0)
+        # Neither counted nor drawn: the page lists no 等你 and no open question for it (Neon's review of e66440a1 found
+        # the topic drawn 等你 with its question open while the count said 0).
+        self.assertEqual(self.pushed(), (0, "running"))
+        self.assertEqual(self.open_questions(), [])
         self.question(created_at=T0 + 1)  # Its card went: the same pending question, now one that asks.
         self.sync.push_once(T0 + 3)
         self.assertEqual(self.pushed(), (1, "waiting"))
+        self.assertEqual(self.open_questions(), [TOPIC])
+
+    def test_a_question_its_projects_lead_holds_is_neither_counted_nor_drawn(self):
+        self.topic(status="waiting_user", lines=(("user", "做一下"),))
+        self.question(created_at=T0 - 5, display_pending=True)  # Held for its project's lead (app/triage.py).
+        self.sync.push_once(T0)
+        self.assertEqual(self.pushed(), (0, "running"))
+        self.assertEqual(self.open_questions(), [])
 
     def test_the_butlers_question_answered_while_the_butler_runs_on_is_no_longer_counted(self):
         self.butler_topic(status="waiting_user")

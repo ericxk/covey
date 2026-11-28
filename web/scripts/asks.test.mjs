@@ -59,6 +59,17 @@ test('要你处理：管家和负责人的题算进等你，可能卡住算，�
   assert.deepEqual([...P.stoppedSet(a)], ['T2']);
 });
 
+test('整理专项要你定的建议算进等你，定过的不算；答完的题不再让话题算等你（T978）', () => {
+  const tidy = { proposals: [{ id: 'x1', state: 'open' }, { id: 'x2', state: 'done' }, { id: 'x3', state: 'open' }] };
+  const a = P.asks(snap, NOW, tidy);
+  assert.deepEqual(a.proposals.map((p) => p.id), ['x1', 'x3']);
+  assert.deepEqual(P.askCounts(a), { waiting: 6, stopped: 2, stuck: 1 });
+  assert.deepEqual(P.asks(snap, NOW).proposals, []);  // 没取到整理专项：不算
+  // T5 在跑，它的题刚答完（state 不是 open）：不算等你
+  const answered = { ...snap, questions: [...snap.questions, { ...question('T5'), state: 'answered' }] };
+  assert.ok(!P.asks(answered, NOW).waiting.some((t) => t.key === 'T5'));
+});
+
 test('看板、侧栏、手机标签栏都用这一个函数，不再各数各的', () => {
   const src = (f) => readFileSync(join(CV, f), 'utf8');
   for (const f of ['Board.tsx', 'Shell.tsx']) assert.match(src(f), /\basks\(/u, `${f} 没用 projectData.ts 的 asks`);
@@ -106,7 +117,7 @@ test('护栏停住的专项：红色“停住了 · 原因”；你自己停的�
 
 test('先放着并成不管了：计数只看 Covey 推的看板分组，isStopped、asks 不再收本机记的轮次', () => {
   assert.equal(T.isStopped.length, 2);
-  assert.equal(P.asks.length, 2);
+  assert.equal(P.asks.length, 3);  // 快照、此刻、整理专项的建议（T978）：没有本机记的轮次
   // 页面代码里不再有只记在本机的“先放着”（useLater、putLater、covey.later 只剩清理旧缓存那一处）
   const hits = [];
   for (const f of readdirSync(CV).filter((n) => /\.(ts|tsx)$/u.test(n))) {

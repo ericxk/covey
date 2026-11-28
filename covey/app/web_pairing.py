@@ -173,6 +173,8 @@ def question(row, topic, count, project="", number=0, records=(), rows=()):
     status = row.get("status", "pending")
     if status == "pending" and row.get("display_pending"):
         return None  # Held for a project's lead: not the owner's yet.
+    if status == "pending" and not triage.held(row) and not board_read.asks(row):
+        return None  # Its card not sent yet, or its result to go first: no 等我 on any card, so not open on the page either (T978).
     shown = []
     for index, each in enumerate(q for q in row.get("questions") or () if isinstance(q, dict)):
         shown.append({"id": str(each.get("id") or index), "header": str(each.get("header") or ""), "question": str(each.get("question") or ""),

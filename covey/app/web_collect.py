@@ -83,6 +83,14 @@ def board_marks(running, asking, starting=None) -> frozenset:
         *(("start", str(topic), str(wait.record.get("key") or ""), wait.card) for topic, wait in (starting or {}).items())])
 
 
+def unasked(latest, questions) -> bool:
+    """Whether ``latest`` waits for an answer (waiting_user) though none of its topic's ``questions`` asks the owner yet
+    (core/board_read.py asks): its card is on its way, its result goes first, or its project's lead has the question. That is
+    no 等我 on any card, so on the page it is 在做 (``word``, ``tone``) and its question is not open (app/web_pairing.py
+    question): the page counts what it lists (2026-11-29 T978: a topic drawn 等你 while 要你处理 said 0)."""
+    return latest is not None and latest.get("status") == "waiting_user" and not any(board_read.asks(row) for row in questions)
+
+
 def estimate_of(job, turn) -> None:
     """``turn`` takes ``estimate_seconds``, the first estimate of its whole 用时 the task monitor kept on the job record
     (core/longtask.py), or loses it: a turn whose task never had one has none."""
@@ -812,6 +820,8 @@ class Collector:
             latest = next((record for record in reversed(records) if record.get("status") in STATE_WORDS), None)
         if latest is not None and board_read.set_aside(latest, questions):
             latest = {**latest, "status": "done"}  # Its question set aside (不处理): a turn that ended, no 等你.
+        if unasked(latest, questions):
+            return "在做"
         if latest is None:
             return "已停止" if never_started(records) else "空闲"
         return STATE_WORDS.get(latest.get("status"), "空闲")
@@ -831,6 +841,8 @@ class Collector:
             latest = next((record for record in reversed(records) if record.get("status") in STATE_WORDS), None)
         if latest is not None and board_read.set_aside(latest, questions):
             latest = {**latest, "status": "done"}  # As ``word``.
+        if unasked(latest, questions):
+            return "running"  # As ``word``.
         if latest is None and never_started(records):
             return "cancelled"  # Nothing ever ran and the last task was cancelled before it started: 已停止, not 空闲.
         if latest is None or latest.get("status") not in STATE_WORDS:

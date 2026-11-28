@@ -17,7 +17,7 @@ import { TidyPanel } from './Tidy';
 import { etaText, FALLBACK_FAILURE, listTone, progressNote, splitTitle } from './topicText';
 import { UsageBars } from './UsageBars';
 import { cachePct, shownDays, spanOf, weekWord } from './usageData';
-import { askNumbers, asks, askSum, haltWords, isHalted, type Asks } from './projectData';
+import { askCounts, asks, askSum, haltWords, isHalted, type Asks } from './projectData';
 import { DismissButton, RecoverActions, useBoardOn } from './RecoverBits';
 import { RoleAvatar, TopicBadge } from './RoleAvatar';
 import { PaneHandle } from './PaneHandle';
@@ -382,16 +382,18 @@ const Board: React.FC = () => {
   const desktop: boolean = useIsDesktop();
   const { data: snap } = useSnapshot();
   const { data: st } = useStats();
-  const tidyOn: boolean = !!useTidy().data;
+  const tidy = useTidy().data;
+  const tidyOn: boolean = !!tidy;
   const now: number = useTick(30000);
   if (!snap) return null;
   const topics: SnapshotTopic[] = snap.topics.filter((t: SnapshotTopic) => t.kind === 'topic');
   const qBy = new Map<string, QuestionView>(snap.questions.map((q: QuestionView) => [q.topic_key, q]));
-  // 要你处理：和侧栏角标、手机标签栏同一个算法（projectData.ts asks，口径同 covey board_read）：管家、负责人的题也算，护栏停住的专项算停住了
-  const a: Asks = asks(snap, now);
+  // 要你处理：和侧栏角标、手机标签栏同一个算法（projectData.ts asks，口径同 covey board_read）：管家、负责人的题也算，护栏停住的专项算停住了，
+  // 整理专项要你定的建议算等你（下面的整理面板画它们）
+  const a: Asks = asks(snap, now, tidy);
   const { waiting, stopped, stuck, projects: halted } = a;
-  // 数以 Covey 算好的为准（v34 snap.asks），没有时自己数；卡片照本地的话题画
-  const c = askNumbers(a, snap.asks);
+  // 数就是下面画出来的卡片数加整理面板里要你定的建议数（askCounts），不拿 Covey 另推的 asks 条目盖（T978）
+  const c = askCounts(a);
   const act: number = askSum(c);
   const running: SnapshotTopic[] = topics.filter((t: SnapshotTopic) => toneOf(t) === 'running' && !qBy.has(t.key)).sort(byNumberDesc);
   const unseen: SnapshotTopic[] = topics.filter((t: SnapshotTopic) => toneOf(t) === 'result').sort(byRecent);
@@ -490,7 +492,7 @@ const Board: React.FC = () => {
         <Head title="看板" right={<span className={`nb-synced${stale ? ' stale' : ''}`}><SyncDot at={snap.synced_at} />{stale || (desktop ? '已同步' : '')}</span>} />
         <div className="a-scroll nb-scroll">
           {band}
-          {act ? (
+          {waiting.length + stopped.length + halted.length + stuck.length ? (
             <div className="nb-actgrid">
               {waiting.map((t: SnapshotTopic) => <ActCard key={t.key} t={t} tone="waiting" q={qBy.get(t.key)} snap={snap} />)}
               {stopped.map((t: SnapshotTopic) => <ActCard key={t.key} t={t} tone="stopped" snap={snap} />)}

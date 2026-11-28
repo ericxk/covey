@@ -16,12 +16,20 @@ const k660 = topic('k660', 'stopped', { latest_failure: { title: '结果没能�
 const k641 = topic('k641', 'stopped');
 const k655 = topic('k655', 'stuck', { progress: { phase: '跑安装器测试', last_activity_at: 600 } });
 const k586 = topic('k586', 'running', { progress: { phase: '等新版组第 1 轮评审', plan_done: 1, plan_total: 4 } });
-const a = { waiting: [k31, b0, L1], stopped: [k660, k641], stuck: [k655], projects: [snap.projects[1]] };
+const a = { waiting: [k31, b0, L1], stopped: [k660, k641], stuck: [k655], projects: [snap.projects[1]], proposals: [] };
 
 test('要你处理照看板的顺序：等你 → 停住了 → 护栏停住的专项 → 可能卡住', () => {
   const g = statusGroups(a, snap, [k586]);
   assert.deepEqual(g.act.map((r) => r.key), ['k31', 'b0', 'L1', 'k660', 'k641', 'p:p2', 'k655']);
   assert.deepEqual(g.act.map((r) => r.tone), ['waiting', 'waiting', 'waiting', 'stopped', 'stopped', 'stopped', 'stuck']);
+});
+
+test('整理专项要你定的建议：每条一行跟在等你的题后面，点了去看板；行数就是算进要你处理的件数（T978）', () => {
+  const tidy = { id: 'x1', headline: '把 3 个账单话题建成专项', verb: '建专项', state: 'open', at: 850 };
+  const g = statusGroups({ ...a, proposals: [tidy] }, snap, []);
+  assert.deepEqual(g.act.map((r) => r.key), ['k31', 'b0', 'L1', 'tidy:x1', 'k660', 'k641', 'p:p2', 'k655']);
+  const row = g.act.find((r) => r.key === 'tidy:x1');
+  assert.deepEqual([row.kind, row.tone, row.to, row.title, row.sub, row.since], ['tidy', 'waiting', '/', '整理专项', '要你定：把 3 个账单话题建成专项', 850]);
 });
 
 test('第二行灰字：要你定什么、停在哪、可能卡在哪一步；等你的从提问时算起', () => {
@@ -47,7 +55,7 @@ test('谁：话题带 T 号去话题页，管家去大厅，负责人写专项�
 
 test('在做：写现在这一步和第几步，有开着的题的不算在做', () => {
   const asked = topic('k31', 'running');
-  const g = statusGroups({ waiting: [], stopped: [], stuck: [], projects: [] }, snap, [k586, asked]);
+  const g = statusGroups({ waiting: [], stopped: [], stuck: [], projects: [], proposals: [] }, snap, [k586, asked]);
   assert.deepEqual(g.running.map((r) => r.key), ['k586']);
   assert.equal(g.running[0].sub, '等新版组第 1 轮评审');
   assert.equal(g.running[0].plan, '1/4');

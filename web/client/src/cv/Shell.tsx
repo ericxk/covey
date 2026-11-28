@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { SnapshotProject, SnapshotResponse, SnapshotTopic } from '@shared/api.interface';
 import { useIsDesktop } from '@client/src/hooks/use-breakpoint';
-import { prefetchTurns, useSettings, useSnapshot, useWarmup, useMemoryMode, useQuota, useUpgrade } from '@client/src/hooks/use-workbench';
+import { prefetchTurns, useSettings, useSnapshot, useTidy, useWarmup, useMemoryMode, useQuota, useUpgrade } from '@client/src/hooks/use-workbench';
 import { ageMs, errorText } from '@client/src/lib/workbench-format';
 import { byNumberDesc, byRecent, isRunning, isWaiting, pref, setPref, steadyAt, toneOf, toneWord, topicNumberOf, type ToneKey } from './lib';
 import { Avatar, Dot, useTick } from './ui';
@@ -19,7 +19,7 @@ import brandMark from './brand/covey.png';
 
 /** 大厅的图标：和看板、记忆一样是线条图标（侧栏和手机标签栏同一个）；管家头像只给管家自己，Covey 的鹌鹑只在品牌位 */
 const HallIcon = MessagesSquare;
-import { askNumbers, asks, askSum, haltWords, isHalted, stoppedSet, type Asks } from './projectData';
+import { askCounts, asks, askSum, haltWords, isHalted, stoppedSet, type Asks } from './projectData';
 import { PaneHandle } from './PaneHandle';
 import { StatusGroups } from './StatusGroups';
 import { useHeld } from './sideHold';
@@ -303,6 +303,7 @@ const Sidebar: React.FC<{ mini: boolean; drawer?: boolean }> = ({ mini, drawer }
   const launchOn: boolean = !!useSettings().data?.data?.launch;
   const upMark: string = useUpgradeMark();
   const capsule: string = useQuotaCapsule();
+  const { data: tidy } = useTidy();  // 整理专项要你定的建议：算进要你处理（同看板）
   const [unOpen, setUnOpen] = useState<boolean>(false);
   const [oldOpen, setOldOpen] = useState<boolean>(() => pref('grp.old', '0') === '1');
   const [oldWas, setOldWas] = useState<string>('');
@@ -314,9 +315,10 @@ const Sidebar: React.FC<{ mini: boolean; drawer?: boolean }> = ({ mini, drawer }
   // 话题头像一样宽（按最长的号码，至少 T 加三位）：一列标题对成一条线，T7 和 T645 不会让标题错开
   const logoChars: number = topics.reduce((most: number, t: SnapshotTopic) => Math.max(most, t.number ? String(t.number).length + 1 : 0), 4);
   const qKeys = new Set<string>(data.questions.map((q) => q.topic_key));
-  // 要你处理：和看板、手机标签栏同一个数（projectData.ts asks）：管家、负责人的题，可能卡住，护栏停住的专项都算
-  const a: Asks = asks(data, now);
-  const act: number = askSum(askNumbers(a, data.asks));
+  // 要你处理：和看板、手机标签栏同一个数（projectData.ts asks）：管家、负责人的题，整理专项的建议，可能卡住，护栏停住的专项都算；
+  // 数的就是「要你处理」列出的那几行（askCounts），不拿 Covey 另推的 asks 条目盖（T978）
+  const a: Asks = asks(data, now, tidy);
+  const act: number = askSum(askCounts(a));
   const stoppedKeys: Set<string> = stoppedSet(a);
   // “N 在做”同看板结论带：可能卡住的算在要你处理里，不再数一遍
   const running: number = topics.filter((t: SnapshotTopic) => toneOf(t) === 'running').length;
@@ -440,7 +442,7 @@ const Sidebar: React.FC<{ mini: boolean; drawer?: boolean }> = ({ mini, drawer }
             topics.filter(hot).sort(byNumberDesc).slice(0, 12).map((t: SnapshotTopic) => <TopicRow key={t.key} t={t} active={isOn(t)} stopped={stoppedKeys.has(t.key)} mini />)
           ) : (
             <>
-              <StatusGroups a={a} data={data} running={topics.filter((t: SnapshotTopic) => t.kind === 'topic' && toneOf(t) === 'running')} act={act} now={now} />
+              <StatusGroups a={a} data={data} running={topics.filter((t: SnapshotTopic) => t.kind === 'topic' && toneOf(t) === 'running')} now={now} />
               {groups.length ? (
                 <div className="sec" id="side-projects">
                   {/* 点“专项”打开专项一览（/projects，一个专项一张简报卡）：电脑上没有底部标签栏，从这里进 */}
@@ -560,8 +562,9 @@ const TabBar: React.FC = () => {
   const ui = useUi();
   const { data } = useSnapshot();
   const now: number = useTick(60000);
+  const { data: tidy } = useTidy();
   // 和看板、侧栏同一个数（projectData.ts asks）
-  const act: number = data ? askSum(askNumbers(asks(data, now), data.asks)) : 0;
+  const act: number = data ? askSum(askCounts(asks(data, now, tidy))) : 0;
   const on = (focus: 'topics'): boolean => ui.menu && ui.focus === focus;
   const upMark: string = useUpgradeMark();
   return (
