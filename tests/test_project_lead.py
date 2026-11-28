@@ -28,8 +28,9 @@ from covey.app.butler_tools import ButlerTools
 from covey.backends.claude.argv import stream_argv
 from covey.backends.claude.bridge import ClaudeBackend
 from covey.core import butler_mcp, butler, butler_tool_specs, checkpoint, project_memory, project_proposals, projects, quota_hold
+from covey.core import memory_review, memstore
 from covey.core import butler_settings as settings
-from covey.core.jobs import job_key, job_path, read_job_record
+from covey.core.jobs import find_job_record, job_key, job_path, read_job_record
 from covey.core.topics import topic_file
 from covey.core.harness import CONSULT, LEAD as HELD, READ, TOOL_LIMIT  # LEAD here is the lead topic's id.
 from covey.core.butler_requests import Request
@@ -1185,31 +1186,38 @@ class RecordToolsTest(ToolsCase):
                          (project_lead.NOTES_KEPT, "n5", f"n{project_lead.NOTES_KEPT + 4}"))
         self.assertIn("text 不能为空", self.refused("project_note", text="  "))
 
+    def remembered(self, **args):
+        """The line id (in memory.json) of what project_remember wrote."""
+        return self.tool("project_remember", **args)["data"]["ref"].rsplit(":", 1)[-1]
+
     def test_a_memory_entry_is_kept_once_and_a_bad_kind_is_refused(self):
-        first = self.tool("project_remember", kind="pitfall", text="旧库时区是 UTC+0")
-        again = self.tool("project_remember", kind="pitfall", text="旧库时区是 UTC+0")
+        first = self.tool("project_remember", kind="rule", text="旧库时区是 UTC+0")
+        again = self.tool("project_remember", kind="rule", text="旧库时区是 UTC+0")
         self.assertEqual((first["data"]["new"], again["data"]["new"], first["data"]["id"]), (True, False, again["data"]["id"]))
         record = self.reload()
         self.assertEqual([(row["kind"], row["text"], row["source"]) for row in project_memory.live(self.state, record)],
                          [("constraint", "旧库时区是 UTC+0", "lead")])
         self.assertNotIn("memory", record)  # Not in the record any more: the card reads the file.
         self.assertTrue(project_memory.memory_path(self.state, PID).exists())
-        self.assertIn("kind 要是", self.refused("project_remember", kind="style", text="x"))
+        for kind in ("style", "constraint", "decision", "fact", "pitfall", "contact"):  # The older kinds' bypass is gone (T908 M3b).
+            with self.subTest(kind=kind):
+                self.assertIn("kind 要是 rule 或 note", self.refused("project_remember", kind=kind, text="另一条"))
+        self.assertEqual(len(project_memory.live(self.state, self.reload())), 1)
 
     def test_a_memory_the_owner_deleted_is_not_noted_again_and_the_pack_lists_it(self):
-        entry = self.tool("project_remember", kind="decision", text="先迁 2024 年")["data"]["id"]
+        entry = self.remembered(kind="rule", text="先迁 2024 年")
         self.assertTrue(project_memory.delete(self.state, PID, entry))
-        self.assertIn("删掉过", self.refused("project_remember", kind="decision", text="先迁 2024 年"))
+        self.assertIn("删掉过", self.refused("project_remember", kind="rule", text="先迁 2024 年"))
         pack = project_lead.state_pack(self.state, self.reload(), "lead-1", full=True)
         self.assertIn("主人删掉的记忆", pack)
-        self.assertIn("[decision] 先迁 2024 年", pack)
+        self.assertIn("先迁 2024 年", pack)
         self.assertNotIn("专项记忆：", pack)
 
     def entries(self):
         return {row["id"]: row for row in project_memory.live(self.state, self.reload())}
 
     def test_the_lead_updates_replaces_and_retires_its_own_lines(self):
-        one = self.tool("project_remember", kind="fact", text="现网用 11170f")["data"]["id"]
+        one = self.remembered(kind="note", text="现网用 11170f")
         self.tool("project_memory_revise", op="update", id=one, text="现网用 11170f，仅 A 区", why="补范围")
         self.assertEqual(self.entries()[one]["text"], "现网用 11170f，仅 A 区")
         data = self.tool("project_memory_revise", op="supersede", id=one, text="现网用 22281a")["data"]
@@ -1225,11 +1233,14 @@ class RecordToolsTest(ToolsCase):
         self.assertIn("已经收进历史", self.refused("project_memory_revise", op="retire", id=data["id"]))
         self.assertIn("op 要是", self.refused("project_memory_revise", op="delete", id=one))
         self.assertIn("要替代就给", self.refused("project_memory_revise", op="supersede", id=one))
+        # Each revision is in the memory's 记录 as the lead's (T908 M3b): the edit, the new line and the old one put away, the retire.
+        log = [(row["who"], row["action"]) for row in reversed(memstore.log_read(self.state))]
+        self.assertEqual(log, [("lead", "add"), ("lead", "edit"), ("lead", "add"), ("lead", "supersede"), ("lead", "archive")])
 
     def test_the_owners_rules_and_limits_are_not_the_leads_to_change(self):
         rule, _ = project_memory.add(self.state, PID, "部署前先问我", "fact", "owner")
         limit, _ = project_memory.add(self.state, PID, "不许动生产库", "constraint", "owner")
-        mine = self.tool("project_remember", kind="fact", text="新条")["data"]["id"]
+        mine = self.remembered(kind="note", text="新条")
         for entry in (rule, limit):
             for args in ({"op": "update", "text": "改了"}, {"op": "supersede", "text": "改了"}, {"op": "supersede", "by": mine},
                          {"op": "retire"}):
@@ -1237,13 +1248,13 @@ class RecordToolsTest(ToolsCase):
         self.assertEqual({row["valid"] if "valid" in row else "active" for row in (self.entries()[rule["id"]], self.entries()[limit["id"]])}, {"active"})
 
     def test_the_owners_confirmed_line_is_his_too(self):
-        mine = self.tool("project_remember", kind="fact", text="周五不发版")["data"]["id"]
+        mine = self.remembered(kind="note", text="周五不发版")
         project_memory.fix(self.state, PID, mine, "confirm", origin={"message_id": "om_1"})
         self.assertIn("主人的长期约定", self.refused("project_memory_revise", op="retire", id=mine))
 
     def test_the_owners_answer_keeps_its_words_and_is_replaced_only_by_a_later_one_of_his(self):
         answer, _ = project_memory.add(self.state, PID, "先迁 2024 年", "decision", "owner_answer", now=NOW)
-        mine = self.tool("project_remember", kind="decision", text="先迁 2025 年")["data"]["id"]
+        mine = self.remembered(kind="note", text="先迁 2025 年")
         self.assertIn("不能改正文", self.refused("project_memory_revise", op="update", id=answer["id"], text="先迁 2025 年"))
         self.assertIn("只能被主人更新的答复替代", self.refused("project_memory_revise", op="supersede", id=answer["id"], text="先迁 2025 年"))
         self.assertIn("只能被主人更新的答复替代", self.refused("project_memory_revise", op="supersede", id=answer["id"], by=mine))
@@ -1254,16 +1265,51 @@ class RecordToolsTest(ToolsCase):
         self.assertEqual(self.entries()[later["id"]]["valid"], "done")
 
     def test_a_snapshot_is_not_remembered_and_is_pointed_to_project_note(self):
-        for text in ("现网第 459 代已上线", "当前是第462代部署", "集群余量 12 卡", "进度 60%"):
-            self.assertIn("project_note", self.refused("project_remember", kind="fact", text=text))
+        for text in ("现网第 459 代已上线", "当前是第462代部署", "集群余量 12 卡", "进度 60%", "T12 负责前端联调", "周五前上线新版"):
+            self.assertIn("project_note", self.refused("project_remember", kind="note", text=text))
         self.assertEqual(self.entries(), {})
-        entry = self.tool("project_remember", kind="fact", text="发版走灰度再全量")["data"]["id"]
+        entry = self.remembered(kind="note", text="发版走灰度再全量")
         self.assertIn("project_note", self.refused("project_memory_revise", op="update", id=entry, text="现网第 460 代"))
         self.tool("project_note", text="现网第 459 代已上线")
 
+    def test_the_gate_refuses_a_state_of_the_moment_and_points_to_the_brief(self):
+        """project_remember goes through core/memory_gate.py write (T908 M3b): a time word is refused, nothing written, the
+        receipt says where such a state goes (the brief with 协作 on, else the card's notes)."""
+        text = self.refused("project_remember", kind="rule", text="目前先只迁 A 区")
+        self.assertIn("没有记", text)
+        self.assertIn("可以改成：先只迁 A 区", text)
+        self.assertIn("project_note", text)
+        with mock.patch.dict(os.environ, {"COVEY_COLLAB": "1"}):
+            self.assertIn("项目简报", self.refused("project_remember", kind="rule", text="今天先停发版"))
+        self.assertEqual(self.entries(), {})
+
+    def test_the_leads_rules_stop_at_the_projects_room_and_it_is_told_to_merge_or_demote(self):
+        most, _ = memory_review.RULE_CAPS["project"]
+        project_memory.add(self.state, PID, "主人的规矩不占负责人的名额", "constraint", "owner")
+        for number in range(most):
+            self.tool("project_remember", kind="rule", text=f"负责人规矩第{number}条")
+        text = self.refused("project_remember", kind="rule", text="再记一条规矩")
+        self.assertIn("占满", text)
+        self.assertIn("project_memory_revise", text)
+        self.assertIn("资料", text)
+        self.assertFalse(self.tool("project_remember", kind="rule", text="负责人规矩第0条")["data"]["new"])  # Said already: no refusal.
+        self.assertTrue(self.tool("project_remember", kind="note", text="资料不占规矩的名额")["data"]["new"])
+        with mock.patch.dict(memory_review.RULE_CAPS, {"project": (99, 150)}):
+            self.assertIn("150 字", self.refused("project_remember", kind="rule", text="长" * 100))
+        self.assertEqual(sum(1 for row in project_memory.live(self.state, self.reload()) if row["source"] == "lead"), most + 1)
+
+    def test_a_new_rule_is_a_line_on_the_leads_card_with_wrong(self):
+        data = self.tool("project_remember", kind="rule", title="灰度", text="发版先灰度再全量")["data"]
+        self.tool("project_remember", kind="rule", title="灰度", text="发版先灰度再全量")  # Said already: no second line.
+        self.tool("project_remember", kind="note", text="灰度机在 A 区")  # A note: no line.
+        [note] = find_job_record(self.state, "lead-job")["lead_notes"]
+        self.assertEqual((note["kind"], note["by"], note["scope"], note["ref"], note["code"], note["text"]),
+                         ("remembered", "lead", "管这个专项", data["ref"], data["id"], "发版先灰度再全量"))
+        self.assertEqual(memory_review.items(self.state), [])  # The lead's rule waits for no one.
+
     def test_a_revised_line_the_owner_deleted_is_not_written_back(self):
-        one = self.tool("project_remember", kind="fact", text="甲")["data"]["id"]
-        gone = self.tool("project_remember", kind="fact", text="乙")["data"]["id"]
+        one = self.remembered(kind="note", text="甲")
+        gone = self.remembered(kind="note", text="乙")
         project_memory.delete(self.state, PID, gone)
         self.assertIn("删掉过", self.refused("project_memory_revise", op="update", id=one, text="乙"))
 

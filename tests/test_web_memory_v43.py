@@ -171,10 +171,16 @@ class Case(unittest.TestCase):
         self.conflict, _ = memstore.review_put(s, {"type": "conflict", "title": "部署端口改为 9090", "text": "演示环境的网页服务改到 9090 端口。",
                                                    "suggest": {"kind": "note", "scope": "global"}, "conflict_with": self.note.ref,
                                                    "flags": ["dynamic"], "origin": {"topic_key": "t002", "topic_number": 15}})
-        self.tidy, _ = memstore.review_put(s, {"type": "tidy", "title": "两条相近的规矩", "text": "这两条意思重复，可以合并。",
-                                               "suggest": {"kind": "rule", "scope": "global"}, "items": [self.rule.ref, "global:g9z9z9"]})
-        self.project_item, _ = memstore.review_put(s, {"type": "lead", "title": "专项要先写测试", "text": "专项里改代码前先写测试。",
-                                                       "suggest": {"kind": "rule", "scope": "project", "project_key": PID}})
+        # The two kinds the learning proposes (T908 M3b): a rule held where it was said that may be 全局 (its line in items),
+        # and one that grants, in force only once accepted.
+        self.wider, _ = memstore.review_put(s, {"type": "learn", "title": "只读 demo-repo 管全局？", "text": self.trule.text,
+                                                "quote": "这个话题里不要修改 demo-repo，", "origin": {"topic_key": TID, "topic_number": 12},
+                                                "suggest": {"kind": "rule", "scope": "global"}, "items": [self.trule.ref]})
+        self.project_item, _ = memstore.review_put(s, {"type": "learn", "title": "改完直接部署到演示机",
+                                                       "text": "演示专项里改完直接部署到演示机，不用再问。", "quote": "以后改完直接部署到演示机",
+                                                       "origin": {"topic_key": TID, "topic_number": 12},
+                                                       "suggest": {"kind": "rule", "scope": "project", "project_key": PID,
+                                                                   "grant": "deploy"}})
         memstore.log_change(s, who="owner", action="accept", refs=[self.rule.ref], title="提交前先跑测试",
                             because={"topic_number": 12, "quote": "提交之前先跑测试"}, token="u-0002", now=NOW - 10)
         write_job(s, "k-t001", topic_id=TID, chat_id=CHAT, job_id=12, status="done", updated_at=NOW - 5)
@@ -385,9 +391,11 @@ class ActionsTest(Case):
         self.assertEqual(self.run_op("op-r", "reject", [self.project_item]), "不要了")
         with self.assertRaisesRegex(ValueError, "已经处理过了"):
             self.run_op("op-r2", "reject", [self.project_item])
-        self.assertEqual(self.run_op("op-all", "accept_all", [self.tidy]), "全部采纳 1 条")
-        # A tidy item is what 整理记忆 did already (core/memory_review.py, M2's): accepting keeps it, writes nothing.
-        self.assertEqual(memstore.find(self.state, "global:g9z9z9").status, "active")
+        self.assertEqual(self.run_op("op-all", "accept_all", [self.wider]), "全部采纳 1 条")
+        # 推断全局: its line held in the topic moves to 全局 with its code, not made again (core/memory_review.py).
+        moved = memstore.find(self.state, self.trule.code)
+        self.assertEqual((moved.scope, moved.text), ("global", self.trule.text))
+        self.assertEqual(memstore.find(self.state, self.trule.ref).status, "archived")
         self.assertEqual(self.run_op("op-none", "reject_all", []), "全部不要 1 条")  # The conflict, the last one open.
         self.assertEqual(memstore.review_items(self.state), [])
         with self.assertRaisesRegex(ValueError, "没有要处理的待审核"):
@@ -424,12 +432,12 @@ class ActionsTest(Case):
         self.assertIn("回到待审核", self.run_op("op-u2", "undo", undo_token="w-op-r"))
         self.assertIn(self.project_item, [item["key"] for item in memstore.review_items(self.state)])
 
-    def test_every_golden_action_is_known_and_the_old_payload_still_goes_the_old_way(self):
+    def test_every_golden_action_is_known_and_the_old_payload_is_refused(self):
         self.assertEqual(set(web_memory.ACTIONS_V43), {edit["action"] for edit in GOLDEN["edits"]})
-        old = Ops.memory_edit(self.ops, self.state, CHAT, {"op_id": "op-old"},
-                              {"action": "add", "what": "principle", "scope": "global", "text": "先给结论"})
-        self.assertTrue(old.startswith("已记下"))
-        self.assertEqual([r["text"] for r in principles.entries(self.state)], ["先给结论"])
+        with self.assertRaisesRegex(ValueError, "页面版本太旧"):  # v37's memory_edit, without v: gone (T908 M3b).
+            Ops.memory_edit(self.ops, self.state, CHAT, {"op_id": "op-old"},
+                            {"action": "add", "what": "principle", "scope": "global", "text": "先给结论"})
+        self.assertEqual(principles.entries(self.state), [])
         with self.assertRaisesRegex(ValueError, "不认识的记忆操作"):
             self.run_op("op-x", "pin", [self.rule.ref])
 
@@ -441,6 +449,25 @@ class ActionsTest(Case):
         self.run_op("op-u", "undo", undo_token="w-op-6")
         log = self.build()["memory:global"]["log"]
         self.assertFalse([item for item in log if item.get("undo_token") == "w-op-6"])  # Taken back: no 撤销 any more.
+
+
+    def test_the_page_reads_what_kind_of_item_it_is_and_the_log_of_its_changes(self):
+        """推断全局 carries the line it holds (``items``), 放行类 what it grants (``suggest.grant``); a change of an item the owner
+        decided is in the log with its 撤销, one the Bridge closed (its line gone) without."""
+        self.seed()
+        review = {row["key"]: row for row in self.build()["memory:global"]["review"]}
+        self.assertEqual([item["key"] for item in review[self.wider]["items"]], [self.trule.ref])
+        self.assertEqual(review[self.project_item]["suggest"], {"kind": "rule", "scope": "project", "project_key": PID, "grant": "deploy"})
+        self.assertNotIn("grant", review[self.learn]["suggest"])
+        self.run_op("op-r", "reject", [self.project_item])
+        memstore.void(self.state, self.trule.ref, who="owner", token="w-op-v")
+        log = self.build()["memory:global"]["log"]
+        rejected = next(row for row in log if row["refs"] == [self.project_item])
+        closed = next(row for row in log if row["refs"] == [self.wider])
+        self.assertEqual((rejected["action"], rejected.get("undo_token")), ("reject", "w-op-r"))
+        self.assertEqual((closed["action"], closed.get("undo_token")), ("archive", None))
+        self.assertIn("回到待审核", self.run_op("op-u", "undo", undo_token="w-op-v"))  # The void's undo opens it again.
+        self.assertIn(self.wider, [item["key"] for item in memstore.review_items(self.state)])
 
 
 class PackageM2Test(Case):
@@ -466,7 +493,7 @@ class PackageM2Test(Case):
         self.assertEqual(found["refs"], ["global:gm2"])
         self.assertEqual(calls[0], (self.learn, "accept", "owner", "w-1", "改过的标题"))
         self.assertEqual(calls[1][:2], ("all", "reject_all"))
-        self.assertEqual(set(calls[1][2]), {self.conflict, self.tidy, self.project_item})
+        self.assertEqual(set(calls[1][2]), {self.conflict, self.wider, self.project_item})
 
 
 
@@ -474,21 +501,15 @@ class IntegratedM2Test(Case):
     """Seam M4 ↔ M2 (T870 Wave 2B): with package M2 in, its real functions are the ones taken (no stand-in, no silent fall back
     to this module's baseline), and 在办 is app/memory_turn.py's rule (FINAL-SPEC 修订 5 as docs/butler.md 记忆 says it)."""
 
-    def test_the_probes_pick_m2s_real_functions(self):
-        for module, name, words in ((memory_review, "decide", ("who", "token")), (memory_review, "decide_all", ("keys", "who", "token"))):
-            found = getattr(module, name)
-            self.assertIs(web_memory._m2(module, name, words), found, name)
-            self.assertEqual(found.__module__, "covey.core.memory_review")
-
-    def test_review_never_takes_the_baseline(self):
+    def test_review_goes_through_memory_review_alone(self):
         self.seed()
-        refuse = mock.Mock(side_effect=AssertionError("the baseline was taken"))
-        with mock.patch.object(web_memory, "_baseline_decide", refuse):
-            found = web_memory.review_decide(self.state, [self.learn], "accept", token="w-m2-1")
-            web_memory.review_decide(self.state, [self.project_item], "reject", token="w-m2-2")
+        self.assertFalse([name for name in ("_m2", "_baseline_decide", "_write_item", "BY_OF") if hasattr(web_memory, name)])
+        found = web_memory.review_decide(self.state, [self.learn], "accept", token="w-m2-1")
+        web_memory.review_decide(self.state, [self.project_item], "reject", token="w-m2-2")
         self.assertTrue(found["refs"], found)
         states = {item["key"]: item["state"] for item in memstore.review_items(self.state, states=None)}
         self.assertEqual((states[self.learn], states[self.project_item]), ("accepted", "rejected"))
+        self.assertIsNone(next((e for e in memstore.entries(self.state) if "部署到演示机" in e.text), None))  # 不要: not written.
 
     def test_a_turns_memory_reads_m2s_memory_ids(self):
         """A turn's ``memory`` on the page (app/web_turns.py memory_of): app/memory_turn.py writes ``memory_ids`` as

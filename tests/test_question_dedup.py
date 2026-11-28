@@ -554,7 +554,7 @@ class OlderCallersTest(Case):
         write_job(self.state, "lead-job", topic_id=LEAD, chat_id=CHAT, job_id=9, status="running")
         return SimpleNamespace(job_key="lead-job", args=args, id="r1")
 
-    def test_project_remember_takes_rule_and_note_with_a_title_and_still_the_older_kinds(self):
+    def test_project_remember_takes_rule_and_note_with_a_title_and_not_the_older_kinds(self):
         from covey.core import butler
 
         self.addCleanup(butler.configure_state, butler.configure_state(self.state))
@@ -574,8 +574,10 @@ class OlderCallersTest(Case):
         self.assertEqual(memstore.find(self.state, note["data"]["id"]).kind, "note")
         with self.assertRaisesRegex(ValueError, "title 最多"):
             project_tools.project_remember(env, self.lead_request(kind="note", text="别的事实", title="长" * 41))
-        old = project_tools.project_remember(env, self.lead_request(kind="contact", text="DBA 是值班的那位"))
-        self.assertEqual(project_memory.live(self.state, projects.read_record(self.state, PID))[-1]["id"], old["data"]["id"])
+        # T908 M3b: the older kinds' bypass that wrote memory.json straight is gone (project_memory_revise still takes them).
+        with self.assertRaisesRegex(ValueError, "kind 要是 rule 或 note"):
+            project_tools.project_remember(env, self.lead_request(kind="contact", text="DBA 是值班的那位"))
+        self.assertNotIn("DBA 是值班的那位", [row["text"] for row in project_memory.live(self.state, projects.read_record(self.state, PID))])
 
     def test_project_memory_revise_names_a_decision_of_decisions_jsonl_by_its_code(self):
         from covey.core import butler

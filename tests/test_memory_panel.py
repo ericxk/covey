@@ -252,6 +252,35 @@ class MemoryTabTests(MemoryCase):
         for row in rows:
             self.assertIn(cards.review_words(row), text)
 
+    def test_the_two_kinds_of_review_say_what_not_wanting_them_leaves(self):
+        """T908 M3b: a rule held where it was said says 不要 leaves it there, one that grants says it holds only once accepted;
+        the kinds older releases put here are not listed."""
+        self.web()
+        here = memstore.add(self.state, kind='rule', scope='topic', owner_key=TOPIC, text='回复都用中文')
+        memstore.review_put(self.state, {'type': 'learn', 'title': '回复都用中文', 'text': here.text, 'items': [here.ref],
+                                         'suggest': {'kind': 'rule', 'scope': 'global'}}, now=1_800_000_000.0)
+        memstore.review_put(self.state, {'type': 'learn', 'title': '改完直接部署', 'text': '改完直接部署到本机',
+                                         'suggest': {'kind': 'rule', 'scope': 'global', 'grant': 'deploy'}}, now=1_800_000_001.0)
+        self.memory_tab()
+        text = text_of(self.card())
+        self.assertIn(cards.WIDER_WORDS, text)
+        self.assertIn('不要就留在原处', text)
+        self.assertIn(cards.GRANT_WORDS, text)
+        self.assertNotIn('只关掉这一项', text)
+        self.assertNotIn('改成资料', text)
+
+    def test_accept_on_an_answer_cards_line_is_the_tabs_kind_and_acts_on_that_line(self):
+        value = {'kind': cards.ACCEPT, 'topic_id': TOPIC, 'job_id': '7', 'entry_id': 'review:learn:aaaaaa'}
+        event = {'event_id': 'ev-x', 'chat_id': 'dm', 'message_id': 'om_s1', 'action_value': value}
+        with mock.patch('covey.app.memory_collect.accept_click', return_value='memory_accept') as accept:
+            self.assertEqual(self.hub.memory.click(self.ctx, event, value, False), 'owner_only')
+            self.assertEqual(self.hub.memory.click(self.ctx, event, value, True), 'memory_accept')
+        accept.assert_called_once()
+        with mock.patch('covey.app.memory_collect.accept_click', side_effect=ValueError('这条待审核已经处理过了')), \
+                mock.patch.object(self.hub.memory.messenger, 'reply') as reply:
+            self.assertEqual(self.hub.memory.click(self.ctx, event, value, True), 'memory_accept_refused')
+        self.assertIn('这条待审核已经处理过了', reply.call_args.args[2])
+
     def test_without_the_web_page_a_topics_rules_are_listed_too(self):
         rules = [{'key': 'topic:t1:r1', 'code': 'R2N6W', 'title': '这个话题只读', 'scope': 'topic', 'over_cap': True, 'topic_number': 12}]
         text = text_of(cards.memory_card('c' * 24, {'revision': 1}, {'counts': {}, 'rules_by': {'topic': 1}, 'review': [],

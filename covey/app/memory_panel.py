@@ -7,12 +7,14 @@ without the web page, then the card lists the rules to 收起, the topics' too).
 
 A click (the owner's) acts outside the record's lock, then the whole card is drawn again under it once the click is
 acknowledged (``notice`` says what happened). 采纳 and 不要 on an item of 待审核 go through ``web_memory.review_decide`` (as the page
-does); 收起 of a rule asks first, then ``memstore.archive``. The kinds of the older tab (the 工作区 row, 升为全局, 常驻) are still
+does); 收起 of a rule asks first, then ``memstore.archive``. 采纳 on an answer card's line that waits in 待审核 has the tab's
+kind with the job it names (``accept_line``, app/memory_collect.py accept_click), so no kind is new. The kinds of the older tab (the 工作区 row, 升为全局, 常驻) are still
 taken, so a card drawn before does not hang: they change nothing and say the option is offline. The same click delivered again
 acts once: the view keeps the last ``seen`` event ids.
 """
 from __future__ import annotations
 
+import dataclasses
 import secrets
 
 from covey.app import web_memory
@@ -86,6 +88,8 @@ class MemoryPanel:
         return memory_card(token, view, facts(ctx.state_dir), top=hub_top(MEMORY, token, view))
 
     def click(self, ctx, event, value, owner):
+        if value.get('kind') == ACCEPT and value.get('job_id'):
+            return self.accept_line(ctx, event, owner)
         entry = self.menu.entry(ctx, event, value, unfolded=True)
         if entry is None:
             return 'memory_unknown'
@@ -99,6 +103,23 @@ class MemoryPanel:
         changes = self.act(ctx, value, record['view'])
         after_ack(lambda: self.redraw(ctx, path, event, changes, event_id))
         return 'memory_tab'
+
+    def accept_line(self, ctx, event, owner):
+        """采纳 on an answer card's line that waits in 待审核 (cards/answer_card.py MEMORY_ACCEPT_KIND: the tab's kind with the
+        job it names): app/memory_collect.py accept_click, the owner's only; why nothing changed said under the card."""
+        from covey.app import memory_collect
+
+        if not owner:
+            return 'owner_only'
+        try:
+            return memory_collect.accept_click(self.runtime, self.messenger, ctx, event)
+        except ValueError as exc:
+            message = str(event.get('message_id') or '')
+            if message:
+                self.messenger.reply(dataclasses.replace(ctx, reply_to_message_id=message), str(event.get('chat_id') or ''),
+                                     f'⚠️ {exc}', self.voice.key('memory-accept', str(event.get('event_id') or message)),
+                                     voice=self.voice)
+            return 'memory_accept_refused'
 
     def redraw(self, ctx, path, event, changes, event_id=''):
         with self.menu.lock(path):

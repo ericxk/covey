@@ -1,7 +1,7 @@
-"""The web page's 记忆 tab (app/web_memory.py, data contract v37; T748): the ``memory`` item the page reads (全局 and each workspace's
-principles and knowledge entries, the room they use, which the next turn carries, the candidates, the next turn's block) and the
-``memory_edit`` operation (add, edit, 常驻, delete; 记下 and 不用 of an evening candidate say it is gone) through the stores the 设置 card uses; and its push (app/web_sync.py
-push_memory): alone in its request, again only when a file of the memory changed, before the ack of the page's change."""
+"""The web page's 记忆 tab of data contract v37 (app/web_memory.py; T748): the ``memory`` item the page reads (全局 and each
+workspace's principles and knowledge entries, the room they use, which the next turn carries, the next turn's block) and its
+push (app/web_sync.py push_memory): alone in its request, again only when a file of the memory changed. Read only since T908
+M3b: v37's ``memory_edit`` without ``v`` is refused (the page writes through v43's, tests/test_web_memory_v43.py)."""
 from __future__ import annotations
 
 import os
@@ -26,9 +26,6 @@ class StateCase(TestCase):
             (self.state / name).mkdir()
         write_json(config_path(self.state), {"default": "project", "workspaces": {
             "project": str(self.state / "project"), "docs": str(self.state / "docs")}})
-
-    def edit(self, **payload):
-        return web_memory.edit(self.state, payload)
 
     def group(self, data, workspace=""):
         return next(g for g in data["groups"] if g["workspace"] == workspace)
@@ -73,104 +70,14 @@ class ViewTests(StateCase):
 
 
 
-class EditTests(StateCase):
-    def test_add_principles_and_entries_to_global_and_a_workspace(self):
-        self.assertTrue(self.edit(action="add", what="principle", scope="global", text="先给结论").startswith("已记下"))
-        self.assertTrue(self.edit(action="add", what="principle", scope="global", text="先给结论。").startswith("已有说同样意思的一条"))
-        self.edit(action="add", what="principle", scope="workspace", workspace="docs", text="提交说明写英文")
-        self.edit(action="add", what="knowledge", scope="workspace", workspace="docs", text="发版走 deploy 脚本", knowledge_kind="practice")
-        self.assertEqual([r["text"] for r in principles.entries(self.state)], ["先给结论", "提交说明写英文"])
-        self.assertEqual(principles.entries(self.state)[0]["source"], {"via": "web"})
-        entry = knowledge.entries(self.state)[0]
-        self.assertEqual((entry["workspace"], entry["kind"], entry["source"]), ("docs", "practice", {"via": "web"}))
-        with self.assertRaisesRegex(ValueError, "要选记在哪个工作区"):
-            self.edit(action="add", what="principle", scope="workspace", text="x")
-        with self.assertRaisesRegex(ValueError, "最多 200 字"):
-            self.edit(action="add", what="principle", scope="global", text="长" * 201)
-
-    def test_a_full_group_is_refused_in_the_owners_words(self):
-        for n in range(principles.GROUP_LIMIT):
-            principles.save(self.state, principles.OWNER, f"原则 {n}")
-        with self.assertRaises(ValueError) as caught:
-            self.edit(action="add", what="principle", scope="global", text="再来一条")
-        self.assertIn("先删掉用不着的再记", str(caught.exception))
-        self.assertNotIn("principle_delete", str(caught.exception))
-
-    def test_edit_saves_only_over_what_the_page_saw(self):
-        item, _ = principles.save(self.state, principles.OWNER, "回复先给结论")
-        key = f"principle:{item['id']}"
-        self.assertTrue(self.edit(action="edit", key=key, text="回复先给结论，再列依据", base="回复先给结论").startswith("已保存"))
-        saved = principles.entries(self.state)[0]
-        self.assertEqual((saved["text"], saved["at"]), ("回复先给结论，再列依据", item["at"]))
-        self.assertTrue(saved["edited"])
-        with self.assertRaisesRegex(ValueError, "刚在别处改过"):
-            self.edit(action="edit", key=key, text="别的", base="回复先给结论")
-        with self.assertRaisesRegex(ValueError, "正文是空的"):
-            self.edit(action="edit", key=key, text="  ")
-        k, _ = knowledge.save(self.state, knowledge.OWNER, "fact", "测试机在 3 楼")
-        self.assertEqual(self.edit(action="edit", key=f"knowledge:{k['id']}", text="测试机在 3 楼", base="测试机在 3 楼"), "没有变化")
-        self.assertTrue(self.edit(action="edit", key=f"knowledge:{k['id']}", text="测试机搬到 5 楼", base="测试机在 3 楼").startswith("已保存"))
-        now = knowledge.entries(self.state)
-        self.assertEqual([e["text"] for e in now], ["测试机搬到 5 楼"])  # Replaced: a new id, the old one superseded.
-        with self.assertRaisesRegex(ValueError, "已经不在了"):
-            self.edit(action="edit", key=f"knowledge:{k['id']}", text="再改")
-
-    def test_pin_unpin_delete_and_void(self):
-        item, _ = principles.save(self.state, principles.OWNER, "数字要有出处")
-        key = f"principle:{item['id']}"
-        self.assertTrue(self.edit(action="pin", key=key).startswith("已标常驻"))
-        self.assertTrue(principles.entries(self.state)[0]["pinned"])
-        self.assertTrue(self.edit(action="unpin", key=key).startswith("已取消常驻"))
-        self.assertNotIn("pinned", principles.entries(self.state)[0])
-        self.assertTrue(self.edit(action="delete", key=key).startswith("已删除"))
-        self.assertEqual(principles.entries(self.state), [])
-        with self.assertRaisesRegex(ValueError, "已经不在了"):
-            self.edit(action="delete", key=key)
-        k, _ = knowledge.save(self.state, knowledge.OWNER, "fact", "一条事实")
-        with self.assertRaisesRegex(ValueError, "只有原则能标常驻"):
-            self.edit(action="pin", key=f"knowledge:{k['id']}")
-        self.assertTrue(self.edit(action="delete", key=f"knowledge:{k['id']}").startswith("已作废"))
-        self.assertEqual(knowledge.find(self.state, k["id"])["state"], knowledge.DROPPED)
-        with self.assertRaisesRegex(ValueError, "不认识这条记忆"):
-            self.edit(action="delete", key="principle:../../x")
-        with self.assertRaisesRegex(ValueError, "不认识的记忆操作"):
-            self.edit(action="rm", key=key)
-
-    def test_an_older_pages_keep_and_drop_of_a_candidate_say_it_is_gone(self):
-        rows = [{"id": "c0123abcd", "text": "以后先跑测试再提交", "workspace": "docs", "slot": "s", "at": 100.0, "state": "open"}]
-        write_json(Path(self.state) / "memory-candidates.json", {"schema": 1, "rows": rows, "declined": []})  # An older release's.
-        with mock.patch.dict(os.environ, {"COVEY_MEMORY_LEARN": "1"}):
-            self.assertEqual(web_memory.view(self.state)["candidates"], [])
-        for action in ("keep", "drop"):
-            with self.assertRaisesRegex(ValueError, "晚间候选已经下线"):
-                self.edit(action=action, key="candidate:c0123abcd")
-        self.assertEqual(principles.entries(self.state), [])
-        with self.assertRaisesRegex(ValueError, "候选不能改"):
-            self.edit(action="edit", key="candidate:c0123abcd", text="x")
-
-
-
 class T852Tests(StateCase):
-    def test_a_knowledge_entry_is_pushed_as_its_own_words_and_the_page_can_edit_it(self):
+    def test_a_knowledge_entry_is_pushed_as_its_own_words(self):
         k, _ = knowledge.save(self.state, knowledge.OWNER, "decision", "周报每周一早上发", why="主人定的")
         row = self.group(web_memory.view(self.state))["entries"][0]
         self.assertEqual((row["text"], row["knowledge_kind"], row["why"]), ("周报每周一早上发", "decision", "主人定的"))
         self.assertNotIn("原因", row["text"])
         self.assertEqual(row["size"], len("周报每周一早上发"))
         self.assertGreater(row["chars"], row["size"])  # The room a line uses: the number and the speaker around it count too.
-        for change, want in ((dict(text="周报每周二早上发"), ("周报每周二早上发", "decision", "主人定的")),
-                             (dict(text="周报每周二早上发", knowledge_kind="fact"), ("周报每周二早上发", "fact", "主人定的")),
-                             (dict(text="周报每周二早上发", why="改了日子"), ("周报每周二早上发", "fact", "改了日子"))):
-            row = self.group(web_memory.view(self.state))["entries"][0]
-            self.assertTrue(self.edit(action="edit", key=row["key"], base=row["text"], **change).startswith("已保存"))
-            now = self.group(web_memory.view(self.state))["entries"][0]
-            self.assertEqual((now["text"], now["knowledge_kind"], now["why"]), want)
-
-    def test_editing_an_entry_keeps_where_it_came_from(self):
-        k, _ = knowledge.save(self.state, knowledge.OWNER, "fact", "测试机在 3 楼", source={"topic": "T83", "job_key": "j1"}, by="topic")
-        self.edit(action="edit", key=f"knowledge:{k['id']}", text="测试机在 5 楼", base="测试机在 3 楼")
-        row = self.group(web_memory.view(self.state))["entries"][0]
-        self.assertEqual((row["origin"], row["topic"]), ("话题 T83 里记的", "T83"))
 
     def test_origin_says_what_the_source_says(self):
         cases = [({"via": "web"}, "", "网页上记的", "", ""),
@@ -197,7 +104,7 @@ class T852Tests(StateCase):
 
     def test_rows_carry_their_origin_quote_in_the_view(self):
         principles.save(self.state, principles.OWNER, "回复先给结论", source={"by": "memory_learn", "quote": "我说过很多次了，先给结论"})
-        principles.save(self.state, principles.OWNER, "网页上记的一条", source=web_memory.SOURCE)
+        principles.save(self.state, principles.OWNER, "网页上记的一条", source={"via": "web"})
         rows = {r["text"]: r for r in self.group(web_memory.view(self.state))["entries"]}
         self.assertEqual((rows["回复先给结论"]["origin"], rows["回复先给结论"]["quote"]), ("自动学习记的", "我说过很多次了，先给结论"))
         self.assertEqual((rows["网页上记的一条"]["origin"], rows["网页上记的一条"]["quote"]), ("网页上记的", ""))
@@ -209,13 +116,16 @@ class OpTests(StateCase):
         runtime = SimpleNamespace(owner_open_id="ou_owner", access=SimpleNamespace(is_owner=lambda open_id: owner))
         return SimpleNamespace(runtime=runtime)
 
-    def test_the_operation_is_the_owners_only_and_needs_the_memory_on(self):
-        payload = {"action": "add", "what": "principle", "scope": "global", "text": "先给结论"}
-        self.assertTrue(Ops.memory_edit(self.ops(), self.state, "oc_chat", {}, payload).startswith("已记下"))
+    def test_the_operation_is_the_owners_only_needs_the_memory_on_and_an_older_pages_is_refused(self):
+        payload = {"action": "add", "what": "principle", "scope": "global", "text": "先给结论"}  # v37's: no ``v``.
+        with self.assertRaisesRegex(ValueError, "页面版本太旧"):
+            Ops.memory_edit(self.ops(), self.state, "oc_chat", {}, payload)
+        self.assertEqual(principles.entries(self.state), [])
         with self.assertRaisesRegex(ValueError, "只有主人"):
             Ops.memory_edit(self.ops(owner=False), self.state, "oc_chat", {}, payload)
         with mock.patch.dict(os.environ, {"COVEY_MEMORY": "0"}), self.assertRaisesRegex(ValueError, "记忆没开"):
             Ops.memory_edit(self.ops(), self.state, "oc_chat", {}, payload)
+        self.assertFalse(hasattr(web_memory, "edit"))
 
 
 class MemoryPushTest(WebCase):
@@ -247,11 +157,10 @@ class MemoryPushTest(WebCase):
             self.assertEqual(self.sync.push_memory(full=True), 0)
         self.assertEqual(self.pushed(), [])
 
-    def test_a_change_from_the_page_is_made_and_pushed_before_the_ack(self):
+    def test_an_older_pages_change_is_refused_and_nothing_is_written(self):
         self.sync.push_memory()
         self.web.op("memory_edit", 1, "op-m1", action="add", what="principle", scope="global", text="先给结论")
         with mock.patch.object(self.runtime, "access", SimpleNamespace(owner_chat=lambda: "oc_chat", is_owner=lambda open_id: True)):
             self.assertEqual(self.sync.inbox_once(), 1)
-        self.assertEqual([r["text"] for r in principles.entries(self.state)], ["先给结论"])
-        self.assertEqual(self.web.acks[-1]["state"], "done")
-        self.assertEqual([e["text"] for e in self.pushed()[-1]["data"]["groups"][0]["entries"]], ["先给结论"])
+        self.assertEqual(principles.entries(self.state), [])
+        self.assertEqual(self.web.acks[-1]["state"], "failed")

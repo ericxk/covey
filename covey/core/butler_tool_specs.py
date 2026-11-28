@@ -91,12 +91,14 @@ MEMORY_TOOLS = (
          "repos": {"type": "array", "maxItems": 10, "items": {"type": "string"}, "description": "可选，只对这些仓库成立"}}}},
     {"name": "memory_revise",
      "description": "改一条记忆（key 是短码或旧 id，如 R7K2M、p1a2b3c）：update 改正文或标题；supersede 用新的替代，旧的收进历史；"
-                    "retire 不再成立或已办完，收进历史。先用 memory_search 找到 key，对不上是哪条时问主人。改完回复改了哪条。",
+                    "retire 不再成立或已办完，收进历史。先用 memory_search 找到 key，对不上是哪条时问主人。"
+                    "主人定的规矩要带 quote（主人这一轮说要改它的原话，一字不改），核对不到就不改。改完回复改了哪条。",
      "input_schema": {"type": "object", "required": ["key", "action"], "properties": {
          "key": {"type": "string", "description": "记忆的短码或旧 id"},
          "action": {"type": "string", "enum": ["update", "supersede", "retire"]},
          "text": {"type": "string", "description": "update、supersede 的新正文"},
-         "title": {"type": "string", "description": "可选，新标题，40 字内"}}}},
+         "title": {"type": "string", "description": "可选，新标题，40 字内"},
+         "quote": {"type": "string", "description": "改主人定的规矩时必填：主人这一轮原话里说这件事的一段，一字不改"}}}},
     {"name": "memory_search",
      "description": "查记忆（规矩、决定、资料）：query 写几个词或一句话，留空列最近的；每行是短码 · 类型 · 范围 · 正文。"
                     "查以前定过什么、某条记过没有时先用它，没找到再 topics_search。",

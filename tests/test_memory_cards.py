@@ -1,6 +1,7 @@
 """记忆在飞书上的收窄 (M4): the answer card's 记下了 line (no 升为全局, 不对 and 改), the evening and morning digest's 待审核 line, the older
 cards' clicks that are offline now (升为全局 on an answer card, 删 on a 专项卡's memory row) and the project card's count of its memory
-(app/project_facts.py). The 设置 card's 记忆 tab is tests/test_memory_panel.py's."""
+(app/project_facts.py). T908 M3b: the answer card's 采纳 on the two kinds of 待审核 (the 设置 card's kind), 不对 that closes the item with
+the rule, and the lead's "负责人记下了" line. The 设置 card's 记忆 tab is tests/test_memory_panel.py's."""
 from __future__ import annotations
 
 import datetime
@@ -12,15 +13,16 @@ from types import SimpleNamespace
 from unittest import mock
 
 import test_digest
+from support.records import state_dir, write_job
 from support.world import UnifiedCase
 
-from covey.app import project_clicks, project_facts
+from covey.app import memory_collect, project_clicks, project_facts
 from covey.app.digest import ZONE, Digest, review_view
 from covey.app.task_controls import TaskControls
 from covey.cards import answer_card as cards
 from covey.cards.digest import digest_card, digest_text
 from covey.cards.project_card import memory_line
-from covey.core import memstore, principles, projects
+from covey.core import memory_review, memstore, principles, projects
 from covey.feishu.messenger import Voice
 
 URL = "https://covey.example.test"
@@ -80,6 +82,120 @@ class AnswerCardTests(unittest.TestCase):
             element = cards.memory_element([{**NOTE, "kind": "voided"}, {**NOTE, "kind": "undone"}], "t1", 7)
         self.assertEqual(open_urls(element), [])
         self.assertNotIn("button", text_of(element))
+
+
+class AcceptLineTests(unittest.TestCase):
+    """采纳 and 不对 on the answer card's lines that wait in 待审核 (app/memory_collect.py accept_click, adopt, take_back)."""
+
+    def setUp(self):
+        self.state = state_dir(self)
+        memstore._cache.clear()
+        projects.create(self.state, projects.new_record(chat_id="oc_dm", name="记忆专项", project_id="a1b2c3d4e5f6", now=1.0))
+        self.shown = []
+        self.ctx = SimpleNamespace(state_dir=self.state, profile="p")
+        self.runtime = SimpleNamespace(log=lambda line: None)
+        patcher = mock.patch.object(memory_collect, "after_ack", lambda work: work())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(memory_collect.answer_cards, "put_memory",
+                                    lambda state, profile, messenger, key, element, log, **kw: self.shown.append(element))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def job(self, notes):
+        write_job(self.state, "k-1", topic_id="t1", chat_id="oc_dm", job_id=7, status="done", memory_notes=notes)
+        return memory_collect.find_job_record(self.state, "k-1")
+
+    def click(self, entry_id, kind=cards.MEMORY_ACCEPT_KIND):
+        event = {"event_id": "ev1", "chat_id": "oc_dm", "message_id": "om_1",
+                 "action_value": {"kind": kind, "topic_id": "t1", "job_id": "7", "entry_id": entry_id}}
+        return memory_collect.accept_click(self.runtime, object(), self.ctx, event)
+
+    def test_a_rule_held_here_is_one_line_with_accept_and_accept_moves_it_to_global(self):
+        here = memstore.add(self.state, kind="rule", scope="topic", owner_key="t1", text="回复都用中文", now=1.0)
+        key = memory_review.add(self.state, memory_review.ReviewItem(key="", type="learn", title="", text=here.text, created_at=1.0,
+                                                                      suggest={"kind": "rule", "scope": "global"}, items=(here.ref,)))[0]
+        note = {"kind": "remembered", "text": here.text, "scope": "管这个话题", "entry_id": memstore.parse_ref(here.ref)[2],
+                "ref": here.ref, "code": here.code, "review": key}
+        self.job([note])
+        with mock.patch("covey.core.web_sync.page_url", return_value=""):
+            line = text_of(cards.memory_element([note], "t1", 7))
+        self.assertIn("记下了：回复都用中文 · 先管这个话题，要管全局吗", line)
+        self.assertEqual((line.count('"采纳"'), line.count('"不对"')), (1, 1))
+        self.assertEqual(self.click(note["entry_id"]), "memory_accept")
+        moved = memstore.find(self.state, here.code)
+        self.assertEqual((moved.scope, moved.said), ("global", "owner"))
+        [after] = memory_collect.find_job_record(self.state, "k-1")["memory_notes"]
+        self.assertEqual((after["kind"], after["scope"], after["ref"], "review" in after), ("remembered", "管全局", moved.ref, False))
+        self.assertIn("记下了：回复都用中文 · 管全局", text_of(self.shown[-1]))
+        self.assertNotIn('"采纳"', text_of(self.shown[-1]))
+        self.assertEqual(self.click(after["entry_id"]), "memory_accept_done")  # A second click does nothing.
+        # 不对 on what was accepted voids it (T908 M3b).
+        record = memory_collect.find_job_record(self.state, "k-1")
+        memory_collect.take_back(self.state, "t1", record, after["entry_id"])
+        self.assertEqual(memstore.find(self.state, moved.ref).status, "void")
+
+    def test_wrong_before_accept_takes_the_rule_back_and_turns_its_item_down(self):
+        here = memstore.add(self.state, kind="rule", scope="topic", owner_key="t1", text="改完先跑全量", now=1.0)
+        key = memory_review.add(self.state, memory_review.ReviewItem(key="", type="learn", title="", text=here.text, created_at=1.0,
+                                                                      suggest={"kind": "rule", "scope": "global"}, items=(here.ref,)))[0]
+        note = {"kind": "remembered", "text": here.text, "scope": "管这个话题", "entry_id": memstore.parse_ref(here.ref)[2],
+                "ref": here.ref, "review": key}
+        record = self.job([note])
+        [after] = memory_collect.take_back(self.state, "t1", record, note["entry_id"])
+        self.assertEqual(after["kind"], "undone")
+        self.assertEqual(memstore.find(self.state, here.ref).status, "void")
+        item = next(row for row in memstore.review_items(self.state, states=None) if row["key"] == key)
+        self.assertEqual((item["state"], item["decided_by"]), ("rejected", "owner"))
+
+    def test_a_grant_rule_waits_on_its_line_and_holds_once_accepted(self):
+        key = memory_review.add(self.state, memory_review.ReviewItem(
+            key="", type="learn", title="", text="改完直接部署到本机", created_at=1.0,
+            suggest={"kind": "rule", "scope": "topic", "owner_key": "t1", "grant": "deploy"}))[0]
+        note = {"kind": "pending", "text": "改完直接部署到本机", "scope": memory_collect.GRANT_WORDS, "entry_id": key}
+        self.job([note])
+        with mock.patch("covey.core.web_sync.page_url", return_value=""):
+            line = text_of(cards.memory_element([note], "t1", 7))
+        self.assertIn("待审核：改完直接部署到本机 · " + memory_collect.GRANT_WORDS, line)
+        self.assertEqual((line.count('"采纳"'), line.count('"不对"')), (1, 1))
+        self.assertEqual(memstore.entries(self.state, kinds=("rule",)), [])
+        self.click(key)
+        [entry] = memstore.entries(self.state, kinds=("rule",))
+        self.assertEqual((entry.text, entry.said, entry.scope), ("改完直接部署到本机", "owner", "topic"))
+        [after] = memory_collect.find_job_record(self.state, "k-1")["memory_notes"]
+        self.assertEqual((after["kind"], after["ref"], after["scope"]), ("remembered", entry.ref, "管这个话题"))
+
+    def test_an_older_cards_two_lines_become_one_and_an_item_decided_elsewhere_says_so(self):
+        here = memstore.add(self.state, kind="rule", scope="topic", owner_key="t1", text="汇报先给结论", now=1.0)
+        key = memory_review.add(self.state, memory_review.ReviewItem(key="", type="learn", title="", text=here.text, created_at=1.0,
+                                                                      suggest={"kind": "rule", "scope": "global"}, items=(here.ref,)))[0]
+        notes = [{"kind": "remembered", "text": here.text, "scope": "管这个话题", "entry_id": memstore.parse_ref(here.ref)[2], "ref": here.ref},
+                 {"kind": "pending", "text": here.text, "scope": memory_collect.WIDER_WORDS, "entry_id": key}]
+        self.job(notes)
+        self.click(key)
+        [after] = memory_collect.find_job_record(self.state, "k-1")["memory_notes"]
+        self.assertEqual((after["kind"], after["scope"]), ("remembered", "管全局"))
+        other = memory_review.add(self.state, memory_review.ReviewItem(key="", type="learn", title="", text="别的", created_at=1.0,
+                                                                        suggest={"kind": "rule", "scope": "global"}))[0]
+        self.job([{"kind": "pending", "text": "别的", "scope": memory_collect.WIDER_WORDS, "entry_id": other}])
+        memory_review.decide(self.state, other, "reject")
+        with self.assertRaisesRegex(ValueError, "处理过了"):
+            self.click(other)
+        with self.assertRaisesRegex(ValueError, "找不到"):
+            memory_collect.accept_click(self.runtime, object(), self.ctx, {"chat_id": "oc_other", "action_value": {
+                "kind": cards.MEMORY_ACCEPT_KIND, "topic_id": "t1", "job_id": "7", "entry_id": other}})
+
+    def test_the_leads_line_says_who_wrote_it_and_shows_with_the_turns_lines(self):
+        lead = {"kind": "remembered", "by": "lead", "text": "发版先灰度", "scope": "管这个专项", "entry_id": "a1", "ref": "project:p:a1"}
+        with mock.patch("covey.core.web_sync.page_url", return_value=""):
+            line = text_of(cards.memory_element([lead], "t1", 7))
+        self.assertIn("负责人记下了：发版先灰度 · 管这个专项", line)
+        self.assertEqual((line.count('"不对"'), line.count('"采纳"')), (1, 0))
+        write_job(self.state, "k-2", topic_id="t1", chat_id="oc_dm", job_id=8, status="done", message_id="k-2", lead_notes=[lead])
+        with mock.patch.object(memory_collect.memory, "enabled", return_value=True), \
+                mock.patch.object(memory_collect.memory_observe, "observe"):
+            memory_collect.collect(SimpleNamespace(log=lambda line: None), object(), SimpleNamespace(message_id="k-2", job_id=8), self.ctx)
+        self.assertIn("负责人记下了：发版先灰度", text_of(self.shown[-1]))
 
 
 class OfflineClickTests(UnifiedCase):

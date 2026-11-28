@@ -310,21 +310,29 @@ def box(element_id, inputs, outputs, outputs_id=""):
 
 MEMORY_ID = "answer_memory"
 MEMORY_WRONG_KIND = "bridge_memory_wrong"
+# 采纳 on a line that waits in 待审核 (app/memory_collect.py accept_click): the kind the 设置 card's 采纳 has (cards/memory_panel.py
+# ACCEPT, app/memory_panel.py takes both), so no kind is new; this one carries the job (``job_id``), the 设置 card's never does.
+MEMORY_ACCEPT_KIND = "bridge_memory_pin"
 MEMORY_PROMOTE_KIND = "bridge_memory_promote"  # 升为全局 of the older card: no longer drawn, the click says it is offline (app/task_controls.py).
 MEMORY_LINES = {"remembered": "记下了", "voided": "作废了", "undone": "已撤销", "superseded": "收起了", "pending": "待审核"}
+LEAD_LINE = "负责人记下了"  # A line of the lead's project_remember (a note ``by`` lead, app/project_tools.py).
 UNDOABLE = ("remembered", "superseded", "pending")  # The lines with a 不对 (app/memory_collect.py take_back).
 EDIT_LABEL = "改"
+ACCEPT_LABEL = "采纳"
 NOTE_WORDS = "（相关时才带）"  # After a 资料 the owner asked to be noted (a note's ``entry_kind``): not carried every turn.
+WIDER_WORDS = "先{scope}，要管全局吗"  # A rule held where it was said while 待审核 asks about 全局 (a note's ``review``).
 
 
 def memory_element(notes, topic_id="", job_id="", url=None):
     """The grey lines at the bottom of a turn's answer card (COVEY_MEMORY=1, app/memory_collect.py): one per note of the job
-    record's ``memory_notes`` ({kind, text, scope, entry_id, title?, code?, redacted?, entry_kind?}), "记下了：<title, else text> ·
-    管这个专项" (a 资料, ``entry_kind`` note, says ``NOTE_WORDS`` after its words) and a
-    不对 button that takes it back (``MEMORY_WRONG_KIND``), then with the web page on a 改 button that opens that entry on the
-    web page's 记忆 (``url`` + ``?code=<the note's short code>``; ``url`` default: the page's /memory; no button without the
-    page); "作废了：<text>", "已撤销：<text>" once taken back. There is no 升为全局 here: moving an entry to a larger scope is the
-    page's. None without a note."""
+    record's ``memory_notes`` and ``lead_notes`` ({kind, text, scope, entry_id, title?, code?, redacted?, entry_kind?, review?,
+    by?}), "记下了：<title, else text> · 管这个专项" (a 资料, ``entry_kind`` note, says ``NOTE_WORDS`` after its words; a line of
+    the lead's says ``LEAD_LINE``) and a 不对 button that takes it back (``MEMORY_WRONG_KIND``), then with the web page on a 改
+    button that opens that entry on the web page's 记忆 (``url`` + ``?code=<the note's short code>``; ``url`` default: the page's
+    /memory; no button without the page); "作废了：<text>", "已撤销：<text>" once taken back. A line that waits in 待审核 has
+    采纳 first (``MEMORY_ACCEPT_KIND``): a rule held where it was said asks "先管这个专项，要管全局吗" (``review``), a learned
+    rule that grants is a 待审核 line. There is no 升为全局 here: moving an entry to a larger scope is the page's. None without a
+    note."""
     from urllib.parse import quote
 
     from covey.cards.memory_panel import center_url, url_button
@@ -336,11 +344,19 @@ def memory_element(notes, topic_id="", job_id="", url=None):
         if kind not in MEMORY_LINES:
             continue
         text = literal_text(note.get("title") or note.get("text")) + (NOTE_WORDS if note.get("entry_kind") == "note" else "")
-        words = f"{MEMORY_LINES[kind]}：{text}" + (f" · {note.get('scope')}" if kind in UNDOABLE and note.get("scope") else "")
+        label = LEAD_LINE if kind == "remembered" and note.get("by") == "lead" else MEMORY_LINES[kind]
+        scope = str(note.get("scope") or "")
+        asks = kind == "remembered" and bool(note.get("review"))
+        if asks and scope:
+            scope = WIDER_WORDS.format(scope=scope)
+        words = f"{label}：{text}" + (f" · {scope}" if kind in UNDOABLE and scope else "")
         line = md(grey(words), size="notation")
         if kind in UNDOABLE:
             value = {"topic_id": topic_id, "job_id": job_id, "entry_id": str(note.get("entry_id") or "")}
-            buttons = [text_button("不对", {"kind": MEMORY_WRONG_KIND, **value})]
+            buttons = []
+            if asks or (kind == "pending" and value["entry_id"].startswith("review:")):
+                buttons.append(text_button(ACCEPT_LABEL, {"kind": MEMORY_ACCEPT_KIND, **value}))
+            buttons.append(text_button("不对", {"kind": MEMORY_WRONG_KIND, **value}))
             if url:
                 code = str(note.get("code") or "")
                 at = f"{url}?code={quote(code)}" if code and "?" not in url and "#" not in url else url

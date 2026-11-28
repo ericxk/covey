@@ -1678,7 +1678,8 @@ export const MEMORY_STATUS = ['active', 'pending', 'done', 'archived', 'void'] a
 export type MemoryStatus = (typeof MEMORY_STATUS)[number];
 export const MEMORY_BY = ['owner', 'lead', 'butler', 'learn', 'import', 'bridge', 'web'] as const;
 export type MemoryBy = (typeof MEMORY_BY)[number];
-export const MEMORY_REVIEW_TYPES = ['learn', 'candidate', 'lead', 'import', 'conflict', 'tidy', 'class3', 'migrate'] as const;
+/** 待审核的类型：learn（推断全局、放行类）、conflict（回滚冲突）、migrate（旧版迁移）；旧 Covey 留下的别的类型按已过期算、不再推 */
+export const MEMORY_REVIEW_TYPES = ['learn', 'conflict', 'migrate'] as const;
 export type MemoryReviewType = (typeof MEMORY_REVIEW_TYPES)[number];
 
 export interface MemoryEntryOrigin {
@@ -1723,9 +1724,9 @@ export interface MemoryReviewItem {
   type: MemoryReviewType;
   title: string; text: string; quote?: string;
   from?: { topic_key?: string; topic_number?: number };
-  suggest: { kind: MemoryKind; scope: MemoryScope; project_key?: string };
+  suggest: { kind: MemoryKind; scope: MemoryScope; project_key?: string; grant?: string };  // grant：放行类，涉及要主人点头的哪类事
   conflict_with?: string;
-  items?: MemoryEntry[];    // tidy：一组
+  items?: MemoryEntry[];    // 推断全局：先在原处照做的那一条；迁移项：带过来的那一条
   flags?: ('vague' | 'dynamic' | 'repeat' | 'old_repo')[];
   created_at: number;
 }

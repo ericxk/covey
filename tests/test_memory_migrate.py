@@ -108,8 +108,8 @@ class MigrateTest(Case):
         self.assertEqual({t: (e.kind, e.said) for t, e in mine.items()}, {
             "同一账号只对应一份额度": ("rule", "owner"), "同事机器只读不改": ("note", "summary"),
             "旧的约束没人带": ("note", "summary"), "分层：本机多账号常见": ("note", "summary"), "包 B 已合入": ("note", "summary"),
-            "并行改要用 worktree": ("rule", "owner"), "汇报先给结论": ("rule", "owner"),
-            "主人答：stable 什么时候推？→跑满 12 小时": ("decision", "owner")})
+            "并行改要用 worktree": ("rule", "owner"),
+            "主人答：stable 什么时候推？→跑满 12 小时": ("decision", "owner")})  # The style line is no entry (T908 M3b).
         review = memstore.review_items(self.state)
         # T914 M1: a lead's line and an evening candidate put nothing in 待审核; the workspace groups still do.
         self.assertEqual(sorted((item["type"], item["text"]) for item in review), [

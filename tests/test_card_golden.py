@@ -1016,6 +1016,14 @@ def answer_tail_cards():
                 {"kind": "remembered", "text": "回答先给结论", "scope": "管全局", "entry_id": "p1a2b3c"},
                 {"kind": "remembered", "text": "项目代号用简称", "scope": "管这个话题", "entry_id": "0a1b2d", "redacted": True}],
                 "tf0001", 439, url="")]),
+            # The two kinds of 待审核 on the card (T908 M3b): a rule held here that may be 全局 (one line, 采纳 and 不对), one that
+            # grants (待审核, 采纳 and 不对), and the lead's rule of its turn (负责人记下了, 不对).
+            "answer_card_memory_review": answer_card(text, "✅ T439 · 结论", [*tail(files, inputs, outputs), memory_element([
+                {"kind": "remembered", "text": "以后回复都用中文", "code": "R7M2Q", "scope": "管这个专项", "entry_id": "a1b2c3",
+                 "review": "review:learn:9f8e7d"},
+                {"kind": "pending", "text": "以后改完直接部署到本机", "scope": "涉及要你点头的事，采纳后才生效", "entry_id": "review:learn:1a2b3c"},
+                {"kind": "remembered", "by": "lead", "text": "发版先灰度再全量", "code": "R3K8W", "scope": "管这个专项",
+                 "entry_id": "d4e5f6"}], "tf0001", 439, url="https://covey.example.test/memory")]),
             "answer_card_thread": answer_card(text, "✅ T443 · 结论", tail(files, inputs, outputs), [head]),
             "answer_card_thread_stopped": answer_card(text, "⏹ T443 · 结论", tail(None, inputs, outputs),
                                                       [topic_head("T443", "改看板的 Pin 目标", "cancelled")]),

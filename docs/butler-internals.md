@@ -199,13 +199,13 @@
 - **纠正落地**：触发词是一组（`core/memory.py` 的 `CUES`：以后、每次、别再、不要再、记住、再也不要、从现在起、一律、永远、总是、老是、说过、规则是、默认、记一下、记下来），检查点规则和记忆自己长共用；规则段只有一条 `MEMORY_FIX_RULE`（原来知识条目的 `REMEMBER_RULE` 合进来了）；检查点里 `memory: [{quote, text, kind, scope}]` 至多 3 条，`kind` 是 `rule`（以后照做）或 `note`（记一下的事实、做法、坑），`scope` 是建议的范围 `topic`、`project`、`global`；另可写 `memory_void: [{id, quote}]`。
   - 一轮结束后 Bridge（`app/memory_collect.py`）核对：`quote` 必须是主人这一轮原话里的一段，并由 `app/memory_proof.py` 的 `prove` 在这一轮的任务记录里再核一次（消息是 Bridge 收进来的主人消息、来源是主人的话、`owner_turn`），核不到的不记（日志 `reason=unproven`）；`memory_void` 的编号必须是这一轮带过的、“它总结的”的专项记忆，才作废。
   - 写只走一个口（`memory_collect.take` → `core/memory_gate.py` 的 `write`，自动学习也走这里）：`topic` 记这个话题（专项的话题也是）；`project` 记话题所在的专项（不在专项里就记话题），当场生效，不进待审核；负责人话题没有自己的条目，主人在那里说的记专项；`global` 的规矩先记在说的地方（专项，否则话题），同时进待审核问要不要管全局（类型 `learn`，`items` 是当地那条；采纳时 `core/memory_review.py` 把那条 `promote` 到全局，不另建一条），资料直接记全局；没写 `scope` 的按最窄的地方。规矩的正文涉及部署、删除、花钱、对外发送、占机器（`core/ask_kinds.py` 的同一份词表）或命中闸词（`core/project_gates.py` 的 `words`）的不写入，进待审核（`suggest.grant`），采纳前不生效（`memory_gate.grants`）。和负责人记的某条正文相同时，就地确认那一条（`core/memstore.py` 的 `put`：算你定的，写上你的出处，记录里是一次 `confirm`）。开着脱敏的话题记下的带标记，不升全局。
-  - 结果写进任务记录的 `memory_notes`，答案卡底部每条一行灰字：“记下了：… · 管这个专项”带“不对”按钮（`bridge_memory_wrong`，不建任务），资料在正文后写“（相关时才带）”（`entry_kind` 为 `note`）；“待审核：… · 要不要管全局等你采纳”或“…· 涉及要你点头的事，采纳后才生效”，“不对”把那一项标成不要；“作废了：…”。点“不对”撤销那一条（墓碑），这一行改成“已撤销：…”。
+  - 结果写进任务记录的 `memory_notes`，答案卡底部每条一行灰字：“记下了：… · 管这个专项”带“不对”按钮（`bridge_memory_wrong`，不建任务），资料在正文后写“（相关时才带）”（`entry_kind` 为 `note`）；管全局的规矩一行写“记下了：… · 先管这个专项，要管全局吗”（note 的 `review` 是待审核那一项），涉及要你点头的写“待审核：… · 涉及要你点头的事，采纳后才生效”，两种都带「采纳」（设置卡「记忆」同一种 kind `bridge_memory_pin`，值里带 `job_id`，`app/memory_panel.py` 的 `accept_line` 认领，`app/memory_collect.py` 的 `accept_click`：采纳后这一行变成“记下了：… · 管全局”或记到的地方）；“不对”撤掉规矩、同时把那一项标成不要，采纳过的再点“不对”作废它；负责人 `project_remember` 记下的规矩在任务记录的 `lead_notes` 里，同一张卡上一行“负责人记下了：…”带“不对”；“作废了：…”。点“不对”撤销那一条（墓碑），这一行改成“已撤销：…”。
 - **设置卡「记忆」**（`app/memory_panel.py`、`cards/memory_panel.py`，开着记忆才有这个标签）：预览用的是和每轮一样的 `items`、`fill`、`select` 与 `memory_block`，场景是选中工作区里新开的普通话题、主人自己的一轮（所以只有全局和工作区两组）；列表另列各专项（没取消的）和各话题（任务记录 `memory_notes` 里有“管这个话题”的）的条目。删除走各自原来的路：原则 `delete`、知识条目 `drop`（原因写“主人在设置卡「记忆」里删掉”）、专项和话题记忆的墓碑。按钮的 `key` 是 `principle:<id>`、`knowledge:<id>`、`project:<专项>:<id>`、`topic:<话题>:<id>`；点击只认主人，先改存储再在应答之后整卡重画，同一次点击重投只算一次。
 - **还没有的**：全局产物索引、网页上的记忆页；负责人的话题不经这一块读专项记忆，它的状态包每一轮带同一份（`project_view`）。按需查和问之前先查是[记忆自己长](#记忆自己长)的事，开关关着时没有。
 
 ### 记忆候选
 
-已下线：晚间汇总不再找“你反复说的”，那个模块删掉了；`<state>/memory-candidates.json` 里旧版留下的行不再读。待审核里旧版放进去的 `candidate` 项照旧能采纳（记成全局规矩）或不要，答案卡上旧版写的“待审核”行点“不对”只把那一行标成已撤销。
+已下线：晚间汇总不再找“你反复说的”，那个模块删掉了；`<state>/memory-candidates.json` 里旧版留下的行不再读。待审核里旧版放进去的 `candidate` 项按过期算（`core/memstore.py` 的 `review_state`），不再列出、不能再处理，答案卡上旧版写的“待审核”行点“不对”只把那一行标成已撤销。
 
 ### 记忆自己长
 
@@ -223,7 +223,7 @@
   - `memory.json` 的行收起写 `core/project_memory.py` 的 `settle`（`memory-meta.json` 的 `valid` 为 `done` 或 `superseded`，带 `superseded_by`；读成历史记录，不再每轮带），返回改之前的样子留给 `unsettle`，这一批在记录里写一行“整理记忆收起了几条”；`decisions.jsonl` 的决定经 `core/memory_gate.py` 的 `revise` 办完（每条一行变更记录，网页记录和别的问答写入一样不列）。
   - 记录在 `<state>/memory-tidy.json`（最近 14 次）：每次 `{id, slot, chat_id, at, projects: [{id, name, settled: [[条目, 之前, 原因]], decided?: [[ref, 原因]]}], expired, undone?}`；汇总卡上画 `view_of` 的样子。旧版的槽位是汇总时间点（数字），照样读。
   - 卡上的点击（`bridge_digest_memory`，只认主人，`Digest.memory_click`，应答后在 `memory_decided` 里做再整卡重画）：只有「撤销」：`unsettle` 这次收起的行，`decided` 里还是办完状态的决定 `memstore.restore` 放回；同一个按钮重投只算一次。旧卡上的「确认长期」「不对」只回一句已下线，不改记忆。
-- **别处学到的**（Harness 记忆导入）：已下线，夜里收割和读各 Harness 记忆文件的两个模块删掉了，网页的导入和 `memory_edit` 的 `import`、`ignore` 也去掉了；`<state>/memory/imports.json` 原样留着，不读不写。待审核里旧版放进去的 `import` 项采纳时照它的正文记下。
+- **别处学到的**（Harness 记忆导入）：已下线，夜里收割和读各 Harness 记忆文件的两个模块删掉了，网页的导入和 `memory_edit` 的 `import`、`ignore` 也去掉了；`<state>/memory/imports.json` 原样留着，不读不写。待审核里旧版放进去的 `import` 项按过期算、不再列出。
 - **查记忆**（`core/memory_search.py`，只读、只用标准库和 core）：通用原则和通用知识条目只在 `--owner` 时查；工作区的原则和知识条目；话题自己的记忆；话题所在专项的全部条目（包括历史记录，标“做完了”“被替代了”）、`memory-archive.json` 里放不下移出的、`answers/` 里每道题（专项条目里还有这道题的就不重复列）；开了脱敏的话题的条目只在 `--redacted` 时查；代答话题什么都查不到。按词打分：拉丁字母和数字的连续串、中文每两个字算一个词，每个词按有几条含它加权（每道题都有的“要不要”权重很低），得分是查询里的词被这一条命中的加权比例，低于 0.15 的不列，同分时还有效的在前、新的在前。
 
 ## 设置卡的细节

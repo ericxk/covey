@@ -388,12 +388,13 @@ def _supersede(ctx, record, item, said, log, access=None):
     if kind in ("principle", "global"):
         if not new:
             return []
-        return [{**note, "text": note["text"] + clash} if note["kind"] == "pending" else note
+        return [{**note, "text": note["text"] + clash} if note["kind"] == "pending" or note.get("review") else note
                 for note in memory_collect.take(ctx, record, new, marked, quote, scope="global", access=access, source="learn",
                                                 log=log)]
     notes = memory_collect.take(ctx, record, new, marked, quote, access=access, source="learn", log=log) if new else []
     made = next((note for note in notes if note["kind"] == "remembered"), None)  # A new line that grants only waits (pending).
     because = f"{n}：{cut(old, 40)}（因为你这轮说“{cut(quote, 30)}”）"
+    was = memstore.find(ctx.state_dir, ref)
     if kind == "project":
         project_id, _, entry_id = rest.partition(":")
         settled = project_memory.settle(ctx.state_dir, project_id, [
@@ -405,6 +406,10 @@ def _supersede(ctx, record, item, said, log, access=None):
         if not topic_memory.delete(ctx.state_dir, str(record.get("topic_id") or ""), rest):
             return notes
         found = {"entry_id": rest, "project_id": "", "scope": memory_collect.TOPIC_WORDS}
+    # In the 记录 as every other change is (T908 M3b): the line the owner's words put out of the way, and why.
+    number = record.get("topic_number")
+    memstore.noted(ctx.state_dir, was, ref, who="learn", action="supersede",
+                   because={"source": "learn", "quote": cut(quote, 60), **({"topic_number": number} if type(number) is int else {})})
     log(f"memory learn superseded {kind} line job=#{record.get('job_id')}")
     return [*notes, {"kind": "superseded", "text": because, **found}]
 

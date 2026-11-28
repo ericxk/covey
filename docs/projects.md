@@ -117,11 +117,12 @@
 - **三层**（`layer`，名词见[名词表](glossary.md)）：`rule` 长期约定、`decision` 当前决定（问答、你的纠正，负责人记的决定也在这一层）、`history` 历史记录；`valid` 是 `active`、`done`、`superseded`（带 `superseded_by`）或作废的 `void`，做完和被替代的进历史记录；`applies` 是适用范围和条件。
 - **每轮怎么带**（`core/memory.py` 的 `PARTS`）：你说的长期约定、你说的当前决定，和**待核对参考**（不是你说的，负责人整理的口径：和你的话冲突时让路，不能单独作为替你答题的依据）三段各自取舍；历史记录不每轮带。当前决定只管那道题问的范围（哪一版、哪一批、什么目标），换了批次、目标或扩大范围不算你已经同意。
 - **旁边的文件**：出处、纠正、层和有效性写在 `projects/<id>/memory-meta.json`（条目 id 对它的这些字段），`memory.json` 的格式和以前一样，旧版本改写它也丢不掉这些。
-- **纠正**（`app/project_context.py` 的 `fix_memory`，网页和卡片接上之前只有接口）：`scope` 改适用范围（写 `applies`），`once` 只限当次（变成当前决定，适用“只限当次”），`confirm` 确认长期（变成长期约定，`asserted_by` 是你、`recorded_by` 是 Bridge、出处是这次操作的消息 id，所以等级是 `owner`）。只认你：调用方先核对点击或网页操作是你的，模型的话进不来；每次纠正记在条目的 `fixes` 里。
+- **纠正**（`core/project_memory.py` 的 `fix`；网页的 `memory_fix` 已下线，旧版记下的照常读）：`scope` 改适用范围（写 `applies`），`once` 只限当次（变成当前决定，适用“只限当次”），`confirm` 确认长期（变成长期约定，`asserted_by` 是你、`recorded_by` 是 Bridge、出处是这次操作的消息 id，所以等级是 `owner`）。只认你：调用方先核对点击或网页操作是你的，模型的话进不来；每次纠正记在条目的 `fixes` 里。
 - **负责人查记忆**（`memory_search`，和管家同一个工具）：状态包只带一部分记忆，负责人要找以前定过什么、某条记过没有时用它查；只查本专项和本专项话题的（规矩、决定、资料），全局的、别的专项的、普通话题的都不读，点名别的专项或不属于本专项的话题直接拒绝。在 Antigravity 上它按需加载，不占负责人的预载。
 - **负责人改记忆**（`project_memory_revise`，一个工具三个 `op`）：`update` 改一条的正文或种类，改之前的原文留在 meta 的 `fixes`（`what` 为 `edit`，带 `was`、`why`、任务）；`supersede` 用新条（`text`）或已有的一条（`by`，合并重复）替代旧条，旧条标 `superseded`、写 `superseded_by`，进历史、不再每轮带，仍可查；`retire` 把一条收进历史（`done`，不是墓碑，主人删的墓碑仍是另一回事）。口径变了用它们，不再追加一条“XXX 作废”。状态包里每条记忆开头的〔〕是它的 id。
 - **改记忆的边界**：主人的长期约定（`asserted_by` 是主人、层为 `rule`）和他明确留下的限制（种类 `constraint`）负责人不能改、替代、作废，要改请问主人；主人的当前决定（问答记下的）不许改正文，办完了可以 `retire`，只能被主人更新的答复（`by` 指向那条）替代；负责人自己记的随便改。判断在记录锁内做，被拒时说明原因。写进主人删掉过的文字同样被拒。
-- **快照不进记忆**：发版号、现网第几代、集群瞬时余量、某一刻的进度这类过后就过时的话，`project_remember` 和 `project_memory_revise` 会拒绝（`app/project_tools.py` 的 `SNAPSHOT`，只认明显的几种写法），改写 `project_note`。
+- **快照不进记忆**：发版号、现网第几代、集群瞬时余量、某一刻的进度、谁在做哪件（“T12 负责…”）、几号前交付这类过后就过时的话，`project_remember` 和 `project_memory_revise` 会拒绝（`app/project_tools.py` 的 `SNAPSHOT`，只认明显的几种写法；`project_remember` 还经 `core/memory_gate.py` 的 `write`，“今天、目前”这类时间词和“现网第 N 代”也拒），回执让它写进项目简报（开了协作时 `project_goal` 的 `background`）或 `project_note`。
+- **负责人记规矩**（`project_remember`）：`kind` 只收 rule、note（旧的 constraint、decision、fact 直接写 `memory.json` 的路已删）；负责人记的规矩已占满专项名额（`core/memory_review.py` 的 `RULE_CAPS`：10 条 / 1,000 字）时拒写，回执让它先用 `project_memory_revise` 合并（supersede）或改成资料（update 写 kind fact）。记下一条新规矩的那一轮，它的卡上多一行“负责人记下了：… · 管这个专项”带「不对」（任务记录的 `lead_notes`）。`project_memory_revise` 的每次改动也进记忆的“记录”。
 
 专项和 `COVEY_PROJECT_MEMORY` 都开着（默认）时再多三件事：
 

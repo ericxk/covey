@@ -262,14 +262,27 @@ def memory_save(env, args, request=None):
                  flags=list(written.flags))
 
 
-def memory_revise(env, args):
-    """memory_revise: update, supersede or retire the entry ``key`` names."""
+OWNER_RULE = ("这是主人定的规矩：改、替代或收起它要带主人这一轮说这件事的原话（quote，一字不改，不是你的转述）；"
+              "主人这一轮没说要改它就先问主人。没有改。")
+
+
+def memory_revise(env, args, request=None):
+    """memory_revise: update, supersede or retire the entry ``key`` names. A rule of the owner's own (你定的) is changed only
+    with his words of this turn (``quote``, proven in the turn of ``request`` as memory_save's are), the lead's protection
+    (T908 M3b); anybody else's, or a note or a decision, without."""
     key, action = knowledge.clean_text(args.get("key")), str(args.get("action") or "")
     entry = memstore.find(env.state_dir, key) if key else None
     if entry is None:
         return reply(False, f"没有 {key}：先用 memory_search 找短码。")
     if action not in ("update", "supersede", "retire"):
         return reply(False, "action 只能是 update、supersede、retire。")
+    if entry.kind == "rule" and entry.said == "owner":
+        quote = knowledge.clean_text(args.get("quote"))
+        access = getattr(getattr(env, "runtime", None), "access", None)
+        proof = memory_proof.prove(access, env.state_dir, memory_gate.Proof(quote=quote, via="butler"),
+                                   job_key=str(getattr(request, "job_key", "") or "")) if quote and access is not None else None
+        if proof is None:
+            return reply(False, OWNER_RULE, refused=True)
     text, title = knowledge.clean_text(args.get("text")), knowledge.clean_text(args.get("title"))
     if action != "retire":
         if not text and not (action == "update" and (title or args.get("why") is not None)):

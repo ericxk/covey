@@ -44,6 +44,7 @@ from covey.core.state import read_for_write as state_read_for_write
 KINDS = ("rule", "decision", "note")
 SCOPES = ("global", "project", "topic")
 STATUSES = ("active", "pending", "done", "archived", "void")
+GONE = ("archived", "void")  # An entry no longer in force that is not a decision done: what 待审核 about it closes on.
 SAID = ("owner", "summary")  # 你定的 (the owner's words or confirmed by him) / 别人总结的.
 BY = ("owner", "lead", "butler", "learn", "import", "bridge", "web")
 
@@ -73,6 +74,10 @@ VERSION = 1
 REVIEW_STATES = ("open", "accepted", "rejected", "expired")
 REVIEW_DAYS = 14  # An item of 待审核 left open this long is closed as expired (review_expire, the daily upkeep).
 REVIEW_HELD = ("open", "accepted", "rejected")  # An item in these keeps the same proposal out (review_put); an expired one does not.
+# The types of 待审核 (core/memory_review.py TYPES): learn (推断全局 and 放行类, T908 M3b), and the one-time sources, a rollback's
+# conflict and an older release's workspace line (migrate). An open item of a type older releases put there (a lead's rule, an
+# evening candidate, a Harness's import, a tidy proposal, the third same-class question) reads as expired: kept, never written.
+REVIEW_TYPES = ("learn", "conflict", "migrate")
 LOG_DAYS = 90  # Of memory/log.jsonl (core/maintenance_rules.py MemoryLog).
 VOID_DAYS = 30  # A void decision's events go from decisions.jsonl after this (core/maintenance_rules.py Decisions).
 _SNAP = ("title", "text", "why", "kind", "said", "status", "superseded_by", "repos")
@@ -165,7 +170,7 @@ def topic_memory_path(state_dir, topic_id) -> Path:
     return Path(state_dir) / "topics" / str(topic_id) / project_memory.FILE
 
 
-TOPIC_MAX = 20  # A topic's live lines (core/topic_memory.py MAX_ENTRIES): past it the oldest goes.
+TOPIC_MAX = 20  # A topic's live lines (core/topic_memory.py MAX_ENTRIES): past it the oldest becomes a tombstone.
 
 
 def _topic_write(path, rows) -> None:
@@ -174,7 +179,8 @@ def _topic_write(path, rows) -> None:
 
 def topic_add(state_dir, topic_id, text, *, source="owner", redacted=False, now=None, kind="constraint") -> tuple:
     """(the line, whether it is new): ``text`` as a line of the topic's memory.json in the format every release reads
-    (core/topic_memory.py add). The same text still there is the one returned; past ``TOPIC_MAX`` live lines the oldest goes."""
+    (core/topic_memory.py add). The same text still there is the one returned; past ``TOPIC_MAX`` live lines the oldest becomes
+    a tombstone (its words kept, logged as a void the 记录 shows and an undo puts back; T908 M3b), never deleted."""
     stamp = time.time() if now is None else now
     wanted = {"id": secrets.token_hex(3), "text": project_memory.clean(text), "kind": project_memory.kind_of(kind),
               "source": str(source)[:30], "at": stamp, "deleted": 0, **({"redacted": True} if redacted else {})}
@@ -187,12 +193,31 @@ def topic_add(state_dir, topic_id, text, *, source="owner", redacted=False, now=
         if same is not None:
             return same, False
         rows.append(wanted)
+        gone = []
         while sum(1 for row in rows if not row["deleted"]) > TOPIC_MAX:
-            rows.remove(next(row for row in rows if not row["deleted"]))
+            oldest = next(row for row in rows if not row["deleted"])
+            oldest["deleted"] = stamp
+            gone.append(oldest["id"])
         _topic_write(path, rows)
     note_topic(state_dir, topic_id, now=stamp)
+    for line in gone:
+        _crowded_out(state_dir, f"topic:{topic_id}:{line}", stamp)
     touch_rev(state_dir, stamp)
     return wanted, True
+
+
+def _crowded_out(state_dir, ref, now) -> None:
+    """The topic's line ``ref`` that a new one crowded out (``TOPIC_MAX``): its void logged, 待审核 about it closed."""
+    try:
+        entry = find(state_dir, ref)
+    except (OSError, ValueError):
+        entry = None
+    if entry is None:
+        return
+    token = log_change(state_dir, who="bridge", action="void", refs=[ref], title=entry.title,
+                       before={ref: {**snapshot(entry), "status": "active"}}, after={ref: snapshot(entry)},
+                       because={"source": "topic_max"}, now=now)
+    review_close(state_dir, ref, token=token, now=now)
 
 
 def topic_rewrite(state_dir, topic_id, entry_id, *, text=None, kind=None, deleted=None, now=None) -> dict | None:
@@ -382,8 +407,6 @@ def kind3_of(entry: dict, meta: dict | None = None, *, source: str = "") -> tupl
         kind, said = "rule", "owner" if origin in ("", "owner") or owner else "summary"
     elif origin in project_memory.ANSWERS:
         kind, said = "decision", "owner"
-    elif row.get("kind") == "style":
-        kind, said = "rule", "owner"
     elif owner:
         kind, said = ("decision" if row.get("layer") == "decision" else "rule"), "owner"
     elif row.get("kind") in LEAD_HELD and row.get("carried"):
@@ -693,6 +716,8 @@ def _project(state_dir, pid) -> list:
         side = extra.get(row["id"], {})
         if side.get("mirror_of"):
             continue  # A decision export_legacy wrote back for an older release: decisions.jsonl has it.
+        if row.get("kind") == "style":
+            continue  # project_style's line (汇报风格：…): the lead's own settings, read where they always were, never a rule.
         kind, said, status = kind3_of(row, {"carried": bool((side.get("guard") or {}).get("kept"))}, source=PROJECT)
         if row.get("superseded_by") and ":" not in str(row["superseded_by"]):
             row = {**row, "superseded_by": f"project:{pid}:{row['superseded_by']}"}
@@ -1118,8 +1143,11 @@ def change(state_dir, key: str, *, action: str = "edit", base: str = "", who: st
             raise ValueError(f"{name} 不对")
     after = _update(state_dir, entry, fields, stamp)
     if log and snapshot(after) != snapshot(entry):
-        log_change(state_dir, who=who, action=action, refs=[entry.ref], title=after.title, before={entry.ref: snapshot(entry)},
-                   after={entry.ref: snapshot(after)}, because=because, token=token, now=stamp)
+        token = log_change(state_dir, who=who, action=action, refs=[entry.ref], title=after.title,
+                           before={entry.ref: snapshot(entry)}, after={entry.ref: snapshot(after)}, because=because,
+                           token=token, now=stamp)
+    if after.status in GONE and entry.status not in GONE:  # The line a 推断全局 holds is gone: its item closes (T908 M3b).
+        review_close(state_dir, entry.ref, by=who or "bridge", token=token, now=stamp)
     _done(state_dir, stamp, scope=entry.scope, owner_key=entry.owner_key)
     return after
 
@@ -1259,6 +1287,28 @@ def log_change(state_dir, *, who: str, action: str, refs, title: str = "", befor
     return token
 
 
+def noted(state_dir, before: Entry | None, ref: str = "", *, who: str, action: str, because: dict | None = None,
+          token: str = "", now: float | None = None) -> str:
+    """A change some other module wrote to an entry's file itself (a lead's revision of its project's line, the learner's
+    supersede, core/project_memory.py and core/topic_memory.py writes) logged as ``change`` logs its own: ``before`` the entry
+    as it was (None: made by the change; then ``ref`` names it), the entry now read again. An entry gone by it closes the
+    待审核 about it (``review_close``). The token ('' when nothing changed)."""
+    stamp = time.time() if now is None else now
+    ref = before.ref if before is not None else ref
+    try:
+        after = find(state_dir, ref) if ref else None
+    except (OSError, ValueError):
+        after = None
+    if after is None or (before is not None and snapshot(before) == snapshot(after)):
+        return ""
+    token = log_change(state_dir, who=who, action=action, refs=[after.ref], title=after.title,
+                       before={after.ref: snapshot(before)}, after={after.ref: snapshot(after)}, because=because, token=token,
+                       now=stamp)
+    if after.status in GONE and (before is None or before.status not in GONE):
+        review_close(state_dir, after.ref, by=who, token=token, now=stamp)
+    return token
+
+
 def log_read(state_dir, *, limit: int = 100, since: float = 0.0) -> list:
     """The latest ``limit`` lines of memory/log.jsonl written after ``since``, newest first."""
     rows = [row for row in _lines(log_path(state_dir)) if _number(row.get("at")) > since]
@@ -1320,10 +1370,22 @@ def _review_data(state_dir, *, writing=False) -> dict:
     return {"version": VERSION, "items": [dict(item) for item in items if isinstance(item, dict) and item.get("key")]}
 
 
+def review_state(item: dict) -> str:
+    """The state of the item ``item`` of 待审核: as stored, but ``expired`` for one still open whose type is no longer one of
+    REVIEW_TYPES (an older release's; nothing decides it any more)."""
+    state = str(item.get("state") or "open")
+    return "expired" if state == "open" and item.get("type") not in REVIEW_TYPES else state
+
+
 def review_items(state_dir, *, states=("open",)) -> list:
-    """The items of 待审核 (memory/review.json) in ``states`` (None: all), oldest first, as stored: the fields of
-    core/memory_review.py ReviewItem with ``state``, ``fp`` and, once decided, ``decided_at``, ``decided_by``."""
-    return [item for item in _review_data(state_dir)["items"] if states is None or item.get("state", "open") in states]
+    """The items of 待审核 (memory/review.json) in ``states`` (None: all), oldest first: the fields of core/memory_review.py
+    ReviewItem with ``state`` (``review_state``), ``fp`` and, once decided, ``decided_at``, ``decided_by``."""
+    out = []
+    for item in _review_data(state_dir)["items"]:
+        state = review_state(item)
+        if states is None or state in states:
+            out.append({**item, "state": state} if state != item.get("state", "open") else item)
+    return out
 
 
 def review_fp(item: dict) -> str:
@@ -1349,7 +1411,7 @@ def review_put_many(state_dir, items, *, now: float | None = None) -> list[tuple
     for item in items:
         item = dict(item)
         kind = str(item.get("type") or "")
-        if kind not in ("learn", "candidate", "lead", "import", "conflict", "tidy", "class3", "migrate"):
+        if kind not in REVIEW_TYPES:
             raise ValueError(f"review type {kind!r}")
         item["title"] = clean(item.get("title"), TITLE_CHARS) or auto_title(item.get("text"))
         item["text"] = clean(item.get("text"), DECISION_CHARS)
@@ -1360,7 +1422,7 @@ def review_put_many(state_dir, items, *, now: float | None = None) -> list[tuple
     out = []
     with shared_file_lock(review_path(state_dir)):
         data = _review_data(state_dir, writing=True)
-        by_fp = {old.get("fp"): old for old in data["items"] if old.get("state", "open") in REVIEW_HELD}
+        by_fp = {old.get("fp"): old for old in data["items"] if review_state(old) in REVIEW_HELD}
         taken = {old["key"] for old in data["items"]}
         for item in wanted:
             same = by_fp.get(item["fp"])
@@ -1392,19 +1454,36 @@ def review_expire(state_dir, *, days: float = REVIEW_DAYS, now: float | None = N
         return 0  # A read and no write, most days.
     with shared_file_lock(review_path(state_dir)):
         data = _review_data(state_dir, writing=True)
-        old = [item for item in data["items"] if item.get("state", "open") == "open" and _number(item.get("created_at")) < cutoff]
+        old = [item for item in data["items"] if review_state(item) == "open" and _number(item.get("created_at")) < cutoff]
         for item in old:
             item.update(state="expired", decided_at=stamp, decided_by="bridge")
         if old:
             write_json(review_path(state_dir), data, ensure_ascii=False, indent=1)
+    for item in old:
+        _review_logged(state_dir, item, "open", by="bridge", now=stamp)
     if old:
         touch_rev(state_dir, stamp)
     return len(old)
 
 
+# What a change of an item's state is called in memory/log.jsonl (the page's 记录 words: 采纳, 不要, 归档, 放回).
+REVIEW_ACTIONS = {"accepted": "accept", "rejected": "reject", "expired": "archive", "open": "restore"}
+
+
+def _review_logged(state_dir, item: dict, before: str, *, by: str, token: str = "", now: float | None = None) -> None:
+    """The change of the item ``item`` of 待审核 from ``before`` to its state now in memory/log.jsonl (T908 M3b: 待审核's state
+    changes are in the 记录 too), under ``token`` when the decision has one. Its ref is the item's key and it has no
+    ``after``: an undo of the token passes over it (the entries the decision wrote are what an undo puts back)."""
+    state = review_state(item)
+    if state == before:
+        return
+    log_change(state_dir, who=by, action=REVIEW_ACTIONS.get(state, state), refs=[str(item.get("key") or "")],
+               title=str(item.get("title") or ""), before={str(item.get("key") or ""): None}, token=token, now=now)
+
+
 def review_set(state_dir, key: str, state: str, *, by: str = "owner", now: float | None = None, **extra) -> dict | None:
-    """The item ``key`` made ``state`` (one of REVIEW_STATES) by ``by``, with ``extra`` fields (``refs`` written, …): it as
-    it is now; None when there is none."""
+    """The item ``key`` made ``state`` (one of REVIEW_STATES) by ``by``, with ``extra`` fields (``refs`` written, ``token``,
+    …), logged (``_review_logged``): it as it is now; None when there is none."""
     if state not in REVIEW_STATES:
         raise ValueError(f"review state {state!r}")
     stamp = time.time() if now is None else now
@@ -1413,10 +1492,23 @@ def review_set(state_dir, key: str, state: str, *, by: str = "owner", now: float
         item = next((item for item in data["items"] if item["key"] == key), None)
         if item is None:
             return None
+        before = review_state(item)
         item.update(extra, state=state, decided_at=stamp if state != "open" else None, decided_by=by if state != "open" else None)
         write_json(review_path(state_dir), data, ensure_ascii=False, indent=1)
+    _review_logged(state_dir, item, before, by=by, token=str(extra.get("token") or ""), now=stamp)
     touch_rev(state_dir, stamp)
     return dict(item)
+
+
+def review_close(state_dir, ref: str, *, by: str = "bridge", token: str = "", now: float | None = None) -> list:
+    """The open items of 待审核 about the entry ``ref`` (their ``items`` name it: the line a 推断全局 holds where it was said)
+    closed as expired, the entry being gone (voided, put away; T908 M3b): the keys closed. Expired, so the same words said
+    again may be proposed again; ``token`` the change's that took the entry away, so its undo opens them again
+    (app/web_memory.py reopen)."""
+    keys = [str(item["key"]) for item in review_items(state_dir) if ref in (item.get("items") or ())]
+    for key in keys:
+        review_set(state_dir, key, "expired", by=by, now=now, **({"token": token} if token else {}))
+    return keys
 
 
 # -------------------------------------------------------------------------------------------------------- legacy sync

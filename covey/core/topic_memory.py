@@ -2,8 +2,8 @@
 topic and nowhere wider ("这个不要问了"), in ``<state>/topics/<id>/memory.json``, the file format of a project's memory
 (core/project_memory.py: {id, text, kind, source, at, deleted, redacted?}). Only the Bridge writes it
 (app/memory_collect.py after the turn, as the owner's word, source ``owner``; core/memstore.py for the memory center), at
-most ``MAX_ENTRIES`` live ones (past it the oldest goes). A delete keeps the entry as a tombstone. Every write takes the
-file's shared lock (core/locks.py), lists the topic among those with memory and touches the memory's sentinel
+most ``MAX_ENTRIES`` live ones (past it the oldest becomes a tombstone and the change is logged, T908 M3b). A delete keeps
+the entry as a tombstone. Every write takes the file's shared lock (core/locks.py), lists the topic among those with memory and touches the memory's sentinel
 (core/memstore.py note_topic, touch_rev); a read takes none. A file that cannot be parsed is read as empty and set aside
 before the next write. The fields an older release does not know lie beside it in ``memory-v2.json`` (core/memstore.py).
 Standard library and core only."""

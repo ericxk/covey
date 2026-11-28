@@ -14,8 +14,6 @@ COVEY_PROJECTS=1 and COVEY_PROJECT_MEMORY=1; with either off every function here
   in the topic that are none of the options, or a reply that asks back or holds on). A question that names an entry of another project's memory
   by its id (``elsewhere``) is history at once. ``decision_rows``: those decisions as the lines of the project's memory read
   them (core/memory.py project_view), so every reader of it (a member topic's turn, the lead's pack, triage's grounds) has them.
-- ``fix_memory``: the owner's correction of a line (docs/web.md memory_fix: ``scope`` its conditions, ``once`` only that time,
-  ``confirm`` his for good), for the page and the cards to call once they checked the click is the owner's.
 - ``owner_files`` (app/app.py, the message of the owner in a lead's topic: quoting the project's card goes there): the files it
   carries are copied into the library with their sha256.
 - ``turn_to_library`` (app/project_loop.py after_runner, the Bridge once a topic's run has ended; rule 8: a task process writes
@@ -336,19 +334,6 @@ def answered(record) -> list:
                           "answer": cut("；".join(parts), 590), "text": answer_line(words, "；".join(parts)),
                           "asked": " ".join(str(question.get(key) or "") for key in ("id", "header", "question"))})
     return lines
-
-
-def fix_memory(state_dir, project_id, entry_id, what, *, owner, message_id, applies="") -> dict:
-    """The owner's correction ``what`` of the line ``entry_id`` of the project's memory (core/project_memory.py fix): ``scope``
-    sets its conditions (``applies``), ``once`` makes it a 当前决定 for that one time, ``confirm`` makes it a 长期约定 the owner
-    said, at the owner's level, its origin this correction. ``owner``: the caller checked the click or the page's operation is
-    the owner's (app/access.py); anybody else's is refused, and no model's word comes here. ``message_id``: the id the Bridge
-    took the correction in with. The line as core/memory.py describe reads it, with its text and id. ValueError for a refusal
-    or a line that is not there."""
-    if owner is not True:
-        raise ValueError("只有主人能改专项记忆")
-    row = project_memory.fix(state_dir, project_id, entry_id, what, origin={"message_id": str(message_id or "")}, applies=applies)
-    return {"id": row["id"], "text": row["text"], **core_memory.describe(row)}
 
 
 def owner_files(state_dir, topic_id, chat_id, text, media, log=None) -> None:

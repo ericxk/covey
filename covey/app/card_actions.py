@@ -203,6 +203,8 @@ ACTIONS = {
     "bridge_memory_workspace": CardAction("换记忆页的工作区"),
     "bridge_memory_open": CardAction("展开记忆"),
     "bridge_memory_delete": CardAction("不要或收起记忆"),
+    # Also 采纳 on an answer card's line that waits in 待审核 (cards/answer_card.py MEMORY_ACCEPT_KIND, the value carries
+    # ``job_id``): the 记忆 tab takes it too (app/memory_panel.py accept_line), no kind is new.
     "bridge_memory_pin": CardAction("采纳待审核的记忆"),
     "bridge_memory_to_global": CardAction("把记忆升为全局"),  # T647 E4.
     # 手上的事's line of old questions (cards/overview.py DISMISS): only the board's record changes.

@@ -23,10 +23,16 @@ runner has exited and the record is settled (app/detached.py finish_detached, ap
 - A ``memory_void`` id is a short code, a ref or an older M number of a turn (core/memstore.py find_in_turn) of an entry the turn
   carried that was not said by the owner; it becomes a tombstone (memstore.void: the text stays, nothing is lost). What the owner said
   himself (a correction of his included) is never voided this way.
-- The record gets ``memory_notes`` [{kind: remembered|voided|undone|pending, text, scope, entry_id, ref?, redacted?, entry_kind?}]
-  and the turn's answer cards a line each (cards/answer_card.py memory_element; a note's line says 相关时才带); the 不对 on a
-  "记下了" line takes that line back (``undo``): the entry becomes a tombstone, the note's kind ``undone``; on a 待审核 line it
-  turns the item down. 升为全局 of an older card (``promote``, T647 E4) moves the line to 全局 (memstore.promote).
+- The record gets ``memory_notes`` [{kind: remembered|voided|undone|pending, text, scope, entry_id, ref?, redacted?, entry_kind?,
+  review?}] and the turn's answer cards a line each (cards/answer_card.py memory_element; a note's line says 相关时才带). Of the
+  two kinds of 待审核 (T908 M3b): a rule for every topic is one line, "记下了：… · 先管这个专项，要管全局吗" (its note's
+  ``review`` the item's key), a learned rule that grants a 待审核 line; both have 采纳 (``accept_click``: core/memory_review.py
+  decide, the line then a "记下了" of where it went) and 不对. 不对 on a "记下了" line takes that line back (``undo``): the entry
+  becomes a tombstone, the note's kind ``undone``, and its 待审核 item is turned down with it; on a 待审核 line it turns the
+  item down; on a line 采纳 made it voids what was accepted. 升为全局 of an older card (``promote``, T647 E4) moves the line to
+  全局 (memstore.promote).
+- A lead's project_remember (app/project_tools.py) puts a note of its own in the record's ``lead_notes`` ({…, by: lead}): the
+  answer card says "负责人记下了：…" with the turn's other lines (``show``), and 不对 takes it back the same way.
 
 It writes only when the turn ended well, was the owner's own in an ordinary topic (not the butler's, not a 代答 topic, not one the
 butler handed on) whose words hold a trigger word, and not twice for one job. Never raises: a failure is a log line and the turn's
@@ -52,7 +58,7 @@ PROJECT_WORDS, TOPIC_WORDS = "管这个专项", "管这个话题"
 GLOBAL_WORDS = "管全局"  # A line of 全局 (a note said so, a line 升为全局, ``promote``).
 WORKSPACE_WORDS = "管这个工作区"  # A line an older release learned as a principle of the topic's workspace.
 PRINCIPLE_WORDS = (GLOBAL_WORDS, WORKSPACE_WORDS)  # A note whose entry is a principle: 不对 removes the principle.
-WIDER_WORDS = "要不要管全局等你采纳"  # A rule for every topic, held where it was said meanwhile (core/memory_gate.py write ``wider``).
+WIDER_WORDS = "要不要管全局等你采纳"  # An older release's 待审核 line of a rule held where it was said (``review`` on its line now).
 GRANT_WORDS = "涉及要你点头的事，采纳后才生效"  # A learned rule that would let a turn skip asking (core/memory_gate.py GRANT).
 KINDS = ("rule", "note")
 SCOPES = ("topic", "project", "global")  # A line's suggested scope, narrowest first.
@@ -147,12 +153,11 @@ def take(ctx, record, text, marked, quote="", *, kind="rule", scope="", access=N
         log(f"memory line refused by the gate reason={written.reason or 'gate'} job=#{job}")
         return []
     entry, notes = written.entry, []
-    if written.done != memstore.SAME:
+    asks = written.review if written.review and written.fresh else ""  # 推断全局: held here, 待审核 asks about 全局.
+    if written.done != memstore.SAME or asks:
         notes.append({"kind": "remembered", "text": entry.text, "scope": words, "entry_id": memstore.parse_ref(entry.ref)[2],
                       "ref": entry.ref, **({"code": entry.code} if entry.code else {}), **({"redacted": True} if marked else {}),
-                      **({"entry_kind": "note"} if entry.kind == "note" else {})})
-    if written.review and written.fresh:
-        notes.append({"kind": "pending", "text": entry.text, "scope": WIDER_WORDS, "entry_id": written.review})
+                      **({"entry_kind": "note"} if entry.kind == "note" else {}), **({"review": asks} if asks else {})})
     return notes
 
 
@@ -175,7 +180,8 @@ def collect(runtime, messenger, job, ctx) -> None:
     (app/memory_observe.py). Nothing when the switch is off."""
     if not memory.enabled():
         return
-    _lines(runtime, messenger, job, ctx)
+    if not _lines(runtime, messenger, job, ctx):
+        _lead_lines(runtime, messenger, job, ctx)
     memory_observe.observe(ctx, job, None)
 
 
@@ -208,60 +214,158 @@ def _lines(runtime, messenger, job, ctx) -> None:
         if notes:
             upsert_job_record(ctx.state_dir, str(record["key"]), memory_notes=notes)
             show(ctx, messenger, record, notes, runtime.log)
+            return True
     except Exception as exc:  # noqa: BLE001 - the turn's ending goes on; the owner's words are in the record
         runtime.log(f"memory lines failed job=#{getattr(job, 'job_id', '?')}: {type(exc).__name__}")
+    return False
 
 
-def show(ctx, messenger, record, notes, log) -> None:
-    """The memory lines of ``notes`` put on the job's answer cards."""
-    element = memory_element(notes, str(record.get("topic_id") or ""), str(record.get("job_id") or ""))
+def _lead_lines(runtime, messenger, job, ctx) -> None:
+    """The lines of what the turn's lead wrote with project_remember (``lead_notes``), on its answer cards."""
+    try:
+        record = find_job_record(ctx.state_dir, str(getattr(job, "message_id", "") or ""))
+        if record and record.get("lead_notes"):
+            show(ctx, messenger, record, record.get("memory_notes") or [], runtime.log)
+    except Exception as exc:  # noqa: BLE001 - the turn's ending goes on
+        runtime.log(f"memory lead lines failed job=#{getattr(job, 'job_id', '?')}: {type(exc).__name__}")
+
+
+def show(ctx, messenger, record, notes, log, lead=None) -> None:
+    """The memory lines of ``notes`` and of the lead's ``lead`` (the record's ``lead_notes`` when None) put on the job's answer
+    cards."""
+    lead = record.get("lead_notes") if lead is None else lead
+    shown = [*(notes or ()), *(note for note in lead or () if isinstance(note, dict))]
+    element = memory_element(shown, str(record.get("topic_id") or ""), str(record.get("job_id") or ""))
     if element is not None and messenger is not None:
         answer_cards.put_memory(ctx.state_dir, ctx.profile, messenger, str(record["key"]), element, log,
                                 answer_message_id=str(record.get("answer_message_id") or ""))
 
 
-def undo(host, ctx, event) -> bool:
-    """不对 on a "记下了" line (``host``: the TaskControls): the entry becomes a tombstone, the note ``undone``, the lines redrawn."""
+def _clicked(ctx, event):
+    """(the job record, the entry id) a click on a memory line of ``ctx``'s topic names; None for one of another topic.
+    ValueError when the job or the line is not there."""
     raw = action_value(event)
     if not ctx.topic_id or raw.get("topic_id") != ctx.topic_id:
-        return True
+        return None
     record = find_job_record(ctx.state_dir, str(raw.get("job_id") or ""))
     entry_id = str(raw.get("entry_id") or "")
     if not record or record.get("topic_id") != ctx.topic_id or not entry_id:
         raise ValueError("找不到这条记忆所在的任务")
+    return record, entry_id
+
+
+def undo(host, ctx, event) -> bool:
+    """不对 on a "记下了" line (``host``: the TaskControls): the entry becomes a tombstone, the note ``undone``, the lines redrawn."""
+    found = _clicked(ctx, event)
+    if found is None:
+        return True
+    record, entry_id = found
     notes = take_back(ctx.state_dir, ctx.topic_id, record, entry_id)
     if notes is not None:  # None: taken back already (a second click), or not this turn's.
-        after_ack(lambda: show(ctx, host.messenger, record, notes, host.runtime.log))
+        fresh = find_job_record(ctx.state_dir, str(record["key"])) or record
+        after_ack(lambda: show(ctx, host.messenger, fresh, fresh.get("memory_notes") or [], host.runtime.log))
     return True
+
+
+def accept_click(runtime, messenger, ctx, event) -> str:
+    """采纳 on a line of an answer card that waits in 待审核 (app/memory_panel.py takes the click: the 设置 card's 采纳 kind, the
+    value naming the topic and the job; the owner's, checked there): the item accepted (core/memory_review.py decide), the line
+    a "记下了" of where it went, the lines redrawn. The click's outcome; ValueError says why nothing changed (a line of another
+    chat's job, an item decided elsewhere); a second click does nothing."""
+    raw = action_value(event)
+    record = find_job_record(ctx.state_dir, str(raw.get("job_id") or ""))
+    entry_id = str(raw.get("entry_id") or "")
+    if (not record or not entry_id or record.get("topic_id") != raw.get("topic_id")
+            or str(record.get("chat_id") or "") != str(event.get("chat_id") or record.get("chat_id") or "")):
+        raise ValueError("找不到这条记忆所在的任务")
+    notes = adopt(ctx.state_dir, record, entry_id)
+    if notes is None:
+        return "memory_accept_done"  # Accepted or taken back already (a second click).
+    runtime.log(f"memory line accepted from the answer card job=#{record.get('job_id')}")
+    after_ack(lambda: show(ctx, messenger, record, notes, runtime.log))
+    return "memory_accept"
 
 
 UNDOABLE = ("remembered", "superseded", "pending")  # The kinds of a note 不对 takes back (cards/answer_card.py memory_element).
 
 
-def take_back(state, topic_id, record, entry_id):
-    """不对 on the entry ``entry_id`` the turn of job ``record`` (of ``topic_id``) wrote, the card's and the web page's
-    (app/web_ops.py memory_undo, data contract v34): the entry a tombstone, its note ``undone`` in the job record. A line the
-    learner put out of the way (``superseded``, app/memory_learn.py) is back as it was, an item it put in 待审核 (``pending``)
-    is turned down. The job's notes as they are now (the caller redraws the answer card's lines from them); None when there is no such
-    note still in force (taken back already, or not this turn's), nothing changed."""
+def _where_words(entry) -> str:
+    return {"global": GLOBAL_WORDS, "project": PROJECT_WORDS}.get(getattr(entry, "scope", ""), TOPIC_WORDS)
+
+
+def adopt(state, record, entry_id):
+    """采纳 on the note ``entry_id`` of the job ``record`` that waits in 待审核 (a ``pending`` line, its entry id the item's key;
+    a "记下了" line with ``review``): the item accepted as the owner's (core/memory_review.py decide), the note a "记下了" of the
+    entry it wrote or moved, a line of the entry it moved away dropped (an older release's two lines). The job's notes as they
+    are now; None when there is no such note still waiting (decided already, or not this turn's), nothing changed. ValueError
+    when the item cannot be accepted (decided elsewhere, gone)."""
+    from covey.core import memory_review
+
     notes = [dict(note) for note in record.get("memory_notes") or ()]
-    note = next((note for note in notes if note.get("kind") in UNDOABLE and note.get("entry_id") == entry_id), None)
+    note = next((note for note in notes if note.get("entry_id") == entry_id and (
+        note.get("kind") == "pending" and entry_id.startswith("review:") or note.get("kind") == "remembered" and note.get("review"))),
+        None)
     if note is None:
         return None
+    key = entry_id if note["kind"] == "pending" else str(note["review"])
+    item = next((row for row in memstore.review_items(state, states=None) if row.get("key") == key), {})
+    if memstore.review_state(item) != "open":
+        note.pop("review", None)  # Decided elsewhere (the 设置 card, the page): the line no longer asks.
+        upsert_job_record(state, str(record["key"]), memory_notes=notes)
+        raise ValueError("这条待审核已经处理过了（或不在了）")
+    done = memory_review.decide(state, key, "accept", who="owner")
+    entry = memstore.find(state, done["refs"][0]) if done["refs"] else None
+    moved = set(item.get("items") or ())
+    note.pop("review", None)
+    if entry is not None:
+        note.update(kind="remembered", text=entry.text, scope=_where_words(entry), entry_id=memstore.parse_ref(entry.ref)[2],
+                    ref=entry.ref, **({"code": entry.code} if entry.code else {}))
+    notes = [old for old in notes if old is note or not (old.get("kind") == "remembered" and old.get("ref") in moved)]
+    upsert_job_record(state, str(record["key"]), memory_notes=notes)
+    return notes
+
+
+def take_back(state, topic_id, record, entry_id):
+    """不对 on the entry ``entry_id`` the turn of job ``record`` (of ``topic_id``) wrote, the card's and the web page's
+    (app/web_ops.py memory_undo, data contract v34): the entry a tombstone, its note ``undone`` in the job record, and the item
+    of 待审核 its line asks (``review``) turned down with it. A line the learner put out of the way (``superseded``,
+    app/memory_learn.py) is back as it was, an item it put in 待审核 (``pending``) is turned down. A line of the lead's
+    (``lead_notes``) is taken back the same way. The job's notes (``memory_notes``) as they are now (the caller redraws the
+    answer card's lines from the record); None when there is no such note still in force (taken back already, or not this
+    turn's), nothing changed."""
+    for field in ("memory_notes", "lead_notes"):
+        notes = [dict(note) for note in record.get(field) or () if isinstance(note, dict)]
+        note = next((note for note in notes if note.get("kind") in UNDOABLE and note.get("entry_id") == entry_id), None)
+        if note is not None:
+            break
+    else:
+        return None
+    if note.get("review"):  # Its 待审核 goes with it: the owner said 不对 to the rule itself.
+        if memstore.review_state(next((row for row in memstore.review_items(state, states=None)
+                                       if row.get("key") == note["review"]), {})) == "open":
+            memstore.review_set(state, str(note["review"]), "rejected", by="owner")
     if note["kind"] == "remembered":
         _forget(state, topic_id, entry_id, note.get("scope"), *([note["ref"]] if note.get("ref") else []))
     elif note["kind"] == "superseded":
+        ref = f"project:{note['project_id']}:{entry_id}" if note.get("project_id") else f"topic:{topic_id}:{entry_id}"
+        was = memstore.find(state, ref)
         if note.get("project_id"):
             project_memory.unsettle(state, note["project_id"], [(entry_id, note.get("before") or {})])
         else:
             topic_memory.restore(state, topic_id, entry_id)
+        memstore.noted(state, was, ref, who="owner", action="restore")
     elif entry_id.startswith("review:"):
-        memstore.review_set(state, entry_id, "rejected", by="owner")
+        if memstore.review_state(next((row for row in memstore.review_items(state, states=None)
+                                       if row.get("key") == entry_id), {})) == "open":
+            memstore.review_set(state, entry_id, "rejected", by="owner")
     # A pending line of an older release names an evening candidate: that feature is gone, the line only says 已撤销.
     note["kind"] = "undone"
+    note.pop("review", None)
     notes = [note if old.get("entry_id") == entry_id and old.get("kind") in UNDOABLE else old for old in notes]
-    upsert_job_record(state, str(record["key"]), memory_notes=notes)
-    return notes
+    upsert_job_record(state, str(record["key"]), **{field: notes})
+    if field == "memory_notes":
+        return notes
+    return [dict(note) for note in record.get("memory_notes") or () if isinstance(note, dict)]
 
 
 def _forget(state, topic_id, entry_id, scope="", ref="") -> None:

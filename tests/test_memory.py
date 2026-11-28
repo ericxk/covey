@@ -130,12 +130,19 @@ class TopicMemoryTest(Case):
         marks = {r["text"]: r.get("redacted") for r in topic_memory.live(self.state, "t1")}
         self.assertEqual(marks, {"甲": True, "乙": None})
 
-    def test_the_oldest_goes_past_the_limit(self):
+    def test_the_oldest_becomes_a_logged_tombstone_past_the_limit(self):
         write_topic(self.state, topic_id="t1")
         for index in range(topic_memory.MAX_ENTRIES + 3):
             topic_memory.add(self.state, "t1", f"条 {index}", now=NOW + index)
         live = topic_memory.live(self.state, "t1")
         self.assertEqual((len(live), live[0]["text"]), (topic_memory.MAX_ENTRIES, "条 3"))
+        rows = project_memory.rows_at(topic_memory.memory_path(self.state, "t1"))
+        self.assertEqual([row["text"] for row in rows if row["deleted"]], ["条 0", "条 1", "条 2"])  # Kept, not deleted (T908 M3b).
+        voids = [row for row in memstore.log_read(self.state) if row["action"] == "void"]
+        self.assertEqual(len(voids), 3)
+        self.assertEqual({row["who"] for row in voids}, {"bridge"})
+        ref = voids[-1]["refs"][0]
+        self.assertEqual((voids[-1]["before"][ref]["status"], voids[-1]["after"][ref]["status"]), ("active", "void"))
         self.assertEqual(topic_memory.live(self.state, ""), [])
 
 
@@ -394,11 +401,12 @@ class CollectTest(CollectCase):
                  {"quote": "记一下：账单表按日期分区", "text": "账单表按日期分区", "kind": "note", "scope": "project"},
                  {"quote": "这件事别再先问", "text": "这件事不先问", "kind": "rule", "scope": "topic"}]
         record = self.collect(self.turn(memory_lines=lines, user_text=said))
-        self.assertEqual([(n["kind"], n["text"], n["scope"], n.get("entry_kind")) for n in record["memory_notes"]],
-                         [("remembered", "回复先给结论", "管这个专项", None),
-                          ("pending", "回复先给结论", memory_collect.WIDER_WORDS, None),
-                          ("remembered", "账单表按日期分区", "管这个专项", "note"),
-                          ("remembered", "这件事不先问", "管这个话题", None)])
+        # T908 M3b: 推断全局 is one line, its note naming the item (``review``): "记下了：… · 先管这个专项，要管全局吗" with 采纳.
+        self.assertEqual([(n["kind"], n["text"], n["scope"], n.get("entry_kind"), bool(n.get("review")))
+                          for n in record["memory_notes"]],
+                         [("remembered", "回复先给结论", "管这个专项", None, True),
+                          ("remembered", "账单表按日期分区", "管这个专项", "note", False),
+                          ("remembered", "这件事不先问", "管这个话题", None, False)])
         self.assertEqual([row["text"] for row in topic_memory.live(self.state, "t1")], ["这件事不先问"])
         self.assertEqual([(item.suggest, item.items) for item in memory_review.items(self.state)],
                          [({"kind": "rule", "scope": "global"}, (record["memory_notes"][0]["ref"],))])

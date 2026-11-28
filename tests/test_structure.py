@@ -1256,13 +1256,8 @@ class MemoryWriteTest(unittest.TestCase):
         "covey/app/memory_collect.py::promote::principles.save": 1,
         "covey/app/memory_panel.py::MemoryPanel.put_away::memstore.archive": 1,
         "covey/app/project_context.py::remember_answer::memstore.add_decision": 1,
-        "covey/app/project_tools.py::remember_new::memstore.add": 1,
         "covey/app/project_tools.py::revise_decision::memstore.settle": 1,
         "covey/app/project_tools.py::revise_decision::memstore.supersede": 1,
-        "covey/app/web_memory.py::_add_one::principles.save": 1,
-        "covey/app/web_memory.py::_baseline_decide::memstore.archive": 1,
-        "covey/app/web_memory.py::_write_item::memstore.add": 1,
-        "covey/app/web_memory.py::_write_item::memstore.add_decision": 1,
         "covey/app/web_memory.py::edit_v43::memstore.add": 1,
         "covey/app/web_memory.py::edit_v43::memstore.add_decision": 1,
     }

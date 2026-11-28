@@ -354,7 +354,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 | `recover`（v33） | 没成功的一轮上的按钮，见下 |
 | `project_finish`（v34） | `project_key`：专项的「收尾」，同停住卡的“收尾”，见下 |
 | `project_stop`（v34） | `project_key`：专项的「停止」，同专项卡的“停止专项”、停住卡的“停”，见下 |
-| `memory_edit`（v37） | 不带 `topic_key`、`project_key`，`payload` 是 `{action, …}`：改主记忆，同飞书设置卡「记忆」，见下 |
+| `memory_edit`（v43） | 不带 `topic_key`、`project_key`，`payload` 是 `{v: 43, action, …}`：改记忆，见[数据约定 v45](#数据约定-v45记忆一页式)；没有 `v` 的 v37 写法已下线，回 failed |
 | `upgrade`（v39） | 不带 `topic_key`、`project_key`，`payload` 是 `{action}`：`check` 查新版本、`run` 升级，见[版本与更新](#版本与更新)；没配升级器时回 failed |
 | `quota_refresh`（v42） | 不带 `topic_key`、`project_key`，`payload` 空，只认主人：立刻重读所有额度来源、agy 查每个号的 `/usage`，在后台线程里做，回执马上回；Bridge 侧 5 分钟冷却，冷却内只重新推一次现有快照，回执说“刚查过”，见[账号与额度](#账号与额度)；没有可读的来源时回 failed |
 | `revisit_cancel`（v35） | `topic_key`，`payload` 是 `{set_at}`：取消话题的 Covey 定时回看，同飞书看板的「取消」，见下 |
@@ -395,15 +395,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 - `project_stop`：在做的专项（`active`）同专项卡的“停止专项”：停住，原因是“主人停止”（看板上灰色“已停止”，不是红色“停住了”）。护栏停住、停住卡还在等你选的，同停住卡上点“停”（`project_loop.answer_pause`）。然后负责人和各成员话题排着、在跑的任务都请停（`project_clicks.stop_tasks`，停止来源是 `web`），回 done“已停住专项「X」，已请 N 个任务停下……要继续，点「继续」”。已经做完、停住（停住卡也选过了）的回 failed“……没有要停的”；刚被负责人、护栏或卡片改了状态的回 failed，请你刷新再看。
 - `project_finish`：先过负责人收尾的两道闸，不过就回 failed、什么都不改，原因原样写出：还有成员话题在做或等你（`project_lead.live_members`，写出是哪几个话题）；目标检查表有没满足的项或没处理的协作缺口（`project_tools.checklist_gate`，去掉只说给负责人的那几步）。过了：护栏停住、停住卡在等你选的，同停住卡上点“收尾”（`answer_pause` 和给负责人的回执 `pause_receipt`）；其余（在做、你停的、收起的）当作你说了话（`owner_spoke`：收起的重新展开）并给负责人一条“主人在网页上选了收尾”的回执，由负责人总结做完了什么、还有什么没做完，再调它自己的 `project_finish`（它的闸照样管着）。回 done“已请负责人收尾专项「X」……”。已经做完或取消的回 failed。
 
-**`memory_edit`**（v37，`app/web_memory.py` 的 `edit`）：只认主人，记忆开着才做。`payload.action`：
-
-- `add`：`what`（principle 原则、knowledge 知识条目）、`scope`（global、workspace）、`workspace`（scope 是 workspace 时必填）、`text`（≤200 字）；知识条目另有 `knowledge_kind`（`limits` 里的种类，默认 fact）、`why`。同一组里说同样意思的不重复记（回 done“已有说同样意思的一条，没再记”），一组满了回 failed 写怎么办。
-- `edit`：`key`、`text`、`base`（页面改之前看到的正文，带了就核对：对不上回 failed“这条刚在别处改过”，不覆盖）；知识条目可带 `knowledge_kind`、`why`。原则原地改（`id`、常驻、记下的时刻不变，记 `edited`），知识条目照 `core/knowledge.py` 的 `update` 换成新的一条（旧的标已取代）。没改动回 done“没有变化”。
-- `pin`、`unpin`：`key`，只有原则；一组常驻满了回 failed。
-- `delete`：`key`；原则删掉，知识条目作废（原因写“主人在网页「记忆」里作废”）。
-- `keep`、`drop`：`key` 是候选；记下就写成那一组的原则，不用就不再提，同晚间汇总里的「记下」「不用」。已经处理过的回 failed。
-
-回执是一句话（候选的「记下」写明记到哪个范围，“已记下，记到工作区 docs：…”；“已保存：…”“已标常驻：…”“已删除：…”）。不认识的 `key`、已经不在了的条目回 failed，页面等推送按最新的重画。执行完、回执之前 Covey 先推一次 `memory`，页面看到 done 时读到的已是改好的。
+**`memory_edit`**（v37 的写法，没有 `v`）：已下线。旧网页的设置页「记忆」只读，Covey 回 failed“这个页面版本太旧，刷新网页后到「记忆」里改”；改记忆走 v43 的写法。
 
 **`revisit_cancel`**（v35，`app/web_ops.py`）：`topic_key` 是话题，`payload.set_at` 是话题的 `revisit.set_at`（这条预约约下的时刻）。只认主人（`app/access.py` 的 `is_owner`），话题要在主人私聊里。照 `core/revisits.py` 的 `cancel` 取消：时刻对得上才删，换了新预约不误删。回执：办好回 done“已取消定时回看”；已经没有了（回看过、取消过）回 done“这条定时回看已经没有了”；预约已换成新的回 failed“这条定时回看已经换成了新的，没有取消”，页面等下一次推送换上新的；Covey 已经在回看（`running`）回 failed“Covey 已经在回看了，这一次取消不了”。办完 Covey 马上重看这个话题（`Collector.touch`），页面不用等下一轮补扫。
 
@@ -523,10 +515,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
   - 引用协作（`route.collab`）：点了人就对每位 `clarify`（每位最多 2 次，上一次没答复前不能再问，不过的那位写原因，全不过则 failed）；没点人就把话作为主人的话交给那次协作的汇总方话题（照原来的 `say`）。找不到那次协作，或它不在主人私聊里，failed。
 - **由谁汇总**：点了多位时输入框写“这件事由 T3 汇总 [更换]”。默认是 `route` 给的那位（引用了话题就是它，否则是第一个点到的普通话题），主人换了就带 `integrator`；后面再加人不偷偷改它。只点了负责人又没选时写“由管家归口”。协助方超过 3 位时发起前就提示，不发。
 - **`stop` 的 `payload.collab`**：`topic_key` 是汇总方；只停这次协作排队和在跑的咨询轮和汇总方还没开跑的续接轮（`Collaboration.stop(by="web")`），汇总方自己的任务和各协助方别的工作不动，迟到的答复只留档。回执写停了几次咨询。已经做完或停过的回“没有要停的”（done）；找不到的 failed。不带 `collab` 的 `stop` 和从前一样。
-- **`memory_fix`**：`{project_key 或 topic_key, entry_id, what, applies?}`，发件行带 `project_key` 或 `topic_key`（只一个），`payload` 也写一份。只认主人的专项（和 `forget` 一样在主人私聊里），经 `app/project_context.py` 的 `fix_memory`（`core/project_memory.py` 的 `fix`）：
-  - `scope`：改适用范围或条件，`applies` 必填；`once`：改成只限当次的当前决定；`confirm`：确认为长期约定，只认主人，`asserted_by` 和 `level` 记 `owner`，`recorded_by` 是 `bridge`，出处是这次操作（`message_id` 为 `web-<op_id>`）。
-  - failed 的情形：专项不认识或不在私聊里、条目已经不在、`what` 不对、`scope` 没写 `applies`、不是主人（“只有主人能改专项记忆”）；只带 `topic_key` 的回“话题记忆的纠正还不支持”（话题记忆还没有对应的纠正）。
-  - “查看原文”按 `origin` 跳到那条消息或那道题，不是操作。
+- **`memory_fix`**（v31）：已下线，Covey 不再认这个操作（回 failed“不认识的操作”）；专项记忆在网页的「记忆」里改。旧版记下的纠正（`fixes`、`applies`、确认）照常读。
 - **协作条目** `collab`（`key` 是协作 id；`app/web_collect.py`，只推主人私聊里的，和别的条目一样按 `rev` 只推变了的，全量对时可删）：
 
   ```text

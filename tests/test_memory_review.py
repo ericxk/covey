@@ -1,5 +1,7 @@
-"""待审核 (core/memory_review.py): what each kind of item writes when the owner decides it, one undo token over a whole
-decision, whether a proposal is new, and the 14 days (closed by the daily upkeep)."""
+"""待审核 (core/memory_review.py): the two kinds of item the learning proposes (推断全局, held where it was said, and 放行类),
+what each writes when the owner decides it (不要 always leaves things as they are), the one-time sources, one undo token over a
+whole decision, whether a proposal is new, the items older releases left (read as expired), the 记录 of each change of state,
+an item closed when its line is gone, and the 14 days (closed by the daily upkeep)."""
 from __future__ import annotations
 
 import unittest
@@ -57,7 +59,7 @@ class DecideTest(Case):
         self.assertNotEqual(again, old)
         self.assertEqual([row.key for row in memory_review.items(self.state)], [again])
 
-    def test_migrate_accept_makes_it_the_owners_and_reject_makes_it_a_note(self):
+    def test_migrate_accept_makes_it_the_owners_and_reject_leaves_it_as_it_is(self):
         a, b = self.lead_rule("部署前先问"), self.lead_rule("发布走灰度")
         suggest = {"kind": "rule", "scope": "project", "project_key": PID}
         ka = add(self.state, item("migrate", a.text, suggest=suggest, items=(a.ref,)))
@@ -65,8 +67,10 @@ class DecideTest(Case):
         done = memory_review.decide(self.state, ka, "accept", now=NOW)
         self.assertEqual((done["state"], done["refs"]), ("accepted", [a.ref]))
         self.assertEqual(memstore.find(self.state, a.ref).said, "owner")
-        self.assertEqual(memory_review.decide(self.state, kb, "reject", now=NOW)["state"], "rejected")
-        self.assertEqual(memstore.find(self.state, b.ref).kind, "note")
+        down = memory_review.decide(self.state, kb, "reject", now=NOW)
+        self.assertEqual((down["state"], down["refs"]), ("rejected", []))
+        kept = memstore.find(self.state, b.ref)
+        self.assertEqual((kept.kind, kept.said, kept.status), ("rule", "summary", "active"))  # 不要: no longer made a note.
         self.assertEqual(memory_review.items(self.state), [])
 
     def test_learn_accept_adds_an_entry_the_owner_said_and_reject_writes_nothing(self):
@@ -74,9 +78,30 @@ class DecideTest(Case):
         done = memory_review.decide(self.state, key, "accept", now=NOW)
         entry = memstore.find(self.state, done["refs"][0])
         self.assertEqual((entry.said, entry.by, entry.scope, entry.owner_key, entry.text), ("owner", "learn", "project", PID, "回复先给结论"))
-        other = add(self.state, item("lead", "不要擅自推送"))
+        other = add(self.state, item("learn", "不要擅自推送", suggest={"kind": "rule", "scope": "global", "grant": "deploy"}))
         self.assertEqual(memory_review.decide(self.state, other, "reject", now=NOW)["refs"], [])
         self.assertIsNone(next((e for e in memstore.entries(self.state) if e.text == "不要擅自推送"), None))
+
+    def test_a_rule_held_where_it_was_said_moves_to_global_on_accept_and_stays_on_reject(self):
+        here = memstore.add(self.state, kind="rule", scope="project", owner_key=PID, text="回复都用中文", now=NOW)
+        key = add(self.state, item("learn", here.text, items=(here.ref,)))
+        done = memory_review.decide(self.state, key, "accept", now=NOW)
+        moved = memstore.find(self.state, done["refs"][0])
+        self.assertEqual((moved.scope, moved.code, moved.text), ("global", here.code, "回复都用中文"))  # Moved, not made again.
+        self.assertEqual(memstore.find(self.state, here.ref).status, "archived")
+        self.assertEqual([e.text for e in memstore.entries(self.state, kinds=("rule",))], ["回复都用中文"])
+        other = memstore.add(self.state, kind="rule", scope="project", owner_key=PID, text="改完先跑全量", now=NOW)
+        key = add(self.state, item("learn", other.text, items=(other.ref,)))
+        self.assertEqual(memory_review.decide(self.state, key, "reject", now=NOW)["refs"], [])
+        stays = memstore.find(self.state, other.ref)
+        self.assertEqual((stays.scope, stays.status), ("project", "active"))  # 不要: left where it is.
+
+    def test_a_grant_rule_holds_only_once_accepted_as_the_owners(self):
+        key = add(self.state, item("learn", "改完直接部署到本机", suggest={"kind": "rule", "scope": "project", "project_key": PID,
+                                                                    "grant": "deploy"}))
+        self.assertEqual(memstore.entries(self.state, kinds=("rule",)), [])
+        entry = memstore.find(self.state, memory_review.decide(self.state, key, "accept", now=NOW)["refs"][0])
+        self.assertEqual((entry.said, entry.scope, entry.status), ("owner", "project", "active"))
 
     def conflict(self, action, new):
         old = memstore.add(self.state, kind="rule", scope="global", text="旧写法", now=NOW)
@@ -97,24 +122,50 @@ class DecideTest(Case):
         old, texts = self.conflict("keep_both", "新写法丙")
         self.assertEqual((old, sorted(texts)), ("旧写法", sorted(["旧写法", "新写法丙"])))
 
-    def test_tidy_reject_puts_the_lines_back(self):
-        one = memstore.add(self.state, kind="note", scope="global", text="某条资料", now=NOW)
-        memstore.archive(self.state, one.ref, now=NOW)
-        key = add(self.state, item("tidy", "收起了一条", items=(one.ref,)))
-        self.assertEqual(memory_review.decide(self.state, key, "reject", now=NOW)["refs"], [one.ref])
-        self.assertEqual(memstore.find(self.state, one.ref).status, "active")
-        again = memstore.add(self.state, kind="note", scope="global", text="另一条资料", now=NOW)
-        memstore.archive(self.state, again.ref, now=NOW)
-        key = add(self.state, item("tidy", "又收起一条", items=(again.ref,)))
-        memory_review.decide(self.state, key, "accept", now=NOW)
-        self.assertEqual(memstore.find(self.state, again.ref).status, "archived")
+    def test_the_kinds_older_releases_put_here_read_as_expired_and_are_not_put_again(self):
+        path = memstore.review_path(self.state)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        old = [{"key": f"review:{kind}:aaaaa{n}", "type": kind, "title": kind, "text": kind, "suggest": {"kind": "rule", "scope": "global"},
+                "created_at": NOW, "state": "open", "fp": f"fp{n}"} for n, kind in enumerate(("lead", "candidate", "import", "tidy", "class3"))]
+        memstore.write_json(path, {"version": 1, "items": old})
+        self.assertEqual(memory_review.items(self.state), [])
+        self.assertEqual({row["state"] for row in memstore.review_items(self.state, states=None)}, {"expired"})
+        with self.assertRaises(ValueError):
+            memory_review.decide(self.state, "review:lead:aaaaa0", "accept", now=NOW)
+        for kind in ("lead", "candidate", "import", "tidy", "class3"):
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                memory_review.add(self.state, item(kind, "旧版的一项"))
+        self.assertEqual(memory_review.TYPES, ("learn", "conflict", "migrate"))
+        self.assertEqual(memstore.upkeep(self.state, now=NOW)["expired"], 0)  # Read as expired; nothing written.
+        self.assertEqual([row.get("state") for row in memstore.read_object(path)["items"]], ["open"] * 5)
 
-    def test_an_import_an_older_release_left_is_written_as_it_reads_or_let_go(self):
-        a = add(self.state, item("import", "导入甲", items=("fp1",)))
-        b = add(self.state, item("import", "导入乙", items=("fp2",)))
-        done = memory_review.decide(self.state, a, "accept", who="owner", token="t1", now=NOW)
-        self.assertEqual(memstore.find(self.state, done["refs"][0]).text, "导入甲")
-        self.assertEqual(memory_review.decide(self.state, b, "reject", now=NOW)["refs"], [])
+    def test_each_change_of_state_is_in_the_log_and_an_undo_passes_over_it(self):
+        key = add(self.state, item("learn", "规矩甲"))
+        done = memory_review.decide(self.state, key, "accept", token="tk1", now=NOW)
+        rows = [row for row in memstore.log_read(self.state) if row.get("undo_token") == "tk1"]
+        self.assertEqual(sorted(row["action"] for row in rows), ["accept", "add"])
+        review = next(row for row in rows if row["action"] == "accept")
+        self.assertEqual((review["refs"], review["title"], review.get("after")), ([key], "规矩甲", {}))
+        self.assertEqual(memstore.undo(self.state, "tk1", now=NOW + 1), done["refs"])
+        down = add(self.state, item("learn", "规矩乙"))
+        memory_review.decide(self.state, down, "reject", token="tk2", now=NOW)
+        self.assertEqual([row["action"] for row in memstore.log_read(self.state) if row.get("undo_token") == "tk2"], ["reject"])
+
+    def test_an_item_closes_when_its_line_is_gone_and_the_undo_of_that_opens_it_again(self):
+        from covey.app import web_memory
+        here = memstore.add(self.state, kind="rule", scope="project", owner_key=PID, text="回复都用中文", now=NOW)
+        key = add(self.state, item("learn", here.text, items=(here.ref,)))
+        memstore.void(self.state, here.ref, who="owner", token="tv", now=NOW)
+        self.assertEqual(memory_review.items(self.state), [])
+        closed = next(row for row in memstore.review_items(self.state, states=None) if row["key"] == key)
+        self.assertEqual((closed["state"], closed["decided_by"], closed["token"]), ("expired", "owner", "tv"))
+        again, new = memory_review.add(self.state, item("learn", here.text, items=(here.ref,)))
+        self.assertTrue(new)  # Expired: the same may be proposed again.
+        self.assertNotEqual(again, key)
+        memstore.review_set(self.state, again, "expired", by="bridge", now=NOW)
+        memstore.undo(self.state, "tv", now=NOW + 1)
+        self.assertEqual(web_memory.reopen(self.state, "tv", now=NOW + 1), [key])
+        self.assertEqual([row.key for row in memory_review.items(self.state)], [key])
 
     def test_decided_again_or_unknown_raises(self):
         key = add(self.state, item())

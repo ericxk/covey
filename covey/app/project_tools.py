@@ -18,11 +18,14 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
 - ``project_note`` (a line for the project's card; ``report`` marks what the owner is to hear, filtered by the style; the
   kind ``ask`` of W0-2 is taken one release more and asked with ``project_ask``),
   ``project_goal`` (the goal and its done-when as the lead keeps them, ``lead_goal``: the web page shows it under the project's name),
-  ``project_remember`` (the project's memory: ``kind`` rule or note with a ``title`` of at most 40 characters goes to
-  core/memstore.py add, 负责人记的: it holds at once in the project and waits for no one; the older kinds as before; a line that is a snapshot,
-  ``SNAPSHOT``, is refused: it goes to ``project_note``), ``project_memory_revise`` (the lead updates, replaces or puts away a
-  line of it, by its id or short code, ``revise_refusal`` says whose lines it may not touch; a decision of decisions.jsonl
-  through core/memstore.py), ``project_style``, ``project_finish`` write the project's record
+  ``project_remember`` (the project's memory: ``kind`` rule or note, a ``title`` of at most 40 characters, through the one
+  write gate, core/memory_gate.py write, 负责人记的: it holds at once in the project and waits for no one, and the lead's card
+  says "负责人记下了：…" with 不对 (the job's ``lead_notes``, app/memory_collect.py show); the older kinds that wrote memory.json
+  straight are gone (T908 M3b). A line that is a state of the moment, ``SNAPSHOT`` or the gate's, is refused: it goes to the
+  brief or ``project_note``; a rule past the project's room for the lead's rules (core/memory_review.py RULE_CAPS) is refused
+  until it merges or demotes one), ``project_memory_revise`` (the lead updates, replaces or puts away a line of it, by its id or
+  short code, ``revise_refusal`` says whose lines it may not touch; a decision of decisions.jsonl through core/memstore.py;
+  each change in the memory's 记录, core/memstore.py noted), ``project_style``, ``project_finish`` write the project's record
   (core/projects.py update, under its record lock; no Feishu call). ``project_finish`` refuses a project 整理专项 made that the
   owner has not spoken to (in the lead's topic, through the butler's project_send, on the project's own cards or page:
   ``owner_lead_at``) and whose lead has opened or fed no topic (``finish_gate``, W2-C).
@@ -60,11 +63,12 @@ from pathlib import Path
 from covey.app import butler_topics, project_approvals, project_lead, triage as triage_flow
 from covey.app.butler_handoff import choice_error
 from covey.app.butler_env import reply
-from covey.core import ask_kinds, butler, memory, memstore, project_actions, project_memory, projects, quota_hold, triage, turn_source
+from covey.core import ask_kinds, butler, memory, memory_gate, memstore, project_actions, project_memory, projects, quota_hold, triage
+from covey.core import turn_source
 from covey.core import project_checklist as checklist
 from covey.core import project_proposals as proposals
 from covey.core.checkpoint import read_checkpoint
-from covey.core.jobs import checkpoint_file, find_job_record
+from covey.core.jobs import checkpoint_file, find_job_record, upsert_job_record
 from covey.core.locks import resource_lock
 from covey.core.state import read_object, write_private_text
 from covey.core.store import directory_store
@@ -77,16 +81,22 @@ ASK_MAX = 4  # Questions on one card of the lead's (core/butler_tool_specs.py PR
 FORGED = "〔负责人写的〕"  # Before a line of the lead's own words that starts with "[Bridge" (``unforged``).
 APPROVAL = "_approval_line"  # The verified approval line project_topic_start/send hand app/butler_topics.py (never the lead's).
 NEW_KINDS = ("rule", "note")  # core/memstore.py's: a 规矩 and a 资料 of the project (``project_remember`` with a ``title``).
-# Every kind project_remember takes: the two new ones, then the older ones, kept as they were (style is project_style's;
-# practice and pitfall are the older names of constraint). app/butler_memory.py passes rule and note on only when they are here.
+# The kinds project_memory_revise takes: the two new ones, then the older ones of the lines already there (style is
+# project_style's; practice and pitfall are the older names of constraint). project_remember takes the new two alone.
 MEMORY_KINDS = (*NEW_KINDS, *project_memory.KINDS[:-1], *project_memory.LEGACY_KINDS)
 OFFERED_KINDS = NEW_KINDS
 # A line that holds for a moment, not for the project: a release number or generation in production, the cluster's room now, how
-# far something is. It goes stale at once and sits in every turn after (T852), so it is a ``project_note``, not a memory.
+# far something is, who does what now, by when (T852, T908 M3b). It goes stale at once and sits in every turn after, so it is
+# the brief's or a ``project_note``, not a memory.
 SNAPSHOT = re.compile(r"现网第\s*\d+\s*代|第\s*\d+\s*代(?:部署|发版|发布|版本)|余量\s*[约≈]?\s*\d+\s*卡|剩余\s*\d+\s*卡|"
-                      r"(?:当前|目前|现在)(?:进度|已完成|完成)\s*\d+\s*[%/]|进度\s*\d+\s*%")
-SNAPSHOT_REFUSED = ("这是某一刻的快照（发版号、现网第几代、集群余量、当前进度这类），过后就过时，不要记进专项记忆：写 project_note"
-                    "（专项卡上的进展），记忆里只放长期成立的决定、约束、联系人和事实。")
+                      r"(?:当前|目前|现在)(?:进度|已完成|完成)\s*\d+\s*[%/]|进度\s*\d+\s*%|"
+                      r"(?<![A-Za-z0-9])T\d+\s*(?:负责|在做|在跑|接手|跟进)|"
+                      r"(?<!每)(?:\d{1,2}\s*月\s*\d{1,2}\s*日|\d{1,2}-\d{1,2}|周[一二三四五六日天]|月底|月初)\s*(?:前|之前|以前)?\s*"
+                      r"(?:完成|上线|交付|做完|发布|提测)")
+SNAPSHOT_REFUSED = ("这是会变的现状（发版号、现网第几代、集群余量、进度、谁在做哪件、几号前交付这类），过后就过时，不要记进专项记忆：")
+BRIEF_PLACE = "写进项目简报（project_goal 的 background）或 project_note（专项卡上的进展）；记忆里只放长期成立的规矩和资料。"
+NOTE_PLACE = "写 project_note（专项卡上的进展）；记忆里只放长期成立的规矩和资料。"
+REMEMBER_KINDS = "kind 要是 rule 或 note（rule 规矩：以后照做的；note 资料：供参考的事实、联系人、做法）。"
 REVISE_ACTIONS = ("update", "supersede", "retire")
 ACTED_KEPT = 40  # The record's ``acted`` rows kept: one a lead turn that handed out, stopped or answered.
 TRIAGE_OFF = "问题分流没有开：负责人不能替主人答题，也不能转交问题；话题里的问题会直接问主人。"
@@ -581,41 +591,89 @@ def project_goal(env, request):
     return reply(True, "；".join(([f"已记下专项的目标：{text}"] if text else []) + ([f"已记下专项的背景：{background}"] if background else [])))
 
 
+def snapshot_refused() -> str:
+    """Where a state of the moment goes instead of the memory: the brief with 协作 on, else the card's notes."""
+    return SNAPSHOT_REFUSED + (BRIEF_PLACE if turn_source.enabled() else NOTE_PLACE)
+
+
 def project_remember(env, request):
     pid, record = lead(env, request)
     kind = request.args.get("kind")
-    if kind not in MEMORY_KINDS:
-        raise ValueError("kind 要是 " + "、".join(OFFERED_KINDS) + " 之一（rule 规矩：以后照做的；note 资料：供参考的事实）")
+    if kind not in NEW_KINDS:
+        raise ValueError(REMEMBER_KINDS)
     text = text_of(request.args)
     state = Path(env.state_dir)
-    legacy = project_memory.kind_of(kind) if kind not in NEW_KINDS else ("constraint" if kind == "rule" else "fact")
+    legacy = "constraint" if kind == "rule" else "fact"
     if any(row["kind"] == legacy and row["text"] == text for row in project_memory.tombstones(state, record)):
         raise ValueError("主人删掉过这条专项记忆，不再记回去。")
     if SNAPSHOT.search(text):
-        raise ValueError(SNAPSHOT_REFUSED)
-    if kind in NEW_KINDS:
-        return remember_new(state, pid, kind, text, request)
-    item, new = project_memory.add(state, pid, text, legacy, "lead", origin={"job": str(request.job_key or "")})
-    if not new:
-        return reply(True, f"专项记忆里已有这条（{item['id']}），没有重复记。", id=item["id"], new=False)
-    return reply(True, f"已记进专项记忆（{item['id']}）：{item['text']}", id=item["id"], new=True)
+        raise ValueError(snapshot_refused())
+    return remember_new(state, pid, kind, text, request)
+
+
+def lead_room(state, pid) -> tuple[int, int]:
+    """(rules, characters) of the lead's rules in force in the project (负责人记的: not the owner's)."""
+    rules = [entry for entry in memstore.entries(state, scope="project", owner_key=pid, kinds=("rule",)) if entry.said != "owner"]
+    return len(rules), sum(len(entry.text) for entry in rules)
+
+
+def room_refusal(state, pid, text) -> str:
+    """Why the lead's new rule ``text`` does not fit the project's room for its rules (core/memory_review.py RULE_CAPS, the
+    turn lists the titles alone past it), '' when it fits or says what a rule there says already."""
+    from covey.core.memory_review import RULE_CAPS
+
+    most, chars = RULE_CAPS["project"]
+    if any(memstore.same_key(entry.text) == memstore.same_key(text)
+           for entry in memstore.entries(state, scope="project", owner_key=pid, kinds=("rule",))):
+        return ""
+    count, used = lead_room(state, pid)
+    if count < most and used + len(text) <= chars:
+        return ""
+    return (f"负责人记的规矩已占满这个专项的名额（{most} 条 / {chars:,} 字，现在 {count} 条 {used:,} 字），没有记。"
+            "先用 project_memory_revise 把说同一件事的合并（supersede，by 写要留的那条），或把不用每轮照做的改成资料"
+            "（update，kind 写 fact），再记这条。")
 
 
 def remember_new(state, pid, kind, text, request):
-    """project_remember of a rule or a note (core/memstore.py add): the lead's (负责人记的), in force in the project at once; it
-    goes to no 待审核 (the owner does not review the lead's lines one by one). ValueError for what memstore refuses (a title too
-    long)."""
+    """project_remember of a rule or a note through core/memory_gate.py write: the lead's (负责人记的), in force in the project
+    at once; it goes to no 待审核 (the owner does not review the lead's lines one by one). A rule past the room for the lead's
+    rules is refused (``room_refusal``), as are the gate's refusals (a state of the moment: the brief's). A new rule is a line
+    on the lead's card (the job's ``lead_notes``). ValueError for what is refused (a title too long, memstore's)."""
     title = " ".join(str(request.args.get("title") or "").split())
     if len(title) > memstore.TITLE_CHARS:
         raise ValueError(f"title 最多 {memstore.TITLE_CHARS} 个字，这次 {len(title)} 个：写一句短的标题。")
-    before = {entry.ref for entry in memstore.entries(state, scope="project", owner_key=pid, statuses=None)}
-    entry = memstore.add(state, kind=kind, scope="project", owner_key=pid, text=text, title=title, said="summary", by="lead",
-                         origin={"job": str(request.job_key or "")}, who="lead")
-    new = entry.ref not in before
+    if kind == "rule":
+        full = room_refusal(state, pid, text)
+        if full:
+            raise ValueError(full)
+    written = memory_gate.write(state, kind=kind, scope="project", owner_key=pid, text=text, title=title, proof=None, by="lead",
+                                source="project_remember", place="lead", origin={"job": str(request.job_key or "")}, strict=True)
+    if written.entry is None:
+        offered = f"可以改成：{written.rewrite}。" if written.rewrite else ""
+        raise ValueError(f"{written.reason or '这条写法不合适'}，没有记。{offered}进度、分工、排期这类会变的现状不进记忆："
+                         + (BRIEF_PLACE if turn_source.enabled() else NOTE_PLACE))
+    entry = written.entry
     words = "规矩" if kind == "rule" else "资料"
-    if not new:
+    if written.done == memstore.SAME:
         return reply(True, f"专项记忆里已有这条（{entry.code}），没有重复记。", id=entry.code, ref=entry.ref, new=False)
+    if kind == "rule":
+        card_line(state, request, entry)
     return reply(True, f"已记进专项{words}（{entry.code}）{entry.title}：{entry.text}。", id=entry.code, ref=entry.ref, new=True)
+
+
+def card_line(state, request, entry) -> None:
+    """负责人记下了：<the rule> · 管这个专项, with 不对, on the lead's card of this turn: a note in the job's ``lead_notes`` that
+    app/memory_collect.py shows with the turn's other memory lines once it ends. Never raises."""
+    try:
+        job = find_job_record(state, str(request.job_key or "")) or {}
+        if not job.get("key"):
+            return
+        notes = [dict(note) for note in job.get("lead_notes") or () if isinstance(note, dict)]
+        notes.append({"kind": "remembered", "by": "lead", "text": entry.text, "title": entry.title, "scope": "管这个专项",
+                      "entry_id": memstore.parse_ref(entry.ref)[2], "ref": entry.ref, **({"code": entry.code} if entry.code else {})})
+        upsert_job_record(state, str(job["key"]), lead_notes=notes[-5:])
+    except Exception:  # noqa: BLE001 - the rule is written whether or not the card says so
+        pass
 
 
 def revise_refusal(action, entry, other=None) -> str:
@@ -695,7 +753,7 @@ def project_memory_revise(env, request):
     kind = ("constraint" if kind == "rule" else "fact") if kind in NEW_KINDS else kind
     text = " ".join(str(args.get("text") or "").split())[:project_lead.TEXT]
     if text and SNAPSHOT.search(text):
-        raise ValueError(SNAPSHOT_REFUSED)
+        raise ValueError(snapshot_refused())
     common = {"why": why, "origin": {"job": str(request.job_key or "")}, "allow": revise_refusal}
     state = Path(env.state_dir)
     entry_id, decision = memory_key(state, pid, entry_id)
@@ -704,16 +762,24 @@ def project_memory_revise(env, request):
     by = str(args.get("by") or "").strip()
     if by:
         by = memory_key(state, pid, by)[0]
+    ref, because = f"project:{pid}:{entry_id}", {"job": common["origin"]["job"]}
+    was = memstore.find(state, ref)  # In the memory's 记录 as every other change is (T908 M3b).
     try:
         if action == "update":
             row = project_memory.update(state, pid, entry_id, text=text, kind=kind or "", **common)
+            memstore.noted(state, was, ref, who="lead", action="edit", because=because)
             return reply(True, f"已改专项记忆（{row['id']}）：{row['text']}。改之前的原文留在修改记录里。", id=row["id"])
         if action == "supersede":
             old, new, made = project_memory.supersede(state, pid, entry_id, text=text, kind=kind or "",
                                                       by=by, **common)
+            if made:
+                memstore.noted(state, None, f"project:{pid}:{new['id']}", who="lead", action="add", because=because)
+            memstore.noted(state, was, ref, who="lead", action="supersede", because=because)
             return reply(True, f"已用{'新写的' if made else '已有的'}（{new['id']}）{new['text']} 替代 {old['id']}；"
                          "旧的收进历史，不再每轮带上，仍可查。", id=new["id"], old=old["id"], new=made)
         row = project_memory.retire(state, pid, entry_id, **common)
+        memstore.noted(state, was, ref, who="lead", action="settle" if was is not None and was.kind == "decision" else "archive",
+                       because=because)
         return reply(True, f"已把专项记忆（{row['id']}）收进历史，不再每轮带上，仍可查：{row['text']}", id=row["id"])
     except KeyError:
         raise ValueError("专项记录不在了") from None

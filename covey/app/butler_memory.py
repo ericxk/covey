@@ -82,7 +82,7 @@ def memory_revise(env, request):
     old = "id" in args and "key" not in args
     made = memory_handler("memory_revise")
     if made is not None:
-        return answer_of(made(env, new_revise(args) if old else args))
+        return answer_of(made(env, new_revise(args) if old else args, request))
     if old:
         if str(args.get("id") or "").startswith("k"):
             handler = butler_knowledge.knowledge_update if "text" in args else butler_knowledge.knowledge_drop

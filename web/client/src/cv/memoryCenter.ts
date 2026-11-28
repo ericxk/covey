@@ -338,7 +338,7 @@ export function decisionHit(pool: Pool, code: string): SearchHit | null {
 }
 
 /* ---------- 待审核 ---------- */
-/** 待审核分成两块：要处理的（学到的、候选、矛盾、整理…），和迁移项（type === 'migrate'，负责人约束在按规矩带，不算待办）；迁移项按去处折成组 */
+/** 待审核分成两块：要处理的（推断全局、放行类、矛盾），和迁移项（type === 'migrate'，负责人约束在按规矩带，不算待办）；迁移项按去处折成组 */
 export interface ReviewGroup { key: string; label: string; rows: MemoryReviewItem[] }
 export function reviewSplit(rows: MemoryReviewItem[], pool: Pick<Pool, 'projects'>): { todo: MemoryReviewItem[]; groups: ReviewGroup[] } {
   const todo: MemoryReviewItem[] = [];
@@ -366,23 +366,23 @@ export function titleShown(r: Pick<MemoryReviewItem, 'title' | 'text'>): boolean
   return !(x && (x === t || x.startsWith(t)));
 }
 /**
- * 待审核每条的一行灰字：它是哪一种 · 点「采纳」「不要」各会怎样。和飞书设置卡「记忆」同一张表（covey/cards/memory_panel.py REVIEW_WORDS），
- * 按 type 和 suggest.scope 取，取不到用 REVIEW_OTHER。
+ * 待审核每条的一行灰字：它是哪一种 · 点「采纳」「不要」各会怎样（「不要」都是保持原样）。和飞书设置卡「记忆」同一张表
+ * （covey/cards/memory_panel.py WIDER_WORDS、GRANT_WORDS、REVIEW_WORDS）：放行类（suggest.grant）和先在原处照做的推断全局（带 items）
+ * 各一句，其余按 type 和 suggest.scope 取，取不到用 REVIEW_OTHER。
  */
+export const WIDER_WORDS = '推断要管全局 · 现在先在说的地方照做；采纳就挪到全局，不要就留在原处';
+export const GRANT_WORDS = '涉及要你点头的事 · 采纳后才生效，能放行它写明的那类事；不要就不记';
 export const REVIEW_WORDS: Record<string, string> = {
-  'learn:global': '推断要管全局 · 采纳后每一轮都照做，不要就不记',
-  learn: '自动学到的 · 采纳后在这里照做，不要就不记',
-  lead: '负责人记的规矩 · 它已在这个专项照做，采纳或不要都只关掉这一项',
-  'migrate:project': '迁移带过来的负责人约束 · 采纳算你定的，不要就改成资料',
+  'learn:global': '推断要管全局 · 还没生效；采纳后每一轮都照做，不要就不记',
+  learn: '自动学到的 · 还没生效；采纳后在这里照做，不要就不记',
+  'migrate:project': '迁移带过来的负责人约束 · 采纳算你定的，不要就照旧是负责人记的',
   migrate: '旧版工作区里的一条 · 采纳后管全局，不要就不带过来',
-  conflict: '和已有的一条说法不同 · 采纳换成新的说法，不要留原来的',
-  tidy: '整理记忆收起了一组 · 采纳就保持收起，不要就放回',
-  class3: '同类的题第三次了 · 采纳后这类按这次的做，不要就照旧问你',
-  candidate: '晚间候选（旧版留下的） · 采纳后记成全局规矩，不要就不记',
-  import: '别的工具里记的（旧版留下的） · 采纳后记下，不要就不记',
+  conflict: '和已有的一条说法不同 · 采纳换成新的说法，不要就留原来的',
 };
-export const REVIEW_OTHER = '采纳后生效，不要就不记';
-export function reviewLine(r: Pick<MemoryReviewItem, 'type' | 'suggest'>, _pool?: Pick<Pool, 'projects'>): string {
+export const REVIEW_OTHER = '采纳后生效，不要就保持原样';
+export function reviewLine(r: Pick<MemoryReviewItem, 'type' | 'suggest' | 'items'>, _pool?: Pick<Pool, 'projects'>): string {
+  if (r.type === 'learn' && r.suggest?.grant) return GRANT_WORDS;
+  if (r.type === 'learn' && r.items?.length) return WIDER_WORDS;
   return REVIEW_WORDS[`${r.type}:${r.suggest?.scope ?? ''}`] ?? REVIEW_WORDS[r.type] ?? REVIEW_OTHER;
 }
 export const FLAG_WORD: Record<string, string> = { vague: '过后可能读不懂', dynamic: '写的是会变的现状', repeat: '说过不止一次', old_repo: '旧仓库' };

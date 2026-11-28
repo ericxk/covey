@@ -163,10 +163,11 @@ class LearnTest(Case):
                   "void": []}
         notes, asked, record = self.learn(job, answer)
         # The workspace is no scope of the memory any more: that line is the topic's, written at once.
-        self.assertEqual([(note["kind"], note["text"], note["scope"]) for note in notes],
-                         [("remembered", "汇报先给结论再给表", "管这个话题"),
-                          ("pending", "汇报先给结论再给表", memory_collect.WIDER_WORDS),
-                          ("remembered", "这个仓库不跑全量测试", "管这个话题")])
+        # T908 M3b: one line, "记下了：… · 先管这个话题，要管全局吗" with 采纳 (its note's ``review`` the item's key).
+        self.assertEqual([(note["kind"], note["text"], note["scope"], bool(note.get("review"))) for note in notes],
+                         [("remembered", "汇报先给结论再给表", "管这个话题", True),
+                          ("remembered", "这个仓库不跑全量测试", "管这个话题", False)])
+        self.assertEqual(notes[0]["review"], "review:learn:000001")  # The stand-in queue's key of the first item.
         self.assertEqual(memstore.entries(self.state, scope="global"), [])  # 全局 only with his accept.
         self.assertEqual([row["text"] for row in topic_memory.live(self.state, "t1")], ["汇报先给结论再给表", "这个仓库不跑全量测试"])
         self.assertEqual([(item.type, item.text, item.suggest) for item in self.reviewed],
@@ -181,12 +182,14 @@ class LearnTest(Case):
         self.assertNotIn("project", asked[0])
         self.assertFalse(any("汇报" in line for line in self.logs))  # His words never in a log line.
         card = json.dumps(memory_element(notes, "t1", "4"), ensure_ascii=False)
-        self.assertIn("待审核：汇报先给结论再给表 · " + memory_collect.WIDER_WORDS, card)
-        self.assertEqual(card.count("bridge_memory_wrong"), 3)  # 不对 on each: on 待审核 it turns the proposal down.
-        with mock.patch.object(memstore, "review_set") as rejected:
-            after = memory_collect.take_back(self.state, "t1", record, notes[1]["entry_id"])
-        self.assertEqual(after[1]["kind"], "undone")
-        rejected.assert_called_once_with(self.state, notes[1]["entry_id"], "rejected", by="owner")
+        self.assertIn("记下了：汇报先给结论再给表 · 先管这个话题，要管全局吗", card)
+        self.assertEqual(card.count("bridge_memory_wrong"), 2)  # 不对 on each line.
+        self.assertEqual(card.count("bridge_memory_pin"), 1)  # 采纳 on the line that asks about 全局 (the 设置 card's kind).
+        with mock.patch.object(memstore, "review_state", return_value="open"), mock.patch.object(memstore, "review_set") as rejected:
+            after = memory_collect.take_back(self.state, "t1", record, notes[0]["entry_id"])
+        self.assertEqual(after[0]["kind"], "undone")
+        rejected.assert_called_once_with(self.state, notes[0]["review"], "rejected", by="owner")  # Its 待审核 goes with it,
+        self.assertEqual([row["text"] for row in topic_memory.live(self.state, "t1")], ["这个仓库不跑全量测试"])  # and the rule.
 
     def test_a_project_line_is_the_projects_at_once_and_a_note_says_it_is_carried_when_related(self):
         # T908 M3a: 这个专项 → the project's, no 待审核 in a project's topic any more; 记一下 → a note (资料).
@@ -268,7 +271,7 @@ class ProposedOnceTest(Case):
         said = "以后汇报都先给结论，再给表"
         answer = {"remember": [{"quote": said, "text": "汇报先给结论再给表", "scope": "global"}], "void": []}
         first, _, _ = self.learn(self.turn(said), answer)
-        self.assertEqual([note["kind"] for note in first], ["remembered", "pending"])
+        self.assertEqual([(note["kind"], bool(note.get("review"))) for note in first], [("remembered", True)])
         self.count += 1
         again, _, record = self.learn(self.turn(said), answer)
         self.assertEqual(again, [])  # T914 M1: the line and the item are the ones there already: the card says nothing again.
@@ -324,10 +327,16 @@ class SupersedeTest(Case):
         card = json.dumps(memory_element(notes, "t1", "4"), ensure_ascii=False)
         self.assertIn("收起了：M12：汇报先给结论", card)
         self.assertEqual(card.count("bridge_memory_wrong"), 2)
+        # In the 记录 as every other change is (T908 M3b): the line put out of the way by the learning, and put back by 不对.
+        ref = f"project:{PID}:{old['id']}"
+        logged = [row for row in memstore.log_read(self.state) if ref in row["refs"]]
+        self.assertEqual([(row["who"], row["action"]) for row in logged], [("learn", "supersede")])
+        self.assertEqual((logged[0]["before"][ref]["status"], logged[0]["after"][ref]["status"]), ("active", "archived"))
         memory_collect.take_back(self.state, "t1", record, old["id"])  # 不对 on the receipt.
         again = {row["id"]: row for row in project_memory.stored(self.state, PID)}
         self.assertNotIn("valid", again[old["id"]])
         self.assertEqual(find_job_record(self.state, job.message_id)["memory_notes"][1]["kind"], "undone")
+        self.assertEqual([row["action"] for row in memstore.log_read(self.state) if ref in row["refs"]][0], "restore")
 
     def test_a_topic_line_he_contradicts_is_deleted_and_comes_back_with_不对(self):
         entry, _ = topic_memory.add(self.state, "t1", "这件事先问侧重点")
@@ -345,8 +354,8 @@ class SupersedeTest(Case):
         job = self.turn("以后这些回复用英文，不要用中文", memory_ids=ids)
         notes, _, _ = self.learn(job, {"supersede": [{"id": "M01", "quote": "以后这些回复用英文", "text": "回复用英文"}]})
         # T908 M3a: what he says now holds where he said it; 待审核 asks whether it is to hold 全局.
-        self.assertEqual([note["kind"] for note in notes], ["remembered", "pending"])
-        self.assertIn("和 M01：回复用中文 矛盾，那条没动", notes[1]["text"])
+        self.assertEqual([(note["kind"], bool(note.get("review"))) for note in notes], [("remembered", True)])
+        self.assertIn("和 M01：回复用中文 矛盾，那条没动", notes[0]["text"])
         self.assertEqual([entry.text for entry in memstore.entries(self.state, scope="global")], ["回复用中文"])
         self.assertEqual([row["text"] for row in topic_memory.live(self.state, "t1")], ["回复用英文"])
         self.assertEqual([item.text for item in self.reviewed], ["回复用英文"])
@@ -384,9 +393,8 @@ class LeadAndQuestionTest(Case):
         notes, asked, _ = self.learn(job, {"remember": [
             {"quote": "以后汇报都先给结论", "text": "汇报先给结论", "scope": "global"},
             {"quote": "这件事别再先问", "text": "这件事不先问", "scope": "topic"}]})
-        self.assertEqual([(note["kind"], note["text"], note["scope"]) for note in notes],
-                         [("remembered", "汇报先给结论", "管这个专项"), ("pending", "汇报先给结论", memory_collect.WIDER_WORDS),
-                          ("remembered", "这件事不先问", "管这个专项")])
+        self.assertEqual([(note["kind"], note["text"], note["scope"], bool(note.get("review"))) for note in notes],
+                         [("remembered", "汇报先给结论", "管这个专项", True), ("remembered", "这件事不先问", "管这个专项", False)])
         self.assertEqual(asked[0]["project"], "迁移")
         self.assertEqual(topic_memory.live(self.state, "t1"), [])
         found = memstore.entries(self.state, scope="project", owner_key=PID)

@@ -13,7 +13,7 @@ from unittest import mock
 from support.records import write_job, write_topic
 
 from covey.app import collab_checks, web_collect as app_collect
-from covey.core import collab, collab_records, memory as core_memory, project_memory, projects, turn_source
+from covey.core import collab, collab_records, memory as core_memory, project_memory, turn_source
 from covey.core.history_storage import append_history
 
 from test_web_sync import BUTLER, CHAT, OTHER, PID, T0, TOPIC, WebCase, Ctx
@@ -203,54 +203,23 @@ class StopTest(CollabCase):
 
 
 class MemoryFixTest(CollabCase):
+    """v31's ``memory_fix`` is gone (T908 M3b): an older page's correction is refused as an operation not known, and the line
+    stays as it was (the page changes the memory through ``memory_edit`` v43)."""
+
     def setUp(self):
         super().setUp()
         self.entry, _ = project_memory.add(self.state, PID, "对账以月底为准", "constraint", "lead")
 
-    def fix(self, op_id, project=PID, **payload):
-        self.web.op("memory_fix", len(self.web.outbox) + 1, op_id, project=project, project_key=project, entry_id=self.entry["id"], **payload)
-        self.sync.inbox_once()
-        return self.acked()
-
-    def facts(self):
-        row = next(row for row in project_memory.entries(self.state, self.reload()) if row["id"] == self.entry["id"])
-        return core_memory.describe(row)
-
-    def test_confirm_makes_a_rule_at_the_owners_level_with_this_operation_as_its_origin(self):
-        state, message = self.fix("op-m1", what="confirm")
-        self.assertEqual((state, message), ("done", "已确认为长期约定：对账以月底为准"))
-        facts = self.facts()
-        self.assertEqual((facts["layer"], facts["asserted_by"], facts["level"], facts["origin"]["message_id"]),
-                         ("rule", "owner", "owner", "web-op-m1"))
-
-    def test_scope_sets_the_conditions_and_once_a_decision_for_this_time(self):
-        self.assertEqual(self.fix("op-m2", what="scope", applies="只在迁移账单时")[0], "done")
-        self.assertEqual(self.facts()["applies"], "只在迁移账单时")
-        self.assertEqual(self.fix("op-m3", what="once")[0], "done")
-        self.assertEqual(self.facts()["layer"], "decision")
-
-    def test_a_refusal_says_why(self):
-        for op, fields, words in (("op-m4", {"what": "scope"}, "applies"), ("op-m5", {"what": "nope"}, "纠正只有"),
-                                  ("op-m6", {"what": "confirm", "project": "zzzzzz999999"}, "不认识")):
-            state, message = self.fix(op, **fields)
+    def test_an_older_pages_correction_is_refused_and_changes_nothing(self):
+        for n, (op, payload) in enumerate((("op-m1", {"what": "confirm"}), ("op-m2", {"what": "scope", "applies": "只在迁移账单时"}))):
+            self.web.op("memory_fix", n + 1, op, project=PID, project_key=PID, entry_id=self.entry["id"], **payload)
+            self.sync.inbox_once()
+            state, message = self.acked()
             self.assertEqual(state, "failed")
-            self.assertIn(words, message)
-        self.web.op("memory_fix", 20, "op-m7", PID, project_key=PID, entry_id="nope", what="confirm")
-        self.sync.inbox_once()
-        self.assertEqual(self.acked(), ("failed", "这条记忆已经不在了"))
-        projects.update(self.state, PID, lambda record: record.update(chat_id="oc_other"))
-        self.assertEqual(self.fix("op-m8", what="confirm")[0], "failed")
-
-    def test_only_the_owner_confirms(self):
-        self.runtime.owner_open_id = "ou_somebody"
-        state, message = self.fix("op-m9", what="confirm")
-        self.assertEqual((state, message), ("failed", "只有主人能改专项记忆"))
-        self.assertEqual(self.facts()["level"], "agent")
-
-    def test_a_topics_own_memory_is_not_corrected_yet(self):
-        self.web.op("memory_fix", 1, "op-m10", TOPIC, topic_key=TOPIC, entry_id="abc", what="once")
-        self.sync.inbox_once()
-        self.assertEqual(self.acked(), ("failed", "话题记忆的纠正还不支持"))
+            self.assertIn("不认识的操作", message)
+        row = next(row for row in project_memory.entries(self.state, self.reload()) if row["id"] == self.entry["id"])
+        self.assertEqual(core_memory.describe(row)["level"], "agent")
+        self.assertNotIn("applies", row)
 
 
 class PushTest(CollabCase):

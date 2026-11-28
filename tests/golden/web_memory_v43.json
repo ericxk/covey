@@ -8,7 +8,7 @@
         "rule": 1,
         "decision": 1,
         "note": 2,
-        "pending": 3
+        "pending": 4
       },
       "scopes": [
         {
@@ -40,7 +40,7 @@
             "rule": 0,
             "decision": 1,
             "note": 0,
-            "pending": 0
+            "pending": 1
           },
           "rev": "pv1"
         }
@@ -164,53 +164,62 @@
           "created_at": 1794999800
         },
         {
-          "key": "review:tidy:c3",
-          "type": "tidy",
-          "title": "两条相近的规矩",
-          "text": "这两条意思重复，可以合并。",
+          "key": "review:learn:c3",
+          "type": "learn",
+          "title": "只读 demo-repo 管全局？",
+          "text": "这个话题里不要修改 demo-repo，只读它的代码。",
+          "quote": "这个话题里不要修改 demo-repo，",
+          "from": {
+            "topic_key": "t001",
+            "topic_number": 12
+          },
           "suggest": {
             "kind": "rule",
             "scope": "global"
           },
           "items": [
             {
-              "key": "global:g1a2b3",
-              "code": "RK7M2Q",
+              "key": "topic:t001:r1b2c3",
+              "code": "RT4P8D",
               "kind": "rule",
-              "scope": "global",
-              "title": "提交前先跑测试",
-              "text": "提交代码之前先跑相关测试，失败就不提交。",
+              "scope": "topic",
+              "title": "这个话题只读 demo-repo",
+              "text": "这个话题里不要修改 demo-repo，只读它的代码。",
               "status": "active",
               "said": "owner",
               "by": "owner",
               "origin": {
                 "at": 1795000000,
-                "topic_number": 12,
-                "quote": "提交代码之前先跑相关测试，失败就不提交。"
+                "topic_number": 12
               },
-              "rev": "rrk7m2q",
-              "why": "曾经把没跑过的改动合进了主干"
-            },
-            {
-              "key": "global:g9z9z9",
-              "code": "RZ9Z9Z",
-              "kind": "rule",
-              "scope": "global",
-              "title": "提交前先跑测试",
-              "text": "提交代码之前先跑相关测试，失败就不提交。",
-              "status": "active",
-              "said": "owner",
-              "by": "owner",
-              "origin": {
-                "at": 1795000000,
-                "topic_number": 12,
-                "quote": "提交代码之前先跑相关测试，失败就不提交。"
-              },
-              "rev": "rz9",
-              "why": "曾经把没跑过的改动合进了主干"
+              "rev": "rrt4p8d",
+              "topic_key": "t001",
+              "topic_number": 12,
+              "repos": [
+                "demo-repo"
+              ],
+              "edited": true
             }
           ],
           "created_at": 1794999900
+        },
+        {
+          "key": "review:learn:d4",
+          "type": "learn",
+          "title": "改完直接部署到演示机",
+          "text": "演示专项里改完直接部署到演示机，不用再问。",
+          "quote": "以后改完直接部署到演示机",
+          "from": {
+            "topic_key": "t001",
+            "topic_number": 12
+          },
+          "suggest": {
+            "kind": "rule",
+            "scope": "project",
+            "project_key": "demo01",
+            "grant": "deploy"
+          },
+          "created_at": 1794999950
         }
       ],
       "log": [

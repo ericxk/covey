@@ -1,15 +1,20 @@
 """The one review queue of the memory (待审核, ``memory/review.json``): what someone other than the owner proposes waits here.
 
-What the memory's own learning would make reach past its topic, a conflict, a tidy proposal and the third same-class
-question (class3) wait here for the owner's word; a lead's rule does not (it holds in its project at once, 负责人记的).
-Of the learning's (type learn, core/memory_gate.py write): a rule for every topic, held where it was said meanwhile (its
-line in ``items``: accepting moves that line to 全局, ``memstore.promote``, never a second one), and a learned rule whose
-words name what only the owner says yes to (``suggest.grant``: in force only once accepted).
-Items older releases put here (a lead's rule, an evening candidate, a Harness's import, a lead's line the migration
-carried) stay readable and decidable until they are decided or expire: an open item EXPIRE_DAYS old is closed as expired
-by the daily upkeep (core/memstore.py upkeep), kept, never deleted. Only the owner's submit moves an item out otherwise; a
-lead answering for him never writes a rule (docs/butler.md 记忆, docs/operations.md 记忆的存储与迁移). The queue itself is
-core/memstore.py's (memory/review.json); this module is what an item means when decided.
+Two kinds wait for the owner's word (T908 M3b), both of the memory's own learning (type learn, core/memory_gate.py write):
+
+- 推断全局: a rule the owner's words seem to mean for every topic, held where it was said meanwhile (its line in ``items``).
+  采纳 moves that line to 全局 (``memstore.promote``, never a second one); 不要 leaves it where it is. The butler's 全局 the
+  owner's words did not ask for has no line yet: 采纳 writes it 全局, 不要 writes nothing.
+- 放行类: a learned rule whose words name what only the owner says yes to (``suggest.grant``), in force only once accepted:
+  采纳 writes it, the owner's (it may then let a turn skip asking him what it names); 不要 writes nothing.
+
+不要 always means the same: the proposal is not followed, everything stays as it is. Two one-time sources wait here too: a
+rollback's conflict (two words for one entry: 采纳 the new, 不要 the old) and an older release's workspace line (migrate:
+采纳 makes it 全局, or the owner's where it is; 不要 leaves it). A lead's rule never waits here (负责人记的, in force in its
+project at once). An open item EXPIRE_DAYS old is closed as expired by the daily upkeep (core/memstore.py upkeep), kept, never
+deleted; an open item of a type older releases put here reads as expired (core/memstore.py review_state). Only the owner's
+submit moves an item out otherwise; a lead answering for him never writes a rule (docs/butler.md 记忆, docs/operations.md
+记忆的存储与迁移). The queue itself is core/memstore.py's (memory/review.json); this module is what an item means when decided.
 """
 from __future__ import annotations
 
@@ -19,7 +24,7 @@ from dataclasses import dataclass, field
 
 from covey.core import memory_usage, memstore
 
-TYPES = ("learn", "candidate", "lead", "import", "conflict", "tidy", "class3", "migrate")
+TYPES = memstore.REVIEW_TYPES  # learn, conflict, migrate
 
 
 @dataclass(frozen=True)
@@ -33,7 +38,7 @@ class ReviewItem:
     quote: str = ""
     origin: dict = field(default_factory=dict)  # {topic_key?, topic_number?}
     conflict_with: str = ""
-    items: tuple = ()  # A tidy proposal's group of refs.
+    items: tuple = ()  # The entries it is about: a 推断全局's line held where it was said, a migrated line.
     flags: tuple = ()  # core/memory_gate.py FLAGS
 
 
@@ -41,7 +46,7 @@ EXPIRE_DAYS = memstore.REVIEW_DAYS  # An open item older than this is ``expired`
 # A scope's rules past either number are over the cap: (entries, characters).
 RULE_CAPS = {"global": (15, 1200), "project": (10, 1000), "topic": (5, 400)}
 ACTIONS = ("accept", "reject", "keep_left", "keep_right", "keep_both")
-_BY = {"learn": "learn", "lead": "lead", "candidate": "bridge", "class3": "bridge", "migrate": "bridge"}
+_BY = {"learn": "learn", "migrate": "bridge"}
 _FIELDS = ("key", "type", "title", "text", "suggest", "created_at", "quote", "origin", "conflict_with", "items", "flags")
 
 
@@ -103,33 +108,24 @@ def _conflict(state_dir, row: dict, action: str, who, token, now) -> list[str]:
 
 
 def _written(state_dir, row: dict, action: str, who, token, now) -> list[str]:
-    """What the owner's ``action`` on item ``row`` writes; the refs written."""
+    """What the owner's ``action`` on item ``row`` writes; the refs written. 不要 (reject, keep_left) writes nothing."""
     kind, refs = row["type"], [str(ref) for ref in row.get("items") or ()]
     suggest = row.get("suggest") if isinstance(row.get("suggest"), dict) else {}
     if kind == "conflict":
         return _conflict(state_dir, row, {"accept": "keep_right", "reject": "keep_left"}.get(action, action), who, token, now)
     if action not in ("accept", "reject"):
         raise ValueError("这一项只能采纳或不要")
-    if kind == "migrate" and suggest.get("scope") == "project":  # The guardrail's: a lead's line carried as a rule.
-        written = []
-        for ref in refs:
-            if action == "accept":
-                written.append(memstore.confirm(state_dir, ref, who=who, token=token, now=now).ref)
-            else:
-                written.append(memstore.set_kind(state_dir, ref, "note", who=who, token=token, now=now).ref)
-        return written
-    if kind == "tidy":
-        written = []
-        if action == "reject":
-            for ref in refs:
-                written.append(memstore.restore(state_dir, ref, who=who, token=token, now=now).ref)
-        return written
-    if action == "reject":
+    if action == "reject" or kind not in TYPES:
         return []
-    if kind == "learn" and refs and suggest.get("scope") == "global":  # Held where it was said (T908 M3a): moved, not made again.
+    if kind == "migrate" and suggest.get("scope") == "project":  # An older release's guardrail: a lead's line carried as a rule.
+        return [memstore.confirm(state_dir, ref, who=who, token=token, now=now).ref for ref in refs
+                if (found := memstore.find(state_dir, ref)) is not None and found.status == "active"]
+    if kind == "learn" and refs and suggest.get("scope") == "global":  # 推断全局, held where it was said: moved, not made again.
         here = memstore.find(state_dir, refs[0])
         if here is not None and here.status == "active" and here.scope != "global":
             return [memstore.promote(state_dir, here.ref, scope="global", who=who, token=token, now=now).ref]
+        if here is not None and here.status == "active":
+            return [here.ref]
     return _add(state_dir, row, who, token, now, by=_BY.get(kind, "bridge"))
 
 

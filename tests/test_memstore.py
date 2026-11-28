@@ -47,7 +47,7 @@ class KindMapTest(unittest.TestCase):
         self.assertEqual(k({"kind": "question", "state": "dropped"}), ("note", "owner", "void"))  # Guessed: a knowledge entry.
         self.assertEqual(k({"source": "owner", "kind": "constraint", "deleted": 0}), ("rule", "owner", "active"))
         self.assertEqual(k({"source": "owner", "kind": "fact"}, {"layer": "decision"}), ("decision", "owner", "active"))
-        self.assertEqual(k({"source": "lead", "kind": "style"}), ("rule", "owner", "active"))
+        self.assertEqual(k({"source": "lead", "kind": "style"}), ("note", "summary", "active"))  # Never a rule (T908 M3b),
         self.assertEqual(k({"source": "owner_answer", "kind": "decision"}), ("decision", "owner", "active"))
         self.assertEqual(k({"source": "owner_answer", "kind": "decision"}, {"valid": "done"}), ("decision", "owner", "done"))
         self.assertEqual(k({"source": "owner_fix", "kind": "decision"}), ("decision", "owner", "active"))
@@ -63,6 +63,16 @@ class KindMapTest(unittest.TestCase):
         self.assertEqual(k({"source": "owner", "kind": "constraint"}, source="topic"), ("rule", "owner", "active"))
         self.assertEqual(k({"source": "owner", "kind": "constraint", "deleted": NOW}, source="topic"), ("rule", "owner", "void"))
         self.assertEqual(k({"id": "c1", "text": "x"}, source="candidate"), ("rule", "summary", "pending"))
+
+
+class StyleLineTest(Case):
+    def test_the_style_line_is_no_entry_of_the_store(self):
+        """project_style's line (汇报风格：…) stays the lead's own setting, read where it always was: no rule, no code, no entry
+        of the store (T908 M3b), the project's other lines as before."""
+        project_memory.add(self.state, PID, "汇报风格：只报里程碑和收尾", "style", "lead", now=NOW)
+        rule = memstore.add(self.state, kind="rule", scope="project", owner_key=PID, text="改完先跑全量", now=NOW)
+        self.assertEqual([e.text for e in memstore.entries(self.state, scope="project", owner_key=PID, statuses=None)], [rule.text])
+        self.assertEqual([row["kind"] for row in project_memory.stored(self.state, PID)], ["style", "constraint"])
 
 
 class CodeTest(Case):

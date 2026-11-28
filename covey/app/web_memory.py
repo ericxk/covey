@@ -1,13 +1,11 @@
 """The web page's memory: the 记忆 tab of data contract v37 (COVEY_MEMORY=1) and the one-page 记忆 of data contracts v43/v45.
 
-v37 (``view``, ``edit``): the ``settings`` item ``memory`` (app/web_sync.py push_memory), the owner's main memory, 全局 and each
-workspace's, read and changed as the 设置 card's 记忆 tab once did: the principles (core/principles.py) and, with
-COVEY_KNOWLEDGE=1, the knowledge entries (core/knowledge.py), each group with the room it uses of its scope's limit and which
-entries the next turn carries, through core/memory.py ``items``, ``fill`` and ``select`` exactly as a turn does, and the block a
-new topic's turn in each workspace would read (app/prompts.py memory_block). ``edit`` is the ``memory_edit`` operation without
-``v`` (app/web_ops.py): add a principle or a knowledge entry, change its words (only while it still reads ``base``), 常驻 or
-not, delete a principle or void a knowledge entry, each through the store's own function under its own lock (an older page's
-keep and drop of an evening candidate say that feature is gone). An older page keeps the rest of it.
+v37 (``view``): the ``settings`` item ``memory`` (app/web_sync.py push_memory), the owner's main memory, 全局 and each
+workspace's, read as the 设置 card's 记忆 tab once did: the principles (core/principles.py) and, with COVEY_KNOWLEDGE=1, the
+knowledge entries (core/knowledge.py), each group with the room it uses of its scope's limit and which entries the next turn
+carries, through core/memory.py ``items``, ``fill`` and ``select`` exactly as a turn does, and the block a new topic's turn in
+each workspace would read (app/prompts.py memory_block). Read only: v37's ``memory_edit`` without ``v`` is gone (T908 M3b; the
+page writes through v43's).
 
 v45 (``Center``, ``edit_v43``; docs/web.md 数据约定 v45, tests/golden/web_memory_v43.json): the page's ``settings`` items, each
 a key of core/web_sync.py ``MEMORY_KEY_RE`` read from the one store (core/memstore.py):
@@ -26,14 +24,12 @@ Harnesses' memory import (memory/imports.json stays as it is; nothing reads it).
 What a turn did with an entry (how often it was carried, used) is never in an entry: an entry's ``rev`` moves only when what
 the page shows of it does, so a turn does not make every key go again. ``stamps`` stats the one sentinel ``memory/.rev`` that
 every memory write touches (core/memory_rev.py). ``edit_v43`` does the 15 actions of a ``memory_edit`` with ``v: 43`` through
-core/memstore.py and, for 待审核, core/memory_review.py ``decide``/``decide_all`` (``review_decide``: this module's own way
-while that one is not there); the operation's id is the change's ``undo_token``. No model, no Feishu call.
+core/memstore.py and, for 待审核, core/memory_review.py ``decide``/``decide_all`` (``review_decide``); the operation's id is
+the change's ``undo_token``. No model, no Feishu call.
 """
 from __future__ import annotations
 
-import inspect
 import json
-import re
 import time
 from pathlib import Path
 
@@ -47,13 +43,8 @@ from covey.core.topics import topic_file
 from covey.core.workspaces import load_config
 
 GLOBAL, WORKSPACE = memory.GLOBAL, memory.WORKSPACE
-PRINCIPLE, KNOWLEDGE, CANDIDATE = "principle", "knowledge", "candidate"
-ACTIONS = ("add", "edit", "pin", "unpin", "delete", "keep", "drop")
-CANDIDATE_ID = re.compile(r"c[0-9a-f]{8}")  # The evening candidates' ids (an older release's): keep and drop say they are gone.
+PRINCIPLE, KNOWLEDGE = "principle", "knowledge"
 PREVIEWS = 24  # Workspaces the next turn is previewed for: the default one and those with entries, the default first.
-DROP_REASON = "主人在网页「记忆」里作废"
-EDIT_REASON = "主人在网页「记忆」里改了"
-SOURCE = {"via": "web"}  # What a principle or an entry written here says of where it came from.
 ORIGIN_WORDS = {"web": "网页上记的", "settings_card": "设置卡里升为全局的", "memory_candidates": "晚间候选里记下的",
                 "memory_learn": "自动学习记的"}
 QUOTE_SHOWN = 200  # Characters of the owner's own words an entry's origin carries.
@@ -251,117 +242,6 @@ def view(state_dir, default_workdir=None) -> dict:
 def short(text, limit=30) -> str:
     text = " ".join(str(text or "").split())
     return text if len(text) <= limit else text[:limit - 1] + "…"
-
-
-def _key(payload) -> tuple[str, str]:
-    kind, _, rid = str(payload.get("key") or "").partition(":")
-    ok = {PRINCIPLE: principles.ID, KNOWLEDGE: knowledge.ID, CANDIDATE: CANDIDATE_ID}.get(kind)
-    if ok is None or not ok.fullmatch(rid):
-        raise ValueError("不认识这条记忆，页面会按最新的重画")
-    return kind, rid
-
-
-def _gone(what="这条记忆") -> ValueError:
-    return ValueError(f"{what}已经不在了（可能刚在别处删掉），页面会按最新的重画")
-
-
-def edit(state_dir, payload) -> str:
-    """One ``memory_edit`` operation (``payload["action"]``, ACTIONS); the receipt the page shows. ValueError says why nothing changed."""
-    action = str(payload.get("action") or "")
-    if action not in ACTIONS:
-        raise ValueError("不认识的记忆操作")
-    if action == "add":
-        return _add(state_dir, payload)
-    kind, rid = _key(payload)
-    if action == "edit":
-        try:
-            return _edit(state_dir, kind, rid, payload)
-        except ValueError as exc:
-            raise _owner_words(exc) from None
-    if action in ("pin", "unpin"):
-        if kind != PRINCIPLE:
-            raise ValueError("只有原则能标常驻")
-        found = principles.pin(state_dir, rid, action == "pin")
-        if found is None:
-            raise _gone()
-        return ("已标常驻：" if action == "pin" else "已取消常驻：") + short(found["text"])
-    if action == "delete":
-        if kind == PRINCIPLE:
-            found = principles.delete(state_dir, rid)
-            if found is None:
-                raise _gone()
-            return "已删除：" + short(found["text"])
-        if kind == KNOWLEDGE:
-            old = knowledge.find(state_dir, rid)
-            if old is None or old["state"] != knowledge.CURRENT:
-                raise _gone()
-            found = knowledge.drop(state_dir, rid, DROP_REASON, source=SOURCE, by="main")
-            return "已作废：" + short(found["text"])
-        raise ValueError("候选用「不用」，不用删")
-    raise ValueError("晚间候选已经下线，不用再处理")  # keep / drop of an older page.
-
-
-def _scope(payload) -> tuple[str, str]:
-    scope, workspace = str(payload.get("scope") or ""), principles.clean_text(payload.get("workspace"))
-    if scope not in (GLOBAL, WORKSPACE):
-        raise ValueError("要选记在全局还是某个工作区")
-    if scope == WORKSPACE and not workspace:
-        raise ValueError("要选记在哪个工作区")
-    return scope, workspace if scope == WORKSPACE else ""
-
-
-def _owner_words(exc) -> ValueError:
-    """A store's refusal in the owner's words: the stores speak to the butler (its tools' names in them)."""
-    text = re.sub(r"：先问主人删掉哪条（principle_delete），再记新的", "：先删掉用不着的再记", str(exc))
-    return ValueError(re.sub(r"（[a-z_]+ 里的名字）|：用 knowledge_search 找|，用 knowledge_search 重新找", "", text))
-
-
-def _add(state_dir, payload) -> str:
-    try:
-        return _add_one(state_dir, payload)
-    except ValueError as exc:
-        raise _owner_words(exc) from None
-
-
-def _add_one(state_dir, payload) -> str:
-    scope, workspace = _scope(payload)
-    what, text = str(payload.get("what") or ""), payload.get("text")
-    if what == PRINCIPLE:
-        item, new = principles.save(state_dir, principles.OWNER if scope == GLOBAL else principles.WORKSPACE, text,
-                                    workspace=workspace, source=SOURCE)
-        return ("已记下：" if new else "已有说同样意思的一条，没再记：") + short(item["text"])
-    if what == KNOWLEDGE:
-        if not knowledge.enabled():
-            raise ValueError("知识条目没开（COVEY_KNOWLEDGE）")
-        entry, new = knowledge.save(state_dir, knowledge.OWNER if scope == GLOBAL else knowledge.WORKSPACE,
-                                    str(payload.get("knowledge_kind") or "fact"), text, workspace=workspace,
-                                    why=str(payload.get("why") or ""), source=SOURCE, by="main")
-        return ("已记下：" if new else "已有同样的一条，没再记：") + short(entry["text"])
-    raise ValueError("要选记成原则还是知识条目")
-
-
-def _edit(state_dir, kind, rid, payload) -> str:
-    text, base = payload.get("text"), payload.get("base")
-    base = None if base is None else str(base)
-    if kind == PRINCIPLE:
-        found = principles.edit(state_dir, rid, text, base=base)
-        if found is None:
-            raise _gone()
-        return "已保存：" + short(found["text"])
-    if kind == KNOWLEDGE:
-        old = knowledge.find(state_dir, rid)
-        if old is None or old["state"] != knowledge.CURRENT:
-            raise _gone()
-        if base is not None and knowledge.clean_text(base) != old["text"]:
-            raise ValueError("这条刚在别处改过，先看看现在的内容再改")
-        kind_ = str(payload.get("knowledge_kind") or "") or None
-        why = payload.get("why")
-        if knowledge.clean_text(text) == old["text"] and (kind_ in (None, old["kind"])) and (why is None or knowledge.clean_text(why) == old["why"]):
-            return "没有变化"
-        entry = knowledge.update(state_dir, rid, text, kind=kind_, why=None if why is None else str(why), reason=EDIT_REASON,
-                                 source={**old["source"], "edited_via": "web"}, by=old["by"])  # Where it came from stays.
-        return "已保存：" + short(entry["text"])
-    raise ValueError("候选不能改，记下以后再改")
 
 
 # ================================================================================ data contract v43/v45: the memory center
@@ -581,10 +461,11 @@ def review_view(item, views) -> dict:
         out["from"] = where
     if str(item.get("conflict_with") or "").strip():
         out["conflict_with"] = str(item["conflict_with"])
-    if item.get("type") != "import":
-        group = [views[ref] for ref in item.get("items") or () if isinstance(ref, str) and ref in views]
-        if group:
-            out["items"] = group
+    if str(suggest.get("grant") or "").strip():  # 放行类: what of the five kinds its words name (core/memory_gate.py grants).
+        out["suggest"]["grant"] = str(suggest["grant"])[:40]
+    group = [views[ref] for ref in item.get("items") or () if isinstance(ref, str) and ref in views]
+    if group:
+        out["items"] = group
     flags = [flag for flag in item.get("flags") or () if flag in FLAGS]
     if flags:
         out["flags"] = flags
@@ -620,8 +501,9 @@ def log_view(rows) -> list:
         if why:
             item["because"] = why
         token = str(row.get("undo_token") or "")
-        if token and row.get("action") != "undo" and token not in undone:
-            item["undo_token"] = token
+        review = bool(item["refs"]) and all(ref.startswith("review:") for ref in item["refs"])
+        if token and row.get("action") != "undo" and token not in undone and (not review or row.get("action") in ("accept", "reject")):
+            item["undo_token"] = token  # An item of 待审核 the Bridge closed (expired, its line gone) is not undone from here.
         out.append(item)
     return out
 
@@ -643,19 +525,6 @@ def fit(data, cuts) -> dict:
 def _shelved_last(views) -> list:
     """Entries with the live ones first, so a key past its size loses the archived and the void ones."""
     return sorted(views, key=lambda view: view["status"] not in LIVE)
-
-
-def _m2(module, name, keywords):
-    """``module.name`` when it is package M2's (its keywords include ``keywords``), else None: until M2 is in, this module's own
-    way is taken (core/memory_review.py has only A0's shapes)."""
-    found = getattr(module, name, None)
-    if not callable(found):
-        return None
-    try:
-        params = inspect.signature(found).parameters
-    except (TypeError, ValueError):
-        return None
-    return found if all(word in params for word in keywords) else None
 
 
 # ---------------------------------------------------------------------------------------------- the keys
@@ -739,7 +608,8 @@ def overview(state_dir, now=None) -> dict:
     """What the 设置 card's 记忆 tab and the evening digest show (app/memory_panel.py, app/digest.py): {counts (the active
     rules, decisions and notes, ``pending`` the open items of 待审核), rules_by (the active rules of 全局, of the projects and
     of the topics: {global, project, topic}), scopes [{key, title, counts}] (全局, 话题, each project with memory), review: the
-    open items, the oldest first [{key, type, title, text, suggest}], rules: the active rules [{key, code, title, scope,
+    open items, the oldest first [{key, type, title, text, suggest, items?}] (a 推断全局's held line in ``items``, a 放行类's
+    ``suggest.grant``), rules: the active rules [{key, code, title, scope,
     over_cap, project_key, topic_number?}] of 全局, the projects and the topics}."""
     store = Store(state_dir, now)
     pending = store.pending()
@@ -758,8 +628,13 @@ def overview(state_dir, now=None) -> dict:
             row["topic_number"] = store.topic(e.owner_key)["number"]
         rules.append(row)
     by = {scope: sum(1 for row in rules if row["scope"] == scope) for scope in memstore.SCOPES}
+    held = {}  # The lines a 推断全局 holds where it was said: the tab says so (cards/memory_panel.py review_words).
+    for ref in {ref for item in store.review for ref in item.get("items") or () if isinstance(ref, str)}:
+        entry = memstore.find(state_dir, ref)
+        if entry is not None:
+            held[ref] = entry_view(entry)
     return {"counts": _counts(store.all(), len(store.review)), "rules_by": by, "scopes": scopes,
-            "review": [review_view(item, {}) for item in store.review], "rules": rules}
+            "review": [review_view(item, held) for item in store.review], "rules": rules}
 
 
 # ---------------------------------------------------------------------------------------------- 待审核 decided
@@ -767,8 +642,6 @@ def overview(state_dir, now=None) -> dict:
 
 REVIEW_ACTIONS = ("accept", "reject", "keep_left", "keep_right", "keep_both")
 ALL_ACTIONS = ("accept_all", "reject_all")
-BY_OF = {"learn": "learn", "candidate": "learn", "lead": "lead", "import": "import", "class3": "owner", "migrate": "owner",
-         "conflict": "owner", "tidy": "owner"}
 
 
 def _review_item(state_dir, key) -> dict:
@@ -778,73 +651,13 @@ def _review_item(state_dir, key) -> dict:
     return item
 
 
-def _place(item, edits) -> tuple[str, str, str]:
-    """(kind, scope, owner key) an accepted item is written to: the owner's choice on the page over the item's suggestion. A
-    project's key is only a project's, a topic's only a topic's (ValueError when the place names none)."""
-    suggest = item.get("suggest") if isinstance(item.get("suggest"), dict) else {}
-    kind = edits.get("kind") or suggest.get("kind") or "note"
-    scope = edits.get("scope") or suggest.get("scope") or "global"
-    same = suggest.get("scope") == scope
-    if scope == "project":
-        owner = str(edits.get("project_key") or (suggest.get("project_key") or suggest.get("owner_key") if same else "") or "")
-    elif scope == "topic":
-        owner = str(edits.get("topic_key") or (suggest.get("owner_key") or suggest.get("topic_key") if same else "") or "")
-    else:
-        owner = ""
-    if scope != "global" and not owner:
-        raise ValueError("要选记在哪个专项" if scope == "project" else "要选记在哪个话题")
-    return kind, scope, owner
-
-
-def _write_item(state_dir, item, edits, *, who, token, now) -> list:
-    """The entry an accepted proposal becomes, 你定的 (the owner accepted it): [its ref]."""
-    kind, scope, owner = _place(item, edits)
-    text = edits.get("text") or item.get("text") or ""
-    title = edits.get("title") or item.get("title") or ""
-    origin = {key: value for key, value in (item.get("origin") or {}).items() if key in ("topic_key", "topic_number", "quote", "harness", "file")} \
-        if isinstance(item.get("origin"), dict) else {}
-    if item.get("quote") and "quote" not in origin:
-        origin["quote"] = item["quote"]
-    by = BY_OF.get(str(item.get("type")), "owner")
-    if kind == "decision":
-        entry = memstore.add_decision(state_dir, scope=scope, owner_key=owner, text=text, title=title, said="owner", by=by,
-                                      origin=origin, who=who, token=token, now=now)
-    else:
-        entry = memstore.add(state_dir, kind=kind, scope=scope, owner_key=owner, text=text, title=title, said="owner", by=by,
-                             origin=origin, who=who, token=token, now=now)
-    return [entry.ref]
-
-
-def _baseline_decide(state_dir, key, action, *, edits, who, token, now) -> list:
-    """One item of 待审核 decided without package M2 (core/memory_review.py ``decide`` is A0's shape): the refs written."""
-    item = _review_item(state_dir, key)
-    kind = str(item.get("type") or "")
-    refs = [str(ref) for ref in item.get("items") or () if isinstance(ref, str)]
-    written = []
-    if action == "accept" and kind == "migrate":
-        written = [memstore.confirm(state_dir, ref, who=who, token=token, now=now).ref for ref in refs if memstore.find(state_dir, ref)]
-    elif action == "reject" and kind == "migrate":
-        written = [memstore.set_kind(state_dir, ref, "note", who=who, token=token, now=now).ref for ref in refs
-                   if memstore.find(state_dir, ref)]
-    elif action == "accept" and kind == "tidy":
-        written = [memstore.archive(state_dir, ref, who=who, token=token, now=now).ref for ref in refs
-                   if (found := memstore.find(state_dir, ref)) is not None and found.status in LIVE]
-    elif action in ("keep_right",) and item.get("conflict_with") and memstore.find(state_dir, str(item["conflict_with"])):
-        written = [memstore.edit(state_dir, str(item["conflict_with"]), text=edits.get("text") or item.get("text"),
-                                 title=edits.get("title") or item.get("title") or None, who=who, token=token, now=now).ref]
-    elif action in ("accept", "keep_both", "keep_right"):
-        written = _write_item(state_dir, item, edits, who=who, token=token, now=now)
-    memstore.review_set(state_dir, key, "rejected" if action in ("reject", "keep_left") else "accepted", by=who, now=now,
-                        refs=written, action=action, **({"token": token} if token else {}))
-    return written
-
-
 def reopen(state_dir, token, *, who="owner", now=None) -> list:
-    """The items of 待审核 decided with ``token`` (``_baseline_decide``) open again, as ``undo`` takes their change back: the keys."""
+    """The items of 待审核 decided with ``token`` (or closed by the change it names: their line gone, core/memstore.py
+    review_close) open again, as ``undo`` takes their change back: the keys."""
     if not token:
         return []
     done = []
-    for item in memstore.review_items(state_dir, states=("accepted", "rejected")):
+    for item in memstore.review_items(state_dir, states=("accepted", "rejected", "expired")):
         if item.get("token") == token:
             memstore.review_set(state_dir, str(item["key"]), "open", by=who, now=now, token="", refs=[], action="")
             done.append(str(item["key"]))
@@ -854,8 +667,8 @@ def reopen(state_dir, token, *, who="owner", now=None) -> list:
 def review_decide(state_dir, keys, action, *, edits=None, who="owner", token="", now=None) -> dict:
     """待审核 decided by the owner: ``action`` one of REVIEW_ACTIONS on the item among ``keys`` (keep_*: the review key of the
     pair [the entry, the item]), or ALL_ACTIONS on ``keys`` (empty: every open item). ``edits`` {title, text, kind, scope,
-    project_key, topic_key}: what the owner changed before accepting. Through core/memory_review.py ``decide``/``decide_all``
-    once package M2 has them (the edits laid on the item first), else ``_baseline_decide``. {decided: [keys], refs: [written]}."""
+    project_key, topic_key}: what the owner changed before accepting, laid on the item first. Through core/memory_review.py
+    ``decide``/``decide_all``. {decided: [keys], refs: [written]}."""
     stamp = time.time() if now is None else now
     edits = {k: v for k, v in dict(edits or {}).items() if v not in (None, "")}
     if action in ALL_ACTIONS:
@@ -864,23 +677,11 @@ def review_decide(state_dir, keys, action, *, edits=None, who="owner", token="",
         chosen = [k for k in open_keys if not wanted or k in wanted]
         if not chosen:
             raise ValueError("没有要处理的待审核")
-        whole = _m2(memory_review, "decide_all", ("keys", "who", "token"))
-        if whole is not None:
-            try:
-                found = dict(whole(state_dir, action, keys=chosen, who=who, token=token, now=stamp) or {})
-                return {"decided": chosen, "refs": [str(r) for r in found.get("refs") or found.get("written") or ()]}
-            except NotImplementedError:
-                pass
-        single, refs, done = "accept" if action == "accept_all" else "reject", [], []
-        for key in chosen:
-            try:
-                refs += _decide_one(state_dir, key, single, edits={}, who=who, token=token, now=stamp)
-                done.append(key)
-            except ValueError:
-                continue  # One gone meanwhile: the others are still decided.
-        if not done:
+        found = memory_review.decide_all(state_dir, action, keys=chosen, who=who, token=token, now=stamp)
+        decided = list(found.get("decided", chosen))
+        if not decided:
             raise ValueError("这些待审核都已经处理过了")
-        return {"decided": done, "refs": refs}
+        return {"decided": decided, "refs": [str(r) for r in found.get("refs") or ()]}
     if action not in REVIEW_ACTIONS:
         raise ValueError("不认识的记忆操作")
     key = next((str(k) for k in keys or () if str(k).startswith("review:")), "")
@@ -890,24 +691,17 @@ def review_decide(state_dir, keys, action, *, edits=None, who="owner", token="",
 
 
 def _decide_one(state_dir, key, action, *, edits, who, token, now) -> list:
-    one = _m2(memory_review, "decide", ("who", "token"))
-    if one is not None:
-        item = _review_item(state_dir, key)
-        if edits:  # The owner's words and place go on the item first: M2's decide takes the item as it is.
-            suggest = dict(item.get("suggest") or {})
-            for name in ("kind", "scope", "project_key"):
-                if edits.get(name):
-                    suggest[name] = edits[name]
-            if edits.get("scope") == "topic" and edits.get("topic_key"):
-                suggest["owner_key"] = edits["topic_key"]
-            memstore.review_set(state_dir, key, "open", by=who, now=now, suggest=suggest,
-                                **{name: edits[name] for name in ("title", "text") if edits.get(name)})
-        try:
-            found = dict(one(state_dir, key, action, who=who, token=token, now=now) or {})
-            return [str(r) for r in found.get("refs") or found.get("written") or ()]
-        except NotImplementedError:
-            pass
-    return _baseline_decide(state_dir, key, action, edits=edits, who=who, token=token, now=now)
+    item = _review_item(state_dir, key)
+    if edits:  # The owner's words and place go on the item first: decide takes the item as it is.
+        suggest = dict(item.get("suggest") or {})
+        for name in ("kind", "scope", "project_key"):
+            if edits.get(name):
+                suggest[name] = edits[name]
+        if edits.get("scope") == "topic" and edits.get("topic_key"):
+            suggest["owner_key"] = edits["topic_key"]
+        memstore.review_set(state_dir, key, "open", by=who, now=now, suggest=suggest,
+                            **{name: edits[name] for name in ("title", "text") if edits.get(name)})
+    return [str(r) for r in memory_review.decide(state_dir, key, action, who=who, token=token, now=now)["refs"]]
 
 
 # ---------------------------------------------------------------------------------------------- memory_edit v43

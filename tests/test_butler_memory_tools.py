@@ -148,8 +148,25 @@ class ReviseTest(Case):
         super().setUp()
         self.entry = memstore.add(self.state, kind="rule", scope="global", text="汇报先给表", title="汇报")
 
-    def revise(self, **args):
-        return butler_knowledge.memory_revise(self.env, args)
+    def revise(self, *, said="把汇报那条改一下", sender="ou_owner", **args):
+        """memory_revise in a butler's turn of the owner's ``said``; the quote, unless given, his words."""
+        self.turns += 1
+        key = f"om_revise{self.turns}"
+        write_job(self.state, key, message_id=key, chat_id="oc_dm", sender_id=sender, user_text=said, status="running")
+        return butler_knowledge.memory_revise(self.env, {"quote": said, **args}, SimpleNamespace(job_key=key))
+
+    def test_a_rule_of_the_owners_is_changed_only_with_his_words_of_this_turn(self):
+        # T908 M3b: the lead's protection for the butler too: change, replace or put away the owner's rule with his words.
+        for name, args in (("no-quote", dict(quote="")), ("not-his-words", dict(quote="他没说过的话")),
+                           ("not-his-turn", dict(sender="ou_other"))):
+            with self.subTest(name):
+                answer = self.revise(key=self.entry.code, action="retire", **args)
+                self.assertFalse(answer["ok"])
+                self.assertIn("主人定的规矩", answer["text"])
+        self.assertEqual(memstore.find(self.state, self.entry.ref).status, "active")
+        lead = memstore.add(self.state, kind="rule", scope="global", text="负责人总结的", said="summary", by="lead")
+        self.assertTrue(self.revise(key=lead.code, action="retire", quote="")["ok"])  # Somebody else's: no quote asked.
+        self.assertTrue(self.revise(key=self.entry.code, action="retire")["ok"])
 
     def test_update_edits_in_place_and_keeps_the_code(self):
         answer = self.revise(key=self.entry.code, action="update", text="汇报先给结论")

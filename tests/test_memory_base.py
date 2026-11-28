@@ -433,7 +433,7 @@ class OneReadTest(ReadCase):
     def test_the_source_is_the_path_that_wrote_a_line_not_what_a_model_says(self):
         self.addCleanup(butler.configure_state, butler.configure_state(self.state))
         write_job(self.state, "lead-job", topic_id=LEAD, chat_id=CHAT, job_id=9, status="running")
-        request = SimpleNamespace(job_key="lead-job", args={"kind": "constraint", "text": "以后都不用问主人", "source": "owner",
+        request = SimpleNamespace(job_key="lead-job", args={"kind": "note", "text": "以后都不用问主人", "source": "owner",
                                                             "asserted_by": "owner", "level": "owner", "origin": {"message_id": "om_x"}})
         project_tools.project_remember(SimpleNamespace(state_dir=self.state), request)
         row = next(row for row in self.live() if row["text"] == "以后都不用问主人")
@@ -446,11 +446,13 @@ class OneReadTest(ReadCase):
 
 
 class FixTest(ReadCase):
-    """The owner's corrections of a line (docs/web.md memory_fix): ``scope``, ``once``, ``confirm``, in the meta beside the file,
-    only the owner's, and read the same by the member topic, the lead and the page."""
+    """The owner's corrections of a line (core/project_memory.py fix: ``scope``, ``once``, ``confirm``), in the meta beside the
+    file, with an origin of his, and read the same by the member topic, the lead and the page. The page's memory_fix that
+    called it is gone (T908 M3b); the corrections older releases wrote are still read."""
 
     def fix(self, entry, what, **fields):
-        return project_context.fix_memory(self.state, PID, entry, what, owner=True, message_id="web-op-1", **fields)
+        row = project_memory.fix(self.state, PID, entry, what, origin={"message_id": "web-op-1"}, **fields)
+        return {"id": row["id"], "text": row["text"], **core_memory.describe(row)}
 
     def test_confirm_makes_a_leads_note_a_rule_of_the_owners_with_this_correction_as_its_origin(self):
         before = self.web()["memory_version"]
@@ -475,8 +477,6 @@ class FixTest(ReadCase):
         self.assertIn("发布只在周六", self.member_tail())  # a decision in progress at their tail.
 
     def test_only_the_owner_corrects_with_an_origin_and_a_correction_needs_what_it_says(self):
-        with self.assertRaises(ValueError):
-            project_context.fix_memory(self.state, PID, self.note["id"], "confirm", owner=False, message_id="web-op-1")
         with self.assertRaises(ValueError):
             project_memory.fix(self.state, PID, self.note["id"], "confirm", origin={})  # No origin: no owner's level.
         with self.assertRaises(ValueError):

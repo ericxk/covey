@@ -523,14 +523,20 @@ class ReposAndMemoryToolsTest(unittest.TestCase):
 
     def test_memory_revise_changes_or_retires_an_entry_by_its_code_or_its_old_arguments(self):
         from covey.core import memstore
-        first = self.call("memory_save", text="用 Codex 跑长任务", kind="rule", scope="global", quote="以后所有长任务都用 Codex 跑")["data"]
-        changed = self.call("memory_revise", key=first["code"], action="update", text="长任务用 Codex")
+        said = "以后所有长任务都用 Codex 跑"
+        first = self.call("memory_save", text="用 Codex 跑长任务", kind="rule", scope="global", quote=said)["data"]
+        changed = self.call("memory_revise", key=first["code"], action="update", text="长任务用 Codex", quote=said)
         self.assertTrue(changed["ok"], changed)
         self.assertEqual(memstore.find(self.state, first["ref"]).text, "长任务用 Codex")
-        gone = self.call("memory_revise", id=first["ref"])  # principle_delete's arguments: retired.
+        # The owner's rule is changed only with his words of the turn (T908 M3b): principle_delete's arguments carry none.
+        self.assertFalse(self.call("memory_revise", id=first["ref"])["ok"])
+        self.assertEqual(memstore.find(self.state, first["ref"]).status, "active")
+        lead = memstore.add(self.state, kind="rule", scope="global", text="负责人总结的一条", said="summary", by="lead")
+        gone = self.call("memory_revise", id=lead.ref)  # principle_delete's arguments: retired.
         self.assertTrue(gone["ok"], gone)
-        self.assertNotEqual(memstore.find(self.state, first["ref"]).status, "active")
-        self.assertNotIn(first["code"], self.call("memory_search")["text"])
+        self.assertNotEqual(memstore.find(self.state, lead.ref).status, "active")
+        self.assertNotIn(lead.code, self.call("memory_search")["text"])
+        self.assertTrue(self.call("memory_revise", key=first["code"], action="retire", quote=said)["ok"])
         self.assertFalse(self.call("memory_revise", key="R7K2", action="retire")["ok"])
 
     def test_the_memory_tools_hand_on_to_their_own_handlers_once_they_are_there(self):

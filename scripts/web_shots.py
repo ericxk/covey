@@ -173,7 +173,7 @@ def demo_state(state, now):
 
 def demo_memory(state, now):
     """The one-page 记忆's demo (``--pages memory``): rules of 全局 (yours, one the learner summed up, one put away), a note,
-    the project's (the owner's and the lead's) and two more projects', a topic's rule and an item waiting in 待审核. Made-up
+    the project's (the owner's and the lead's) and two more projects', a topic's rule and the two kinds waiting in 待审核. Made-up
     words only, through core/memstore.py."""
     from covey.core import memstore, projects
     t7 = "7" * 32
@@ -195,9 +195,15 @@ def demo_memory(state, now):
         memstore.add(state, kind="rule", scope="project", owner_key=pid, text=text, now=now - 60000 - n * 9000)
     memstore.add(state, kind="rule", scope="topic", owner_key=t7, text="这个话题只改登录页，不动注册页", title="只改登录页",
                  now=now - 5000)
-    memstore.review_put(state, {"type": "learn", "title": "以后回复都用中文", "text": "以后回复都用中文，会话再长也不换成英文",
+    # The two kinds of 待审核: a rule held where it was said that may be 全局, and one that grants (in force once accepted).
+    held = memstore.add(state, kind="rule", scope="topic", owner_key=t7, text="以后回复都用中文，会话再长也不换成英文",
+                        title="以后回复都用中文", now=now - 2000, origin={"topic_key": t7, "topic_number": 7, "quote": "以后回复都用中文吧"})
+    memstore.review_put(state, {"type": "learn", "title": "以后回复都用中文", "text": held.text, "items": [held.ref],
                                 "quote": "以后回复都用中文吧", "origin": {"topic_key": t7, "topic_number": 7},
                                 "suggest": {"kind": "rule", "scope": "global"}}, now=now - 2000)
+    memstore.review_put(state, {"type": "learn", "title": "改完直接部署到预发", "text": "演示专项里改完直接部署到预发环境，不用再问",
+                                "quote": "以后改完直接部署到预发", "origin": {"topic_key": t7, "topic_number": 7},
+                                "suggest": {"kind": "rule", "scope": "project", "project_key": PID, "grant": "deploy"}}, now=now - 1500)
 
 
 def demo_assist(state, now):

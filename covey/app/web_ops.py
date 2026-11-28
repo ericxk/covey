@@ -53,8 +53,6 @@ KINDS) as the owner's own and says (state, message) for the ack.
   topic. Off, or without the part, they are ``failed`` (协作没开); the single-target say is the same either way.
 - ``stop`` with ``collab``: only that collaboration is stopped (``Collaboration.stop``), the integrator's own task and every helper's work
   stay; off it is ``failed``, never a plain stop of the integrator's task.
-- ``memory_fix``: ``entry_id`` of a project's memory corrected as the owner (core/project_memory.py ``fix`` through app/project_context.py
-  ``fix_memory``): ``what`` ``scope`` (``applies``), ``once`` or ``confirm``; a topic's own memory is not corrected from the page yet.
 - ``recover`` (data contract v33): a button of a turn that did not succeed, ``job_id`` its task, done as the task card's button does it
   (``recover``): 检查并继续 redelivers a saved result or question when the record says so, never running the model again for it.
 - ``login`` (self-hosted page, docs/web.md 网页登录确认): a browser asks to sign in, payload ``{request_id, code, browser, os, at}``; the 网页登录确认
@@ -65,11 +63,10 @@ KINDS) as the owner's own and says (state, message) for the ack.
   (a member topic running or waiting, the 目标检查表) checked first and their reason said, nothing done.
 - ``memory_undo`` (data contract v34): 不对 on a turn's "记下了" line as on its answer card (app/memory_collect.py take_back); a line taken
   back already says so, ``done``.
-- ``memory_edit`` (data contract v37): the 记忆 tab's add, edit (only while the entry still reads ``base``), pin, unpin, delete of a
-  principle or a knowledge entry (app/web_memory.py edit; keep, drop of an evening candidate say it is gone); the owner's only. With
-  ``v: 43`` (the page's 记忆): add, edit, move, archive, restore, void, accept, reject, accept_all, reject_all, keep_left,
-  keep_right, keep_both, promote, undo of the one store (app/web_memory.py edit_v43; import and ignore are gone since v45), the
-  operation's id the change's ``undo_token``.
+- ``memory_edit`` with ``v: 43`` (the page's 记忆, the owner's only): add, edit, move, archive, restore, void, accept, reject,
+  accept_all, reject_all, keep_left, keep_right, keep_both, promote, undo of the one store (app/web_memory.py edit_v43; import
+  and ignore are gone since v45), the operation's id the change's ``undo_token``. v31's ``memory_fix`` and v37's ``memory_edit``
+  without ``v`` are gone (T908 M3b): an older page's is refused as an operation not known.
 - ``revisit_cancel`` (data contract v35): 取消 on a topic's 定时回看, ``payload.set_at`` the time it was asked for (core/revisits.py cancel);
   gone already says so, ``done``; one Covey is looking at now, or a newer one that replaced it, is ``failed`` and stays.
 The topic or project has to be the owner's private chat's, known and not over; anything else is ``failed`` with the reason.
@@ -162,7 +159,7 @@ class Ops:
             handler = {"say": self.say, "answer": self.answer, "stop": self.stop, "reopen": self.reopen, "seen": self.seen,
                        "forget": self.forget, "tidy": self.tidy, "settings": self.settings,
                        "dismiss": self.dismiss, "tidy_decide": self.tidy_decide, "launch": self.launch,
-                       "switch": self.switch, "memory_fix": self.memory_fix, "recover": self.recover,
+                       "switch": self.switch, "recover": self.recover,
                        "login": self.login, "project_finish": self.project_finish, "project_stop": self.project_stop,
                        "memory_undo": self.memory_undo, "revisit_cancel": self.revisit_cancel,
                        "memory_edit": self.memory_edit, "upgrade": self.upgrade,
@@ -566,30 +563,6 @@ class Ops:
             raise ValueError("这条记忆已经不在了")
         return "已作废：" + found["text"][:40]
 
-    # -- memory_fix --------------------------------------------------------------------------------------------------------
-
-    def memory_fix(self, state, chat, row, payload) -> str:
-        """The owner's correction of one line of a project's memory (data contract v31): ``what`` ``scope`` (the conditions in ``applies``),
-        ``once`` (a 当前决定 for this time only) or ``confirm`` (a 长期约定 the owner says holds; its origin this operation, ``web-<op_id>``),
-        through app/project_context.py ``fix_memory``, the owner's alone. Like ``forget`` it is the owner's private chat's project; a topic's
-        own memory has no correction here yet."""
-        from covey.app import project_context
-        pid = str(row.get("project_key") or payload.get("project_key") or "")
-        if not pid and (row.get("topic_key") or payload.get("topic_key")):
-            raise ValueError("话题记忆的纠正还不支持")
-        if not projects.valid_id(pid):
-            raise ValueError("没有专项编号")
-        record = projects.read_record(state, pid)
-        if not record or record.get("chat_id") != chat:
-            raise ValueError("这个专项不认识，或不在你的私聊里")
-        entry, what = str(payload.get("entry_id") or ""), str(payload.get("what") or "")
-        applies = payload.get("applies") if isinstance(payload.get("applies"), str) else ""
-        owner = self.runtime.access.is_owner(self.runtime.owner_open_id or "")
-        found = project_context.fix_memory(state, pid, entry, what, owner=owner is True, message_id=PREFIX + str(row.get("op_id")),
-                                           applies=applies)
-        words = {"scope": "已改适用范围", "once": "已改成只限这一次", "confirm": "已确认为长期约定"}.get(what, "已纠正")
-        return f"{words}：{str(found.get('text') or '')[:40]}"
-
     # -- stop --------------------------------------------------------------------------------------------------------------
 
     def stop(self, state, chat, row, payload) -> str:
@@ -895,20 +868,19 @@ class Ops:
         return refresher.ask()
 
     def memory_edit(self, state, chat, row, payload) -> str:
-        """The page's memory, the owner's only. ``v`` 43 (the page's 记忆, data contracts v43/v45): one of the 15 actions through
-        core/memstore.py (app/web_memory.py edit_v43), the operation's id the change's undo token (the receipt says so in the log
-        the page reads). No ``v`` (an older page's 记忆 tab, v37): add, change, 常驻, delete a principle or a knowledge entry of 全局 or
-        a workspace, through the stores' own functions (app/web_memory.py edit)."""
+        """The page's memory, the owner's only (``v`` 43, data contracts v43/v45): one of the 15 actions through core/memstore.py
+        (app/web_memory.py edit_v43), the operation's id the change's undo token (the receipt says so in the log the page reads).
+        An older page's 记忆 tab (v37, no ``v``) is refused: it only read since T908 M3b."""
         if not web_memory.enabled():
             raise ValueError("记忆没开（COVEY_MEMORY）")
         if self.runtime.access.is_owner(self.runtime.owner_open_id or "") is not True:
             raise ValueError("只有主人能改记忆")
-        if payload.get("v") == web_memory.V43:
-            done = web_memory.edit_v43(state, payload, token=web_memory.token_of(row.get("op_id")))
-            if done["undo_token"]:
-                self.runtime.log(f"web memory_edit {payload.get('action')} refs={len(done['refs'])} token={done['undo_token']}")
-            return done["message"]
-        return web_memory.edit(state, payload)
+        if payload.get("v") != web_memory.V43:
+            raise ValueError("这个页面版本太旧，刷新网页后到「记忆」里改")
+        done = web_memory.edit_v43(state, payload, token=web_memory.token_of(row.get("op_id")))
+        if done["undo_token"]:
+            self.runtime.log(f"web memory_edit {payload.get('action')} refs={len(done['refs'])} token={done['undo_token']}")
+        return done["message"]
 
     # -- 定时回看的「取消」 (data contract v35) ------------------------------------------------------------------------------
 

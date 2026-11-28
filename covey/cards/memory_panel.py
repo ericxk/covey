@@ -74,26 +74,31 @@ def counts_line(data) -> str:
             f"待审核 {pending}")
 
 
-# What an item of 待审核 is and what 采纳 / 不要 do to it (core/memory_review.py decide), by its type (and where it would go).
+# What an item of 待审核 is and what 采纳 / 不要 do to it (core/memory_review.py decide): 不要 always leaves things as they are.
+# The web page's 待审核 says the same (web/client/src/cv/memoryCenter.ts REVIEW_WORDS).
+WIDER_WORDS = "推断要管全局 · 现在先在说的地方照做；采纳就挪到全局，不要就留在原处"
+GRANT_WORDS = "涉及要你点头的事 · 采纳后才生效，能放行它写明的那类事；不要就不记"
 REVIEW_WORDS = {
-    ("learn", "global"): "推断要管全局 · 采纳后每一轮都照做，不要就不记",
-    ("learn", ""): "自动学到的 · 采纳后在这里照做，不要就不记",
-    ("lead", ""): "负责人记的规矩 · 它已在这个专项照做，采纳或不要都只关掉这一项",
-    ("migrate", "project"): "迁移带过来的负责人约束 · 采纳算你定的，不要就改成资料",
+    ("learn", "global"): "推断要管全局 · 还没生效；采纳后每一轮都照做，不要就不记",
+    ("learn", ""): "自动学到的 · 还没生效；采纳后在这里照做，不要就不记",
+    ("migrate", "project"): "迁移带过来的负责人约束 · 采纳算你定的，不要就照旧是负责人记的",
     ("migrate", ""): "旧版工作区里的一条 · 采纳后管全局，不要就不带过来",
-    ("conflict", ""): "和已有的一条说法不同 · 采纳换成新的说法，不要留原来的",
-    ("tidy", ""): "整理记忆收起了一组 · 采纳就保持收起，不要就放回",
-    ("class3", ""): "同类的题第三次了 · 采纳后这类按这次的做，不要就照旧问你",
-    ("candidate", ""): "晚间候选（旧版留下的） · 采纳后记成全局规矩，不要就不记",
-    ("import", ""): "别的工具里记的（旧版留下的） · 采纳后记下，不要就不记",
+    ("conflict", ""): "和已有的一条说法不同 · 采纳换成新的说法，不要就留原来的",
 }
-REVIEW_OTHER = "采纳后生效，不要就不记"
+REVIEW_OTHER = "采纳后生效，不要就保持原样"
 
 
 def review_words(row) -> str:
-    """The grey line of an item of 待审核: what kind it is and what 采纳 and 不要 do (REVIEW_WORDS)."""
+    """The grey line of an item of 待审核: what kind it is and what 采纳 and 不要 do. A learned rule held where it was said
+    (``items``) is WIDER_WORDS, one that names what only the owner says yes to (``suggest.grant``) GRANT_WORDS, the rest by
+    type and scope (REVIEW_WORDS)."""
     kind = str(row.get("type") or "")
-    scope = str((row.get("suggest") or {}).get("scope") or "")
+    suggest = row.get("suggest") if isinstance(row.get("suggest"), dict) else {}
+    scope = str(suggest.get("scope") or "")
+    if kind == "learn" and suggest.get("grant"):
+        return GRANT_WORDS
+    if kind == "learn" and row.get("items"):
+        return WIDER_WORDS
     return REVIEW_WORDS.get((kind, scope)) or REVIEW_WORDS.get((kind, "")) or REVIEW_OTHER
 
 

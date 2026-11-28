@@ -21,7 +21,7 @@ const passes = (p) => assert.doesNotThrow(() => checkMemoryEdit(p, {}), JSON.str
 test('合成一池：三处的条目都在，话题条目补上话题 key 和 T 号，专项名和话题名能查', () => {
   const p = pool();
   assert.equal(p.entries.length, 5);
-  assert.equal(p.review.length, 3);
+  assert.equal(p.review.length, 4);
   assert.equal(p.log.length, 2);
   assert.equal(p.projects.demo01, '演示专项');
   assert.deepEqual(p.topics.t001, { number: 12, title: '演示话题' });
@@ -250,7 +250,7 @@ test('链接：?code= 展开它所在的组和小节，决定当作搜索结果�
 
 test('待审核：迁移项按专项折成一行汇总，其余逐条；每条一行灰字写是哪一种、采纳后会怎样；标题是正文开头就不重复', () => {
   const mk = (over) => ({ key: 'r', type: 'migrate', title: '', text: '', suggest: { kind: 'rule', scope: 'project', project_key: 'demo01' }, created_at: 1, ...over });
-  const rows = [mk({ key: 'a', text: '长文 A' }), mk({ key: 'b', text: '长文 B' }), mk({ key: 'c', suggest: { kind: 'rule', scope: 'global' } }), mk({ key: 'd', type: 'learn', created_at: 5 }), mk({ key: 'e', type: 'lead', created_at: 9 })];
+  const rows = [mk({ key: 'a', text: '长文 A' }), mk({ key: 'b', text: '长文 B' }), mk({ key: 'c', suggest: { kind: 'rule', scope: 'global' } }), mk({ key: 'd', type: 'learn', created_at: 5 }), mk({ key: 'e', type: 'learn', suggest: { kind: 'rule', scope: 'project', project_key: 'demo01', grant: 'deploy' }, created_at: 9 })];
   const { todo, groups } = C.reviewSplit(rows, { projects: { demo01: '推理服务快速部署' } });
   assert.deepEqual(todo.map((r) => r.key), ['e', 'd'], '新的在前');
   assert.deepEqual(groups.map((g) => [g.label, g.rows.length]), [['推理服务快速部署', 2], ['全局', 1]]);
@@ -260,15 +260,18 @@ test('待审核：迁移项按专项折成一行汇总，其余逐条；每条�
   assert.equal(C.titleShown({ title: '测试规矩', text: '提交前先跑测试' }), true);
   assert.equal(C.titleShown({ title: '只有标题', text: '' }), true);
   const pool = { projects: { demo01: '演示专项' } };
-  const [learn, conflict, tidy] = K['memory:global'].review;
-  assert.equal(C.reviewLine(learn, pool), '推断要管全局 · 采纳后每一轮都照做，不要就不记');
-  assert.equal(C.reviewLine(mk({ type: 'lead' }), pool), '负责人记的规矩 · 它已在这个专项照做，采纳或不要都只关掉这一项');
-  assert.equal(C.reviewLine(mk({ type: 'learn', suggest: { kind: 'rule', scope: 'project', project_key: 'demo01' } }), pool), '自动学到的 · 采纳后在这里照做，不要就不记');
-  assert.equal(C.reviewLine(mk({ type: 'migrate', suggest: { kind: 'rule', scope: 'project', project_key: 'demo01' } }), pool), '迁移带过来的负责人约束 · 采纳算你定的，不要就改成资料');
-  assert.equal(C.reviewLine(conflict, pool), '和已有的一条说法不同 · 采纳换成新的说法，不要留原来的');
-  assert.equal(C.reviewLine(tidy, pool), '整理记忆收起了一组 · 采纳就保持收起，不要就放回');
+  const [learn, conflict, wider, grant] = K['memory:global'].review;
+  // 待审核只剩两种（推断全局、放行类）和一次性的回滚冲突、旧版迁移；「不要」都是保持原样（T908 M3b）
+  assert.equal(C.reviewLine(wider, pool), '推断要管全局 · 现在先在说的地方照做；采纳就挪到全局，不要就留在原处');
+  assert.equal(C.reviewLine(wider, pool), C.WIDER_WORDS);
+  assert.equal(C.reviewLine(grant, pool), C.GRANT_WORDS);
+  assert.equal(C.reviewLine(learn, pool), '推断要管全局 · 还没生效；采纳后每一轮都照做，不要就不记');
+  assert.equal(C.reviewLine(mk({ type: 'learn', suggest: { kind: 'rule', scope: 'project', project_key: 'demo01' } }), pool), '自动学到的 · 还没生效；采纳后在这里照做，不要就不记');
+  assert.equal(C.reviewLine(mk({ type: 'migrate', suggest: { kind: 'rule', scope: 'project', project_key: 'demo01' } }), pool), '迁移带过来的负责人约束 · 采纳算你定的，不要就照旧是负责人记的');
+  assert.equal(C.reviewLine(conflict, pool), '和已有的一条说法不同 · 采纳换成新的说法，不要就留原来的');
+  for (const gone of ['lead', 'tidy', 'class3', 'candidate', 'import']) assert.equal(C.REVIEW_WORDS[gone], undefined, gone);
   assert.equal(C.reviewLine(mk({ type: 'nope' }), pool), C.REVIEW_OTHER);
-  for (const r of [learn, conflict, tidy, ...rows]) assert.doesNotMatch(C.reviewLine(r, pool), /undefined|导入|体检|预览/u, r.key);
+  for (const r of [learn, conflict, wider, grant, ...rows]) assert.doesNotMatch(C.reviewLine(r, pool), /undefined|导入|体检|预览|改成资料|只关掉这一项/u, r.key);
   assert.equal(C.todoPending({ pending: 93, migrate: 90 }), 3, '角标口径不变：不含迁移项');
   assert.equal(C.todoPending({ pending: 90, migrate: 90 }), 0);
   assert.equal(C.todoPending({ pending: 5 }), 5);

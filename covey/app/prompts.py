@@ -666,7 +666,8 @@ SHARED_RULES = (
     "按内容选范围：只关某个专项的 scope 写 project，只关某个话题的写 topic，只对某个仓库成立的在 repos 里写仓库名；"
     "主人原话明说“所有”“以后都”“处处”的才写 global，没明说的写 global 会进待审核，主人采纳后才管全局。"
     "回复里说一句“已记下：……”和它的短码；只对这件事、这一轮的要求不记。"
-    "主人说“忘掉/删掉那条”时，用 memory_search 找到它的短码，再用 memory_revise（action retire）收起。"
+    "主人说“忘掉/删掉那条”时，用 memory_search 找到它的短码，再用 memory_revise（action retire）收起；"
+    "改、替代或收起主人定的规矩都要带 quote（他这一轮说这件事的原话），他没说要改就先问他。"
     "记下的规矩每一轮都附在 Bridge 的规则里，你和各个话题都会看到。",
 )
 # 管家 (COVEY_BUTLER_RULES, on unless 0; docs/butler.md 管家规则): the butler only answers quickly and hands the rest on, so
