@@ -275,11 +275,14 @@ class TurnTest(unittest.TestCase):
     def test_every_harness_has_it_in_its_rules_and_its_message(self):
         """Every core backend takes the rules at the system level (the owner's call of 11-28, app/rules_sent.py), the
         principles with them, the system level's text and the message's alike."""
+        from covey.core.roster import CORE_HARNESSES
+
         self.save()
         for name in NAMES:
             with self.subTest(harness=name):
                 spec, backend, store = components(name)
-                self.assertTrue(backend_capabilities(backend, self.ctx).system_instructions)
+                # An extension's Harness (MASO) declares its own: without a channel its rules stay in the message.
+                self.assertEqual(backend_capabilities(backend, self.ctx).system_instructions, name in CORE_HARNESSES)
                 runs = self.app(backend, spec, store).runs
                 self.assertIn(PRINCIPLES_HEAD + "\n" + BOTH, runs.bridge_rules(self.ctx, self.job(), system=True))
                 self.assertIn(PRINCIPLES_HEAD + "\n" + BOTH, runs.bridge_rules(self.ctx, self.job()))

@@ -182,7 +182,12 @@ class ClickTests(OwnerSendCase):
         lines = records.turn_lines(self.state, TOPIC)
         self.assertIn("已发出", lines[0])
         self.assertIn("主人改过正文", lines[0])
-        self.assertIn(records.RULE, module.turn_note(self.jctx, self.job))
+        # The outcome reaches the topic's next turn; the rule itself only with words that may send (WAVE12 C9).
+        note = module.turn_note(self.jctx, self.job)
+        self.assertIn("之前的代发草稿：\n" + lines[0], note)
+        self.assertNotIn(records.RULE, note)
+        asking = SimpleNamespace(**{**vars(self.job), "user_text": "再通知一下李四"})
+        self.assertIn(records.RULE, module.turn_note(self.jctx, asking))
 
     def test_a_draft_with_a_blank_left_is_not_sent_until_the_box_is_filled(self):
         # T604 #41: the topic's text and the owner's edit are both checked; the card stays open and says what is left.
