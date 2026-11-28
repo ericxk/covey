@@ -19,6 +19,11 @@ One supervisor per task (double fork, setsid) holds the Harness's stdin and stdo
 ``state.json`` (pid, pgid, boot id, proto, shim path, spec_sha; the pgid is the supervisor's own getpgrp, never
 its pid), ``journal`` (append only), ``inbox/<seq>.json``, ``seq`` (the last input delivered), ``ctl/``,
 ``checkpoint.json``, ``incoming/``, ``err.log`` and, once the Agent has ended, ``exit.json``.
+
+An ``exec`` may carry a ``mark`` (the hub's turn, core/device_access.py): while its command runs, its process group is
+kept in ``~/.covey/marks/<hub>/<mark>/<pid>.json`` (pid, start, boot) and the command's environment has
+``COVEY_DEVICE_MARK=<hub>/<mark>``, so ``reap`` with that ``mark`` stops what is still running of it after the hub's ssh
+went away (the command outlives its connection: an ``exec`` ends only when its command does, or at its timeout).
 """
 from __future__ import annotations
 
@@ -1057,9 +1062,11 @@ def cmd_reap(req, wire):
     grace = number(req.get("grace"), 5.0, 0.0, 600.0)
     if req.get("task") is not None:
         return reap_task(request_task(req), grace)
+    if req.get("mark") is not None:
+        return reap_mark(name_of(req.get("hub"), "hub"), name_of(req.get("mark"), "mark"), grace)
     pgid = req.get("pgid")
     if isinstance(pgid, bool) or not isinstance(pgid, int) or pgid <= 1:
-        raise Fail("bad_request", "reap needs task (with hub) or pgid")
+        raise Fail("bad_request", "reap needs task (with hub), mark (with hub) or pgid")
     tasks = os.path.join(covey_root(), "tasks")
     hubs = [name_of(req["hub"], "hub")] if req.get("hub") else sorted(os.listdir(tasks)) if os.path.isdir(tasks) else []
     for hub in hubs:
@@ -1352,11 +1359,107 @@ def cmd_exec(req, wire):
     given = req.get("input")
     if given is not None and len(str(given).encode("utf-8")) > 60000:
         raise Fail("too_large", "input is at most 60000 bytes")
+    marks = None
+    if req.get("mark") is not None:
+        marks = mark_dir(name_of(req.get("hub"), "hub"), name_of(req.get("mark"), "mark"))
+        merged[MARK_ENV] = "%s/%s" % (req["hub"], req["mark"])
     try:
         child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd,
                                  env=merged, bufsize=0, start_new_session=True)
     except OSError as exc:
         raise Fail("spawn_failed", "%s: %s" % (type(exc).__name__, exc))
+    record = note_mark(marks, child.pid) if marks else None
+    try:
+        return run_exec(child, given, timeout, cap)
+    finally:
+        if record:
+            try:
+                os.unlink(record)
+            except OSError:
+                pass
+
+
+MARK_ENV = "COVEY_DEVICE_MARK"
+
+
+def mark_dir(hub, mark):
+    return os.path.join(covey_root(), "marks", hub, mark)
+
+
+def note_mark(folder, pid):
+    """Keep ``pid``'s group (it leads its own session) under ``folder``: the path written, None when it could not be."""
+    info = proc_info(pid)
+    try:
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        path = os.path.join(folder, "%d.json" % pid)
+        write_json(path, {"pid": pid, "pgid": pid, "start": info[2] if info else None, "boot": boot_id(), "at": now()})
+        return path
+    except OSError:
+        return None
+
+
+def owns_marked(record, members, marker):
+    """Whether the live ``members`` of a marked group are still the command's: same boot, and its leader by pid and start
+    time, or (Linux) a member whose environment carries the mark, so a recycled group id is never killed."""
+    if record.get("boot") != boot_id():
+        return False
+    pid = record.get("pid")
+    if pid in members and record.get("start") and process_alive(pid, record["start"]):
+        return True
+    needle = (MARK_ENV + "=" + marker).encode("utf-8", "surrogateescape")
+    for member in members:
+        try:
+            with open("/proc/%d/environ" % member, "rb") as handle:
+                if needle in handle.read().split(b"\0"):
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def reap_mark(hub, mark, grace):
+    """Stop every group kept under ``mark`` that is still the command's (TERM, then KILL after ``grace``); a record whose
+    group is gone is dropped. ``{"mark", "groups", "after", "refused"}``: ``after`` the pids still there."""
+    folder, marker = mark_dir(hub, mark), "%s/%s" % (hub, mark)
+    try:
+        names = sorted(name for name in os.listdir(folder) if name.endswith(".json"))
+    except OSError:
+        names = []
+    groups, after, refused = [], [], []
+    for name in names:
+        path = os.path.join(folder, name)
+        record = read_json(path) or {}
+        pgid = record.get("pgid")
+        if isinstance(pgid, bool) or not isinstance(pgid, int) or pgid <= 1:
+            continue
+        members = group_members(pgid)
+        if members and not owns_marked(record, members, marker):
+            refused.append(pgid)  # Not killed: the id may be another program's by now.
+            continue
+        if members:
+            groups.append(pgid)
+            for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 3.0)):
+                try:
+                    os.killpg(pgid, sig)
+                except OSError:
+                    pass
+                if wait_for(lambda: not group_members(pgid), wait, 0.2):
+                    break
+        left = group_members(pgid)
+        after += left
+        if not left:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+    try:
+        os.rmdir(folder)
+    except OSError:
+        pass
+    return {"mark": mark, "groups": groups, "after": after, "refused": refused}
+
+
+def run_exec(child, given, timeout, cap):
     chunks = {child.stdout.fileno(): bytearray(), child.stderr.fileno(): bytearray()}
     names = {child.stdout.fileno(): "out", child.stderr.fileno(): "stderr"}
     truncated, timed_out = False, False

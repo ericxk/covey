@@ -463,6 +463,8 @@ python3 -B bin/covey_maintenance.py --restore /absolute/bridge-NNN.tar.gz --dest
 | `done.json` | 卡片更新完、只剩产物上传时写入；Bridge 见到就放开这个话题，同话题的下一条照常开始 |
 | `exit.json` | 退出时写入 |
 | `runner.log` | 任务进程的日志 |
+| `device-turn.json` | 开着多设备时一轮开始写：这一轮的只读限制、聊天的设备空间、话题和产物目录，`covey device` 据此放行（[设备通道](#设备通道的审计与收割)） |
+| `devices.jsonl` | 这一轮 `covey device` 的审计，一次调用一行（没用过设备就没有这个文件） |
 
 - 运行目录在任务结束 7 天后由空闲维护删除。单看 `runner.json` 判断不了进程是否还活着，要看 `exit.json` 或进程列表。
 - 任务结束后，任务进程还会等产物上传最多 30 分钟、卡片更新最多 60 秒再退出。
@@ -486,6 +488,16 @@ python3 -B bin/covey_maintenance.py --restore /absolute/bridge-NNN.tar.gz --dest
 3. 设备磁盘上 `~/.covey/checkpoints/`（检查点镜像）或 `~/.covey/incoming/`（传到设备的附件）变大：后台线程每小时 `gc` 一次，7 天没变、也不属于运行中任务的才清；设备一直离线就不会清。
 4. 设备失联后任务记录是 `interrupted`、`interrupted_by` 为 `device_lost`，不会自动重试；设备回来后点卡上的检查并继续即可（会先收割再 `--resume`）。耐心值怎么改见[多设备](configuration.md#多设备开发中默认关)的字段表。
 5. 回滚到旧 release（[升级与回滚](deploy.md#升级与回滚)）：设备话题的 `topic.json` 里存的是 `gpu1:/路径`。不认设备的旧 release（或回滚时没带 `COVEY_DEVICES=1`）把它当一个不存在的相对路径，这一轮被拒绝（「本话题的工作目录不存在，后端没有启动」），不会在本机跑；带着开关的旧 release 按设备规则拒绝或照设备跑，取决于它有没有这一版的设备代码。回滚后设备上还在跑的 Agent 不受影响，也不会被停掉：升回来后同一话题的下一轮会先 `reap` 再 `--resume`。跨版本检查的 `device-rollback` 场景（[测试](testing.md#任务进程协议与跨版本检查)）每次发布前验证这一点。
+
+### 设备通道的审计与收割
+
+只在 `COVEY_DEVICES=1` 且配了设备时才有。话题从主目录调 `covey device` 去设备上跑命令、取放文件（[配置 · 设备通道](configuration.md#设备通道随多设备开)）：
+
+1. **查某一轮在设备上做了什么**：`runs/<任务键>/devices.jsonl`，一次调用一行（时间 `at`、设备 `device`、操作 `op`、命令 `command`（像密钥的值已遮掉）、目录 `dir`、退出码 `code`、`timed_out`、字节数 `bytes`、耗时 `seconds`；被护栏拦下的是 `refused` 和原因；`run` 有 `phase: start` 和 `phase: end` 两行，只有 `start` 的是 `covey device` 中途被打断了）。不在任务里、在终端手动跑的记在 `<状态目录>/devices/terminal.jsonl`。整个话题用过哪些设备、多少次、起过哪些 `job`：`topic.json` 的 `devices`。运行目录 7 天后随维护删除，话题记录里的汇总留着。
+2. **一轮结束时的收割**：开始了没答复的 `run`，一轮的答案发出后任务进程让那台设备按这一轮的标记收割（收成了不记日志）；主人点停止的一轮，还会停掉这一轮起的 `job`。设备当场连不上，`<状态目录>/devices/<别名>/pending-reap.json` 里多一条键为 `mark-<标记>`、`reason` 为 `turn_end` 的条目，`runner.log` 有一行 `device <别名>: turn end reap not confirmed (…), registered`；`devices` 后台线程每分钟探活，连上后按标记收割并删掉条目（`devices: <别名> reaped N pending`）。
+3. **设备上的标记**：`~/.covey/marks/<hub-id>/<标记>/<pid>.json` 是正在跑的 `run` 的进程组，命令结束就删；残留的说明命令还在跑或那一轮没收割成。要手动停：在设备上 `kill -TERM -- -<pgid>`（文件里的 `pgid`），再删掉那个文件；带标记的进程环境里有 `COVEY_DEVICE_MARK=<hub-id>/<标记>`，Linux 上可以 `grep -lza '^COVEY_DEVICE_MARK=' /proc/[0-9]*/environ` 找。`job` 不在这里，在 `~/.covey/tasks/<hub-id>/job-…/`，用 `covey device job stop` 停。
+4. **怎么关**：服务清单里去掉 `COVEY_DEVICES=1`（或设成 `0`）后重新注册，执行设备和设备通道一起关；只想让某台设备不能写，在网页设置「设备」页把它切成只读（`access: read`）；从 `devices.json` 去掉一台设备，`covey device` 就不认它了（改文件不用重启，下一次调用就读到）。
+5. **回滚**：设备通道只加文件和字段（`device-turn.json`、`devices.jsonl`、`topic.json` 的 `devices`、`pending-reap.json` 的 `mark-` 条目、设备上的 `~/.covey/marks/`），旧 release 不读也不删它们，回滚就是部署上一版。回滚后旧 release 的 devices 线程把 `mark-` 条目当任务键去问，设备端答没有这个任务，条目就被删掉（只是不再收割那几条命令）。设备上还在跑的命令跑到自己的 `--timeout` 为止。
 
 ## 内存看门狗
 

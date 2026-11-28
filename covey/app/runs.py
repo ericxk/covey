@@ -369,6 +369,8 @@ class Runs:
         live.ctx = home_turn.isolated(live.ctx)
         # A fork replaces ctx; the callbacks read it when they are called.
         live.ctx, prompt = self._turn_message(live.ctx, job, session_id)
+        # What ``covey device`` needs of this turn (its limit, its chat's space), in its run directory (COVEY_DEVICES=1).
+        repos_turn.start_devices(live.ctx, job, self.runtime.access, self.runtime.log)
         caps = backend_capabilities(self.harness.backend, live.ctx)
         # The rules at the system level where the Harness has a channel (app/rules_sent.py; COVEY_SYSTEM_RULES=0: none):
         # what this turn's session has of them, before the butler's turn, whose own rules and pack follow it.

@@ -754,6 +754,8 @@
  ],
  "names": {
   "ACKS": "acks",
+  "DEVICES": "devices.jsonl",
+  "DEVICE_TURN": "device-turn.json",
   "DONE": "done.json",
   "EXIT": "exit.json",
   "HANDOFF": "handoff.json",

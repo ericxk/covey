@@ -826,6 +826,61 @@ class ExecTest(ShimCase):
         self.assertTrue(self.run_exec("true", retry=True).ok, "retry is the hub's flag: accepted, nothing more")
 
 
+class MarkTest(ShimCase):
+    """An ``exec`` with a ``mark`` (core/device_access.py G7): its group kept under ~/.covey/marks while it runs, and
+    ``reap`` with the mark stops what is left of it once the hub's connection went away."""
+
+    MARK = "tabcdef12-0123456789"
+
+    def marks(self):
+        return self.home / ".covey" / "marks" / self.device.hub / self.MARK
+
+    def start(self, *argv):
+        """An exec with the mark whose client (the hub's ssh) is then killed: the shim process, as ssh drops it."""
+        line = json.dumps({"cmd": "exec", "id": "x", "hub": self.device.hub, "mark": self.MARK, "argv": list(argv),
+                           "timeout": 120}).encode() + b"\n"
+        process = subprocess.Popen(self.device.argv("exec"), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, env=self.device.env, start_new_session=True)
+        process.stdin.write(line)
+        process.stdin.flush()
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        records = self.wait_until(lambda: list(self.marks().glob("*.json")), what="the mark's record")
+        return process, json.loads(records[0].read_text())
+
+    def test_a_marked_exec_keeps_its_group_while_it_runs_and_says_its_mark(self):
+        reply = self.device.call("exec", hub=self.device.hub, mark=self.MARK,
+                                 argv=[PY, "-c", "import os; print(os.environ['COVEY_DEVICE_MARK'])"])
+        self.assertEqual(reply["out"].strip(), "%s/%s" % (self.device.hub, self.MARK))
+        self.assertEqual(list(self.marks().glob("*.json")) if self.marks().exists() else [], [], "gone once it ended")
+
+    def test_reap_by_mark_stops_a_command_whose_connection_went_away(self):
+        process, record = self.start(PY, "-c", "import time; time.sleep(60)")
+        process.kill()  # The hub's side is gone; the command, in a session of its own, still runs.
+        process.wait(5)
+        self.assertTrue(Path("/proc/%d" % record["pid"]).exists())
+        answer = self.device.call("reap", mark=self.MARK, grace=1.0)
+        self.assertTrue(answer.ok, answer.head)
+        self.assertEqual((answer["groups"], answer["after"], answer["refused"]), ([record["pgid"]], [], []))
+        self.assertTrue(StopAndReapTest.gone(record["pid"]))
+        self.assertFalse(self.marks().exists(), "the mark's records go with its groups")
+
+    def test_reap_by_mark_never_kills_a_group_that_is_no_longer_the_commands(self):
+        other = subprocess.Popen([PY, "-c", "import time; time.sleep(60)"], start_new_session=True, env=self.device.env)
+        self.addCleanup(lambda: (other.kill(), other.wait()))
+        self.marks().mkdir(parents=True)
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        (self.marks() / ("%d.json" % other.pid)).write_text(json.dumps(
+            {"pid": other.pid, "pgid": other.pid, "start": "not-its-start", "boot": boot}))
+        answer = self.device.call("reap", mark=self.MARK, grace=0.5)
+        self.assertEqual((answer["groups"], answer["refused"]), ([], [other.pid]))
+        self.assertIsNone(other.poll(), "a recycled group id is left alone")
+
+    def test_reap_of_a_mark_with_nothing_left_is_an_empty_answer(self):
+        answer = self.device.call("reap", mark=self.MARK)
+        self.assertEqual((answer.ok, answer["groups"], answer["after"]), (True, [], []))
+        self.assertEqual(self.device.call("reap", mark="bad mark").err, "bad_request")
+
+
 class GcTest(ShimCase):
     def make_shim_dirs(self):
         own = hashlib.sha256(SHIM.read_bytes()).hexdigest()[:16]

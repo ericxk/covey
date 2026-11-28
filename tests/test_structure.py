@@ -207,6 +207,7 @@ ENTRIES = {
     "covey_ledger.py": "covey.app.owner_ledger",
     "covey_inbound.py": "covey.core.inbound_ledger",
     "covey_devices.py": "covey.service.device_check",
+    "covey_device.py": "covey.core.device_cli",
     "covey_plugins.py": "covey.service.plugins",
     "covey_feishu_web.py": "covey.feishu.web_client",
     "covey_maso_runtime.py": "covey_internal.maso.runtime",  # compat shim for the company extension (extensions/covey_internal/)

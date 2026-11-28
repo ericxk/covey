@@ -62,6 +62,7 @@ bin/  →  app/  →  feishu/ · cards/ · backends/<名字>/  →  core/
 - **卡片渲染**：骨架、按钮、折叠面板和元素预算（`CARD_NODES`、`CARD_BYTES`）在 `cards/elements.py`，菜单面板、启动卡、回执、目录浏览共用它的面板样式；CardKit 写的 JSON 在 `cards/cardkit_actions.py`；表单卡的发布与整卡替换在 `app/form_cards.py`。
 - **执行过程**：数据 `core/trace.py`（`ToolTrace`），落盘 `core/trace_store.py`，面板数据 `cards/trace_view.py`，画面板 `cards/trace_updates.py`，卡上数字 `cards/facts.py`。状态行：`core/longtask.py` 的 `TaskMonitor` 收集事实，`core/status_line.py` 的 `status_text` 出文字；状态词在 `core/turn_words.py`。各后端的事件适配器共用 `core/steps.py`。
 - **启动卡与换配置**：`app/launch.py`、`app/launch_submit.py`（提交、worktree 启动）、`app/launch_models.py`（`CATALOG_FILTERS`）、`app/preselection.py`（纯函数预选）、`app/model_usage.py`、`app/model_picker.py`、`app/directory_picker.py`；换配置 `app/harness_switch.py`，改绑定 `app/binding.py`，交接 `app/switch_handoff.py`。
+- **设备通道**：底座和护栏 `core/device_access.py`，命令行 `core/device_cli.py`（`bin/covey_device.py`），一轮的起止 `app/repos_turn.py` 的 `start_devices`、`settle_devices`（`app/runs.py`、`app/worker.py` 调它们），话题记录的 `devices` `core/topics.py` 的 `update_devices`，设备端的标记和收割 `core/device_shim.py` 的 `exec`、`reap`，连不上时的登记 `core/device_reap.py`。见[设备通道](#设备通道)。
 - **任务进程两端**：起进程 `app/runner_spawn.py`，收发 `app/runner_ipc.py`（`RemoteControl`、`RunnerLink`），认领和收尾 `app/detached.py`；文件名和收发原语 `core/run_dir.py`；退出前等的后台线程 `core/background.py`。
 - **投递**：结算 `app/turn_settle.py`，发送 `app/turn_delivery.py` 的 `TurnDelivery`（`app/worker.py` 调它）和 `app/answer_delivery.py`，答案卡 `cards/answer_card.py`、`app/answer_cards.py`，重投 `app/redelivery.py`、`app/outbox.py`，恢复 `core/recovery.py`、`app/recovery_cards.py`。
 - **看板**：`app/pins.py`、`app/status_cards.py`、`core/board_read.py`、`app/overview.py`、`app/topic_seen.py`。管家和回带见[管家](butler.md)，代答见[代答](proxy.md)。
@@ -345,8 +346,8 @@ CardKit 只接受比同一张卡已有写入（含结果不确定的）都大的
 
 - **约束**：单文件，只用标准库，语法和标准库用法按 Python 3.9（Mac 命令行工具自带的版本；开发机上没有 3.9）。`scripts/check_shim_compat.py` 用 `ast.parse(feature_version=(3, 9))` 加一份禁用清单（`match`、`zip(strict=)`、`int.bit_count`、`dataclass(slots=)`、3.10 以后才有的标准库名字和参数）检查，并要求保留 `from __future__ import annotations`、只导入标准库；`tests/test_device_shim.py` 跑它。改小程序后跑这个检查。
 - **位置**：设备上 `~/.covey/shim/<id>/shim.py`，`<id>` 是文件内容 SHA-256 的前 16 位（内容变了才推新目录）；任务在 `~/.covey/tasks/<hub-id>/<任务键>/`：`spec.json`（`spawn` 规格的哈希，幂等的依据）、`state.json`（pid、pgid、boot id、proto、shim 路径、spec_sha；pgid 由监管进程自己 `getpgrp()` 写，双 fork 之后它的 pid 不是组号）、只追加的 `journal`、`inbox/<seq>.json`、`seq`、`ctl/`、`checkpoint.json`、`incoming/`、`err.log`（限 1 MiB）、Agent 结束后的 `exit.json`。
-- **协议**：版本字段 `proto`（现为 1）。运行 shim 的命令（`python3 <shim 文件> <cmd>`）的 stdout 第一行永远是 `{"k":"hi","proto":1,"shim":"<id>"}`；一问一答类命令是 stdin 一行 JSON、stdout 一行 `{"ok":…}`（`get`、`put` 的头行写 `len`，后面跟 N 字节和换行；单段不超 64 MiB，大文件用 `offset`/`limit` 分段）；`attach` 是长连接，设备按字节偏移把 journal 里的记录（`out`、`cp`、`ack`、`exit`，带起止偏移 `o`、`e`）推给 hub，另有不落盘的 `hb`，hub 发 `send`、`sig`、`detach`。命令：`hello`、`spawn`、`attach`、`send`、`status`、`stop`、`reap`、`ls`、`stat`、`get`、`put`、`exec`、`gc`。一行最多 16 MiB，未知的键和 `k` 一律忽略。
-- **幂等**：`spawn` 按任务键（同规格返回已有，规格哈希不同报 `conflict`）；输入按 `seq`（小于等于已投递的丢掉，同 `seq` 内容不同报 `conflict`）；记录按偏移；`put` 按哈希；`reap` 可重复。`reap` 只认 `state.json` 的 pgid，而且只杀确认是这个任务的组（监管进程或 Agent 的 pid 加启动时刻对得上，或 Linux 上成员的环境里有 `COVEY_TASK_DIR`），对不上就拒绝（`refused: identity`），免得误杀被回收的组号；它只保证杀进程组，自己 `setsid` 逃出组的子进程不管。
+- **协议**：版本字段 `proto`（现为 1）。运行 shim 的命令（`python3 <shim 文件> <cmd>`）的 stdout 第一行永远是 `{"k":"hi","proto":1,"shim":"<id>"}`；一问一答类命令是 stdin 一行 JSON、stdout 一行 `{"ok":…}`（`get`、`put` 的头行写 `len`，后面跟 N 字节和换行；单段不超 64 MiB，大文件用 `offset`/`limit` 分段）；`attach` 是长连接，设备按字节偏移把 journal 里的记录（`out`、`cp`、`ack`、`exit`，带起止偏移 `o`、`e`）推给 hub，另有不落盘的 `hb`，hub 发 `send`、`sig`、`detach`。命令：`hello`、`spawn`、`attach`、`send`、`status`、`stop`、`reap`、`ls`、`stat`、`get`、`put`、`exec`、`gc`。一行最多 16 MiB，未知的键和 `k` 一律忽略。`exec` 可带 `mark`（[设备通道](#设备通道)的一轮的标记）：命令跑着时它的进程组记在 `~/.covey/marks/<hub-id>/<标记>/<pid>.json`（pid、启动时刻、boot id），命令的环境里有 `COVEY_DEVICE_MARK=<hub-id>/<标记>`，命令结束就删；`reap` 带 `mark`（和 `hub`）时收割这个标记下还在跑的进程组。都是只加的字段，旧 hub 不发、旧小程序不认（不认 `mark` 的旧小程序照旧跑命令，只是收割不到）。
+- **幂等**：`spawn` 按任务键（同规格返回已有，规格哈希不同报 `conflict`）；输入按 `seq`（小于等于已投递的丢掉，同 `seq` 内容不同报 `conflict`）；记录按偏移；`put` 按哈希；`reap` 可重复。按标记的 `reap` 同样只杀确认还是那条命令的组（boot id 相同，组长的 pid 加启动时刻对得上，或 Linux 上成员的环境里有那个标记），组已经没了的记录删掉。按任务的 `reap` 只认 `state.json` 的 pgid，而且只杀确认是这个任务的组（监管进程或 Agent 的 pid 加启动时刻对得上，或 Linux 上成员的环境里有 `COVEY_TASK_DIR`），对不上就拒绝（`refused: identity`），免得误杀被回收的组号；它只保证杀进程组，自己 `setsid` 逃出组的子进程不管。
 - **版本协商**：`hello` 互报 `proto`；字段只加不改，不兼容变更才升 `proto`。每个任务在 `state.json` 记自己的 shim 路径，之后对这个任务的调用都用它，所以新 hub 能接旧 shim 起的任务；`gc` 不删被任务引用的 shim 目录，也不删一小时内新建的。
 - **平台**：Linux 完整；macOS 的进程查询走 `ps`、boot id 走 `sysctl`，按同样接口写，还没有在真机上验证。
 
@@ -641,6 +642,34 @@ cancelled、superseded：终态
 **设备端小程序协议的要点**（细节见上面的[设备端小程序](#设备端小程序)）：版本字段 `proto`，字段只加不改；命令的 stdout 第一行永远是 `hi`；`spawn` 按任务键和规格哈希幂等，输入按 `seq`、记录按偏移、`put` 按哈希、`reap` 可重复，所以 hub 这边「不确定就重发同一帧」是安全的；链路层错误（`LinkError`）不说明命令有没有执行，只重发幂等的命令。小程序只用标准库、按 Python 3.9 写，改它之后跑 `scripts/check_shim_compat.py`（它也检查 hub 写进 `~/.covey/` 的目录 `gc` 都清得到）。
 
 **关着时不变**：关开关，或开了但 `devices.json` 里没有设备，不读文件、不建 `<状态目录>/devices/`、不起后台线程，上下文、任务记录里没有 `device` 字段，卡片 JSON 和 `runs/` 协议同旧；新增代码都以「记录或上下文里有 `device`」为前提。验证它：`tests/golden/run_dir.json` 和 `cards.json` 无 diff、`golden_trace` 对关着的模块无差异、`scripts/cross_release.py` 的 `devices-empty-new` 场景等于关着，以及回滚场景 `device-rollback`（[测试](testing.md#任务进程协议与跨版本检查)）。真机验收还在进行，所以默认关。
+
+## 设备通道
+
+和上一节的「设备」不同：话题仍从主目录在 Bridge 这台机器上跑，Harness 也在这里，要用别的设备时从自己的 shell 调 `covey device`，命令到设备上跑、文件取回本机改。开关、`devices.json` 和设备端小程序都和多设备共用（`COVEY_DEVICES=1`），用法见[配置 · 设备通道](configuration.md#设备通道随多设备开)，三家的差别见 [Harness · 设备通道](harnesses.md#设备通道)。
+
+**一个底座**：`core/device_access.py` 的 `Channel` 是唯一的入口，护栏只写在这里：
+- **G1 名单**（`Channel.device`）：只认 `devices.json` 里带 `ssh` 的别名；这一轮聊天的设备空间要在设备的 `spaces` 里。空间由 Bridge 判（规则 11：谁被服务只经 `app/access.py`，这里用它的 `device_space`），一轮开始时写进运行目录的 `device-turn.json`；`covey device` 只拿它和 `spaces` 比，自己不比较 open_id 和聊天。没有这个文件的任务（旧 release 的任务进程）一律拒绝；不在任务里（没有 `COVEY_TASK_DIR`，终端里手动跑）按主人私聊。
+- **G2 只读设备**：`access` 不是 `write` 的设备只放行 `list`、`ls`、`stat`、`get` 和 `read_only_refusal` 放过的 argv（`READ_COMMANDS`，各自的参数限制，不经 shell）；`put`、`job`、`sh -c` 一律拒绝。
+- **G3 只读轮**：这一轮的 `TOOL_LIMIT`（`look`、`lead`、`read`、`consult`、`proxy`，`READ_LIMITS`）在 `device-turn.json` 里，这样的轮次所有设备都按 G2 处理，`get` 只能写到本话题产物目录下。
+- **G5 凭据**：设备上的命令的环境是 `devices.effective_env`（环境档案加 `devices.json` 的 `env`）去掉 `LARK_`、`FEISHU_`、`COVEY_` 开头的和名字像令牌、密码、密钥的（`device_env`），不是 Hub 的环境；ssh 客户端的环境也去掉这些（`ssh_env`），`SendEnv` 带不过去。`get`、`put` 拒绝经过 `SECRET_NAMES`、`SECRET_GLOBS` 的路径（`.ssh`、`.env*`、`auth.json`、私钥等），只读命令的参数同样不能指向它们。Harness 留在 Hub，设备的输出是普通的工具输出。
+- **G6 审计**：每次调用（含被拒的）追加一行到 `runs/<任务键>/devices.jsonl`（`core/run_dir.py` 的 `DEVICES`；终端里是 `<状态目录>/devices/terminal.jsonl`），命令过 `core/text.py` 的 `redact`。`run` 先写一行 `phase: start` 再去问设备，`covey device` 中途被杀时一轮结束也知道有命令没答复。
+- **G7 收割**：`run` 带这一轮的标记（`mark_of`：话题 id 前 8 位加任务键的哈希），设备记下命令的进程组（[设备端小程序](#设备端小程序)的 `exec`）；超时由设备端按进程组杀。ssh 断了以后设备上的命令会一直跑到它自己的超时（真机实测过），所以一轮结束时收割。
+- G4（危险命令要主人先答应，`--approved <答案号>` 核对是本话题里主人的回答）不在这一版：`--approved` 只记进审计。
+
+**外壳**：`core/device_cli.py`（`bin/covey_device.py`；`<数据根>/bin/covey` 的转发壳 `device)` 一行，`core/home.py` 的 `SHIM_TEXT`，每次部署重写），只解析参数、调 `Channel`、把结果说成给模型看的话；退出码 3 拦下、4 没答复、124 超时，`run` 的其余是设备上命令的。
+
+**一轮的起止**（都在任务进程里，开关关着时什么都不做）：
+- **开始**：`app/runs.py` 定下这一轮的限制之后调 `app/repos_turn.py` 的 `start_devices`，写 `device-turn.json`（`limit`、`space`、`topic`、本话题产物目录）。写不了只记日志，这一轮照跑，`covey device` 届时拒绝。
+- **结束**：`app/worker.py` 的 `settle_repos` 在结果出卡之后、记录收尾之前调 `settle_devices`：读 `devices.jsonl`（没有就直接返回，不开任何连接），并进 `topic.json` 的 `devices`（`core/device_access.py` 的 `fold`；`core/topics.py` 的 `update_devices`，和 `repos` 同一种写法：先不加锁读，变了才在 `LOCK` 下写），在执行过程加一条「设备」（`trace_text`，最近 12 次调用）。答案发出后再 `reap_turn`：对开始了没答复的 `run` 所在的设备按标记 `reap`；主人点停止结束的一轮（`cancelled`）另外 `stop` 这一轮起的 `job`。设备当场连不上就在 `<状态目录>/devices/<别名>/pending-reap.json` 登记键为 `mark-<标记>` 的条目（原因 `turn_end`，`core/device_reap.py` 的 `register`），`app/devices.py` 的后台线程每分钟探活时重放（`reap_one` 见到 `mark` 就按标记收割）。
+- **话题记录**：`topic.json` 的 `devices` 每台设备一条：`alias`、`first_at`、`last_at`、`calls`、`ops`（各操作次数）、`jobs`（最近 20 个任务号）、`files`（最近 50 个取回或放过的路径和 sha256）。`covey device put` 用 `fetched_sha` 先查本任务的审计、再查这里，得到“取回时的 sha256”，设备上的文件变了就拒绝覆盖。
+
+**长任务**（`job`）：`spawn` 一个 `/bin/sh -c 'exec "$@" </dev/null 2>&1'` 包着的命令，任务键是 `job-<10 位十六进制>`，由设备端小程序的监管进程守着（双 fork、自己的进程组、输出进 journal），断线、`covey device` 退出、一轮结束都不停；`log` 用 `status` 找到任务目录，再 `get` 它的 `journal` 的一段（只取整行，解出 `out` 和 `exit` 记录），返回下一次的偏移；`stop` 是设备端的 `stop`（TERM，宽限后 KILL 整组）。
+
+**和执行设备的分别**：执行设备把整个 Harness 搬到设备上（`DeviceProcess`、`DEVICE_OFF` 关掉的那些能力）；设备通道只把命令和文件送过去，设备上不需要 Harness、登录和模型目录。两者共用 `devices.json`、`core/device_transport.py` 的 ssh 主连接和设备端小程序；`pending-reap.json` 里两种条目并存（任务键的、`mark-` 开头的），同一个后台线程重放。
+
+**提示词**：本机话题的主目录段（`app/home_turn.py` 的 `static_block`）在开关开着时末尾加 `DEVICE_RULE` 一句；取决于开关而不是名单，所以名单变了系统规则不变。外部话题的 `EXTERNAL` 段不加。设备名单在 `repos.md` 末尾（`core/repomap.py` 的 `device_rows`），按需读。
+
+**关着时不变**：`COVEY_DEVICES` 关着时，`start_devices` 直接返回，`settle_devices` 只看一眼 `devices.jsonl` 不在就返回，主目录段没有那一句，`covey device` 退出 3；旧 release 的任务进程和 Bridge 不认 `device-turn.json`、`devices.jsonl`，留着不动（`tests/golden/run_dir.json` 记着这两个名字）。
 
 ## 节点（默认关）
 

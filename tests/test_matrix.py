@@ -356,6 +356,8 @@ LOOK_GATE, LOOK_GIT, LOOK_SHELL, LOOK_NEXT = ("话题 · 只读首轮 · 路径�
                                               "话题 · 只读首轮 · 第二轮解限")
 EXT_FILES, EXT_GIT, EXT_FREE = ("话题 · 外部话题 · 不读主目录说明文件", "话题 · 外部话题 · 主目录在 git 工作树里",
                                  "话题 · 外部话题 · 普通话题照旧")
+# 话题 · 设备通道 (core/device_access.py, F2a): a LOOK turn reaching ``covey device`` from its shell at all.
+DEV_LOOK = "话题 · 设备通道 · 只读首轮够得着"
 # Cells that do not hold on a Harness, on purpose or not yet, with why. A cell here that starts to hold fails
 # test_the_known_gaps_are_still_gaps: take it off.
 GAPS = {
@@ -383,6 +385,8 @@ GAPS = {
                           "程序自己递归的看不到；只有 Claude Code 的钩子能看到命令行里内联的 Python",
     (RULE_WALK, "agy"): "同上：垫片看不到程序内递归",
     (RULE_WALK, "dsh"): "同上：垫片看不到程序内递归",
+    (DEV_LOOK, "codex"): "只读沙箱里连不上 ssh 的 ControlMaster 套接字（connect 被拒，DNS 也不通，VERIFY-F2A U2），也写不了审计："
+                         "Codex 的只读轮用不了 covey device，等只读轮的设备工具（F2c，经 bridge_workspace）补上",
 }
 # What a LOOK turn's gate leaves to the words on a Harness whose cells above hold (RT-4 第 5 类 and W0-5's read worktree).
 BOUNDS = {
@@ -1208,13 +1212,129 @@ class RulesRowTest(HarnessCellsCase):
         self.assertTrue(all(why.strip() for why in (*GAPS.values(), *EXTENSION_CELLS.values())))
 
 
+DEVICES_JSON = {"schema": 1, "devices": {"gpu1": {"ssh": {"host": "gpu1"}, "access": "write"},
+                                         "peer": {"ssh": {"host": "peer"}, "access": "read"}}}
+
+
+def device_reach(name, ctx) -> bool:
+    """Whether a turn of Harness ``name`` with context ``ctx`` (after app/runs.py set it up) can run ``covey device`` from its
+    shell: Claude Code's hook lets the reading subcommands through (and stops the others: the second wall), Codex's
+    read-only sandbox cannot reach the ssh socket (U2), agy's LOOK settings keep its shell, dsh has only the words."""
+    if name == "claude":
+        return (not tool_guard.look_bash_refusal("covey device list", "/tmp", "/x/cp.json", "/x/out")
+                and not tool_guard.look_bash_refusal("covey device get gpu1 ~/a", "/tmp", "/x/cp.json", "/x/out")
+                and bool(tool_guard.look_bash_refusal("covey device run gpu1 -- touch x", "/tmp", "/x/cp.json", "/x/out")))
+    if name == "codex":
+        return appserver.sandbox_mode(ctx) != "read-only"
+    if name == "agy":
+        return "command(*)" not in json.dumps(agy_bridge.settings_args(ctx))
+    return True
+
+
+class DeviceRowTest(HarnessCellsCase):
+    """话题 · 设备通道 (core/device_access.py, F2a) × Harness: a home topic (local), an external one (``local`` false) and a
+    LOOK first turn, each against a writable device and a read-only one, over the real device program under a temporary
+    HOME (LocalTransport). The rules say how to use a device only to a local topic; every turn's start writes its limit and
+    its chat's space for ``covey device``; what the channel lets each do is the same on every Harness (the guards are the
+    channel's); whether a LOOK turn reaches it from its shell is the Harness's (``device_reach``, GAPS)."""
+
+    TOPIC = "d" * 32
+
+    def setUp(self):
+        super().setUp()
+        patch = mock.patch.dict(os.environ, {"COVEY_DEVICES": "1", "COVEY_DEVICES_FILE": str(self.root / "devices.json")})
+        patch.start()
+        self.addCleanup(patch.stop)
+        (self.root / "devices.json").write_text(json.dumps(DEVICES_JSON))
+        from covey.core import devices
+        devices._CACHE.clear()
+        self.config = devices.current()
+        self.device_home = self.root / "device-home"
+        self.device_home.mkdir()
+        self.links = {}
+        topic_repos.cache.clear()
+        self.app.runtime.access.remember_owner_chat(self.chat)  # The owner's private chat: devices' owner_private.
+
+    def connect(self, config, alias, state_dir):
+        from covey.core import device_transport, devices
+        if alias not in self.links:
+            link = device_transport.LocalTransport(self.device_home, alias=alias, hub="hub1")
+            devices.push_file(link, device_transport.shim_bytes())
+            self.links[alias] = link
+        return self.links[alias]
+
+    def topic_ctx(self, home, name, *, local):
+        origin = {"kind": "main", "request": "r1", "job_key": "main-job", "why": "看训练", "readonly": True,
+                  "user_requested": True, "title": "看训练", "at": T0, **({} if local else {"local": False})}
+        history = self.state / "topics" / self.TOPIC / "history.jsonl"
+        write_topic(make_context(self.root, history_path=history), {
+            "harness_id": name, "binding_revision": 1, "origin": origin, "home_start": True, "started_at": T0,
+            "slug": "train", "topic_number": 951, "workspace_name": "home", "workdir": str(home), "workspace_locked": True})
+        return make_context(self.root, workdir=home, default_workdir=home, state_dir=self.state, history_path=history,
+                            topic_id=self.TOPIC, workspace_name="home")
+
+    def turn(self, name, ctx, *, look):
+        """(rules, prompt, the turn's context after app/runs.py set it up, its run directory) of a first turn on ``name``."""
+        from support import make_job
+        from covey.core.jobs import job_key
+        from covey.core.run_dir import run_dir
+
+        message = f"om_dev-{name}-{int(look)}"
+        job = make_job(job_id=1, message_id=message, topic_id=self.TOPIC, chat_id=self.chat, user_text="看看训练",
+                       read_only=look, result_backend=name, checkpoint_path=str(self.state / "checkpoints" / f"{message}.json"))
+        task = run_dir(self.state, job_key(message, 1))
+        task.mkdir(parents=True, exist_ok=True)
+        live = SimpleNamespace(ctx=ctx, rules_session=False)
+        prompt, rules, _system, _ = self.apps[name].runs._prompt(live, job, None)
+        return rules, prompt, live.ctx, task
+
+    def test_each_harness_x_local_external_look_x_writable_read_only_device(self):
+        from covey.core import device_access
+        from covey.core.run_dir import DEVICE_TURN
+
+        home = self.root / "home"
+        covey_home.seed_home(home)
+        covey_home.write(self.state, covey_home.HomeConfig())
+        for name in CORE_HARNESSES:
+            for kind in ("本机", "外部", "只读首轮"):
+                with self.subTest(harness=name, kind=kind):
+                    ctx = self.topic_ctx(home, name, local=kind != "外部")
+                    rules, prompt, turn_ctx, task = self.turn(name, ctx, look=kind == "只读首轮")
+                    told = home_turn.DEVICE_RULE in rules + "\n" + prompt
+                    self.assertEqual(told, kind != "外部", "the rules name covey device to a local topic only")
+                    written = json.loads((task / DEVICE_TURN).read_text())
+                    self.assertEqual((written["limit"], written["space"]),
+                                     (LOOK if kind == "只读首轮" else "", "owner_private"))
+                    turn = device_access.turn_from_env({"COVEY_STATE": str(self.state), "COVEY_TASK_DIR": str(task)})
+                    channel = device_access.Channel(turn, config=self.config, connect=self.connect)
+                    for alias, writes in (("gpu1", kind != "只读首轮"), ("peer", False)):
+                        self.assertEqual(channel.run(alias, ["uname", "-s"])["code"], 0, f"{alias}: reading runs")
+                        if writes:
+                            target = self.device_home / f"{name}-{kind}.txt"
+                            self.assertEqual(channel.run(alias, ["touch", str(target)])["code"], 0)
+                            self.assertTrue(target.exists())
+                        else:
+                            with self.assertRaises(device_access.Refused):
+                                channel.run(alias, ["touch", str(self.device_home / "no.txt")])
+                            with self.assertRaises(device_access.Refused):
+                                channel.job_start(alias, ["sleep", "1"])
+                    self.assertFalse((self.device_home / "no.txt").exists())
+                    rows = device_access.read_audit(task)
+                    self.assertTrue(rows and all(row.get("device") for row in rows), "every call is in the audit")
+                    if kind == "只读首轮":
+                        self.assertEqual(device_reach(name, turn_ctx), held(DEV_LOOK, name), gap_words(DEV_LOOK, name))
+                    else:
+                        self.assertTrue(device_reach(name, turn_ctx), f"{name} {kind}: its shell reaches covey device")
+
+
 class KnownGapsTest(HarnessCellsCase):
     def test_the_known_gaps_are_still_gaps(self):
         """The cells GAPS lists are asked above (test_a_group_members_read_only_turn, LookRowTest,
         RulesRowTest): one that holds now fails there; this one keeps GAPS to cells those tests ask."""
         self.assertLessEqual({cell for cell, _ in GAPS}, {"话题 · 群成员只读", LOOK_GATE, LOOK_GIT,
                                                           LOOK_SHELL, RULE_ASK, RULE_LOOK, RULE_ANCHOR, RULE_CONTEXT,
-                                                          RULE_NUDGE, RULE_SEARCH, RULE_WALK, EXT_FILES, EXT_GIT, EXT_FREE})
+                                                          RULE_NUDGE, RULE_SEARCH, RULE_WALK, EXT_FILES, EXT_GIT, EXT_FREE,
+                                                          DEV_LOOK})
 
 
 # 重启后再点一次 (WAVE12 G4, T904): each module that writes a mid-state (tests/golden/midstates.json, which test_structure's

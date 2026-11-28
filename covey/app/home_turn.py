@@ -14,13 +14,17 @@ works from what it was given and from outside, ``covey repo use`` for when the o
 map, the home's AGENTS.md or the write command; and its turns carry ``external`` (core/harness.py EXTERNAL), with which
 each Harness leaves the home's own instruction files out. Decided once when it opens, so its rules never change. A topic
 without the field (every one before it) is local.
+
+With COVEY_DEVICES on, a local topic's home block ends with ``DEVICE_RULE``: how to use another device (core/device_access.py,
+``covey device``). The devices themselves are listed at the end of ``repos.md``, read on demand, so a change of the list
+changes no rules; an EXTERNAL topic is not told (``covey device`` still works there when the owner names a device).
 """
 from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
 
-from covey.core import home, repomap, topic_repos
+from covey.core import devices, home, repomap, topic_repos
 from covey.core.harness import EXTERNAL as EXTERNAL_OPTION
 from covey.core.state import read_json
 from covey.core.topics import home_start
@@ -35,6 +39,9 @@ EXTERNAL = ("本话题不用本机的仓库和工作区：只用任务给的材�
             "主人点名要看本地代码时，先 covey repo use <仓库>（不知道名字用 covey repo list），按它打印的目录和规范读。\n"
             "不要递归搜索主目录或家目录这类大目录。")
 OUTPUTS_LINE = "本话题产物目录：{}（输出、日志、临时文件都放这里，每次运行在它下面另建子目录）"
+# The home block's line on devices (core/device_access.py), with COVEY_DEVICES on; never in an EXTERNAL topic's block.
+DEVICE_RULE = ("- 要用别的设备：设备和设备上的常用路径在仓库地图末尾，用 covey device（covey device --help 看用法）；"
+               "只读设备只能看，不能改。")
 
 
 def _topic(ctx) -> dict:
@@ -79,7 +86,8 @@ def static_block(ctx) -> str:
     outputs = outputs_dir(ctx, data)
     if outputs:
         lines.append(OUTPUTS_LINE.format(outputs))
-    return "\n".join(lines) + "\n" + RULES
+    # The switch, not the list: the line stays the same while devices.json changes, so the rules do too.
+    return "\n".join(lines) + "\n" + RULES + ("\n" + DEVICE_RULE if devices.enabled() else "")
 
 
 def outputs_of(ctx, data=None) -> str:

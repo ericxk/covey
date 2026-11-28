@@ -30,6 +30,10 @@ SECONDARY last (``eager_names``), until they would take more than ``EAGER_BYTES`
 the rest, which costs it a line each.
 backends/agy/bridge.py ``left_out`` says after the turn when agy dropped some all the same.
 
+The rules written here are the turn's bridge rules whole, the home block's included: with COVEY_DEVICES on, its line on
+using another device (app/home_turn.py ``DEVICE_RULE``, ``covey device`` from agy's ``run_command``) is in the private
+home's ``GEMINI.md`` as in every other Harness's rules; an external topic's has none.
+
 The rules: agy puts ``~/.gemini/GEMINI.md`` and ``~/.gemini/config/GEMINI.md`` into its system instruction (its
 ``<user_rules>``), read again at every turn, after a ``/compact`` too (agy 1.5.18, measured 11-28 against a local fake
 model service). The private home's ``GEMINI.md`` is the owner's own (when there is one) and the rules after it; past

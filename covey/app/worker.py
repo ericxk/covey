@@ -228,16 +228,31 @@ def process_bridge_reply_job(job: Any, ctx: Any, *, harness, runtime, messenger,
     runtime.log(f"finished reply job #{job.job_id}")
 
 
-def settle_repos(ctx, job, runtime, *, later=False):
+def settle_repos(ctx, job, runtime, *, later=False, stopped=False):
     """Once the turn has ended, before its result is recorded and sent (the topic's next turn may start as soon as it
-    is): the repositories it used into its topic, and the repo map (app/repos_turn.py ``settle``): at once, or with
-    ``later`` by the function returned, called once the answer is out (``noted_later``). A failure here is logged and
-    changes nothing of the turn."""
+    is): the repositories it used into its topic, and the repo map (app/repos_turn.py ``settle``), then the devices it
+    used (``settle_devices``; ``stopped``: the owner stopped the turn): at once, or with ``later`` by the function
+    returned, called once the answer is out (``noted_later``). A failure here is logged and changes nothing of the turn."""
+    task_dir = topic_repos.task_dir_of(ctx.state_dir, job)
+    notes = []
     try:
-        return repos_turn.settle(ctx, job, topic_repos.task_dir_of(ctx.state_dir, job), later=later)
+        notes.append(repos_turn.settle(ctx, job, task_dir, later=later))
     except Exception as exc:  # noqa: BLE001 - the turn is over; only its repositories stay as they were
         runtime.log(f"repositories of job #{job.job_id} not settled: {type(exc).__name__}")
+    try:
+        notes.append(repos_turn.settle_devices(ctx, job, task_dir, later=later, stopped=stopped, log=runtime.log))
+    except Exception as exc:  # noqa: BLE001 - the turn is over; only its devices' record stays as it was
+        runtime.log(f"devices of job #{job.job_id} not settled: {type(exc).__name__}")
+    notes = [note for note in notes if note is not None]
+    if not notes:
         return None
+    if len(notes) == 1:
+        return notes[0]
+
+    def both() -> None:  # Each on its own: a failed reap leaves the repo map noted, and the other way round.
+        for note in notes:
+            noted_later(note, job, runtime)
+    return both
 
 
 def noted_later(note, job, runtime) -> None:
@@ -395,7 +410,8 @@ def _deliver_turn(job, ctx, turn, snapshot, *, harness, runtime, messenger, card
         # card goes out now, and its failure, stop or question is said there as on any task card.
         cards.reveal_held(ctx, job, "ended")
     show_outcome(cards, ctx, job, turn.status, runtime)
-    later = settle_repos(ctx, job, runtime, later=True)  # After the outcome is up, before the job is recorded finished.
+    # After the outcome is up, before the job is recorded finished.
+    later = settle_repos(ctx, job, runtime, later=True, stopped=turn.status == "cancelled")
 
     try:
         retry = auto_retry.plan(harness, ctx, job, turn)

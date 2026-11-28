@@ -15,6 +15,12 @@ one was declared or asked for (``covey repo use``); its inlined rules and remind
 ``runs/<任务键>/repos.json`` and the repositories its tool calls touched (core/topic_repos.py ``touched``) into
 ``topic.json`` when its turn ends, and the repositories it used into the repo map. ``repos_list`` is the Bridge tool's
 answer (docs/configuration.md 主目录与仓库地图).
+
+The devices' part sits beside it (COVEY_DEVICES=1, core/device_access.py): ``start_devices`` writes what ``covey
+device`` needs of the turn into its run directory before the turn runs (its limit and its chat's device space, asked of
+app/access.py), and ``settle_devices`` folds the task's ``devices.jsonl`` into ``topic.json`` ``devices``, puts its calls
+on the task card's process panel (设备) and, once the answer is out, reaps on each device what a cut-short run left there.
+A turn that used no device reads one missing file and does nothing else.
 """
 from __future__ import annotations
 
@@ -22,9 +28,10 @@ import os
 import time
 
 from covey.app import home_turn
-from covey.core import home, repomap, topic_repos
+from covey.core import device_access, devices, home, repomap, topic_repos
+from covey.core.harness import TOOL_LIMIT
 from covey.core.state import read_json
-from covey.core.topics import home_start, topic_file, update_repos
+from covey.core.topics import home_start, topic_file, update_devices, update_repos
 
 RULES_INLINE_BYTES = 4096
 WRITE_KEYS = ("worktree", "branch", "base", "base_oid")  # A ``covey repo use`` request's, as the topic keeps them.
@@ -310,6 +317,51 @@ def settle(ctx, job, task_dir, *, later=False):
     if later:
         return note if used or reading else None
     note()
+    return None
+
+
+def start_devices(ctx, job, access, log=None) -> None:
+    """With COVEY_DEVICES on, before the turn runs: its limit (core/harness.py TOOL_LIMIT) and its chat's device space
+    (app/access.py ``device_space``, rule 11) into its run directory, for ``covey device`` (core/device_access.py
+    ``note_turn``). Nothing for a turn on a device, or one without a run directory; a failure is logged and the turn
+    runs (``covey device`` then refuses it)."""
+    if not devices.enabled() or getattr(ctx, "device", ""):
+        return
+    try:
+        task_dir = topic_repos.task_dir_of(ctx.state_dir, job)
+        if task_dir is None or not task_dir.is_dir():
+            return
+        topic = getattr(job, "topic_id", "") or ctx.topic_id or ""
+        device_access.note_turn(task_dir, limit=ctx.options.get(TOOL_LIMIT) or "",
+                                space=access.device_space(getattr(job, "chat_id", "")), topic=topic,
+                                outputs=home_turn.outputs_of(ctx))
+    except Exception as exc:  # noqa: BLE001 - the turn runs; only covey device refuses it
+        if log:
+            log(f"device turn of job #{getattr(job, 'job_id', '')} not noted: {type(exc).__name__}")
+
+
+def settle_devices(ctx, job, task_dir, *, later=False, stopped=False, log=None):
+    """Once the turn has ended: its task's ``devices.jsonl`` (core/device_access.py) into ``topic.json`` ``devices``,
+    its calls onto the task card's process panel (a 设备 note), and the reap of what a run cut short left on a device
+    (``reap_turn``; with ``stopped``, the owner stopped the turn, the jobs it started are stopped too): at once, or with
+    ``later`` by the function returned (after the answer is out: a reap waits on the device). None when the task used no
+    device."""
+    rows = device_access.read_audit(task_dir) if task_dir else []
+    if not rows:
+        return None
+    topic = getattr(job, "topic_id", "") or ctx.topic_id
+    if topic:
+        update_devices(ctx.state_dir, topic, lambda entries: device_access.fold(rows, entries))
+    text = device_access.trace_text(rows)
+    trace = getattr(job, "tool_trace", None)
+    if text and trace is not None:
+        trace.note("devices", text, title="设备")
+
+    def reap() -> None:
+        device_access.reap_turn(ctx.state_dir, task_dir, stop_jobs=stopped, log=log)
+    if later:
+        return reap
+    reap()
     return None
 
 

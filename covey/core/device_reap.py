@@ -15,6 +15,9 @@ in one place (A-SPEC 5.5):
 - **before a new turn**: a topic's next turn starts by reaping the topic's last task (``<alias>/tasks/<topic>.json``,
   written when a task is spawned) so the Agent that may still be running is gone before ``--resume`` opens its
   session again (``reap_before_spawn``).
+- **a turn's marked commands** (core/device_access.py): an entry with ``mark`` (keyed ``mark-<mark>``, reason
+  ``turn_end``) stands for the commands a turn ran on the device with its mark; ``reap_one`` asks the device to reap
+  that mark instead of a task.
 
 Only core modules are imported. Nothing here writes a job record or a card."""
 from __future__ import annotations
@@ -42,6 +45,7 @@ STOP = "stop"  # The user stopped the turn while the device was away (or the sto
 RUNNER_LOST = "runner_lost"  # The task runner ended without the link having seen the Agent end.
 RESTART = "restart"  # The hub's machine or the Bridge restarted under the turn.
 POLICY = "policy_stop"  # An official refusal stopped the runner.
+TURN_END = "turn_end"  # A turn ended (core/device_access.py reap_turn) while a command it ran there may still run.
 
 
 def _dir(state_dir, alias):
@@ -91,9 +95,10 @@ def _write(state_dir, alias, found):
 
 
 def register(state_dir, alias, task, *, reason, shim="", task_dir="", pgid=None, topic_id="", job_key="",
-             run_dir="", now=None):
-    """Note that the device ``alias`` may still run task ``task``. Already noted: the first entry stays (its reason is
-    the first cause), only the time of the latest asking is kept. The entry."""
+             run_dir="", mark="", now=None):
+    """Note that the device ``alias`` may still run task ``task`` (or, with ``mark``, the commands a turn ran with that
+    mark: ``task`` is then ``mark-<mark>``). Already noted: the first entry stays (its reason is the first cause), only
+    the time of the latest asking is kept. The entry."""
     now = now if now is not None else time.time()
     with _locked(state_dir, alias):
         found = entries(state_dir, alias)
@@ -102,7 +107,7 @@ def register(state_dir, alias, task, *, reason, shim="", task_dir="", pgid=None,
             entry = {"alias": alias, "task": task, "reason": reason, "shim": str(shim or ""), "task_dir": str(task_dir or ""),
                      "pgid": pgid if isinstance(pgid, int) and not isinstance(pgid, bool) else None,
                      "topic_id": str(topic_id or ""), "job_key": str(job_key or ""), "run_dir": str(run_dir or ""),
-                     "registered": now, "tries": 0}
+                     "registered": now, "tries": 0, **({"mark": str(mark)} if mark else {})}
         found[task] = entry
         _write(state_dir, alias, found)
     return entry
@@ -153,8 +158,12 @@ def register_run(state_dir, run_dir, reason, *, topic_id="", job_key=""):
 
 def reap_one(transport, entry, grace=GRACE):
     """Ask the device to stop what is left of ``entry``'s task: True when it says nothing is left (or never had the
-    task), False when it could not be reached or would not (the group is not provably the task's, or still there)."""
+    task), False when it could not be reached or would not (the group is not provably the task's, or still there). An
+    entry with ``mark`` reaps the commands kept under that mark."""
     try:
+        if entry.get("mark"):
+            answer = transport.call("reap", mark=entry["mark"], grace=grace, patience=grace + 30.0)
+            return not answer.get("after")
         answer = transport.call("reap", task=entry["task"], grace=grace, patience=grace + 30.0,
                                 shim_path=entry.get("shim") or None)
     except (dt.NoTask, dt.NoPgid, dt.NotFound):

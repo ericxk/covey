@@ -38,6 +38,10 @@ ACKS = "acks"
 REQUESTS = "requests"
 REPLIES = "replies"
 REPOS = "repos.json"  # A task's ``covey repo use`` requests (core/topic_repos.py); a Bridge that does not know it leaves it.
+# The device channel (core/device_access.py): what the turn's start wrote for ``covey device`` (its limit and its chat's
+# space), and one line per call of it. A Bridge or runner that does not know them leaves them.
+DEVICE_TURN = "device-turn.json"
+DEVICES = "devices.jsonl"
 OP = re.compile(r"[0-9]+-[0-9a-f]+")
 # A read of a run directory's file that fails (OSError, or JSON cut short: ValueError) while the directory is there is
 # made again after each of these pauses (read_steady): on ByteFuse a read of runner.json that met another process

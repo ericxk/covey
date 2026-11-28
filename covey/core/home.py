@@ -27,7 +27,7 @@ HOME_FILE = "home.json"
 RUN_SCOPES = ("topic_day", "turn")
 TEMPLATE_VARS = ("home", "date", "no", "slug", "topic8", "run")
 SEED_MARK = ".covey-home"  # In a home Covey made (seed_home); a taken-over directory never gets one.
-SHIM = "covey"  # <数据根>/bin/covey: ``covey repo …`` and ``covey memory …`` (ensure_shim).
+SHIM = "covey"  # <数据根>/bin/covey: ``covey repo …``, ``covey memory …`` and ``covey device …`` (ensure_shim).
 SEARCH_SHIMS = ("rg", "find", "fd", "du", "tree", "grep", "ls")  # <数据根>/bin/<name>: the search shims (SEARCH_SHIM_TEXT).
 SHIM_MARK = "Covey 的搜索垫片"  # In every search shim: ensure_shim never overwrites a file without it.
 SLUG_CHARS = 24
@@ -54,11 +54,12 @@ __pycache__/
 *.log
 """
 SHIM_TEXT = """#!/bin/sh
-# Covey 的命令入口（Covey 生成，升级时重写）：covey repo …、covey memory …
+# Covey 的命令入口（Covey 生成，升级时重写）：covey repo …、covey memory …、covey device …
 case "$1" in
   repo) shift; exec "{python}" -B "{bin}/covey_repo.py" "$@" ;;
   memory) shift; exec "{python}" -B "{bin}/covey_memory.py" "$@" ;;
-  *) echo "用法：covey repo list|use|status|prune-plan … ；covey memory …" >&2; exit 2 ;;
+  device) shift; exec "{python}" -B "{bin}/covey_device.py" "$@" ;;
+  *) echo "用法：covey repo list|use|status|prune-plan … ；covey memory … ；covey device list|run|ls|stat|get|put|job …" >&2; exit 2 ;;
 esac
 """
 

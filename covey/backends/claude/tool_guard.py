@@ -33,8 +33,9 @@ write elsewhere (``look_bash_refusal``): a redirection (``>``, ``>>``, ``&>``), 
 ``cp``/``mv``/``install``/``ln``/``rsync`` into it (``mv`` from it too), ``rm``/``rmdir``/``touch``/``mkdir``/``truncate``/
 ``chmod``/``chown``/``shred``/``unlink``, ``dd of=``, ``curl -o``/``-O`` and ``wget``, ``find -delete`` or ``-exec`` of
 one of those, ``xargs`` of one, a git command that writes (``commit``, ``checkout``, ``reset``, ``push``, ``clean`` …;
-``git log``, ``status``, ``diff``, ``show``, ``fetch`` run) and ``covey repo use --write`` (``covey repo use`` to read
-runs). What a program writes by itself (a script, ``python -c``) it cannot see: docs/harnesses.md and tests/test_matrix.py
+``git log``, ``status``, ``diff``, ``show``, ``fetch`` run), ``covey repo use --write`` (``covey repo use`` to read
+runs) and ``covey device`` other than ``list``, ``get``, ``ls`` and ``stat`` (``DEVICE_READS``: the channel itself holds
+the turn to reading, core/device_access.py G3; this is its second wall). What a program writes by itself (a script, ``python -c``) it cannot see: docs/harnesses.md and tests/test_matrix.py
 list that as the shell's limit. Anything that goes wrong in here refuses the call.
 
 ``shim`` (``shim_main``; ``--mode shim <命令名> <参数…>``): not a hook but what the search shims in ``<数据根>/bin``
@@ -738,6 +739,9 @@ def _git_refusal(words) -> str:
     return ""
 
 
+DEVICE_READS = ("list", "get", "ls", "stat", "--help", "-h")  # What ``covey device`` may do in a LOOK turn.
+
+
 def look_bash_refusal(command, cwd, allow_file, allow_dir, depth=0) -> str:
     """Why a Bash ``command`` run in ``cwd`` in a LOOK turn obviously writes somewhere it may not (module docstring);
     '' when it does not, as far as it can see. ValueError when it cannot read the command."""
@@ -784,6 +788,9 @@ def look_bash_refusal(command, cwd, allow_file, allow_dir, depth=0) -> str:
             found = _git_refusal(rest)
         elif name == "covey" and rest[:2] == ["repo", "use"] and "--write" in rest:
             found = "`covey repo use --write` 会建写 worktree"
+        elif name == "covey" and rest[:1] == ["device"] and (rest[1:2] or [""])[0] not in DEVICE_READS:
+            # The device channel holds a LOOK turn to reading itself (core/device_access.py G3); this is the second wall.
+            found = f"`covey device {(rest[1:2] or [''])[0]}` 可能改设备上的东西，这一轮只能 list、get、ls、stat"
         elif name == "tee":
             for path in _positionals(rest)[0]:
                 found = found or blocked(where(path, cwd), cwd)

@@ -186,6 +186,20 @@ dsh 是 DeepSeek 开源的 Agent Harness（npm 包 `@deepseek-ai/dsh`，预览�
 - **失败**（`backends/dsh/bridge.py` 的 `headless_outcome`，按 `turn_end` 里 dsh 自己的错误码）：`RATE_LIMIT` 记 `rate_limited`，`SERVER`、`TIMEOUT`、`TRANSPORT`、`STREAM_CLOSED` 记 `server_fault`；`QUOTA`、`ACCOUNT_QUOTA`（dsh 说的余额或额度用完）和网关每日额度的 403 记 `quota_exhausted`；`AUTH`、`MISSING_CREDENTIAL`、`INVALID_CREDENTIAL`、`ACCOUNT_SIGN_IN_REQUIRED`、`ACCOUNT_TOKEN_INVALID` 记 `authentication_error`；`CONTENT_REFUSED`（安全拒绝）、`UNKNOWN_MODEL`、`INVALID_REQUEST` 和其余的记 `root_failed`。点了停止后以限流或故障收尾的按停止记。
 - 没有原生问答、执行中补充、原生图片、原生分叉（所以换配置时不写交接摘要）；网页搜索要 `DEEPSEEK_API_KEY`。
 
+## 设备通道
+
+和下一节的“在设备上运行”是两回事：这里 Harness 留在 Bridge 这台机器上、从主目录启动，只是从自己的 shell 调 `covey device`（[配置 · 设备通道](configuration.md#设备通道随多设备开)）去别的设备上跑命令、取放文件、起长任务。开关同多设备（`COVEY_DEVICES=1` 加 `devices.json`）；设备上不用装 Harness、不用登录。因为 Harness 没离开 Hub，回退、压缩、分叉、Bridge 工具和只读首轮的护栏都照常；设备命令的输出就是普通的命令输出。护栏（名单、只读设备、只读轮、凭据、审计、收割）写在 `core/device_access.py` 一处，三家走到这里是同一套规则（[架构 · 设备通道](architecture.md#设备通道)）。
+
+| Harness | 怎么调 | 只读的轮次 |
+| --- | --- | --- |
+| Claude Code | Bash 里跑 `covey device …` | 只读首轮（LOOK）的 PreToolUse 钩子把 `covey device` 除 `list`、`get`、`ls`、`stat` 以外的子命令当“可能写”拦下（`backends/claude/tool_guard.py` 的 `DEVICE_READS`），作通道自己的只读判断之外的第二道墙；负责人、群成员只读的轮只有 Read、Grep、Glob，没有 Bash，用不了设备通道 |
+| Codex | `exec_command` 里跑 `covey device …`（默认 `danger-full-access`） | 只读轮（只读首轮、负责人、群成员只读）在只读沙箱里：沙箱不让连 ssh 主连接的套接字、也解析不了主机名，运行目录只读写不了审计，所以这些轮次里 Codex 用不了设备通道：`covey device list` 还能列名单，别的子命令报设备没有答复（退出 4）。只读轮里的设备工具（沙箱外的工作区读取器里加只读的 `ls`、`stat`、`get`）在后面的版本补上 |
+| Antigravity（`agy`） | `run_command` 里跑 `covey device …` | Covey 现行参数（`--dangerously-skip-permissions`，不传 `--mode`、`--sandbox`，权限模式 `always-proceed`）下 `run_command` 能出网，能用已有的 ssh 主连接，也能新开连接；只读首轮 shell 照常（通道自己按只读拦）；负责人、群成员只读的轮拒绝所有 shell 命令（`command(*)`），用不了设备通道 |
+
+- **怎么告诉模型**：本机话题的主目录段（系统规则，话题内不变）多一句固定的用法，和其余主目录规矩一起给到每家 Harness；设备名单在 `repos.md` 末尾按需读，或 `covey device list`。名单增删不改系统规则，Prompt 缓存不受影响。外部话题（`local: false`）不给这一句。
+- **改设备上的文件**：三家都是 `covey device get` 到本话题产物目录、用自己的编辑工具改、再 `covey device put` 回去（`put` 核对取回时的 sha256）；Antigravity 的文件工具默认只碰工作区，产物目录在本机话题的可写范围里，不用放宽 `allowNonWorkspaceAccess`。
+- **超过一次调用的命令**：用 `covey device job start`，不要让 `run` 等几十分钟：Harness 自己的命令超时会杀掉 `covey device`，设备上的命令则一直跑到 `--timeout`，一轮结束时才由 Bridge 按标记收割。
+
 ## 在设备上运行
 
 开了多设备（`COVEY_DEVICES=1`，[配置](configuration.md#多设备开发中默认关)）后，工作区写成 `别名:路径` 的话题跑在那台设备上。能上设备的 Harness 由 `core/roster.py` 的 `devices` 列定：核心里是 Claude Code、Codex 和 Antigravity（设备的 `harnesses` 只认这几个，不写时是 `claude`、`codex`）。结构和不变量见[架构 · 设备](architecture.md#设备多设备默认关)。

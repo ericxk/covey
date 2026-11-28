@@ -236,8 +236,9 @@ def _merged_repos(old, new) -> list:
     return list(merged.values())
 
 
-def update_repos(state_dir: Path, topic_id: str, change) -> list:
-    """``change(repos) -> repos`` applied to the topic's topic.json ``repos`` (a list of dicts) under LOCK; the list
+def update_repos(state_dir: Path, topic_id: str, change, *, key="repos") -> list:
+    """``change(repos) -> repos`` applied to the topic's topic.json ``repos`` (``key``: another list of dicts, as
+    ``devices``, ``update_devices``) under LOCK; the list
     written, [] when the topic is not there. Nothing is written when nothing changed. Like every topic.json writer it
     holds LOCK of its own process only: the read, the change and the write follow each other at once (no git, no
     network in between), so another process's write of the same moment is the one window left, as for the others. Read
@@ -247,7 +248,7 @@ def update_repos(state_dir: Path, topic_id: str, change) -> list:
 
     def read():
         data = read_json(path)
-        return data, [dict(item) for item in data.get("repos") or () if isinstance(item, dict)]
+        return data, [dict(item) for item in data.get(key) or () if isinstance(item, dict)]
     try:
         _, before = read()
     except (OSError, ValueError):
@@ -262,9 +263,15 @@ def update_repos(state_dir: Path, topic_id: str, change) -> list:
             return []
         after = change([dict(item) for item in before])
         if after != before:
-            data["repos"] = after
+            data[key] = after
             write_json(path, data, ensure_ascii=False, indent=2)
         return after
+
+
+def update_devices(state_dir: Path, topic_id: str, change) -> list:
+    """``change(devices) -> devices`` on the topic's topic.json ``devices`` (core/device_access.py ``fold``), as
+    ``update_repos`` does it."""
+    return update_repos(state_dir, topic_id, change, key="devices")
 
 
 def topic_number(state_dir: Path, topic_id: str) -> int:
