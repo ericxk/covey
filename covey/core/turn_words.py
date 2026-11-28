@@ -72,12 +72,18 @@ def answer_head(status: str) -> str:
     return outcome_line("failed" if status == "interrupted" else status)
 
 
+# A Markdown code fence's own line (```, ```PLAIN_TEXT, ~~~python): no words of the request, only around them.
+_FENCE = re.compile(r"(`{3,}|~{3,})[\w+.\- ]*")
+
+
 def request_line(text):
     """The round's request in one line: its first line that says something, not a heading the Bridge or a form put
-    before the words ("用户补充回答：", a line ending in a colon of a few characters)."""
+    before the words ("用户补充回答：", a line ending in a colon of a few characters) nor a code fence's own line (a
+    message pasted inside ```PLAIN_TEXT read "```PLAIN_TEXT" as T272's title; the words inside the fence are the
+    request)."""
     for line in str(text or "").split("\n"):
         line = line.strip()
-        if line and not (line.endswith(("：", ":")) and len(line) <= 12):
+        if line and not (line.endswith(("：", ":")) and len(line) <= 12) and not _FENCE.fullmatch(line):
             return line
     return ""
 

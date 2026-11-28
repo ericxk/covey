@@ -1,0 +1,39 @@
+/* 看板右栏（T973）：额度（QuotaBrief.tsx）、Covey 定时回看（V34Bits RevisitPanel）、近 24 小时和本周用量下的 Harness 占比（Board.tsx）。
+   分组标题、发丝线照 v2.css 的 .nb-panel/.nb-ph；颜色只表示状态：偏紧、用完用 --fail（同侧栏胶囊和设置页额度表），其余是灰度 */
+
+/* 额度：一个来源一块，名字和“k/n 个能用”一行，有事一件一行 */
+.cv .nq-src{padding:8px 0;border-top:1px solid var(--line)}
+.cv .nq-src:first-of-type{border-top:0;padding-top:0}
+.cv .nq-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:13px;line-height:20px;color:var(--t1)}
+.cv .nq-h b{font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cv .nq-h span{flex:none;font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+.cv .nq-l{font-size:12px;line-height:18px;color:var(--t3)}
+.cv .nq-l.warn{display:flex;align-items:baseline;gap:6px;color:var(--fail)}
+.cv .nq-l.warn::before{content:'';flex:none;width:6px;height:6px;border-radius:50%;background:var(--fail);transform:translateY(-1px)}
+
+/* Covey 定时回看：T 号和标题一行，几点回看什么和「取消」一行 */
+.cv .nr-item{padding:8px 0;border-top:1px solid var(--line);min-width:0}
+.cv .nr-item:first-of-type{border-top:0;padding-top:0}
+.cv .nr-t{display:flex;align-items:center;gap:8px;min-width:0;font-size:13px;line-height:20px;color:var(--t1)}
+.cv .nr-t span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cv .nr-t:hover span{color:var(--a1)}
+.cv .nr-item .v34-later{display:flex;align-items:flex-start;gap:5px;margin-top:4px;font-size:12px;line-height:18px}
+.cv .nr-item .v34-later svg{margin-top:2px}
+.cv .nr-item .v34-lt{flex:1;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.cv .nr-item .v34-cancel{margin-top:-2px}
+
+/* 近 24 小时：三个数一排，数是等宽字（ui.md 2.3：右栏数字 20） */
+.cv .nd-cells{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.cv .nd-cells>div{display:flex;flex-direction:column;min-width:0}
+.cv .nd-n{font:500 20px/26px var(--mono);color:var(--t1);white-space:nowrap}
+.cv .nd-n small{margin-left:2px;font:400 12px var(--font);color:var(--t3)}
+.cv .nd-l{font-size:12px;line-height:17px;color:var(--t3);white-space:nowrap}
+.cv .nd-q{margin-top:8px;font-size:12px;color:var(--t2)}
+
+/* 本周用量下各 Harness 的占比：灰度分段条，一段一个 Harness，越往后越淡 */
+.cv .nb-hs{margin-top:8px}
+.cv .nb-hsbar{display:flex;gap:2px;height:4px;border-radius:2px;overflow:hidden}
+.cv .nb-hsbar i{display:block;flex-basis:0;min-width:2px;background:var(--t3);opacity:.7}
+.cv .nb-hsbar i:nth-child(2){opacity:.4}
+.cv .nb-hsbar i:nth-child(n+3){opacity:.2}
+.cv .nb-hst{display:block;margin-top:5px;font-size:12px;line-height:17px;color:var(--t3)}

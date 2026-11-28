@@ -1,30 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Play, Sparkles } from 'lucide-react';
-import type {
-  ActivityItem, FeedItem, QuestionView, SnapshotProject, SnapshotResponse, SnapshotTopic, StatsResponse, UsageDay,
-} from '@shared/api.interface';
+import { Play } from 'lucide-react';
+import type { QuestionView, SnapshotProject, SnapshotResponse, SnapshotTopic, StatsResponse, UsageDay } from '@shared/api.interface';
 import { useIsDesktop } from '@client/src/hooks/use-breakpoint';
 import { newOpId, prefetchTurns, useSettings, useSnapshot, useStats, useTidy, useUsage } from '@client/src/hooks/use-workbench';
-import { errorText, oneLineText } from '@client/src/lib/workbench-format';
+import { oneLineText } from '@client/src/lib/workbench-format';
 import { cleanLabel, isRec, quickAnswerable } from './Question';
 import { Head, SyncDot } from './Shell';
 import { ConclusionBand, Dot, Pill, RollNum, Spark, StateBar, StepCells, TodoBar, useTick } from './ui';
-import { byNumberDesc, byRecent, fmtTok, hhmm, pref, setPref, staleWords, toneOf, waitText, type ToneKey } from './lib';
+import { byNumberDesc, byRecent, fmtTok, hhmm, staleWords, toneOf, waitText, type ToneKey } from './lib';
 import { BRAND, STATES } from './look.gen';
 import { TidyPanel } from './Tidy';
-import { etaText, FALLBACK_FAILURE, listTone, progressNote, splitTitle } from './topicText';
+import { etaText, FALLBACK_FAILURE, progressNote, splitTitle } from './topicText';
 import { UsageBars } from './UsageBars';
-import { cachePct, shownDays, spanOf, weekWord } from './usageData';
+import { cachePct, dayFigures, harnessShares, shownDays, spanOf, weekWord, type DayCell, type Share } from './usageData';
 import { askCounts, asks, askSum, haltWords, isHalted, type Asks } from './projectData';
 import { DismissButton, RecoverActions, useBoardOn } from './RecoverBits';
 import { RoleAvatar, TopicBadge } from './RoleAvatar';
 import { PaneHandle } from './PaneHandle';
 import { BOARD_RAIL } from './panes';
-import { sendQuiet, trackedOf, trackOp, useOutboxOp, useSendOutbox, useTrackedOp } from './sendOp';
-import { LaterPanel, ProjectOps } from './V34Bits';
-import { opWords } from './opWords';
+import { sendQuiet, useOutboxOp } from './sendOp';
+import { DraftPanel, ProjectOps, RevisitPanel } from './V34Bits';
+import { QuotaBrief } from './QuotaBrief';
+import './boardrail.css';
 
 const topicPath = (t: SnapshotTopic): string => `/topics/${encodeURIComponent(t.key)}`;
 const tno = (t: SnapshotTopic): string => (t.number ? `T${t.number}` : '');
@@ -166,7 +165,9 @@ const RunRow: React.FC<{ t: SnapshotTopic }> = ({ t }) => {
   const p = t.progress;
   const total: number = p?.plan_total ?? r?.plan_total ?? 0;
   const done: number = p?.plan_total ? (p.plan_done ?? 0) : (r?.plan_done ?? 0);
-  const phase: string = p?.phase || r?.plan_doing || (t.latest_role !== 'owner' ? oneLineText(t.latest, 80) : '') || '在做';
+  // “现在”只认检查点写的阶段和计划里在做的那一步（同侧栏在做组）；不拿最新一轮的进展说明原文：那是模型边做边写的过程话，
+  // 可能是英文或半句（T959 曾显示“Now implement: …”），进展另由下面的 progressNote 说
+  const phase: string = p?.phase || r?.plan_doing || '在做';
   const note: string = progressNote(p, now).text;
   const eta: string = etaText(p?.eta_seconds);
   return (
@@ -221,29 +222,37 @@ const ResultRow: React.FC<{ t: SnapshotTopic }> = ({ t }) => {
   );
 };
 
-interface ProjectView {
-  p: SnapshotProject;
-  tones: ToneKey[];
-  last: number;
-}
+const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
-/** 专项（右栏是索引）：名字和一行计数；护栏停住的写红色“停住了 · 原因”（「继续」在上面要你处理的卡上）。描述和进度条在专项页，不在这里重复 */
-const ProjectCard: React.FC<{ x: ProjectView }> = ({ x }) => {
-  const { p } = x;
-  const parts: [ToneKey, number][] = (['waiting', 'stopped', 'stuck', 'result', 'running', 'done'] as ToneKey[]).map((k: ToneKey): [ToneKey, number] => [k, x.tones.filter((v: ToneKey) => v === k).length]);
+/** 近 24 小时（统计接口的 today_* 字段，窗口是往前 24 小时）：做完几轮、Agent 干了多久、答过的题平均等了你多久，三个数一排；
+ *  有任务在排队时下面多一行。旧服务端没有这几个字段时不画 */
+const DayPanel: React.FC<{ st: StatsResponse | undefined; queued: number }> = ({ st, queued }) => {
+  const cells: DayCell[] = dayFigures(st);
+  if (!cells.length) return null;
   return (
-    <Link to={`/projects/${encodeURIComponent(p.key)}`} className="nb-proj-card">
-      <b className="nb-clamp1" title={p.goal || p.title}>{p.title}</b>
-      {isHalted(p) ? <span className="nb-pc tone-stopped nb-halt">{haltWords(p)}</span> : null}
-      <span className="nb-meta">
-        {p.counts.topics} 个话题
-        {parts.filter(([, n]) => n > 0).map(([k, n]) => <span key={k} className={`nb-pc tone-${k}`}> · {n} {STATES[k].word}</span>)}
-      </span>
-    </Link>
+    <section className="nb-panel nb-day">
+      <h3 className="nb-ph">近 24 小时</h3>
+      <div className="nd-cells">
+        {cells.map((c: DayCell) => (
+          <div key={c.label}>
+            <span className="nd-n">{c.n}{c.unit ? <small>{c.unit}</small> : null}</span>
+            <span className="nd-l">{c.label}</span>
+          </div>
+        ))}
+      </div>
+      {queued ? <div className="nd-q">{queued} 个话题在排队</div> : null}
+    </section>
   );
 };
 
-const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+/** 本周用量下面一行：各 Harness 占的 token，一条灰度的分段条加一行字（颜色只表示状态，这里不上色）；只有一个 Harness 时不画 */
+const HarnessShares: React.FC<{ rows: Share[] }> = ({ rows }) =>
+  rows.length ? (
+    <div className="nb-hs" title="近 7 天各 Harness 用的 token 占比">
+      <span className="nb-hsbar">{rows.map((r: Share) => <i key={r.title} style={{ flexGrow: Math.max(r.pct, 0.5) }} />)}</span>
+      <span className="nb-hst">{rows.map((r: Share) => `${r.title} ${r.text}`).join(' · ')}</span>
+    </div>
+  ) : null;
 
 /** 本周用量：近 7 天（含今天）的 token，下面一行任务、话题和缓存命中，底部每天一根柱子，停上去看那天的数；「明细」去用量页。
  *  Covey 推了按天的用量（v26）才这样画，旧 Covey 照原来的趋势线 */
@@ -258,6 +267,7 @@ const WeekUsage: React.FC<{ st: StatsResponse | undefined }> = ({ st }) => {
         <h3 className="nb-ph">本周用量<em>近 7 天</em><Link className="nb-more" to="/usage">明细 ›</Link></h3>
         <div className="nb-big">{fmtTok(span.tokens)} <small>token</small></div>
         <div className="nb-meta">{span.tasks} 个任务{span.exact ? ` · ${span.topics} 个话题` : ''}{pct === null ? '' : ` · 缓存命中 ${pct}%`}</div>
+        <HarnessShares rows={harnessShares(span.harnesses)} />
         <UsageBars
           days={shownDays(u, 7)}
           today={today}
@@ -276,88 +286,12 @@ const WeekUsage: React.FC<{ st: StatsResponse | undefined }> = ({ st }) => {
       <h3 className="nb-ph">本周用量<em>近 7 天</em></h3>
       <div className="nb-big">{fmtTok(st.week_tokens)} <small>token</small></div>
       <div className="nb-meta">{st.week_turns ?? 0} 个任务{typeof st.week_topics === 'number' ? ` · ${st.week_topics} 个话题` : ''}{typeof st.week_cache_pct === 'number' ? ` · 缓存命中 ${st.week_cache_pct}%` : ''}</div>
+      <HarnessShares rows={harnessShares(st.week_harnesses)} />
       {st.week_series ? <Spark series={st.week_series} color={BRAND} className="nb-spark" h={40} /> : null}
       <div className="nb-days">{days.map((d: string, i: number) => <span key={i}>{d}</span>)}</div>
     </section>
   );
 };
-
-const TIDY_KEY = 'tidy.op';
-const TIDY_SHOW_MS = 30 * 60 * 1000;
-
-/** 「整理」：发件箱写一条 tidy，按钮旁边原地显示 Covey 回的结果（说法同 opWords：等满一分钟没回音不算失败）。只在开了整理专项时出现。
- * 回执由跟踪器问（cv/sendOp.ts，T765 F1）；刷新过页面还在 30 分钟内的那条，打开时接着问 */
-const TidyButton: React.FC = () => {
-  const send = useSendOutbox();
-  const qc = useQueryClient();
-  const [op, setOp] = useState<{ id: string; at: number } | null>(() => {
-    try {
-      const v = JSON.parse(pref(TIDY_KEY, 'null')) as { id: string; at: number } | null;
-      return v && Date.now() - v.at < TIDY_SHOW_MS ? v : null;
-    } catch {
-      return null;
-    }
-  });
-  const [err, setErr] = useState<string>('');
-  const tr = useTrackedOp(op?.id);
-  useEffect(() => {
-    // 刷新页面以后小仓库是空的：接着问这一条的回执
-    if (op && !trackedOf(op.id)) void trackOp(qc, { op_id: op.id, kind: 'tidy', payload: { scope: '' } });
-  }, [op, qc]);
-  const go = (): void => {
-    const id: string = newOpId();
-    setErr('');
-    send.mutate(
-      { op_id: id, kind: 'tidy', payload: { scope: '' } },
-      {
-        onSuccess: () => {
-          const v = { id, at: Date.now() };
-          setPref(TIDY_KEY, JSON.stringify(v));
-          setOp(v);
-        },
-        onError: (e: Error) => setErr(errorText(e)),
-      },
-    );
-  };
-  const waiting: boolean = !!op && (!tr || tr.phase === 'waiting');
-  const late: boolean = tr?.phase === 'timeout';
-  const busy: boolean = send.isPending || waiting;
-  let note: React.ReactNode = null;
-  if (err) note = <span className="a-errt">{opWords('unsent', err)}</span>;
-  else if (send.isPending) note = <span className="a-faint">{opWords('sending')}</span>;
-  else if (waiting) note = <span className="a-faint">{opWords('waiting')}</span>;
-  else if (late) note = <span className="a-faint">{opWords('timeout')}</span>;
-  // Covey 回的话照原样（新版说进度和结果显示在整理面板上，旧版说发到私聊）
-  else if (tr?.phase === 'done') note = <span className="a-okt">{opWords('done', tr.message || '已开始整理')}</span>;
-  else if (tr?.phase === 'failed') note = <span className="a-errt">{opWords('failed', tr.message)}</span>;
-  return (
-    <span className="a-tidy">
-      {note}
-      <button type="button" className="btn sm" onClick={go} disabled={busy} title="把现有专项和最近 7 天的话题重新看一遍，给出归进、新建、合并等建议">
-        <Sparkles /> 整理
-      </button>
-    </span>
-  );
-};
-
-/** 最近动态按话题合并：“T518 · 做完 5 轮 · 问过 2 次”。服务端没给 feed（旧版）时从 activity 凑 */
-function mergedFeed(st: StatsResponse | undefined): FeedItem[] {
-  if (!st) return [];
-  if (st.feed) return st.feed;
-  const m = new Map<string, FeedItem>();
-  for (const a of st.activity as ActivityItem[]) {
-    const f: FeedItem = m.get(a.topic_key) ?? { topic_key: a.topic_key, number: a.number, title: a.title, done: 0, failed: 0, asked: 0, at: 0 };
-    if (a.kind === 'done') f.done += 1;
-    if (a.kind === 'failed') f.failed += 1;
-    if (a.kind === 'asked') f.asked += 1;
-    f.at = Math.max(f.at, a.at);
-    m.set(a.topic_key, f);
-  }
-  return [...m.values()].filter((f: FeedItem) => f.done || f.failed || f.asked).sort((a: FeedItem, b: FeedItem) => b.at - a.at);
-}
-
-const feedText = (f: FeedItem): string =>
-  [f.done ? `做完 ${f.done} 轮` : '', f.failed ? `没做完 ${f.failed} 轮` : '', f.asked ? `问过 ${f.asked} 次` : ''].filter(Boolean).join(' · ');
 
 /** 最后同步的时刻；超过 3 分钟后面跟一句灰字“N 分钟没同步”（docs/ui.md 第 7 节，不用橙色） */
 const Updated: React.FC<{ at: string | null | undefined }> = ({ at }) => {
@@ -383,7 +317,6 @@ const Board: React.FC = () => {
   const { data: snap } = useSnapshot();
   const { data: st } = useStats();
   const tidy = useTidy().data;
-  const tidyOn: boolean = !!tidy;
   const now: number = useTick(30000);
   if (!snap) return null;
   const topics: SnapshotTopic[] = snap.topics.filter((t: SnapshotTopic) => t.kind === 'topic');
@@ -397,17 +330,7 @@ const Board: React.FC = () => {
   const act: number = askSum(c);
   const running: SnapshotTopic[] = topics.filter((t: SnapshotTopic) => toneOf(t) === 'running' && !qBy.has(t.key)).sort(byNumberDesc);
   const unseen: SnapshotTopic[] = topics.filter((t: SnapshotTopic) => toneOf(t) === 'result').sort(byRecent);
-  const views: ProjectView[] = snap.projects.map((p: SnapshotProject): ProjectView => {
-    const own: SnapshotTopic[] = topics.filter((t: SnapshotTopic) => t.project_key === p.key);
-    return { p, tones: own.map(listTone), last: Math.max(p.updated_at, ...own.map((t: SnapshotTopic) => t.updated_at)) };
-  });
-  const rank = (x: ProjectView): number => {
-    if (isHalted(x.p)) return 0;
-    const hot: number = ['waiting', 'stopped', 'stuck', 'running', 'result'].findIndex((k: string) => x.tones.includes(k as ToneKey));
-    return hot < 0 ? (['做完', '收起', '已取消'].includes(x.p.status) ? 9 : 8) : hot + 1;
-  };
-  views.sort((x: ProjectView, y: ProjectView) => rank(x) - rank(y) || y.last - x.last || x.p.key.localeCompare(y.p.key));
-  const feed: FeedItem[] = mergedFeed(st);
+  const queued: number = topics.filter((t: SnapshotTopic) => toneOf(t) === 'queued').length;
   // Covey 停推了（超过 3 分钟没同步）：右上和结论带都照实说，不再写“已同步”“都在掌握中”（T647 P1-C1）
   const stale: string = staleWords(snap.synced_at, now * 1000);
   const syncedAt: number | null = snap.synced_at ? Date.parse(snap.synced_at) / 1000 : null;
@@ -450,38 +373,14 @@ const Board: React.FC = () => {
       <StateBar legend={false} parts={[['waiting', c.waiting], ['stopped', c.stopped], ['stuck', c.stuck], ['result', unseen.length], ['running', running.length]]} />
     </ConclusionBand>
   );
-  const projects = views.length ? (
-    <section className="nb-panel">
-      <h3 className="nb-ph">专项<em>{views.length}</em>{tidyOn ? <TidyButton /> : null}</h3>
-      <div className="nb-plist">{views.slice(0, 8).map((x: ProjectView) => <ProjectCard key={x.p.key} x={x} />)}</div>
-    </section>
-  ) : (
-    <section className="nb-panel">
-      <h3 className="nb-ph">专项{tidyOn ? <TidyButton /> : null}</h3>
-      {/* 空状态照 docs/ui.md 第 7 节：说的是真的、下一步做什么；没开整理专项时不让你去点「整理」 */}
-      <p className="nb-note">{tidyOn ? '还没有专项。点「整理」让 Covey 看看哪些话题该归成专项。' : '还没有专项。对管家说一件要做很久的事，它会开成专项。'}</p>
-    </section>
-  );
+  // 右栏只放跨话题的资源和安排（T973）：额度（有来源才画）→ Covey 定时回看（有才画）→ 近 24 小时 → 本周用量。
+  // 话题、专项的清单在侧栏，这里不再列（原来的专项、最近动态和侧栏重复）
   const rail = (
     <>
-      {projects}
+      <QuotaBrief />
+      <RevisitPanel topics={topics} />
+      <DayPanel st={st} queued={queued} />
       <WeekUsage st={st} />
-      {feed.length ? (
-        <section className="nb-panel">
-          <h3 className="nb-ph">最近动态<em>同一话题合并</em></h3>
-          <ul className="a-feed">
-            {feed.slice(0, 8).map((f: FeedItem) => (
-              <li key={f.topic_key}>
-                <span className="a-tmc">{hhmm(f.at)}</span>
-                <Link to={`/topics/${encodeURIComponent(f.topic_key)}`} title={f.title}>
-                  <span className="a-fl1">{f.number ? <TopicBadge number={f.number} /> : <b>话题</b>} {feedText(f)}</span>
-                  <span className="a-ft2">{f.title}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
     </>
   );
   // 卡和行里的 T 号头像一样宽（按最长的号码，至少 T 加三位），标题对成一条线（同侧栏 --tw）
@@ -501,20 +400,21 @@ const Board: React.FC = () => {
             </div>
           ) : null}
           <TidyPanel />
-          {running.length ? (
-            <>
-              <h2 className="nb-sh">{STATES.running.heading}<em><RollNum value={running.length} /></em></h2>
-              <div className="nb-rows">{running.map((t: SnapshotTopic) => <RunRow key={t.key} t={t} />)}</div>
-            </>
-          ) : null}
+          {/* 顺序照 docs/ui.md 5.1：要你处理（含等你在飞书确认的代发）→ 告诉你一声（有结果没看）→ 背景（在做）。
+              在做排最后：十几个在做时它占满一屏，排在前面会把代发和有结果挤出首屏（T973） */}
+          <DraftPanel topics={topics} />
           {unseen.length ? (
             <>
               <h2 className="nb-sh">{STATES.result.heading}<em>{unseen.length}</em></h2>
               <div className="nb-rows">{unseen.slice(0, 12).map((t: SnapshotTopic) => <ResultRow key={t.key} t={t} />)}</div>
             </>
           ) : null}
-          {/* v34：Covey 定时回看的话题、等你在飞书确认的代发草稿 */}
-          <LaterPanel topics={topics} />
+          {running.length ? (
+            <>
+              <h2 className="nb-sh">{STATES.running.heading}<em><RollNum value={running.length} /></em></h2>
+              <div className="nb-rows">{running.map((t: SnapshotTopic) => <RunRow key={t.key} t={t} />)}</div>
+            </>
+          ) : null}
           {!desktop ? <div className="nb-mrail">{rail}</div> : null}
           {!topics.length ? (
             <div className="nb-empty">

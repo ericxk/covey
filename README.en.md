@@ -156,7 +156,7 @@ Most tools make one agent stronger, or make one agent easier to drive from afar.
 
 Better for long answers and history on a computer: the projects, topics, turns and pending questions of your private chat are all on the page, where you can also talk, answer, stop a topic, start a new one and change settings. It reads and writes the same records as Feishu, which keeps the notifications and quick replies.
 
-<img src="docs/media/screenshots/10-web-board.png" width="100%" alt="Web board: two things need you; waiting, stopped, running and unseen results; projects and weekly usage on the right">
+<img src="docs/media/screenshots/10-web-board.png" width="100%" alt="Web board: two things need you; waiting, stopped, unseen results and running; the last 24 hours and weekly usage on the right">
 
 <details>
 <summary>Project page, the room, on a phone</summary>

@@ -189,42 +189,43 @@ export const DraftLines: React.FC<{ drafts: OwnerSendDraft[] | undefined }> = ({
   );
 };
 
-/** 看板上的“稍后”：Covey 定时回看的话题和等你确认的代发草稿，各一行；都没有就不画 */
-export const LaterPanel: React.FC<{ topics: SnapshotTopic[] }> = ({ topics }) => {
+/** 看板主栏的代发草稿（要你去飞书确认，算要你动手的事，排在有结果、在做前面）：一个话题一行；没有就不画 */
+export const DraftPanel: React.FC<{ topics: SnapshotTopic[] }> = ({ topics }) => {
+  const drafting: SnapshotTopic[] = topics.filter((t: SnapshotTopic) => !!t.owner_send?.length);
+  if (!drafting.length) return null;
+  return (
+    <section className="v34-panel" aria-label="等你在飞书确认的代发草稿">
+      <h2 className="nb-sh">等你在飞书确认的代发<em>{drafting.reduce((n: number, t: SnapshotTopic) => n + (t.owner_send?.length ?? 0), 0)}</em></h2>
+      <div className="nb-rows">
+        {drafting.map((t: SnapshotTopic) => (
+          <div className="nb-row v34-row" key={`d-${t.key}`}>
+            <TopicBadge number={t.number} />
+            <Link className="v34-tt" to={`/topics/${encodeURIComponent(t.key)}`}>{t.title}</Link>
+            <DraftLines drafts={t.owner_send} />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+};
+
+/** 看板右栏的「Covey 定时回看」（Covey 自己排好的安排，不是要你做的事）：按时刻排，一个话题两行（T 号和标题、几点回看什么和「取消」）；没有就不画 */
+export const RevisitPanel: React.FC<{ topics: SnapshotTopic[] }> = ({ topics }) => {
   const gone: ReadonlySet<string> = useCancelled();
   const later: SnapshotTopic[] = topics.filter((t: SnapshotTopic) => stillLater(t, gone)).sort((a, b) => (a.revisit?.at ?? 0) - (b.revisit?.at ?? 0));
-  const drafting: SnapshotTopic[] = topics.filter((t: SnapshotTopic) => !!t.owner_send?.length);
-  if (!later.length && !drafting.length) return null;
+  if (!later.length) return null;
   return (
-    <section className="v34-panel" aria-label="Covey 定时回看和代发草稿">
-      {drafting.length ? (
-        <>
-          <h2 className="nb-sh">等你在飞书确认的代发<em>{drafting.reduce((n: number, t: SnapshotTopic) => n + (t.owner_send?.length ?? 0), 0)}</em></h2>
-          <div className="nb-rows">
-            {drafting.map((t: SnapshotTopic) => (
-              <div className="nb-row v34-row" key={`d-${t.key}`}>
-                <TopicBadge number={t.number} />
-                <Link className="v34-tt" to={`/topics/${encodeURIComponent(t.key)}`}>{t.title}</Link>
-                <DraftLines drafts={t.owner_send} />
-              </div>
-            ))}
-          </div>
-        </>
-      ) : null}
-      {later.length ? (
-        <>
-          <h2 className="nb-sh">Covey 定时回看<em>{later.length}</em></h2>
-          <div className="nb-rows">
-            {later.map((t: SnapshotTopic) => (
-              <div className="nb-row v34-row" key={`r-${t.key}`}>
-                <TopicBadge number={t.number} />
-                <Link className="v34-tt" to={`/topics/${encodeURIComponent(t.key)}`}>{t.title}</Link>
-                <LaterLine t={t} />
-              </div>
-            ))}
-          </div>
-        </>
-      ) : null}
+    <section className="nb-panel nb-revisit" aria-label="Covey 定时回看">
+      <h3 className="nb-ph">Covey 定时回看<em>{later.length}</em></h3>
+      {later.map((t: SnapshotTopic) => (
+        <div className="nr-item" key={`r-${t.key}`}>
+          <Link className="nr-t" to={`/topics/${encodeURIComponent(t.key)}`} title={t.title}>
+            <TopicBadge number={t.number} />
+            <span>{t.title}</span>
+          </Link>
+          <LaterLine t={t} />
+        </div>
+      ))}
     </section>
   );
 };

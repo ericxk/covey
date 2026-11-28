@@ -232,20 +232,13 @@ svg.rot{transform:rotate(90deg)}
 .a-chip.fail{color:var(--fail);border-color:color-mix(in srgb,var(--fail) 38%,transparent)}
 .a-chip.run{color:var(--run);border-color:color-mix(in srgb,var(--run) 38%,transparent)}
 .a-pnow{font-size:12.5px;color:var(--t2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
-.a-donel,.a-feed{list-style:none;margin:0;padding:0}
+.a-donel{list-style:none;margin:0;padding:0}
 .a-donel a{display:flex;gap:8px;align-items:flex-start;padding:5px 0;font-size:13px;color:var(--t2);line-height:1.4}
-.a-donel a:hover,.a-feed a:hover{color:var(--t1)}
+.a-donel a:hover{color:var(--t1)}
 .a-donel .dot{margin-top:6px}
 .a-donel .a-tno{padding-top:1px}
 .a-dt{flex:1;min-width:0}
 .a-donel .a-faint{font-size:12px;flex:none}
-.a-feed li{display:flex;gap:10px;padding:6px 0;font-size:13px;color:var(--t2);border-bottom:1px solid var(--line);line-height:1.45}
-.a-feed li:last-child{border-bottom:0}
-.a-feed b{color:var(--t1)}
-.a-tmc{font:11.5px var(--mono);color:var(--t3);flex:none;width:38px;padding-top:2px}
-.a-feed a{display:flex;flex-direction:column;min-width:0}
-.a-fl1{color:var(--t2)}
-.a-ft2{color:var(--t3);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .a-mrail{margin-top:8px}
 
 /* ---------- 侧栏：按专项分组 ---------- */

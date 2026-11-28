@@ -22,6 +22,7 @@ const HallIcon = MessagesSquare;
 import { askCounts, asks, askSum, haltWords, isHalted, stoppedSet, type Asks } from './projectData';
 import { PaneHandle } from './PaneHandle';
 import { StatusGroups } from './StatusGroups';
+import { TidyButton } from './Tidy';
 import { useHeld } from './sideHold';
 import { SIDE_PANE, showSavedPanes } from './panes';
 import { upgradeMark } from './upgrade';
@@ -129,7 +130,7 @@ const ProjectGroup: React.FC<{ x: SideProject; snap: SnapshotResponse; stoppedKe
   const halted: boolean = isHalted(p);
   const cnt: React.ReactNode = x.waiting || x.stopped || halted
     ? <em className={`a-cnt wait${halted ? ' halt' : ''}`} title={`${x.waiting} 等你 · ${x.stopped + (halted ? 1 : 0)} 停住了${halted ? `（专项${haltWords(p)}）` : ''}`}>{x.waiting + x.stopped + (halted ? 1 : 0)}</em>
-    : x.running ? <em className="a-cnt run" title={`${x.running} 在做`}>{x.running}</em> : <em className="a-cnt">{x.topics.length}</em>;
+    : x.running ? <em className="a-cnt run" title={`${x.running} 在做`}>{x.running}</em> : null;
   const toggle = (): void => {
     setPref(`grp.${p.key}`, show ? '0' : '1');
     setOpen(!show);
@@ -304,6 +305,7 @@ const Sidebar: React.FC<{ mini: boolean; drawer?: boolean }> = ({ mini, drawer }
   const upMark: string = useUpgradeMark();
   const capsule: string = useQuotaCapsule();
   const { data: tidy } = useTidy();  // 整理专项要你定的建议：算进要你处理（同看板）
+  const tidyOn: boolean = !!tidy;
   const [unOpen, setUnOpen] = useState<boolean>(false);
   const [oldOpen, setOldOpen] = useState<boolean>(() => pref('grp.old', '0') === '1');
   const [oldWas, setOldWas] = useState<string>('');
@@ -443,11 +445,13 @@ const Sidebar: React.FC<{ mini: boolean; drawer?: boolean }> = ({ mini, drawer }
           ) : (
             <>
               <StatusGroups a={a} data={data} running={topics.filter((t: SnapshotTopic) => t.kind === 'topic' && toneOf(t) === 'running')} now={now} />
-              {groups.length ? (
+              {groups.length || tidyOn ? (
                 <div className="sec" id="side-projects">
                   {/* 点“专项”打开专项一览（/projects，一个专项一张简报卡）：电脑上没有底部标签栏，从这里进 */}
                   <Link to="/projects" className="a-secl" title="专项一览：一个专项一张简报卡">专项</Link>
-                  <span>{groups.length}</span>
+                  {/* 「整理」（开了整理专项才有）：原来在看板右栏的专项块上，那一块去掉后挪到这里，每一页都点得到（T973） */}
+                  {tidyOn ? <TidyButton compact /> : null}
+                  {groups.length ? <span>{groups.length}</span> : null}
                 </div>
               ) : null}
               {live.map((x: SideProject) => (

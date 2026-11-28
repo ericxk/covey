@@ -1,12 +1,13 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import type { SnapshotProject } from '@shared/api.interface';
 import { newOpId, useSnapshot, useTidy } from '@client/src/hooks/use-workbench';
+import { errorText } from '@client/src/lib/workbench-format';
 import { pref, setPref } from './lib';
 import { opWords, plainReceipt } from './opWords';
-import { sendOp, type OpResult } from './sendOp';
+import { sendOp, trackedOf, trackOp, useSendOutbox, useTrackedOp, type OpResult } from './sendOp';
 import {
   choice, dismissible, failedRun, failWords, isOpen, look, nextWords, outcome, panelWords, progressShare, remember, shown,
   wantsSettings, TIDY_SHOW_ALL, TIDY_WORD, type TidyChoice, type TidyLastRun, type TidyLook, type TidyProposal, type TidyTopic,
@@ -25,6 +26,76 @@ function readGone(): string[] {
     return [];
   }
 }
+
+const TIDY_KEY = 'tidy.op';
+const TIDY_SHOW_MS = 30 * 60 * 1000;
+
+/** 「整理」：发件箱写一条 tidy，按钮旁边原地显示 Covey 回的结果（说法同 opWords：等满一分钟没回音不算失败）。只在开了整理专项时出现，
+ * 放在侧栏「专项」小节的标题行和专项一览的页头（原来在看板右栏的专项块上，T973 去掉了那一块）。
+ * 回执由跟踪器问（cv/sendOp.ts，T765 F1）；刷新过页面还在 30 分钟内的那条，打开时接着问 */
+export const TidyButton: React.FC<{ compact?: boolean }> = ({ compact }) => {
+  const send = useSendOutbox();
+  const qc = useQueryClient();
+  const [op, setOp] = useState<{ id: string; at: number } | null>(() => {
+    try {
+      const v = JSON.parse(pref(TIDY_KEY, 'null')) as { id: string; at: number } | null;
+      return v && Date.now() - v.at < TIDY_SHOW_MS ? v : null;
+    } catch {
+      return null;
+    }
+  });
+  const [err, setErr] = useState<string>('');
+  const tr = useTrackedOp(op?.id);
+  useEffect(() => {
+    // 刷新页面以后小仓库是空的：接着问这一条的回执
+    if (op && !trackedOf(op.id)) void trackOp(qc, { op_id: op.id, kind: 'tidy', payload: { scope: '' } });
+  }, [op, qc]);
+  const go = (): void => {
+    const id: string = newOpId();
+    setErr('');
+    send.mutate(
+      { op_id: id, kind: 'tidy', payload: { scope: '' } },
+      {
+        onSuccess: () => {
+          const v = { id, at: Date.now() };
+          setPref(TIDY_KEY, JSON.stringify(v));
+          setOp(v);
+        },
+        onError: (e: Error) => setErr(errorText(e)),
+      },
+    );
+  };
+  const waiting: boolean = !!op && (!tr || tr.phase === 'waiting');
+  const late: boolean = tr?.phase === 'timeout';
+  const busy: boolean = send.isPending || waiting;
+  // 回执的话和颜色（说法同 opWords）；Covey 回的话照原样（新版说进度和结果显示在整理面板上，旧版说发到私聊）
+  let note: [string, 'a-errt' | 'a-faint' | 'a-okt'] | null = null;
+  if (err) note = [opWords('unsent', err), 'a-errt'];
+  else if (send.isPending) note = [opWords('sending'), 'a-faint'];
+  else if (waiting) note = [opWords('waiting'), 'a-faint'];
+  else if (late) note = [opWords('timeout'), 'a-faint'];
+  else if (tr?.phase === 'done') note = [opWords('done', tr.message || '已开始整理'), 'a-okt'];
+  else if (tr?.phase === 'failed') note = [opWords('failed', tr.message), 'a-errt'];
+  const tip = '把现有专项和最近 7 天的话题重新看一遍，给出归进、新建、合并等建议';
+  // compact（侧栏「专项」标题行，宽 248px）：只放按钮，回执写进悬停提示，没发出、没办成时按钮字变红；整理的进度和结果在看板的整理面板上
+  if (compact) {
+    return (
+      <span className="a-tidy compact">
+        <button type="button" className={`btn sm txt${note && note[1] === 'a-errt' ? ' a-errt' : ''}`} onClick={go} disabled={busy} title={note ? `${note[0]}\n\n${tip}` : tip} aria-label={note ? `整理：${note[0]}` : '整理'}>
+          <Sparkles /> {busy ? '整理中' : '整理'}
+        </button>
+      </span>
+    );
+  }
+  return (
+    <span className="a-tidy">
+      {note ? <span className={note[1]}>{note[0]}</span> : null}
+      <button type="button" className="btn sm" onClick={go} disabled={busy} title={tip}>
+        <Sparkles /> 整理
+      </button>
+    </span>
+  );
+};
 
 /** 话题列表：不多于 4 个全列；多于 4 个先列前 3 个，其余折成“还有 N 个话题”，点开展开。T 号是链接 */
 const TopicList: React.FC<{ topics: TidyTopic[] }> = ({ topics }) => {

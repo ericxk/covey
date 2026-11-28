@@ -46,6 +46,15 @@ class TopicTitleTest(unittest.TestCase):
                      {"role": "user", "content": "用户补充回答：\n  看一下   日志:为什么\n第二行"})
         self.assertEqual(set(self.every_title("t7").values()), {"看一下 日志：为什么"})
 
+    def test_a_code_fence_line_is_not_the_title(self):
+        # T272 (2026-11-29): the owner pasted the request inside ```PLAIN_TEXT and the title read "```PLAIN_TEXT"
+        write_topic(self.state, {"topic_number": 272, "chat_id": "oc_dm"}, topic_id="t272")
+        self.history("t272", {"role": "user", "content": "```PLAIN_TEXT\n在 /absolute/repo 接着做扩缩容\n```"})
+        self.assertEqual(set(self.every_title("t272").values()), {"在 /absolute/repo 接着做扩缩容"})
+        write_topic(self.state, {"topic_number": 273, "chat_id": "oc_dm"}, topic_id="t273")
+        self.history("t273", {"role": "user", "content": "~~~\n\n``` python\nprint(1)\n```"})
+        self.assertEqual(topic_title(self.state, "t273"), "print(1)")
+
     def test_kept_until_topic_json_changes(self):
         path = write_topic(self.state, {"topic_number": 8, "chat_id": "oc_dm", "origin": {"title": "旧标题"}},
                            topic_id="t8")

@@ -9,10 +9,12 @@ the page logs in (a login request, the owner's approval pushed as Covey pushes i
     <python with Pillow> -B scripts/web_shots.py --out /absolute/shots --install   # the four README ones into docs/media/screenshots
 
 Every page (看板, 专项, 大厅, a topic) at a desktop and a phone size, dark and light: web-<page>-<size>-<theme>.png.
-Four more, asked by name (``--pages assist,tidy,memory,quota``; their demo data is pushed only then, so the README's four stay
-as they are): 设置's 辅助模型 with its 后台活最近一次 (``assist``, the section alone), the 看板's 整理专项 after a 整理 that failed
-(``tidy``), the one-page 记忆 (``memory``: 待审核 on top, 全局, three projects, a topic's rule; ``demo_memory``) and 设置's
-账号与额度 (``quota``: a gateway pool with one account spent on its week, opened; a source that stopped reading; ``demo_quota``). ``--variants`` shoots the samples of docs/ui.md 第 12 节 too (VARIANTS: A is the page as built, B and C are drawn
+Five more, asked by name (``--pages assist,tidy,memory,quota,rail``; their demo data is pushed only then, so the README's four
+stay as they are): 设置's 辅助模型 with its 后台活最近一次 (``assist``, the section alone), the 看板's 整理专项 after a 整理 that
+failed (``tidy``), the one-page 记忆 (``memory``: 待审核 on top, 全局, three projects, a topic's rule; ``demo_memory``), 设置's
+账号与额度 (``quota``: a gateway pool with one account spent on its week, opened; a source that stopped reading; ``demo_quota``)
+and the 看板 with every part of its right rail (``rail``: the same 额度 and a Covey 定时回看; ``demo_rail``).
+``--variants`` shoots the samples of docs/ui.md 第 12 节 too (VARIANTS: A is the page as built, B and C are drawn
 over it in the browser only, never in the page's code): web-<page>-<variant>-<size>-<theme>.png.
 Only demo data: a demo-app story (a topic waiting on a question, one running, one stopped, one with an unseen result, a
 project with its lead and memory, the butler), no real name, chat, open_id or path. The server listens on 127.0.0.1
@@ -43,8 +45,8 @@ TITLES = {"claude": "Claude Code", "codex": "Codex"}  # The Harnesses the demo r
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 PAGES = {"board": "/", "project": f"/projects/{PID}", "hall": "/butler", "topic": "/topics/" + "7" * 32}
 README_PAGES = ("board", "project", "hall", "topic")  # The default: the README's.
-EXTRA = {"assist": "/settings/config", "tidy": "/", "memory": "/memory", "quota": "/settings/quota"}  # Shot only when named.
-FOCUS = {"assist": ".st-assist", "tidy": ".td-panel"}  # What of the page is shot (assist: that element alone; tidy: scrolled to).
+EXTRA = {"assist": "/settings/config", "tidy": "/", "memory": "/memory", "quota": "/settings/quota", "rail": "/"}  # Shot only when named.
+FOCUS = {"assist": ".st-assist", "tidy": ".td-panel", "rail": ".nb-quota"}  # What of the page is shot (assist: that element alone; tidy, rail: scrolled to).
 # Done on the page before it is shot: 账号与额度 opens the gateway's pool (folded by default) to show its rows under the averages.
 PREPARE = {"quota": "() => { for (const row of document.querySelectorAll('.mq-fold')) { if (row.textContent.includes('Claude 网关')) row.click(); } }"}
 # The samples (docs/ui.md 第 12 节) drawn over the built page in the browser: (sizes, CSS, script). A is the page itself.
@@ -280,6 +282,16 @@ def demo_quota(state, now):
     return [web_sync.item("settings", web_sync.QUOTA_KEY, web_quota.view(state, now))]
 
 
+def demo_rail(state, now):
+    """The 看板's right rail with all its parts (T973): a 定时回看 of T8 in 40 minutes (core/revisits.py's record, as the
+    Bridge writes it); its 额度 is demo_quota's, pushed with it."""
+    from covey.core import revisits
+    from covey.core.state import write_json
+    t8 = "8" * 32
+    write_json(revisits.path(state, t8), {"schema_version": 1, **revisits.armed(t8, CHAT, {"minutes": 40, "look": "全量测试跑完没有"},
+                                                                                 by="demo-job-8", round_=1, now=now)})
+
+
 def push(state, base, key_file, now, extra=()):
     """Push the demo with Covey's own sync (two passes: what the first look learned, the lead's project, goes too), and
     本周用量 as app/web_settings.py counts it (the Bridge pushes it with its settings, which this demo has none of)."""
@@ -438,9 +450,11 @@ def main(argv=None):
             demo_state(state, now)
             pages = [name for name in args.pages.split(",") if name]
             extra = demo_assist(state, now) if any(name in EXTRA for name in pages) else ()
+            if "rail" in pages:
+                demo_rail(state, now)
             if "memory" in pages:
                 demo_memory(state, now)
-            if "quota" in pages:
+            if "quota" in pages or "rail" in pages:
                 extra = [*extra, *demo_quota(state, now)]
             print("pushed", push(state, base, key_file, now, extra), "items")
             shoot(base, login(base, key_file.read_text().strip()), out, args.browser, pages, args.variants)

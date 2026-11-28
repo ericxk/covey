@@ -104,10 +104,6 @@ b,strong{font-weight:600}
 .nb-panel:last-child{border-bottom:0}
 .nb-ph{font-size:11px;letter-spacing:.06em;color:var(--t4);font-weight:500}
 .nb-ph em{color:var(--t4)}
-.nb-proj-card{padding:8px 0;border-top:0}
-.nb-proj-card b{font-size:13px;font-weight:500;color:var(--t1)}
-.nb-pc{color:var(--c)}
-.nb-pc.tone-done,.nb-pc.tone-cancelled,.nb-pc.tone-idle,.nb-pc.tone-queued{color:var(--t3)}
 .nb-big{font-size:28px}
 .nb-spark path:last-child{stroke:var(--t3)}
 

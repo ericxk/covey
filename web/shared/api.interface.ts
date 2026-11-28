@@ -716,6 +716,8 @@ export interface ActivityItem {
   text: string;
 }
 export interface StatsResponse {
+  /** 看板右栏「近 24 小时」（字段名沿用旧的 today_*，窗口是往前 24 小时）：token、Agent 干活的时长（在跑的一轮算到此刻）、
+   * 答过的题平均等了主人多久、做完的轮数（只算 done，不含没做成的） */
   today_tokens: number;
   today_work_seconds: number;
   avg_wait_seconds: number | null;
@@ -727,7 +729,7 @@ export interface StatsResponse {
   work_series: number[];
   wait_series: number[];
   activity: ActivityItem[];
-  /** 近 24 小时按话题合并的动态（“T518 · 做完 5 轮 · 问过 2 次”），新近的在前 */
+  /** 近 24 小时按话题合并的动态（“T518 · 做完 5 轮 · 问过 2 次”），新近的在前。看板去掉「最近动态」后服务端不再给，留着字段兼容旧页面 */
   feed?: FeedItem[];
   /** 近 7 天（按北京时间的自然日，今天在最后）：每天的 token、合计、做完的轮数；旧服务端没有 */
   week_series?: number[];

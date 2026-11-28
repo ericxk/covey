@@ -4,6 +4,7 @@ import { ChevronRight, Sparkles } from 'lucide-react';
 import type { SnapshotProject, SnapshotResponse, SnapshotTopic } from '@shared/api.interface';
 import { useSnapshot, useTidy } from '@client/src/hooks/use-workbench';
 import { Head } from './Shell';
+import { TidyButton } from './Tidy';
 import { Dot, Pill, useTick } from './ui';
 import { STATES, TONE_KEYS } from './look.gen';
 import { byRecent, fmtDur, isRunningTone, isWaiting, pref, setPref, shortWhen, toneOf, TONE_RANK, type ToneKey } from './lib';
@@ -172,11 +173,11 @@ const ProjectsPage: React.FC = () => {
   };
   return (
     <>
-      <Head title="专项" sub={sub || undefined} />
+      <Head title="专项" sub={sub || undefined} right={tidyOn ? <TidyButton /> : undefined} />
       <div className="scroll pl-page" style={{ '--tw': topics.reduce((most: number, t: SnapshotTopic) => Math.max(most, t.number ? String(t.number).length + 1 : 0), 4) } as React.CSSProperties}>
         <div className="pl-col">
           {!views.length ? (
-            <p className="pl-empty">{tidyOn ? '还没有专项。对管家说一件要做很久的事，它会开成专项；或在看板上点「整理」，Covey 会看看哪些话题该归到一起。' : '还没有专项。对管家说一件要做很久的事，它会开成专项。'}</p>
+            <p className="pl-empty">{tidyOn ? '还没有专项。对管家说一件要做很久的事，它会开成专项；或点右上角的「整理」，Covey 会看看哪些话题该归到一起。' : '还没有专项。对管家说一件要做很久的事，它会开成专项。'}</p>
           ) : null}
           {live.map((x: View) => <ProjectCard key={x.p.key} x={x} now={now} snap={snap} />)}
           {old.length ? (

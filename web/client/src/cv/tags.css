@@ -7,7 +7,7 @@
   .tag, .pill, .kbd, .avc, .logo, .a-tbadge,
   .opt > .n, .sh > .n, .gn .n,
   .a-tn, .a-tno, .nb-tno, .a-cnt, .a-badge, .a-secn, .a-byo, .a-tm, .a-mat, .a-step,
-  .nb-frac, .nb-pc, .nb-eta, .td-tag, .td-more, .td-open, .td-state, .td-cnt, .td-rn, .td-out, .td-go, .td-act, .td-x,
+  .nb-frac, .nb-eta, .td-tag, .td-more, .td-open, .td-state, .td-cnt, .td-rn, .td-out, .td-go, .td-act, .td-x,
   .rt, .elb, .rpt-flag, .rtl-ok, .lbx-n,
   .st-tag, .st-cnt, .st-when, .lx-tag, .lx-fold-tag, .rm-tno, .mm2-tag
 ){white-space:nowrap;flex-shrink:0}

@@ -92,7 +92,9 @@ test('代发草稿只读：一句话说给谁、写了什么，没发出去的�
   assert.equal(V.draftWords({ id: 'd2', to: '', state: 'failed', preview: '', created_at: null }), '→ 收件人待定（没发出去，要在卡上再点一次）');
   // 网页不发任何消息：草稿那几行只有去飞书的链接，没有发件操作
   const bits = readFileSync(join(CV, 'V34Bits.tsx'), 'utf8');
-  const drafts = bits.slice(bits.indexOf('export const DraftLines'), bits.indexOf('export const LaterPanel'));
+  // 草稿那几行和看板主栏的代发一组（DraftPanel，T973 从原来的 LaterPanel 拆出来）；定时回看的「取消」在 RevisitPanel，不算
+  const drafts = bits.slice(bits.indexOf('export const DraftLines'), bits.indexOf('export const RevisitPanel'));
+  assert.ok(drafts.includes('export const DraftPanel'));
   assert.doesNotMatch(drafts, /\.run\(|postOutbox|kind:/u);
 });
 

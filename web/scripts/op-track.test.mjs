@@ -213,8 +213,10 @@ test('各处自己的等法都换成了跟踪器：opDelay、设置页的密问�
   assert.match(settings, /sendOp\(\{ op_id: newOpId\(\), kind: 'settings'/u);
   const board = read('cv/Board.tsx');
   assert.doesNotMatch(board, /fetchOutboxStatus|refetchInterval/u);
-  assert.match(board, /useTrackedOp\(op\?\.id\)/u);
-  assert.doesNotMatch(read('cv/Tidy.tsx'), /setTimeout\(refetch, (1500|4000)\)/u);
+  // 「整理」按钮 T973 从看板右栏挪到侧栏和专项一览，组件搬进 Tidy.tsx
+  const tidy = read('cv/Tidy.tsx');
+  assert.match(tidy, /useTrackedOp\(op\?\.id\)/u);
+  assert.doesNotMatch(tidy, /setTimeout\(refetch, (1500|4000)\)/u);
   const launch = read('cv/launch.ts');
   assert.doesNotMatch(launch, /invalidateQueries/u);
   assert.match(launch, /await r\.settled/u);

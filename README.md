@@ -153,7 +153,7 @@ git clone https://github.com/ericxk/covey.git && cd covey
 
 在电脑上看长回答、翻历史时更顺手：私聊里的专项、话题、每一轮和等你回答的问题都在网页上，也能在网页上说话、答题、停话题、开新话题、改设置。它和飞书读写同一份记录，飞书照旧管提醒和快速回复。
 
-<img src="docs/media/screenshots/10-web-board.png" width="100%" alt="网页看板：两件事要你处理，等你、停住了、在做、有结果没看，右边是专项和本周用量">
+<img src="docs/media/screenshots/10-web-board.png" width="100%" alt="网页看板：两件事要你处理，等你、停住了、有结果没看、在做，右边是近 24 小时和本周用量">
 
 <details>
 <summary>专项页、大厅、手机上</summary>

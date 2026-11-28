@@ -28,7 +28,6 @@ import {
   type ProjectDetailResponse,
   type QuestionView,
   type ActivityItem,
-  type FeedItem,
   type OutboxStatus,
   type ReportResponse,
   type RunningNow,
@@ -841,10 +840,10 @@ export class WorkbenchQueryService {
 
   /** 看板指标：今天（Asia/Shanghai）的 token、话题共工作时长、平均等你，加最近动态 */
   async stats(): Promise<StatsResponse> {
-    const [turnRes, qRes, evRes, qevRes, openRes, feedRes, weekRes] = await Promise.all([
+    const [turnRes, qRes, evRes, qevRes, openRes, weekRes] = await Promise.all([
       this.db.execute(sql`select ${NUMF('u.data', 'started_at')} as s, ${NUMF('u.data', 'ended_at')} as e,
           ${NUMF('u.data', 'seconds')} as sec, ${NUMF("u.data->'usage'", 'total')} as tok, u.status as status
-        from turns u where u.role <> 'owner' and u._updated_at > now() - interval '36 hours' limit 4000`),
+        from turns u where u.role not in ('owner', 'event') and u._updated_at > now() - interval '36 hours' limit 4000`),
       this.db.execute(sql`select ${NUMF('q.data', 'asked_at')} as a, ${NUMF('q.data', 'answered_at')} as b
         from questions q where q._updated_at > now() - interval '36 hours' limit 2000`),
       this.db.execute(sql`select ${NUMF('u.data', 'ended_at')} as at, u.status, t.key as topic_key, t.number, t.title,
@@ -856,21 +855,6 @@ export class WorkbenchQueryService {
           t.key as topic_key, t.number, t.title from questions q join topics t on t.key = q.topic_key
         where ${NUMF('q.data', 'asked_at')} is not null order by ${NUMF('q.data', 'asked_at')} desc limit 12`),
       this.db.execute(sql`select ${NUMF('q.data', 'asked_at')} as a from questions q where q.state = 'open'`),
-      // 近 24 小时按话题合并：做完几轮、没做成几轮、问过几次，取最近一次的时间
-      this.db.execute(sql`with ev as (
-          select u.topic_key, ${NUMF('u.data', 'ended_at')} as at, case when u.status = 'done' then 1 else 0 end as d,
-            case when u.status = 'failed' then 1 else 0 end as f, 0 as q
-          from turns u where u.role not in ('owner', 'event') and u.status in ('done', 'failed')
-            and ${NUMF('u.data', 'ended_at')} > extract(epoch from now()) - 86400
-          union all
-          select q.topic_key, ${NUMF('q.data', 'asked_at')} as at, 0, 0, 1 from questions q
-          where ${NUMF('q.data', 'asked_at')} > extract(epoch from now()) - 86400
-        )
-        select t.key as topic_key, t.number, t.title, sum(ev.d)::int as done, sum(ev.f)::int as failed, sum(ev.q)::int as asked,
-          max(ev.at) as at
-        from ev join topics t on t.key = ev.topic_key
-        where coalesce(t.data->>'kind', '') not in ('butler', 'lead')
-        group by t.key, t.number, t.title order by max(ev.at) desc limit 12`),
       // 近 7 天每天（北京时间）的 token 和结束的轮数：看板右栏的「本周用量」
       this.db.execute(sql`select floor((x.e + 28800) / 86400)::int as d, coalesce(sum(x.tok), 0)::float8 as tok, count(*)::int as n,
           coalesce(sum(x.inp), 0)::float8 as inp, coalesce(sum(x.cr), 0)::float8 as cr
@@ -881,7 +865,8 @@ export class WorkbenchQueryService {
         group by 1`),
     ]);
     const now: number = Date.now() / 1000;
-    const day0: number = Math.floor((now + 8 * 3600) / 86400) * 86400 - 8 * 3600;
+    // 看板右栏的「近 24 小时」：往前 24 小时，不按 0 点切（主人常在 0 点以后干活，按自然日凌晨只剩一两个小时的数）
+    const since: number = now - 86400;
     const hourBuckets = (): number[] => new Array<number>(12).fill(0);
     const tokS: number[] = hourBuckets();
     const workS: number[] = hourBuckets();
@@ -891,8 +876,8 @@ export class WorkbenchQueryService {
     let done = 0;
     for (const r of asRows<{ s: number | null; e: number | null; sec: number | null; tok: number | null; status: string }>(turnRes)) {
       if (r.status === 'running' && r.s) {
-        // 还在跑的一轮：今天已经干了多久也算进工作时间
-        work += Math.max(0, now - Math.max(r.s, day0));
+        // 还在跑的一轮：这 24 小时里已经干了多久也算进工作时间
+        work += Math.max(0, now - Math.max(r.s, since));
         continue;
       }
       const end: number = r.e ?? r.s ?? 0;
@@ -900,16 +885,16 @@ export class WorkbenchQueryService {
         tokS[bucket(end)] += num(r.tok);
         workS[bucket(end)] += num(r.sec) || (r.s && r.e ? r.e - r.s : 0);
       }
-      if (end < day0) continue;
+      if (end < since) continue;
       tokens += num(r.tok);
       work += num(r.sec) || (r.s && r.e ? r.e - r.s : 0);
-      if (r.e) done += 1;
+      if (r.e && r.status === 'done') done += 1;
     }
     const waits: number[] = [];
     const waitS: number[] = hourBuckets();
     for (const r of asRows<{ a: number | null; b: number | null }>(qRes)) {
       if (r.a && r.b && r.b >= r.a) {
-        if (r.b >= day0) waits.push(r.b - r.a);
+        if (r.b >= since) waits.push(r.b - r.a);
         if (r.b >= now - 12 * 3600) waitS[bucket(r.b)] = Math.max(waitS[bucket(r.b)], r.b - r.a);
       }
     }
@@ -955,7 +940,6 @@ export class WorkbenchQueryService {
       work_series: workS,
       wait_series: waitS,
       activity: activity.slice(0, 14),
-      feed: asRows<FeedItem>(feedRes).map((r: FeedItem): FeedItem => ({ ...r, done: num(r.done), failed: num(r.failed), asked: num(r.asked), at: num(r.at) })),
     };
   }
 

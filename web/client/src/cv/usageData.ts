@@ -1,6 +1,7 @@
 // 用量页和看板「本周用量」的数（Covey 数据约定 v26 的 usage.history）：取哪几天、合计、坐标刻度、日期的写法。
 // 只放纯函数（node --test scripts/usage.test.mjs 直接测），画在 UsageBars.tsx、UsagePage.tsx、Board.tsx。
-import type { UsageDay, UsageFigures, UsageResponse, UsageSpan } from '@shared/api.interface';
+// 看板右栏「近 24 小时」的三个数（统计接口的 today_* 字段）也在这里。
+import type { StatsResponse, UsageDay, UsageFigures, UsageHarness, UsageResponse, UsageSpan } from '@shared/api.interface';
 
 /** 用量页能选的几段：最近 7、30、90 天（含今天），和 Covey 合计的 spans 一一对应 */
 export const RANGES: readonly number[] = [7, 30, 90];
@@ -93,3 +94,52 @@ export function xTicks(days: UsageDay[], maxLabels: number): number[] {
 
 /** 用量页的日均：合计除以画出来的天数（今天没过完也算一天） */
 export const perDay = (tokens: number, days: number): number => (days > 0 ? tokens / days : 0);
+
+/** 各 Harness 占了多少 token（看板「本周用量」下面一行）：从多到少，不到 10% 的写一位小数 */
+export interface Share {
+  title: string;
+  pct: number;
+  text: string;
+}
+
+/** 有 token 的 Harness 不到 2 个时是空数组（只有一个就是 100%，不写） */
+export function harnessShares(rows: readonly Pick<UsageHarness, 'title' | 'tokens'>[] | undefined): Share[] {
+  const xs: Pick<UsageHarness, 'title' | 'tokens'>[] = (rows ?? []).filter((h: Pick<UsageHarness, 'title' | 'tokens'>) => h.tokens > 0);
+  const total: number = xs.reduce((sum: number, h: Pick<UsageHarness, 'title' | 'tokens'>) => sum + h.tokens, 0);
+  if (xs.length < 2 || total <= 0) return [];
+  return [...xs]
+    .sort((x: Pick<UsageHarness, 'title' | 'tokens'>, y: Pick<UsageHarness, 'title' | 'tokens'>) => y.tokens - x.tokens)
+    .map((h: Pick<UsageHarness, 'title' | 'tokens'>): Share => {
+      const pct: number = (h.tokens / total) * 100;
+      const text: string = pct >= 9.95 ? `${Math.round(pct)}%` : pct >= 0.05 ? `${pct.toFixed(1)}%` : '不到 0.1%';
+      return { title: h.title, pct, text };
+    });
+}
+
+/** 看板右栏「近 24 小时」的一格：大字的数、后面的单位、下面的说明 */
+export interface DayCell {
+  n: string;
+  unit: string;
+  label: string;
+}
+
+const oneDecimal = (v: number): string => (v >= 100 ? String(Math.round(v)) : v.toFixed(1).replace(/\.0$/, ''));
+
+/** 一段时长写成数和单位：不到 1 分钟写秒，不到 1 小时写分钟（不到 10 分钟带一位小数），再长写小时 */
+function spanCell(sec: number): [string, string] {
+  if (sec < 60) return [String(Math.round(sec)), '秒'];
+  if (sec < 3600) return [sec < 600 ? oneDecimal(sec / 60) : String(Math.round(sec / 60)), '分钟'];
+  return [oneDecimal(sec / 3600), '小时'];
+}
+
+/** 做完几轮、Agent 干了多久、答过的题平均等了你多久；旧服务端没有这几个字段时是空数组（不画） */
+export function dayFigures(st: Pick<StatsResponse, 'today_done' | 'today_work_seconds' | 'avg_wait_seconds'> | undefined): DayCell[] {
+  if (!st || typeof st.today_done !== 'number' || typeof st.today_work_seconds !== 'number') return [];
+  const [wn, wu] = spanCell(Math.max(0, st.today_work_seconds));
+  const [an, au] = st.avg_wait_seconds === null || st.avg_wait_seconds === undefined ? ['—', ''] : spanCell(Math.max(0, st.avg_wait_seconds));
+  return [
+    { n: String(st.today_done), unit: '轮', label: '做完' },
+    { n: wn, unit: wu, label: 'Agent 干活' },
+    { n: an, unit: au, label: '平均等你' },
+  ];
+}

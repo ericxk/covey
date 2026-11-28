@@ -71,6 +71,7 @@
     "test:launchrepos": "node --import ./scripts/alias.mjs --test scripts/launch-repos.test.mjs",
     "test:devices": "node --import ./scripts/alias.mjs --test scripts/devices-page.test.mjs",
     "test:quota": "node --import ./scripts/alias.mjs --test scripts/quota.test.mjs",
+    "test:quotabrief": "node --import ./scripts/alias.mjs --test scripts/quota-brief.test.mjs",
     "test:progress": "node --import ./scripts/alias.mjs --test scripts/progress.test.mjs",
     "test:brief": "node --import ./scripts/alias.mjs --test scripts/brief.test.mjs",
     "test:theme": "node --import ./scripts/alias.mjs --test scripts/theme-toggle.test.mjs",

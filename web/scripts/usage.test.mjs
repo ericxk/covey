@@ -1,7 +1,7 @@
 // 用量页和看板「本周用量」的数（client/src/cv/usageData.ts）：node --test scripts/usage.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { axisText, cachePct, dayWords, niceTicks, shownDays, spanOf, sumDays, tokText, weekWord, xTicks } from '../client/src/cv/usageData.ts';
+import { axisText, cachePct, dayFigures, dayWords, harnessShares, niceTicks, shownDays, spanOf, sumDays, tokText, weekWord, xTicks } from '../client/src/cv/usageData.ts';
 import { usageFromSnapshot } from '../shared/usage.ts';
 
 const day = (date, f = {}) => ({ date, tasks: 0, topics: 0, tokens: 0, input: 0, cache: 0, output: 0, untracked: 0, ...f });
@@ -73,4 +73,27 @@ test('服务端读 Covey 的快照：没有 history（旧 Covey）是 null，认
   assert.deepEqual(u.spans[0].harnesses, [{ title: 'Claude Code', tasks: 3, tokens: 10, input: 0, cache: 0, untracked: 0 }]);
   assert.deepEqual([u.at, u.first], [1795269492.5, null]);
   assert.equal(usageFromSnapshot({ history: { days: [day('2026-11-21')], spans: [], first: '2026-10-17' } }).first, '2026-10-17');
+});
+
+test('本周用量下的各 Harness 占比：从多到少，不到 10% 带一位小数；不到 2 个有 token 的不写', () => {
+  const rows = [
+    { title: 'Antigravity', tokens: 4003664808 },
+    { title: 'Codex', tokens: 63032712 },
+    { title: 'Claude Code', tokens: 24481471064 },
+    { title: 'dsh', tokens: 0 },
+  ];
+  assert.deepEqual(harnessShares(rows).map((x) => `${x.title} ${x.text}`), ['Claude Code 86%', 'Antigravity 14%', 'Codex 0.2%']);
+  assert.deepEqual(harnessShares([{ title: 'Claude Code', tokens: 5 }, { title: 'Codex', tokens: 0 }]), []);
+  assert.deepEqual(harnessShares(undefined), []);
+  assert.equal(harnessShares([{ title: 'A', tokens: 1e9 }, { title: 'B', tokens: 3e5 }])[1].text, '不到 0.1%');
+});
+
+test('近 24 小时的三个数：做完几轮、Agent 干了多久、平均等你多久', () => {
+  const cells = dayFigures({ today_done: 36, today_work_seconds: 20.8 * 3600, avg_wait_seconds: 5.9 * 60 });
+  assert.deepEqual(cells.map((c) => `${c.n}${c.unit} ${c.label}`), ['36轮 做完', '20.8小时 Agent 干活', '5.9分钟 平均等你']);
+  assert.deepEqual(dayFigures({ today_done: 0, today_work_seconds: 1800, avg_wait_seconds: null }).map((c) => c.n + c.unit), ['0轮', '30分钟', '—']);
+  assert.deepEqual(dayFigures({ today_done: 2, today_work_seconds: 7200, avg_wait_seconds: 40 }).map((c) => c.n + c.unit), ['2轮', '2小时', '40秒']);
+  // 旧服务端没有这几个字段：不画
+  assert.deepEqual(dayFigures(undefined), []);
+  assert.deepEqual(dayFigures({}), []);
 });
