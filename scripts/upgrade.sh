@@ -15,7 +15,8 @@
 #      bash 会先执行它们指向的文件，改了 PATH 预检就报 env_value_diff），从清单的启动命令抄出
 #      --workdir、--profile、--app-id、--state-dir、--harness-config 和其余参数，先跑 deploy_bridge.sh --check-only；
 #      --dry-run 到此为止，什么都不换（只说服务用的 lark-cli 和升级时会怎么更新它）。
-#   5. lark-cli：服务的 PATH 找到的是 npm 全局装的 lark-cli 时运行 lark-cli update，新 Bridge 起来就用新版
+#   5. lark-cli：默认不动，只说服务用的是哪个、什么版本。服务清单设了 COVEY_LARK_CLI_UPDATE=1、服务的 PATH 找到的是
+#      npm 全局装的 lark-cli 时运行 lark-cli update，新 Bridge 起来就用新版
 #      （covey/service/lark_cli_upgrade.py，日志在 <数据根>/deploy-runs/<时间>-lark-cli/）；没网、没写权限、更新失败都只提示，
 #      原来的照用、升级照常；更新后跑不起来了才停下，在跑的 Bridge 不动。别的办法装的（PATH 前面另放的一份）只提示，不动。
 #      Bridge 已经是最新时也做这一步。

@@ -70,6 +70,7 @@
 | [内存看门狗](operations.md#内存看门狗) | 不是环境变量 | `python3 -B bin/covey_memguard.py enable` |
 | [本机运行锁](runtime-locks.md) | 同一台机器上有几个服务要共用锁 | `COVEY_LOCK_ROOT` |
 | [定时自动升级](deploy.md#定时自动升级) | 数据根里有 `upgrade.json`（扩展的 `./install`、核心在 git 检出里的 `./install` 装好或升级好后写） | `COVEY_AUTO_UPGRADE=05:00`（每天几点，按 Asia/Shanghai） |
+| [升级时顺带更新 lark-cli](deploy.md#lark-cli-跟着升级) | 服务用的 `lark-cli` 是 npm 全局装的（`PATH` 找到的第一个在 `npm root -g` 下）；没开时 lark-cli 由你自己升级 | `COVEY_LARK_CLI_UPDATE=1` |
 
 ### 演示套餐
 
@@ -515,6 +516,7 @@ covey device job stop gpu1 job-0123456789                      # 停整个进程
 | `COVEY_CARD_TRANSPORT` | `feishu/sdk.py`（`enabled()`） | 空：lark-cli；`sdk` 走 SDK（`./install` 新装写 `sdk`） | 否 |
 | `COVEY_EVENT_TRANSPORT` | `feishu/ws_intake.py`（`enabled()`）、`service/doctor.py`（诊断「要你补的」：还是 lark-cli 消费进程时提示） | 空：lark-cli 的事件消费者；`sdk` 走 SDK 长连接（`./install` 新装写 `sdk`） | 否 |
 | `COVEY_AUTO_UPGRADE` | `app/auto_upgrade.py`（`at()`） | 空：不自动升级；`HH:MM`：每天这个时间（Asia/Shanghai）照 `upgrade.json` 安全升级一次，见 [deploy.md 定时自动升级](deploy.md#定时自动升级) | 否 |
+| `COVEY_LARK_CLI_UPDATE` | `service/lark_cli_upgrade.py`（`on()`：`scripts/upgrade.sh` 和扩展的安装器升级时从服务清单读） | 空：升级不动 `lark-cli`；`1`：部署前运行 `lark-cli update` 更新 npm 全局的那份，见 [deploy.md lark-cli 跟着升级](deploy.md#lark-cli-跟着升级) | 否 |
 | `COVEY_FEISHU_DIRECT` | `feishu/sdk.py` | 开：直连飞书，`0` 走代理 | 否 |
 | `LARKSUITE_CLI_DATA_DIR` | `feishu/sdk.py`（找 lark-cli 的凭据） | `~/.local/share` | 否 |
 | `COVEY_OUTGOING_MEDIA_DIRS` | `feishu/outgoing_images.py` | 空 | 否 |

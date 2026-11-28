@@ -85,6 +85,7 @@ class UpgradeCase(unittest.TestCase):
         self.addCleanup(tools.cleanup)
         self.lark = lark_cli_fake.install(Path(tools.name) / "npm")
         self.saved["PATH"] = self.lark["bin"] + os.pathsep + self.saved["PATH"]
+        self.saved["LARK_BRIDGE_LARK_CLI_UPDATE"] = "1"  # On here; off unset (the test that drops it).
         self.manifest()
 
     def lay_out(self):
@@ -170,6 +171,15 @@ class UpgradeTests(UpgradeCase):
         self.assertIn("[lark-cli] 已经是最新（1.0.100）", out)
         self.assertEqual(len(lark_cli_fake.calls(self.lark)), 2)
         self.assertEqual(len(self.calls()), 3)
+
+    def test_without_the_switch_lark_cli_is_only_said_and_never_updated(self):
+        del self.saved["LARK_BRIDGE_LARK_CLI_UPDATE"]
+        self.manifest()
+        code, out = self.upgrade(COVEY_LARK_CLI_UPDATE="1")  # The terminal's is not the service's: not taken.
+        self.assertEqual(code, 0, out)
+        self.assertIn("[lark-cli] 服务用的是 " + os.path.join(self.lark["bin"], "lark-cli") + "（1.0.99），升级不替你更新它", out)
+        self.assertIn("升级好了：机器人第 8 代", out)
+        self.assertEqual(lark_cli_fake.calls(self.lark), [])
 
     def test_a_lark_cli_update_that_fails_never_stops_the_upgrade_and_a_broken_one_stops_before_the_deploy(self):
         code, out = self.upgrade(FAKE_LARK_MODE="eacces")

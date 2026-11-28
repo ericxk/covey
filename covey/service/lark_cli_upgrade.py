@@ -1,7 +1,8 @@
-"""The machine's lark-cli brought along when the Bridge is upgraded (docs/deploy.md 日常升级): scripts/upgrade.sh and an
-extension's installer run ``update`` after the deploy's pre-check went through and before the new Bridge starts, so the new
+"""The machine's lark-cli brought along when the Bridge is upgraded, only where the service's manifest sets SWITCH
+(docs/deploy.md lark-cli 跟着升级; off unset: Covey needs no particular lark-cli, its user updates it): scripts/upgrade.sh and
+an extension's installer run ``update`` after the deploy's pre-check went through and before the new Bridge starts, so the new
 Bridge and the web page's publish run with the newest lark-cli; ``note`` says the same without changing anything (--dry-run,
---check-only, --status).
+--check-only, --status). With SWITCH off both only say which lark-cli the service runs and its version.
 
 Only npm's global install is updated (``lark-cli update``, which checks the newest version, runs ``npm install -g``, checks
 the new binary and syncs its own lark-* Skills): the lark-cli the service's PATH finds first must be the one under
@@ -10,7 +11,7 @@ the new binary and syncs its own lark-* Skills): the lark-cli the service's PATH
 
 An update that does not go through (no network, no write access, npm's registry behind) keeps the lark-cli there and never
 stops the upgrade; only a lark-cli that ran before and does not run after (BROKEN) does, before the running Bridge is
-replaced. Standard library only."""
+replaced. Standard library and core/env.py only."""
 from __future__ import annotations
 
 import json
@@ -23,12 +24,26 @@ import subprocess
 import time
 from pathlib import Path
 
+from covey.core import env as cenv
+
+SWITCH = "COVEY_LARK_CLI_UPDATE"  # In the service's manifest: 1 brings lark-cli along on an upgrade; unset, never touched.
 SECONDS = 600  # From scratch its Skills sync took over two minutes; an npm install that cannot reach its registry, one.
 VERSION_SECONDS = 30  # `lark-cli --version` and `npm root -g`: local, a second or so.
 STOP_SECONDS = 10  # After SIGTERM to the update's process group, before SIGKILL.
 WORDS = "[lark-cli]"
 DONE, CURRENT, PLANNED, SKIPPED, FAILED, BROKEN = "done", "current", "planned", "skipped", "failed", "broken"
 PACKAGE = ("@larksuite", "cli")
+
+
+def on(env) -> bool:
+    """Whether the service's environment ``env`` sets SWITCH on (1, true, yes, on), under either spelling (core/env.py)."""
+    return str(cenv.get(SWITCH, "", environ=env or {}) or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _off(found, now) -> str:
+    """The line for a service whose manifest does not set SWITCH: its lark-cli, left to its user."""
+    return (f"{WORDS} 服务用的是 {found['path']}（{now}），升级不替你更新它（lark-cli 由你自己升级：lark-cli update；"
+            f"要升级时顺带更新，就在服务清单设 {SWITCH}=1）")
 
 
 def _quiet(run, argv, env, seconds=VERSION_SECONDS) -> str:
@@ -88,6 +103,9 @@ def note(env, say, run=subprocess.run) -> str:
         say(f"{WORDS} 服务的 PATH 里没有 lark-cli：升级时跳过这一步（机器人收发消息要用它，用 ./install 检查）")
         return SKIPPED
     now = version(found, env, run) or "版本读不出"
+    if not on(env):
+        say(_off(found, now))
+        return SKIPPED
     if not found["global"]:
         say(f"{WORDS} 服务用的是 {found['path']}（{now}），{found['why']}：升级时不动它")
         return SKIPPED
@@ -126,13 +144,16 @@ def _answer(path) -> dict:
 def update(data, env, say, run=subprocess.run, popen=subprocess.Popen, seconds=SECONDS) -> str:
     """``lark-cli update`` on the npm global lark-cli the service runs, its outcome said with ``say`` on lines that start
     "[lark-cli]" and logged under <data>/deploy-runs/<time>-lark-cli/: DONE (with the versions before and after), CURRENT,
-    SKIPPED (none, or not npm's global one), FAILED (the one there kept, the upgrade goes on), BROKEN (it ran before the
+    SKIPPED (SWITCH off, none, or not npm's global one: nothing run but --version), FAILED (the one there kept, the upgrade goes on), BROKEN (it ran before the
     update and does not now: the caller stops before the running Bridge is replaced)."""
     found = find(env, run)
     if not found:
         say(f"{WORDS} 服务的 PATH 里没有 lark-cli：跳过（机器人收发消息要用它，用 ./install 检查）")
         return SKIPPED
     before = version(found, env, run)
+    if not on(env):
+        say(_off(found, before or "版本读不出"))
+        return SKIPPED
     if not found["global"]:
         say(f"{WORDS} 服务用的是 {found['path']}（{before or '版本读不出'}），{found['why']}：没有替你更新。"
             "要跟着升级，就把它从服务的 PATH 里去掉、改用 npm 全局的 lark-cli")

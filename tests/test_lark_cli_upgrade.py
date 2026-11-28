@@ -25,7 +25,8 @@ class LarkCliUpgradeTest(unittest.TestCase):
         self.fake = lark_cli_fake.install(self.tmp / "npm")
         self.data = self.tmp / "data"
         self.said = []
-        self.env = {"PATH": os.pathsep.join([self.fake["bin"], "/usr/bin", "/bin"]), "HOME": str(self.tmp)}
+        self.env = {"PATH": os.pathsep.join([self.fake["bin"], "/usr/bin", "/bin"]), "HOME": str(self.tmp),
+                    "LARK_BRIDGE_LARK_CLI_UPDATE": "1"}  # The switch as a manifest stores it.
 
     def version(self):
         return lcu.version(lcu.find(self.env), self.env)
@@ -46,6 +47,20 @@ class LarkCliUpgradeTest(unittest.TestCase):
         self.assertFalse(no_npm["global"])
         self.assertIn("没有 npm", no_npm["why"])
         self.assertEqual(lcu.find({"PATH": "/nonexistent"}), {})
+
+    def test_off_unset_only_the_version_is_said_and_nothing_is_run(self):
+        env = {key: value for key, value in self.env.items() if key != "LARK_BRIDGE_LARK_CLI_UPDATE"}
+        for switch in ({}, {"COVEY_LARK_CLI_UPDATE": "0"}, {"LARK_BRIDGE_LARK_CLI_UPDATE": "off"}):
+            with self.subTest(switch=switch):
+                self.assertFalse(lcu.on({**env, **switch}))
+                self.assertEqual(lcu.update(self.data, {**env, **switch}, self.said.append), lcu.SKIPPED)
+                self.assertIn("1.0.99", self.said[-1])
+                self.assertIn("升级不替你更新它", self.said[-1])
+                self.assertIn("COVEY_LARK_CLI_UPDATE=1", self.said[-1])
+                self.assertEqual(lcu.note({**env, **switch}, self.said.append), lcu.SKIPPED)
+        self.assertTrue(lcu.on({**env, "COVEY_LARK_CLI_UPDATE": "1"}))
+        self.assertEqual(lark_cli_fake.calls(self.fake), [])
+        self.assertFalse((self.data / "deploy-runs").exists())
 
     def test_the_read_only_note_never_updates(self):
         self.assertEqual(lcu.note(self.env, self.said.append), lcu.PLANNED)
