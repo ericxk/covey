@@ -2,7 +2,7 @@
 
 名词以 [docs/glossary.md](docs/glossary.md) 为准：界面、提示词只用表里的中文名。
 
-默认主干是 `main`，GitHub `ericxk/covey` 是准源。改动在分支上做；开发完成并跑完适用检查（见下文「怎么挑测试」）后，先同步最新 `main`，再快进合并进 `main` 并推到 GitHub，不 force 推送，也不覆盖别人的提交。`main` 有规则集保护：谁都不能强推或删除；只有仓库管理员能直接推，其他协作者（包括替他们干活的 Coding Agent）推自己的分支、向 `main` 开 PR，CI 全过且仓库主人批准（`.github/CODEOWNERS`）后再合并。检查存在已确认的基线失败时，记录验证结果和限制，不把它说成全部通过。GitHub Actions（`.github/workflows`）在 `main` 上跑测试，红了先修。
+默认主干是 `main`，GitHub `ericxk/covey` 是准源。改动在分支上做；开发完成并跑完适用检查（见下文「怎么挑测试」）后，先同步最新 `main`，再快进合并进 `main` 并推到 GitHub，不 force 推送，也不覆盖别人的提交。在仓库管理员的机器上并行改这个仓库的话题，不自己 rebase、推 `main`：用 `python3 -B scripts/land.py submit --why "<原因>"` 交卷，它整批跑一次全量、绿了快进推 `main`；被打回就按结果里写的冲突文件或失败测试修好再交（[批量合入](docs/testing.md#批量合入)）。`main` 有规则集保护：谁都不能强推或删除；只有仓库管理员能直接推，其他协作者（包括替他们干活的 Coding Agent）推自己的分支、向 `main` 开 PR，CI 全过且仓库主人批准（`.github/CODEOWNERS`）后再合并。检查存在已确认的基线失败时，记录验证结果和限制，不把它说成全部通过。GitHub Actions（`.github/workflows`）在 `main` 上跑测试，红了先修。
 
 贡献者和 Coding Agent 都照下面几条做：
 
@@ -675,7 +675,7 @@
 - `run`、`build` 每个测试模块一个子进程，`--jobs` 个并行（默认 8，`--jobs 1` 逐个）；测试的输出不显示，失败和错误照 unittest 格式列出。
 - `run`、`build` 失败的模块不超过 4 个时，自己把它们重跑一次（和 CI 一样），第二次过了就算过，第一次失败的用例记进台账的 `flaky`（`test_map.py flaky` 照样数它们）：不用再手动逐个重跑确认是不是不稳定。
 - `run`、`build` 把测试临时文件放 `/dev/shm`（所有者同意，仅限测试临时文件，跑完即删）；它是 noexec，要直接执行写出的文件用 `support.exec_tempdir()`。
-- 每个阶段结束一次全量：加了或改名了测试（`select` 提示地图过期）时 `build` 并提交 `tests/test_map.json`（地图过期时 `run --full` 拒绝），否则 `run --full`。不在没改的树上重跑全量，不拿全量当修复循环；合并前 rebase 到最新 `main` 之后只跑本改动相关的模块（`run`），不为追主干重跑全量。
+- 全量由批量合入整批跑一次（`scripts/land.py`，见上文仓库合并约定），交卷前只跑本改动相关的模块（`run`），也不用提交 `tests/test_map.json`（成批时刷新）。不经批量合入、自己推 `main` 时，每个阶段结束一次全量：地图过期（`select` 会提示）时 `build` 并提交 `tests/test_map.json`（地图过期时 `run --full` 拒绝），否则 `run --full`。不在没改的树上重跑全量，不拿全量当修复循环；rebase 到最新 `main` 之后只跑本改动相关的模块，不为追主干重跑全量。
 - 动了扩展里用隔离解释器的后端或它导入的 `core/` 模块：再按扩展自己的 README 用那个解释器跑它的测试和 `--check-runtime`。核心测试另在 `COVEY_EXTENSIONS=''` 下跑一次全量，确认没有扩展也过。
 - 不改行为的改动：改前在基线上录两次 `scripts/golden_trace.py record`，改后录一次再 `compare --noise`；搬模块前跑 `scripts/test_map.py patches <模块>`，看哪些测试按旧路径打补丁（`docs/testing.md` 副作用轨迹与补丁清单）。
 - 新测试在旧代码上该失败：`scripts/test_map.py prove --base <提交>`；部署用 `scripts/deploy_bridge.sh`（先 `--check-only`）。

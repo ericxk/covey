@@ -21,6 +21,7 @@
 | 文件 | 用途 |
 | --- | --- |
 | `test_map.py` | 按改动选测试并运行；`run --full` 跑全量，`build` 重建测试地图（[测试与验收](../docs/testing.md)） |
+| `land.py` | 批量合入：同一台机器上并行的话题交卷，它攒批、整批跑一次全量、绿了快进推 `main`，红了二分打回（[批量合入](../docs/testing.md#批量合入)） |
 | `ci_retry_modules.py` | 全量失败后，从测试台账读出要重跑一遍的失败测试模块（CI 用） |
 | `golden_trace.py` | 记录测试让 Bridge 做了什么并比较两次记录，用来确认“不改行为”的改动真没改 |
 | `cross_release.py` | 让两个 release 的 Bridge 和任务进程通过 `runs/<任务键>/` 对话，检查跨版本兼容 |

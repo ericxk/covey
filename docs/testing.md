@@ -32,6 +32,23 @@ python3 -B -m unittest discover -s tests -p test_steer.py        # 不经地图�
 - 卡片 JSON 能否被 CardKit 接受：`scripts/cardkit_check.py --profile <机器人 profile> <样例名|文件>` 只建卡、不发消息（`--dry-run` 只量大小和节点数）。
 - `tests/` 不是包，只用 `discover -s tests`；测试模块互不导入，共用的在 `tests/support/`；本地测试不调模型、不发飞书、不继承 Bridge 的环境变量。
 
+### 批量合入
+
+同一台机器上几个话题并行改这个仓库时，各自 rebase、各自在最新 `main` 上跑全量再推，会一直追着 `main` 跑：别人一合入，地图就过期，又得再来一遍全量。`scripts/land.py` 把合入收成一处：
+
+```bash
+python3 -B scripts/land.py submit --why "<原因>"   # 在话题的 worktree 里交卷，等结果（默认最多 540 秒）
+python3 -B scripts/land.py wait [名字]             # 没等到就接着等（退出码 0 合入、1 打回、3 还没定）
+python3 -B scripts/land.py status                  # 队列、正在跑的一批、最近的结果
+```
+
+- **交卷之前**：分支上提交好（`tests/test_map.json` 的改动不用提交），只跑过本改动相关的测试（`run`）。分支里不要有合并提交，要同步就 rebase。
+- **队列**在这个克隆共用的 git 目录里（`git rev-parse --git-common-dir` 下的 `covey-land/`，交的提交在 `refs/land/<名字>`），同一克隆的各 worktree 都看得见；成批之前什么都不推。
+- **一批**：同一时刻只有一个驱动（`submit` 发现没有就在后台起一个，队列空了它自己退出）。它把排队的分支按交卷先后 cherry-pick 到最新的 `origin/main` 上，在自己的 worktree（`covey-land/batch`）里整批跑一次全量（地图过期时跑 `build`，地图随这一批刷新一次），失败的模块照 `test_map.py` 的规矩重跑一次。只改地图的提交不带进来，只在地图上冲突时用 `main` 的。
+- **绿了**快进推 `main`；`main` 在这期间被别人推过、推不上去，就从头再成一批。
+- **红了**：先在 `main` 上单独跑失败的模块，`main` 自己也红的算 `main` 的（写进结果的 `mains_own`），这一批照样合入。其余的只跑失败的模块、按分支二分，找出第一个带进失败的分支打回（`kicked`，结果里写着失败的测试），其余重新成批。和 `main` 或前面的分支冲突的分支也打回（结果里写着冲突的文件）。
+- **合入以后**：话题的分支和 `main` 上的提交号不同（是 cherry-pick 上去的），接着改之前 `git fetch && git rebase origin/main`，已经合入的提交会被 rebase 自动去掉。
+
 ### 按改动范围挑测试
 
 用地图挑，不用读测试。`tests/test_map.json` 记每个测试模块跑过的函数（子进程也算）和读过的非 Python 文件。改动映射到测试的规则：
