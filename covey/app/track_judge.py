@@ -11,8 +11,9 @@ one line of JSON, had a confidence below CONFIDENCE_MIN, or an index outside the
 Two channels, COVEY_TRACK_JUDGE: ``claude`` (the default: the name is the old one; it means "the small model where it is")
 and ``cmd:/absolute/path``, which starts that command instead, with one JSON object on its standard input and one JSON line
 expected on its standard output. Where the default channel asks is app/assist.py's (辅助模型): it hands ``judge`` and ``ask``
-the backend and context of the Harness it chose, and this module never picks one. Through the Claude Harness: a one-shot
-Claude Code on Haiku in an empty directory of its own with no tools, MCP servers, hooks or saved session, its argv given to
+the backend and context of the Harness it chose, with the model and budget of its setting (T924: one for every background
+call; '' the Harness's own), and this module never picks one. Through the Claude Harness: a one-shot Claude Code (on that
+model, ``--model`` left out for Claude Code's own) in an empty directory of its own with no tools, MCP servers, hooks or saved session, its argv given to
 the Harness's ``backend.wrap_argv``, its environment from ``backend.child_env`` and, where the backend has it, inside its
 ``one_shot`` (the extensions' ``claude_turn`` hooks, a protocol relay, around it and in its --settings: E2); through a native
 Harness its own CLI (core/harness.py ask_once: its own CLI, read-only, no MCP server, no saved session, its process group
@@ -56,7 +57,7 @@ from covey.core.process_env import env_flag
 from covey.core.text import cut
 from covey.core.track_route import LIVE_PHASES, LiveJob, Message
 
-MODEL = "haiku"
+MODEL = "haiku"  # Claude Code's model when a caller names none here: the tests' and an older caller's default.
 CONFIDENCE_MIN = 0.7
 DEFAULT_MS = 6000  # A Claude Code one-shot on Haiku: about 3.4 s from a cold start (with 3000 and no standby most timed out).
 # A native Harness's own CLI answering (``ask_native``): a new process each question, 5 to 7 s through Codex (up to 11, codex-cli
@@ -142,16 +143,13 @@ def via_of(backend, ctx, environ=None) -> str:
     return CLAUDE if backend is not None and ctx is not None else ""
 
 
-def ask_native(system: str, data: str, *, backend, ctx, limit: float, cwd, heavy: bool = False, follow: str = "",
-               effort: str = "") -> str:
+def ask_native(system: str, data: str, *, backend, ctx, limit: float, cwd, follow: str = "", effort: str = "") -> str:
     """One question through a native Harness's own CLI (``backend.ask_once``), its answer as Claude Code's JSON envelope
-    (``answer_text`` reads it, as it reads the gateway's); Failed with its reason otherwise. ``heavy``: a question that needs
-    more than the small model (整理专项's): the followed setting's model, else the Harness's own default, instead of its
-    light one. ``follow``: the model id of the setting app/assist.py follows (its provider is the question's); ``effort``:
-    that setting's budget, a heavy question's."""
+    (``answer_text`` reads it, as it reads the gateway's); Failed with its reason otherwise. ``follow``, ``effort``: the
+    model id and budget of the 辅助模型's setting (app/assist.py; its provider is the question's); '' the Harness's own."""
     extra = {**({"follow": follow} if follow else {}), **({"effort": effort} if effort else {})}
     try:
-        text = backend.ask_once(ctx, system, data, heavy=heavy, limit=limit, cwd=cwd, **extra)
+        text = backend.ask_once(ctx, system, data, limit=limit, cwd=cwd, **extra)
     except AskFailed as exc:
         raise Failed(exc.reason, exc.detail) from None
     return json.dumps({"type": "result", "is_error": False, "result": text}, ensure_ascii=False)
@@ -180,10 +178,10 @@ def claude_argv(backend, ctx, with_flag: bool, system: str = SYSTEM, model: str 
     hooks or tools. One-shot: the prompt arrives on standard input and the answer is one JSON object. ``system``: another
     question for the same small model (a feature's own, app/assist.py ask). ``model``: another model for a question that needs more than
     the small one (app/project_sorter.py). ``settings``: its --settings (the backend's ``one_shot`` gives the relay's
-    address with the hooks off); the hooks off without one. ``effort``: its --effort, a heavy question's that follows a
-    setting (app/assist.py heavy_effort); none: Claude Code's own."""
-    argv = [*ctx.backend_cmd, "-p", "--model", model, *(["--effort", effort] if effort else []), "--output-format", "json",
-            "--max-turns", "1",
+    address with the hooks off); the hooks off without one. ``model`` '' and ``effort`` '': Claude Code's own (no
+    ``--model``, no ``--effort``)."""
+    argv = [*ctx.backend_cmd, "-p", *(["--model", model] if model else []), *(["--effort", effort] if effort else []),
+            "--output-format", "json", "--max-turns", "1",
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--settings",
             json.dumps(settings, ensure_ascii=False, separators=(",", ":")) if settings else '{"disableAllHooks":true}',
             "--tools", "", "--system-prompt", system]
@@ -217,17 +215,14 @@ def slim_enabled(environ=None) -> bool:
     return env_flag("COVEY_TRACK_JUDGE_SLIM", True, environ)
 
 
-def ask(system: str, data: str, *, backend, ctx, limit: float, cwd, model: str = MODEL, environ=None, heavy=None,
+def ask(system: str, data: str, *, backend, ctx, limit: float, cwd, model: str = MODEL, environ=None,
         follow: str = "", effort: str = "") -> str:
     """One question's raw answer, as Claude Code's JSON envelope (``answer_text`` reads it): through ``backend`` and
-    ``ctx`` (app/assist.py chose them): a native Harness's own CLI (``ask_native``; ``heavy``, or when not given ``model``
-    other than MODEL, makes it a heavy question; ``follow`` its provider), or the Claude Harness the way ``judge`` asks
-    Haiku, in ``cwd``; Failed("no_backend") with none. ``system``, ``model``, ``effort``: the question's own. Only
-    app/assist.py calls it (tests/test_structure.py AssistExitTest)."""
-    heavy = model != MODEL if heavy is None else heavy
+    ``ctx`` (app/assist.py chose them): a native Harness's own CLI (``ask_native``, on ``follow`` at ``effort``), or the
+    Claude Harness the way ``judge`` asks, on ``model`` at ``effort``, in ``cwd``; Failed("no_backend") with none.
+    ``system``: the question's own. Only app/assist.py calls it (tests/test_structure.py AssistExitTest)."""
     if native(backend, ctx):
-        return ask_native(system, data, backend=backend, ctx=ctx, limit=limit, cwd=cwd, heavy=heavy, follow=follow,
-                          effort=effort)
+        return ask_native(system, data, backend=backend, ctx=ctx, limit=limit, cwd=cwd, follow=follow, effort=effort)
     if backend is not None and ctx is not None:
         Path(cwd).mkdir(parents=True, exist_ok=True)
         try:
@@ -369,11 +364,12 @@ NOT_CALLED = frozenset({"redacted", "off", "bad_config", "no_tasks"})
 
 
 def judge(message: Message, *, question: str = "", redacted: bool = False, backend=None, ctx=None,
-          log: Callable[[str], None] = print, environ=None, follow: str = "", unrouted: str = "") -> Verdict:
+          log: Callable[[str], None] = print, environ=None, follow: str = "", unrouted: str = "", model: str = MODEL,
+          effort: str = "") -> Verdict:
     """The small model's verdict on ``message`` (core/track_route.Message, its ``live`` and ``quote.text`` are what the
     model sees) given what the waiting task asks (``question``). ``redacted``: the topic redacts, nothing is sent.
-    ``backend`` and ``ctx``: the Harness app/assist.py chose (``claude`` channel only), ``follow`` its provider;
-    ``unrouted``: it chose none, and why (the verdict is ``new`` with that reason). Only app/assist.py calls it."""
+    ``backend`` and ``ctx``: the Harness app/assist.py chose (``claude`` channel only), ``follow`` the model of its setting
+    (and its provider) for a native Harness, ``model`` Claude Code's, ``effort`` the budget; ``unrouted``: it chose none, and why (the verdict is ``new`` with that reason). Only app/assist.py calls it."""
     started = time.monotonic()
     via = mode(environ)
     own = via == "claude" and native(backend, ctx)
@@ -404,14 +400,14 @@ def judge(message: Message, *, question: str = "", redacted: bool = False, backe
     try:
         if own:  # No Claude Code here: Codex's or Antigravity's own CLI, one question (core/harness.py ask_once).
             raw = ask_native(SYSTEM, data, backend=backend, ctx=ctx, limit=limit, cwd=Path(ctx.state_dir) / "track-judge",
-                             follow=follow)
+                             follow=follow, effort=effort)
         elif via == "claude":
             if backend is None or ctx is None:
                 raise Failed("no_backend")
             try:
                 cwd = Path(ctx.state_dir) / "track-judge"
                 cwd.mkdir(parents=True, exist_ok=True)
-                raw = claude_once(backend, ctx, data, cwd, limit)
+                raw = claude_once(backend, ctx, data, cwd, limit, model=model, effort=effort)
             except Failed as exc:
                 refused(exc)
                 raise

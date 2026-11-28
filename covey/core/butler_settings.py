@@ -61,12 +61,16 @@ class LeadModel:
 
 @dataclasses.dataclass(frozen=True)
 class AssistChoice:
-    """辅助模型 (app/assist.py): which Harness the background model calls (分流, 整理专项, 看看, 记忆) go through, set on the
-    设置 card's 配置 and the web page. ``harness`` "" and ``off`` false: 自动（跟随管家）; ``off``: 不用模型 (no call at
-    all, the rules alone); else only this Harness, never another one (one it cannot use now says why). A Harness named here
-    that is retired or not enabled stays named: the calls then say it cannot be used instead of picking another one."""
+    """辅助模型 (app/assist.py): what the background model calls (分流, 整理专项 and its 补话题要点, 记忆自己长) run on, one
+    setting for all of them, set on the 设置 card's 配置 and the web page as the sections above it. ``harness`` "" and
+    ``off`` false: 自动（跟随管家）, the butler's Harness, model and budget; ``off``: 不用模型 (no call at all, the rules
+    alone); else only this Harness, never another one (one it cannot use now says why), on ``model`` with ``effort`` (""
+    each: the Harness's own default). A Harness named here that is retired or not enabled stays named: the calls then say it
+    cannot be used instead of picking another one."""
     harness: str = ""
     off: bool = False
+    model: str = ""
+    effort: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -145,7 +149,9 @@ def from_json(data) -> Settings:
         review=ReviewModel(*_choice(review)),
         lead=LeadModel(*_choice(lead)),
         # Not through _choice: a retired Harness named here stays named (the calls say it is gone), never 自动.
-        assist=AssistChoice(harness=_text(assist.get("harness")), off=assist.get("off") is True))
+        assist=AssistChoice(harness=_text(assist.get("harness")), off=assist.get("off") is True,
+                            **({"model": _text(assist.get("model")), "effort": _text(assist.get("effort"))}
+                               if _text(assist.get("harness")) else {})))
 
 
 def to_json(settings: Settings) -> dict:

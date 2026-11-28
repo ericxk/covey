@@ -174,7 +174,7 @@ const Choice: React.FC<{ row: SettingsRow; busy: boolean; onPick: (v: string) =>
 };
 
 /** 字长的项：手机上占整行 */
-const WIDE: Set<string> = new Set(['t_model', 'model', 'r_model', 'l_model', 't_space', 'space', 'mode', 'subagent', 'assist']);
+const WIDE: Set<string> = new Set(['t_model', 'model', 'r_model', 'l_model', 'a_model', 't_space', 'space', 'mode', 'subagent', 'assist']);
 
 const RowView: React.FC<{ row: SettingsRow; ops: Ops; feishu: string; mk?: (row: SettingsRow, option: string) => Record<string, unknown>; cell?: boolean; stale?: boolean }> = ({ row, ops, feishu, mk, cell, stale }) => {
   const s: Phase | undefined = ops.st[row.key];
@@ -237,14 +237,15 @@ const Rows: React.FC<{ rows: SettingsRow[]; ops: Ops; feishu: string; head?: Rea
   </div>
 );
 
-/** 联动：Harness → 供应商 → 模型 → 思考预算。同一组里前面的项正在保存，后面的项在新快照到来前显示“更新中…” */
-const LINK = /^(?:t_|r_|l_)?(harness|provider|model|effort)$/;
+/** 联动：Harness → 供应商 → 模型 → 思考预算。同一组里前面的项正在保存，后面的项在新快照到来前显示“更新中…”；辅助模型的 Harness 行 key 是 assist */
+const LINK = /^(?:t_|r_|l_|a_)?(harness|provider|model|effort)$/;
 const LINK_ORDER: string[] = ['harness', 'provider', 'model', 'effort'];
+const role = (key: string): string => (key === 'assist' ? 'harness' : LINK.exec(key)?.[1] ?? '');
 const linked = (g: SettingsRow[], i: number, ops: Ops): boolean => {
-  const me: number = LINK_ORDER.indexOf(LINK.exec(g[i].key)?.[1] ?? '');
+  const me: number = LINK_ORDER.indexOf(role(g[i].key));
   if (me < 1) return false;
   return g.some((r: SettingsRow) => {
-    const at: number = LINK_ORDER.indexOf(LINK.exec(r.key)?.[1] ?? '');
+    const at: number = LINK_ORDER.indexOf(role(r.key));
     return at >= 0 && at < me && ops.st[r.key]?.phase === 'saving';
   });
 };
@@ -274,8 +275,8 @@ const REVIEW_LAYOUT: string[][] = [['r_harness', 'r_provider', 'r_model', 'r_eff
 /** v36 专项负责人：新建的专项，负责人用的 Harness、模型、思考预算（开了专项才有这一段） */
 const LEAD_LAYOUT: string[][] = [['l_harness', 'l_provider', 'l_model', 'l_effort']];
 const MORE_LAYOUT: string[][] = [['subagent']];
-/** 辅助模型（T884）：分流、整理专项、记忆自己长这些后台活用哪个 Harness，一行；管家关着也能改 */
-const ASSIST_LAYOUT: string[][] = [['assist']];
+/** 辅助模型（T884）：分流、整理专项、记忆自己长这些后台活都用这一个；T924 起和上面几段一样，选了 Harness 再选供应商、模型、思考预算；管家关着也能改 */
+const ASSIST_LAYOUT: string[][] = [['assist', 'a_provider', 'a_model', 'a_effort']];
 
 const Note: React.FC<{ text?: string }> = ({ text }) => (text ? <p className="st-note">{text}</p> : null);
 
@@ -365,7 +366,7 @@ const RecentTable: React.FC<{ lines: RecentLine[] }> = ({ lines }) => (
   </>
 );
 
-/** 辅助模型：一行选择（自动跟随管家、各 Harness、不用模型），说明，现在实际用的模型，后台活最近一次 */
+/** 辅助模型：Harness（自动跟随管家、各 Harness、不用模型），选了 Harness 再有供应商、模型、思考预算；说明，现在实际用的，后台活最近一次 */
 const AssistSection: React.FC<{ p: SettingsConfigAssist; ops: Ops; feishu: string }> = ({ p, ops, feishu }) => {
   const now: number = Math.floor(useTick(30000));
   return (

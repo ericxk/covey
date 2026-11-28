@@ -22,8 +22,8 @@ record written but the gists the backfill reads (core/topic_gist.py); app/projec
 
 Both calls go out through the 辅助模型 (app/assist.py ask, ``Where`` says which of its features and whether the owner asked):
 no tools, MCP servers, hooks or saved session, killed past the limit, on the model and budget of the setting the 辅助模型
-follows (app/assist.py; Claude Code with none: COVEY_PROJECT_TIDY_MODEL, core/project_proposals.py model, Sonnet by
-default). A topic that redacts (core/redaction.py) is never sent and is counted apart. Every failure is a reason (core/assist.py's), never an
+names or follows (app/assist.py: one for every background call; Claude Code with none: COVEY_PROJECT_TIDY_MODEL, else its
+own default). A topic that redacts (core/redaction.py) is never sent and is counted apart. Every failure is a reason (core/assist.py's), never an
 exception (``Failed``); the judge's says which Harness and model it was (``Verdict.via``, ``model``) and their own words,
 secrets hidden (``detail``)."""
 from __future__ import annotations

@@ -30,7 +30,7 @@ from covey.core.menu_choice import (budget_effort, butler_harnesses, default_ent
 from covey.app.butler_env import reply
 from covey.app.butler_model_choice import resolve
 from covey.app.menu_panel import MenuPanel, hub_top
-from covey.cards.butler_panel import (ASSIST, COMPACT, EFFORT, ENABLE, HARNESS, KINDS, MODE, MODE_CHOICES, MODEL, MODEL_FOLLOW,
+from covey.cards.butler_panel import (ASSIST, ASSIST_EFFORT, ASSIST_MODEL, ASSIST_PROVIDER, COMPACT, EFFORT, ENABLE, HARNESS, KINDS, MODE, MODE_CHOICES, MODEL, MODEL_FOLLOW,
                                                     NOTE_LENGTH, OFFLINE_KINDS, OFFLINE_NOTICE, PAGE_OF, PROVIDER, REDACTION,
                                                     RETIRED_KINDS, RETIRED_NOTICE, SUBAGENTS,
                                                     TOPIC_EFFORT, TOPIC_HARNESS, TOPIC_MODEL, TOPIC_PROVIDER, TOPIC_REDACTION,
@@ -58,6 +58,7 @@ MODE_NOTICES = {True: '已改成交给管家：私聊顶层的消息交给管家
                 False: '已改成每条直接开一个话题；已开的话题照常在各自的话题串里继续。'}
 REVIEW = 'review'  # The scope of 独立复核's rows (ROW_CHANGES).
 LEAD = 'lead'  # The scope of 专项负责人's rows (ROW_CHANGES).
+ASSIST_SCOPE = 'assist'  # The scope of 辅助模型's 供应商, 模型 and 思考预算 rows (ROW_CHANGES).
 # Said on the card once another setting was saved (docs/ui.md 5.2: 保存后用一句灰字回执), by the scope of the row
 # (ROW_CHANGES), else its page.
 SAVED = {BUTLER: '已保存：管家下一轮起照这个来。', TOPIC: '已保存：之后新开的话题照这个来。', WORKSPACE: '已保存。',
@@ -65,7 +66,8 @@ SAVED = {BUTLER: '已保存：管家下一轮起照这个来。', TOPIC: '已保
          LEAD: '已保存：之后新建的专项，负责人照这个来；已有的专项在专项卡上点「换配置」。'}
 # A row whose change waits for the butler to be idle and starts a new session (app/butler.py write_topic).
 SAVED_NEW_SESSION = '已保存：管家手上这一轮做完后换过去，开一个新会话，最近的对话会带上。'
-SAVED_OF = {HARNESS: SAVED_NEW_SESSION, ASSIST: '已保存：后台活从下一次起照这个来。'}
+SAVED_OF = {HARNESS: SAVED_NEW_SESSION,
+            **dict.fromkeys((ASSIST, ASSIST_PROVIDER, ASSIST_MODEL, ASSIST_EFFORT), '已保存：后台活从下一次起照这个来。')}
 
 
 def workspace_names(state_dir):
@@ -228,7 +230,23 @@ ROW_CHANGES = {
     REVIEW_MODEL: (REVIEW, pick_model), REVIEW_EFFORT: (REVIEW, pick_effort),
     LEAD_HARNESS: (LEAD, pick_lead_harness), LEAD_PROVIDER: (LEAD, pick_provider),
     LEAD_MODEL: (LEAD, pick_model), LEAD_EFFORT: (LEAD, pick_effort),
+    ASSIST_PROVIDER: (ASSIST_SCOPE, pick_provider), ASSIST_MODEL: (ASSIST_SCOPE, pick_model),
+    ASSIST_EFFORT: (ASSIST_SCOPE, pick_effort),
 }
+
+
+def assist_pick(saved, picked, choices):
+    """The 辅助模型 a click on its Harness row saves: 自动 and 不用模型 as they are; a Harness other than the one named
+    takes its first model by name and that model's budget, as 专项负责人's (pick_lead_harness), so the rows say what the
+    background calls run on; the one named already, nothing new."""
+    if not picked.harness or picked.off:
+        return picked
+    if picked.harness == saved.harness and not saved.off:
+        return saved
+    first = next(iter(models_of(explicit(choices), picked.harness)), '')
+    entry = entry_of(choices, picked.harness, first)
+    return dataclasses.replace(picked, model=first,
+                               effort=budget_effort(entry, plain_budget(entry, saved.effort)) if entry else '')
 
 
 class ButlerPanel:
@@ -411,7 +429,10 @@ class ButlerPanel:
         if kind == ASSIST:  # 辅助模型 (app/assist.py): bot-wide, whether the butler is on or not.
             from covey.app import assist
             picked = assist.chosen(option, assist.offered(self.topics, state=ctx.state_dir))
-            return None if picked is None else {} if picked == saved.assist else {'assist': picked}
+            if picked is None:
+                return None
+            picked = assist_pick(saved.assist, picked, available_models(self.topics, ctx) if picked.harness else {})
+            return {} if picked == saved.assist else {'assist': picked}
         choices = available_models(self.topics, ctx)
         page, change = ROW_CHANGES.get(kind, (None, None))
         if change is None:
@@ -424,6 +445,16 @@ class ButlerPanel:
                                  else default_entry(choices, review.harness)),
                         lambda entry, option: budget_effort(entry, option) if option else '',
                         lambda **fields: {'review': dataclasses.replace(review, **fields)})
+        elif page == ASSIST_SCOPE:
+            # 辅助模型's: as 专项负责人's, a model named once a Harness is chosen; none under 自动 or 不用模型.
+            chosen = saved.assist
+            if not chosen.harness or chosen.off:
+                return None
+            rows = Rows(chosen.harness, chosen.model, chosen.effort, False,
+                        lambda: (entry_of(choices, chosen.harness, chosen.model) if chosen.model
+                                 else default_entry(choices, chosen.harness)),
+                        lambda entry, option: budget_effort(entry, option) if option else '',
+                        lambda **fields: {'assist': dataclasses.replace(chosen, **fields)})
         elif page == LEAD:
             if not projects.enabled():
                 return None  # A card drawn while projects were on: the section is gone.

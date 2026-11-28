@@ -1055,7 +1055,8 @@ class NameTest(TidyCase):
 
 
 class TidyModelTest(UpCase):
-    """整理 reads whole conversations and names what a matter really is: Sonnet by default, not the small judge's Haiku."""
+    """整理 runs on the 辅助模型's model (app/assist.py, T924); COVEY_PROJECT_TIDY_MODEL names Claude Code's when the setting
+    names none."""
 
     def test_the_limits_leave_room_for_the_followed_budget(self):
         """T924: on the butler's budget a judgment took 12 minutes (gemini-4-neon, xhigh) and a gist up to 2: the limits
@@ -1064,11 +1065,11 @@ class TidyModelTest(UpCase):
         self.assertGreaterEqual(proposals.number("read_seconds", {}), 240)
         self.assertEqual(proposals.number("judge_seconds", {"COVEY_PROJECT_TIDY_JUDGE_SECONDS": "90"}), 90)
 
-    def test_the_model_is_sonnet_unless_set(self):
+    def test_the_variable_names_a_model_or_none(self):
         from covey.core import project_proposals as proposals
-        self.assertEqual("sonnet", proposals.model({}))
+        self.assertEqual("", proposals.model({}))
         self.assertEqual("opus", proposals.model({"COVEY_PROJECT_TIDY_MODEL": "opus"}))
-        self.assertEqual("sonnet", proposals.model({"COVEY_PROJECT_TIDY_MODEL": "bad model; rm"}))
+        self.assertEqual("", proposals.model({"COVEY_PROJECT_TIDY_MODEL": "bad model; rm"}))
 
     def test_the_call_asks_that_model(self):
         seen = {}

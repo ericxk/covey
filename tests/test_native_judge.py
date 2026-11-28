@@ -261,19 +261,19 @@ class CodexJudgeTest(Case):
             codex_judge.answer_of([{"type": "turn.completed"}])
         self.assertEqual(caught.exception.reason, "bad_output")
 
-    def test_the_model_a_light_one_from_the_catalog_the_owners_default_for_a_heavy_one_or_the_variable(self):
+    def test_the_model_the_settings_one_else_the_variable_else_the_owners_default(self):
+        """T924: no light model and no ``medium`` put in: what the setting names, else COVEY_JUDGE_CODEX_MODEL, else Codex's
+        own model and budget."""
         self.catalog([("gpt-big", "Our most capable model.", ("low", "medium", "high")),
                       ("gpt-luna", "Fast and affordable model for easier tasks.", ("low", "medium")),
                       ("gpt-gemini-like", "A model.", ("minimal", "low"))])
         env = {"HOME": str(self.home)}
-        self.assertEqual(codex_judge.choose(env, heavy=False, environ={}), ("gpt-luna", "low"))
-        self.assertEqual(codex_judge.choose(env, heavy=True, environ={}), ("", "medium"))
-        self.assertEqual(codex_judge.choose(env, heavy=False, environ={codex_judge.MODEL_ENV: "gpt-big"}),
-                         ("gpt-big", "low"))
-        self.assertEqual(codex_judge.choose(env, heavy=False, environ={codex_judge.MODEL_ENV: "not-listed"}),
-                         ("gpt-luna", "low"))  # A model the account does not list is not asked for.
-        self.catalog([("gpt-big", "Our most capable model.", ("low", "medium"))])
-        self.assertEqual(codex_judge.choose(env, heavy=False, environ={}), ("", "low"))  # None light: the default's.
+        self.assertEqual(codex_judge.choose(env, environ={}), ("", ""))
+        self.assertEqual(codex_judge.choose(env, environ={codex_judge.MODEL_ENV: "gpt-big"}), ("gpt-big", ""))
+        self.assertEqual(codex_judge.choose(env, environ={codex_judge.MODEL_ENV: "not-listed"}),
+                         ("", ""))  # A model the account does not list is not asked for.
+        self.assertEqual(codex_judge.choose(env, environ={codex_judge.MODEL_ENV: "gpt-big"}, follow="gpt-luna", effort="low"),
+                         ("gpt-luna", "low"))  # The setting's model comes first.
 
     def test_real_failures_are_read_as_what_they_are_with_their_words_and_no_secret(self):
         """Replayed failures (codex-cli 0.171.0's errors, with and without codexErrorInfo; T872's words): each a reason
@@ -321,7 +321,7 @@ class CodexJudgeTest(Case):
     def test_a_question_that_follows_a_gateway_model_goes_to_that_gateway(self):
         """T884: a setting followed whose model is a model gateway's (its prefix): the question goes there, a light one
         on the gateway's light model, through a relay of its own with the gateway's provider; one of the account's own is
-        a heavy question's model (T924) and changes nothing for a light one."""
+        the question's model too (T924)."""
         self.catalog([("gpt-big", "Our most capable model.", ("low", "medium")),
                       ("gpt-luna", "Fast and affordable model for easier tasks.", ("low", "medium"))])
         gateway = gateways.Gateway(name="acme", display="Acme", base_url="https://gateway.invalid", key_env="ACME_KEY",
@@ -332,18 +332,16 @@ class CodexJudgeTest(Case):
         with mock.patch.object(gateways, "all_gateways", return_value=(gateway,)), \
                 mock.patch.object(codex_judge.gateway_models, "cached", return_value=rows):
             env, ctx = {"HOME": str(self.home)}, self.ctx("codex")
-            self.assertEqual(codex_judge.choose(env, heavy=False, environ={}, follow="acme/astra", ctx=ctx),
-                             ("acme/astra-mini", "low"))
-            self.assertEqual(codex_judge.choose(env, heavy=True, environ={}, follow="acme/astra", ctx=ctx),
+            self.assertEqual(codex_judge.choose(env, environ={}, follow="acme/astra", ctx=ctx), ("acme/astra", ""))
+            self.assertEqual(codex_judge.choose(env, environ={}, follow="acme/astra", effort="medium", ctx=ctx),
                              ("acme/astra", "medium"))
-            self.assertEqual(codex_judge.choose(env, heavy=False, environ={}, follow="gpt-big", ctx=ctx), ("gpt-luna", "low"))
-            self.assertEqual(codex_judge.choose(env, heavy=True, environ={}, follow="gpt-big", ctx=ctx), ("gpt-big", "medium"))
-            self.assertEqual(codex_judge.model_of(ctx, follow="acme/astra", environ={}), "acme/astra-mini")
+            self.assertEqual(codex_judge.choose(env, environ={}, follow="gpt-big", ctx=ctx), ("gpt-big", ""))
+            self.assertEqual(codex_judge.model_of(ctx, follow="acme/astra", environ={}), "acme/astra")
             self.rows(CODEX_ROWS)
             with mock.patch.dict(os.environ, {"ACME_KEY": "fake-key-for-tests"}):
                 codex_judge.ask_once(ctx, "s", "{}", limit=10, follow="acme/astra", environ={})
             argv = self.recorded()[-1]["argv"]
-            self.assertEqual(argv[argv.index("-m") + 1], "astra-mini")
+            self.assertEqual(argv[argv.index("-m") + 1], "astra")
             configs = [argv[i + 1] for i, part in enumerate(argv) if part == "-c"]
             self.assertIn('model_provider="acme"', configs)
             base = next(c for c in configs if c.startswith("model_providers.acme.base_url="))
@@ -354,20 +352,17 @@ class CodexJudgeTest(Case):
             self.assertEqual(caught.exception.reason, "authentication_error")
             self.assertEqual(len(self.recorded()), 1)
 
-    def test_a_heavy_question_runs_on_the_followed_model_at_its_budget(self):
-        """T924: 自动（跟随管家） means the followed setting's model and budget for a heavy question, ``medium`` only where
-        that model lacks the budget or another model runs it; a light one keeps its lowest budget."""
+    def test_a_question_runs_on_the_settings_model_at_its_budget(self):
+        """T924: 自动（跟随管家） means the followed setting's model and budget, Codex's own budget only where that model
+        lacks it or another model runs it."""
         self.catalog([("gpt-big", "Our most capable model.", ("low", "medium", "high", "xhigh")),
                       ("gpt-luna", "Fast and affordable model for easier tasks.", ("low", "medium"))])
         env = {"HOME": str(self.home)}
-        self.assertEqual(codex_judge.choose(env, heavy=True, environ={}, follow="gpt-big", effort="xhigh"), ("gpt-big", "xhigh"))
-        self.assertEqual(codex_judge.choose(env, heavy=True, environ={}, follow="gpt-big", effort="max"), ("gpt-big", "medium"))
-        self.assertEqual(codex_judge.choose(env, heavy=True, environ={}, follow="gone", effort="xhigh"), ("", "medium"))
-        self.assertEqual(codex_judge.choose(env, heavy=True, environ={codex_judge.MODEL_ENV: "gpt-luna"}, follow="gpt-big",
-                                            effort="xhigh"), ("gpt-luna", "medium"))
-        self.assertEqual(codex_judge.choose(env, heavy=False, environ={}, follow="gpt-big", effort="xhigh"), ("gpt-luna", "low"))
+        self.assertEqual(codex_judge.choose(env, environ={}, follow="gpt-big", effort="xhigh"), ("gpt-big", "xhigh"))
+        self.assertEqual(codex_judge.choose(env, environ={}, follow="gpt-big", effort="max"), ("gpt-big", ""))
+        self.assertEqual(codex_judge.choose(env, environ={}, follow="gone", effort="xhigh"), ("", ""))
         self.rows(CODEX_ROWS)
-        codex_judge.ask_once(self.ctx("codex"), "s", "{}", heavy=True, limit=10, follow="gpt-big", effort="xhigh", environ={})
+        codex_judge.ask_once(self.ctx("codex"), "s", "{}", limit=10, follow="gpt-big", effort="xhigh", environ={})
         argv = self.recorded()[-1]["argv"]
         self.assertEqual(argv[argv.index("-m") + 1], "gpt-big")
         self.assertIn('model_reasoning_effort="xhigh"', argv)
@@ -376,11 +371,11 @@ class CodexJudgeTest(Case):
         self.catalog([("gpt-big", "Our most capable model.", ("low", "medium")),
                       ("gpt-luna", "Fast and affordable model for easier tasks.", ("low",))])
         ctx = self.ctx("codex")
-        self.assertEqual(codex_judge.model_of(ctx, environ={}), "gpt-luna")
-        self.assertEqual(codex_judge.model_of(ctx, heavy=True, environ={}), "")  # config.toml names none.
+        self.assertEqual(codex_judge.model_of(ctx, environ={}), "")  # config.toml names none.
+        self.assertEqual(codex_judge.model_of(ctx, follow="gpt-luna", environ={}), "gpt-luna")
         (self.home / ".codex" / "config.toml").write_text('model = "gpt-big"\n')
-        self.assertEqual(codex_judge.model_of(ctx, heavy=True, environ={}), "gpt-big")
-        self.assertEqual(CodexBackend().ask_model(ctx, heavy=True), "gpt-big")
+        self.assertEqual(codex_judge.model_of(ctx, environ={}), "gpt-big")
+        self.assertEqual(CodexBackend().ask_model(ctx), "gpt-big")
         with mock.patch.dict(os.environ, {codex_judge.MODEL_ENV: "gpt-big"}):
             self.assertEqual(CodexBackend().ask_model(ctx), "gpt-big")
         self.assertEqual(self.recorded(), [])
@@ -404,13 +399,13 @@ class AgyJudgeTest(Case):
         config.mkdir(exist_ok=True)
         (config / "mcp_config.json").write_text(json.dumps({"mcpServers": {"owner": {"command": "x"}}}))
 
-    def ask(self, heavy=False, limit=10):
+    def ask(self, limit=10, follow="gemini-3.8-flash", effort="low"):
         backend = SimpleNamespace(model_catalog=lambda ctx: {
             "gemini-4-neon": {"display_name": "Gemini 4 Neon", "supported_reasoning_levels": [{"effort": "low"}]},
             "gemini-3.8-flash": {"display_name": "Gemini 3.8 Flash",
                                  "supported_reasoning_levels": [{"effort": "low"}, {"effort": "high"}]}})
-        return agy_judge.ask_once(backend, self.ctx("agy"), "只回一行 JSON", QUESTION, heavy=heavy, limit=limit,
-                                  settings=READ_ONLY_SETTINGS)
+        return agy_judge.ask_once(backend, self.ctx("agy"), "只回一行 JSON", QUESTION, limit=limit,
+                                  settings=READ_ONLY_SETTINGS, follow=follow, effort=effort)
 
     def test_without_a_sign_in_nothing_starts(self):
         with self.assertRaises(AskFailed) as caught:
@@ -444,57 +439,44 @@ class AgyJudgeTest(Case):
         self.assertEqual(record["listing"], [".gemini"])  # No config/: none of the owner's MCP servers or rules.
         self.assertTrue((self.home / ".gemini" / "config" / "mcp_config.json").exists())  # The owner's untouched.
 
-    def test_a_heavy_question_runs_on_agys_own_default_and_the_variable_names_one(self):
+    def test_no_model_set_runs_on_agys_own_default_and_the_variable_names_one(self):
         self.sign_in()
         self.rows(AGY_ROWS)
-        self.ask(heavy=True)
+        self.ask(follow="", effort="")
         self.assertNotIn("--model", self.recorded()[-1]["argv"])
         with mock.patch.dict(os.environ, {agy_judge.MODEL_ENV: "gemini-4-neon-low"}):
-            self.ask()
+            self.ask(follow="", effort="")
         argv = self.recorded()[-1]["argv"]
         self.assertEqual(argv[argv.index("--model") + 1], "gemini-4-neon-low")
         self.assertNotIn("--effort", argv)
+        with mock.patch.dict(os.environ, {agy_judge.MODEL_ENV: "gemini-4-neon-low"}):
+            self.ask()  # A model the setting names comes first.
+        argv = self.recorded()[-1]["argv"]
+        self.assertEqual(argv[argv.index("--model") + 1:argv.index("--model") + 4], ["gemini-3.8-flash", "--effort", "low"])
 
-    def test_a_light_model_is_a_word_of_its_name_never_inside_another(self):
-        catalog = {"gemini-4-neon": {"display_name": "Gemini 4 Neon"},
-                   "gemini-3.8-flash": {"display_name": "Gemini 3.8 Flash"}}
-        self.assertEqual(agy_judge.choose(catalog, heavy=False, environ={})[0], "gemini-3.8-flash")  # Not "gemini" ⊃ "mini".
-        self.assertEqual(agy_judge.choose({"gemini-4-neon": {}}, heavy=False, environ={}), ("", ""))
-
-    def test_a_light_question_takes_geminis_light_model_before_a_claude_one(self):
-        """T884: Claude Haiku listed first in agy's catalog (the Claude/GPT quota group) is not the light question's
-        model while Gemini has a flash or lite one; it is only when Gemini has none."""
-        catalog = {"claude-haiku-5": {"display_name": "Claude Haiku 5", "supported_reasoning_levels": [{"effort": "low"}]},
-                   "gemini-4-neon": {"display_name": "Gemini 4 Neon"},
-                   "gemini-3.8-flash-lite": {"display_name": "Gemini 3.8 Flash Lite",
-                                             "supported_reasoning_levels": [{"effort": "minimal"}, {"effort": "low"}]}}
-        self.assertEqual(agy_judge.choose(catalog, heavy=False, environ={}), ("gemini-3.8-flash-lite", "minimal"))
-        del catalog["gemini-3.8-flash-lite"]
-        self.assertEqual(agy_judge.choose(catalog, heavy=False, environ={}), ("claude-haiku-5", "low"))
-
-    def test_a_heavy_question_follows_the_setting_when_the_catalog_lists_its_model(self):
+    def test_every_question_runs_on_the_setting_s_model_when_the_catalog_lists_it(self):
+        """T924: no light model picked for some questions: 分流 and 记忆自己长 run on the setting's model as 整理专项 does."""
         catalog = {"gemini-4-neon": {}, "gemini-3.8-flash": {}}
-        self.assertEqual(agy_judge.choose(catalog, heavy=True, environ={}, follow="gemini-4-neon"), ("gemini-4-neon", ""))
-        self.assertEqual(agy_judge.choose(catalog, heavy=True, environ={}, follow="gone-model"), ("", ""))
-        self.assertEqual(agy_judge.choose(catalog, heavy=False, environ={}, follow="gemini-4-neon")[0], "gemini-3.8-flash")
+        self.assertEqual(agy_judge.choose(catalog, environ={}, follow="gemini-4-neon"), ("gemini-4-neon", ""))
+        self.assertEqual(agy_judge.choose(catalog, environ={}, follow="gone-model"), ("", ""))
+        self.assertEqual(agy_judge.choose(catalog, environ={}), ("", ""))  # Not the flash one: agy's own default.
 
-    def test_a_heavy_question_takes_the_followed_settings_budget_when_its_model_has_it(self):
+    def test_a_question_takes_the_settings_budget_when_its_model_has_it(self):
         """T924: the butler's gemini-4-neon at xhigh is asked at xhigh; a budget the catalog says the model lacks, or a
-        model listed without budgets, takes none (agy refuses those); a light question keeps its own."""
+        model listed without budgets, takes none (agy refuses those)."""
         catalog = {"gemini-4-neon": {"supported_reasoning_levels": [{"effort": "low"}, {"effort": "high"}, {"effort": "xhigh"}]},
                    "gemini-pro-orchestrator": {"supported_reasoning_levels": []},
                    "gemini-3.8-flash": {"supported_reasoning_levels": [{"effort": "low"}]}}
         choose = agy_judge.choose
-        self.assertEqual(choose(catalog, heavy=True, environ={}, follow="gemini-4-neon", effort="xhigh"), ("gemini-4-neon", "xhigh"))
-        self.assertEqual(choose(catalog, heavy=True, environ={}, follow="gemini-4-neon", effort="max"), ("gemini-4-neon", ""))
-        self.assertEqual(choose(catalog, heavy=True, environ={}, follow="gemini-pro-orchestrator", effort="high"),
+        self.assertEqual(choose(catalog, environ={}, follow="gemini-4-neon", effort="xhigh"), ("gemini-4-neon", "xhigh"))
+        self.assertEqual(choose(catalog, environ={}, follow="gemini-4-neon", effort="max"), ("gemini-4-neon", ""))
+        self.assertEqual(choose(catalog, environ={}, follow="gemini-pro-orchestrator", effort="high"),
                          ("gemini-pro-orchestrator", ""))
-        self.assertEqual(choose({}, heavy=True, environ={}, follow="gemini-4-neon", effort="xhigh"), ("gemini-4-neon", "xhigh"))
-        self.assertEqual(choose(catalog, heavy=False, environ={}, follow="gemini-4-neon", effort="xhigh"), ("gemini-3.8-flash", "low"))
+        self.assertEqual(choose({}, environ={}, follow="gemini-4-neon", effort="xhigh"), ("gemini-4-neon", "xhigh"))
         self.sign_in()
         self.rows(AGY_ROWS)
         backend = SimpleNamespace(model_catalog=lambda ctx: catalog)
-        agy_judge.ask_once(backend, self.ctx("agy"), "只回一行 JSON", QUESTION, heavy=True, limit=10, settings=READ_ONLY_SETTINGS,
+        agy_judge.ask_once(backend, self.ctx("agy"), "只回一行 JSON", QUESTION, limit=10, settings=READ_ONLY_SETTINGS,
                            follow="gemini-4-neon", effort="xhigh")
         argv = self.recorded()[-1]["argv"]
         self.assertEqual((argv[argv.index("--model") + 1], argv[argv.index("--effort") + 1]), ("gemini-4-neon", "xhigh"))
@@ -593,14 +575,13 @@ class AgyJudgeTest(Case):
             self.ask()
         self.assertEqual(caught.exception.reason, "quota_exhausted")
         with self.assertRaises(AskFailed):  # agy's own default is Gemini's group too (accounts.group_of).
-            self.ask(heavy=True)
+            self.ask(follow="", effort="")
         self.assertEqual(self.recorded(), [])
 
     def test_the_model_a_question_runs_on_is_said_without_starting_anything(self):
         backend = SimpleNamespace(model_catalog=lambda ctx: {"gemini-4-neon": {}, "gemini-3.8-flash": {}})
-        self.assertEqual(agy_judge.model_of(backend, self.ctx("agy")), "gemini-3.8-flash")
-        self.assertEqual(agy_judge.model_of(backend, self.ctx("agy"), heavy=True), "")
-        self.assertEqual(agy_judge.model_of(backend, self.ctx("agy"), heavy=True, follow="gemini-4-neon"), "gemini-4-neon")
+        self.assertEqual(agy_judge.model_of(backend, self.ctx("agy")), "")
+        self.assertEqual(agy_judge.model_of(backend, self.ctx("agy"), follow="gemini-4-neon"), "gemini-4-neon")
         self.assertEqual(self.recorded(), [])
 
     def test_signed_in_by_the_token_or_an_api_key(self):
@@ -632,8 +613,8 @@ class RoutingTest(unittest.TestCase):
     def app(name, *, ask_once=False, answer='{"route":"merge","target":1,"confidence":0.9}'):
         calls = []
 
-        def ask(ctx, system, data, *, heavy=False, limit, cwd=None):
-            calls.append({"system": system, "data": data, "heavy": heavy, "limit": limit, "cwd": cwd})
+        def ask(ctx, system, data, *, limit, cwd=None, **kw):
+            calls.append({"system": system, "data": data, "limit": limit, "cwd": cwd, **kw})
             if isinstance(answer, AskFailed):
                 raise answer
             return answer
@@ -666,10 +647,10 @@ class RoutingTest(unittest.TestCase):
         backend, ctx = pick(codex)
         raw = track_judge.ask("系统", "{}", backend=backend, ctx=ctx, limit=30, cwd="/absolute/state/judge", environ={})
         self.assertEqual(track_judge.answer_text(raw, "claude"), '{"route":"merge","target":1,"confidence":0.9}')
-        self.assertEqual(backend.calls[-1], {"system": "系统", "data": "{}", "heavy": False, "limit": 30,
-                                             "cwd": "/absolute/state/judge"})
-        track_judge.ask("系统", "{}", backend=backend, ctx=ctx, limit=30, cwd="/c", model="sonnet", environ={})
-        self.assertTrue(backend.calls[-1]["heavy"])  # 整理专项's model: the Harness's own default.
+        self.assertEqual(backend.calls[-1], {"system": "系统", "data": "{}", "limit": 30, "cwd": "/absolute/state/judge"})
+        track_judge.ask("系统", "{}", backend=backend, ctx=ctx, limit=30, cwd="/c", follow="gpt-big", effort="high",
+                        environ={})
+        self.assertEqual((backend.calls[-1]["follow"], backend.calls[-1]["effort"]), ("gpt-big", "high"))
         failing = self.app("agy", ask_once=True, answer=AskFailed("not_signed_in"))
         backend, ctx = pick(failing)
         with self.assertRaises(track_judge.Failed) as caught:

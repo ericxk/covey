@@ -170,7 +170,15 @@ class WebSettingsTest(SettingsCase):
         self.assertEqual(self.snap()["config"]["assist"]["words"], "后台活不调模型，只按规则做。")
         settings.update(self.ctx.state_dir, enabled=False)  # 纯话题: still the page's to change.
         self.assertEqual(self.op(what="row", kind=cards.ASSIST, option="claude")[0], "done")
-        self.assertEqual(settings.load(self.ctx.state_dir).assist, settings.AssistChoice(harness="claude"))
+        chosen = settings.load(self.ctx.state_dir).assist  # A Harness named takes its first model and that model's budget (T924).
+        self.assertEqual((chosen.harness, bool(chosen.model)), ("claude", True))
+        assist.forget()
+        keys = [row["key"] for row in self.snap()["config"]["assist"]["rows"]]
+        self.assertEqual(keys[0], "assist")
+        self.assertIn("a_model", keys)
+        self.assertIn("a_effort", keys)
+        self.assertEqual(self.op(what="row", kind=cards.ASSIST_EFFORT, option="low")[0], "done")
+        self.assertEqual(settings.load(self.ctx.state_dir).assist.effort, "low")
         self.assertEqual(self.op(what="row", kind=cards.ASSIST, option="nope"), ("failed", web_settings.GONE))
         with mock.patch.dict(os.environ, {"COVEY_BUTLER": "0"}):
             self.assertIn("assist", self.snap()["config"])

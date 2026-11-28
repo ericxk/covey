@@ -65,12 +65,16 @@ LEAD_MODEL = 'bridge_main_lead_model'
 LEAD_EFFORT = 'bridge_main_lead_effort'
 # 辅助模型 (core/butler_settings.py AssistChoice, app/assist.py): which Harness the background model calls go through.
 ASSIST = 'bridge_main_assist_harness'
+# With a Harness named there, its 供应商, 模型 and 思考预算 as the sections above (T924: one setting for every background call).
+ASSIST_PROVIDER = 'bridge_main_assist_provider'
+ASSIST_MODEL = 'bridge_main_assist_model'
+ASSIST_EFFORT = 'bridge_main_assist_effort'
 ASSIST_AUTO, ASSIST_NONE = 'auto', 'none'  # app/assist.py AUTO, NONE: the row's two choices that are not a Harness.
 ASSIST_WORDS = {ASSIST_AUTO: '自动（跟随管家）', ASSIST_NONE: '不用模型（只按规则）'}
 ROWS = frozenset({ASSIST, HARNESS, MODEL, EFFORT, PROVIDER, REDACTION, COMPACT, TOPIC_HARNESS, TOPIC_PROVIDER, TOPIC_MODEL, TOPIC_EFFORT,
                   TOPIC_REDACTION, SUBAGENTS, MODE, REVIEW_HARNESS, REVIEW_PROVIDER,
                   REVIEW_MODEL, REVIEW_EFFORT, LEAD_HARNESS, LEAD_PROVIDER, LEAD_MODEL,
-                  LEAD_EFFORT})  # Settings-list rows: the value's ``option`` is the choice.
+                  LEAD_EFFORT, ASSIST_PROVIDER, ASSIST_MODEL, ASSIST_EFFORT})  # Settings-list rows: the value's ``option`` is the choice.
 # The rows and the 用途 button the 工作区 rows' removal took off the cards: a click on an older card's says OFFLINE_NOTICE and changes nothing
 # (the kinds stay: an older card is still answered, app/card_actions.py RETIRED_TEXT says the same for a click no panel took).
 OFFLINE_KINDS = frozenset({SPACE, TOPIC_WORKSPACE, TOPIC_RUN_MODE, NOTES})
@@ -85,7 +89,8 @@ PART_OF = {**dict.fromkeys((TOPIC_HARNESS, TOPIC_PROVIDER, TOPIC_MODEL, TOPIC_EF
                             TOPIC_WORKSPACE, *RETIRED_KINDS), TOPIC_PART),
            **dict.fromkeys((HARNESS, PROVIDER, MODEL, EFFORT, REDACTION, SPACE, COMPACT, MODE, ENABLE), BUTLER_PART),
            **dict.fromkeys((REVIEW_HARNESS, REVIEW_PROVIDER, REVIEW_MODEL, REVIEW_EFFORT), REVIEW_PART),
-           **dict.fromkeys((LEAD_HARNESS, LEAD_PROVIDER, LEAD_MODEL, LEAD_EFFORT), LEAD_PART), ASSIST: ASSIST_PART}
+           **dict.fromkeys((LEAD_HARNESS, LEAD_PROVIDER, LEAD_MODEL, LEAD_EFFORT), LEAD_PART),
+           **dict.fromkeys((ASSIST, ASSIST_PROVIDER, ASSIST_MODEL, ASSIST_EFFORT), ASSIST_PART)}
 # The page each button is on: a click on a card drawn before the pages, on one of the retired pages 管家, 新话题 and 模型
 # or on the retired 其他 or 工作区 redraws the page of its row now (配置).
 PAGE_OF = dict.fromkeys(KINDS, CONFIG)
@@ -123,8 +128,9 @@ SUBAGENT_NOTE = '子 Agent 对所有 Claude Code 话题和管家都生效；改�
 LEAD_FOLLOW = '跟管家一样'
 LEAD_NOTE = ('新建的专项，负责人用这里选的；没选就跟管家一样。已有的专项在专项卡上点「换配置」。'
              '只列能接 Bridge 工具的 Harness（负责人用它们派话题，在哪个上都只读）；管家开着脱敏时只列能脱敏的。')
-# 辅助模型's line under its row (app/assist.py), then what it runs on now (app/assist.py describe).
-ASSIST_NOTE = '分流、整理专项、记忆自己长这些后台活用它；选了哪个就只用哪个，用不了就不调模型并说明原因。'
+# 辅助模型's line under its rows (app/assist.py), then what it runs on now (app/assist.py describe).
+ASSIST_NOTE = ('分流、整理专项、记忆自己长这些后台活都用这一个；自动就和管家一样（Harness、模型、思考预算），'
+               '选了哪个就只用哪个，用不了就不调模型并说明原因。')
 RETIRED_NOTICE = '直接开工已下线：管家开的话题一律直接开工，这一项不用再设。'
 OFFLINE_NOTICE = '这个选项已下线：新话题一律从主目录开始，仓库在网页设置的「仓库」页管。'
 # 管家's line under its rows while 脱敏 keeps a Harness that cannot redact off its Harness row.
@@ -226,11 +232,24 @@ def subagent_setting(settings):
 
 
 def assist_setting(assist):
-    """辅助模型's row (app/assist.py offered, current): 自动（跟随管家）, each Harness that answers one question by itself,
-    不用模型."""
+    """辅助模型's Harness row (app/assist.py offered, current): 自动（跟随管家）, each Harness that answers one question by
+    itself, 不用模型."""
     options = list(assist.get('options') or ())
     current = str(assist.get('current') or ASSIST_AUTO)
-    return Setting('assist', '辅助模型', ASSIST, current, known(options, current, ASSIST_WORDS.get(current, current)))
+    return Setting('assist', 'Harness', ASSIST, current, known(options, current, ASSIST_WORDS.get(current, current)))
+
+
+def assist_setting_list(settings, choices, limit, assist):
+    """辅助模型's rows (core/butler_settings.py AssistChoice): its Harness row (``assist_setting``), and with a Harness named
+    its 供应商, 模型 and 思考预算 as 专项负责人's (tier_rows without empty choices: each names what it runs)."""
+    rows = [assist_setting(assist)]
+    choice = settings.assist
+    if choice.harness and not choice.off:
+        entry = entry_of(choices, choice.harness, choice.model) if choice.model else default_entry(choices, choice.harness)
+        rows += tier_rows(choices, choice.harness, choice.model, choice.effort, entry,
+                          keys=('a_provider', 'a_model', 'a_effort'), kinds=(ASSIST_PROVIDER, ASSIST_MODEL, ASSIST_EFFORT),
+                          limit=limit, empty=False)
+    return rows
 
 
 def assist_note(assist):
@@ -275,7 +294,8 @@ def lead_setting_list(settings, choices, limit):
 # the rest (新话题: 脱敏; 管家: 脱敏, 压缩阈值, 私聊顶层的消息). A choice whose words are long
 # (``wide``) takes a line of its own, as wide as the card.
 MODEL_KEYS = frozenset({'harness', 'provider', 'model', 'effort', 't_harness', 't_provider', 't_model', 't_effort',
-                        'r_harness', 'r_provider', 'r_model', 'r_effort', 'l_harness', 'l_provider', 'l_model', 'l_effort'})
+                        'r_harness', 'r_provider', 'r_model', 'r_effort', 'l_harness', 'l_provider', 'l_model', 'l_effort',
+                        'assist', 'a_provider', 'a_model', 'a_effort'})
 WIDE = 16  # Display width (a CJK character is two) of a choice past which its tile is a line of its own.
 
 
@@ -388,7 +408,7 @@ def config_page(settings, choices, workspaces, limit, follows, models, fallback,
     if lead_on:
         parts[LEAD_PART] = lead_setting_list(settings, choices, limit)
     if assist:
-        parts[ASSIST_PART] = [assist_setting(assist)]
+        parts[ASSIST_PART] = assist_setting_list(settings, choices, limit, assist)
     open_ = BUTLER_PART if confirm and BUTLER_PART in parts else open_ if open_ in parts else OPEN_FIRST
     elements = []
     for part, settings_ in parts.items():

@@ -184,6 +184,10 @@ ACTIONS = {
     "bridge_main_topic_workspace": CardAction("选择新话题工作区（已下线）"),
     "bridge_main_subagents": CardAction("选择子 Agent 模型"),
     "bridge_main_assist_harness": CardAction("选择辅助模型"),
+    # 辅助模型's 供应商, 模型 and 思考预算 once a Harness is named there (core/butler_settings.py AssistChoice, T924).
+    "bridge_main_assist_provider": CardAction("选择辅助模型供应商"),
+    "bridge_main_assist_model": CardAction("选择辅助模型的模型"),
+    "bridge_main_assist_effort": CardAction("选择辅助模型思考预算"),
     "bridge_main_review_harness": CardAction("选择独立复核 Harness"),
     "bridge_main_review_provider": CardAction("选择独立复核供应商"),
     "bridge_main_review_model": CardAction("选择独立复核模型"),

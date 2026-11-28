@@ -10,15 +10,12 @@ event that only says Codex reconnects is not the end); the answer is its last ag
 killed then (Codex takes about a second more to exit) or at the limit (core/one_shot.py). Seen on codex-cli 0.171.0: 5 to
 7 s a question (up to 11), about 3 of them the model's over some 15k input tokens of Codex's own instructions and tools.
 
-The model (``choose``): COVEY_JUDGE_CODEX_MODEL when the account's catalog (core/model_settings.py model_catalog) or its
-gateway's lists it; else, when the question follows a setting whose model is a model gateway's (``follow``: its prefix,
-core/gateways.py), that gateway's: for a light question the first of its models whose id or description says it is a light
-one (``LIGHT``), else the followed model itself, for a heavy one the followed model; else for a light question (the track
-router, 记忆自己长) the first light model of the account's catalog (gpt-6-luna, "Fast and
-affordable model for easier tasks"), for a heavy one (整理专项) the followed model of the account's own (no prefix) when
-the catalog lists it (or there is none), else the owner's own default (no ``-m``). The effort is the lowest the model has
-for a light question; for a heavy one on the followed model that setting's budget (``effort``) when the model has it, else
-``medium``. A gateway's model goes through a relay of its own for the question (backends/gateway/relay.py, its spent
+The model (``choose``): every question of the 辅助模型 alike (T924: no light model picked for some of them), the model the
+setting names or follows (``follow``, app/assist.py): a model gateway's (its prefix, core/gateways.py) goes to that gateway,
+one of the account's own when its catalog (core/model_settings.py model_catalog) lists it or there is none; at the
+setting's budget (``effort``) when the model has it, else Codex's own (no ``model_reasoning_effort``). With no model there,
+COVEY_JUDGE_CODEX_MODEL when the account's catalog or its gateway's lists it; else the owner's own default (no ``-m``)
+at its own budget. A gateway's model goes through a relay of its own for the question (backends/gateway/relay.py, its spent
 quota held there as in a turn), the gateway's provider given on the command line (backends/codex/gateway.py
 provider_config). ``model_of``: the model a question would run on, without starting anything.
 
@@ -50,10 +47,6 @@ from covey.core.process_env import child_process_env
 from covey.core.state import ensure_private_dir
 
 MODEL_ENV = "COVEY_JUDGE_CODEX_MODEL"
-# A model the catalog calls light: a word of its id, or its description ("Fast and affordable model for easier tasks").
-LIGHT = re.compile(r"(?<![a-z0-9])(luna|mini|nano|lite|small)(?![a-z])|affordable|easier tasks|simpler tasks", re.I)
-EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
-HEAVY_EFFORT = "medium"
 # On top of a consult's (apps, plugins, memories, hooks, goals, image generation, web search, the question off): the
 # shell, subagents and the other tools a one-line answer has no use for. The app server and exec ignore a key they do not
 # know (codex-cli 0.171.0).
@@ -90,37 +83,21 @@ def gateway_rows(ctx, account, model) -> dict:
     return {slug: row for slug, row in gateway_models.cached(ctx, account).items() if slug.startswith(gateway.prefix)}
 
 
-def light_of(catalog) -> str:
-    return next((slug for slug, row in catalog.items()
-                 if LIGHT.search(slug) or LIGHT.search(str(row.get("description") or ""))), "")
-
-
-def choose(env, *, heavy: bool, environ=None, follow: str = "", ctx=None, effort: str = "") -> tuple:
+def choose(env, *, environ=None, follow: str = "", ctx=None, effort: str = "") -> tuple:
     """(model, effort) of a question: '' for Codex's own default (see the module docstring). ``follow``, ``effort``: the
-    model of the setting the question follows and its budget; ``ctx`` (its state directory) finds a gateway's saved
-    directory."""
+    model and budget of the setting; ``ctx`` (its state directory) finds a gateway's saved directory."""
     account = model_catalog(real_home(env))
-    wanted = str(cenv.get(MODEL_ENV, "", environ) or "").strip()
-    wanted_rows = gateway_rows(ctx, account, wanted) if ctx is not None else {}
     followed = gateway_rows(ctx, account, follow) if ctx is not None and follow else {}
     on_gateway = bool(follow) and gateways.for_model("codex", follow) is not None
-    catalog = {**account, **wanted_rows, **followed}
+    if follow and (on_gateway or not account or follow in account):
+        levels = [level.get("effort") for level in ({**account, **followed}.get(follow) or {}).get("supported_reasoning_levels")
+                  or () if isinstance(level, dict)]
+        return follow, (effort if effort and (not levels or effort in levels) else "")
+    wanted = str(cenv.get(MODEL_ENV, "", environ) or "").strip()
+    wanted_rows = gateway_rows(ctx, account, wanted) if ctx is not None and wanted else {}
     if wanted and (not account or wanted in account or wanted in wanted_rows):
-        model = wanted
-    elif on_gateway:
-        model = follow if heavy else (light_of(followed) or follow)
-    elif heavy:
-        model = follow if follow and (not account or follow in account) else ""
-    else:
-        model = light_of(account)
-    levels = [level.get("effort") for level in (catalog.get(model) or {}).get("supported_reasoning_levels") or ()
-              if isinstance(level, dict)]
-    levels = [level for level in EFFORTS if level in levels]
-    if heavy and model and model == follow and effort and (not levels or effort in levels):
-        return model, effort
-    if heavy:
-        return model, (HEAVY_EFFORT if not levels or HEAVY_EFFORT in levels else levels[0])
-    return model, (levels[0] if levels else "low")
+        return wanted, ""
+    return "", ""
 
 
 def argv(ctx, system: str, model: str, effort: str, command=None) -> list:
@@ -191,7 +168,7 @@ def on_gateway(gateway, model, env, base_url, command) -> tuple:
     return command, env
 
 
-def ask_once(ctx, system: str, data: str, *, heavy: bool = False, limit: float, cwd=None, follow: str = "",
+def ask_once(ctx, system: str, data: str, *, limit: float, cwd=None, follow: str = "",
              effort: str = "", environ=None) -> str:
     """The answer's text to ``data`` under ``system``, within ``limit`` seconds; AskFailed with the reason otherwise. ``cwd``:
     the empty directory it runs in (made; default <state>/codex-judge). ``follow``, ``effort``: the model of the setting
@@ -199,7 +176,7 @@ def ask_once(ctx, system: str, data: str, *, heavy: bool = False, limit: float, 
     folder = Path(cwd) if cwd is not None else Path(ctx.state_dir) / "codex-judge"
     ensure_private_dir(folder)
     env = child_process_env(folder)
-    model, effort = choose(env, heavy=heavy, environ=environ, follow=follow, ctx=ctx, effort=effort)
+    model, effort = choose(env, environ=environ, follow=follow, ctx=ctx, effort=effort)
     gateway = gateways.for_model("codex", model) if model else None
 
     def run(command, run_env, name):
@@ -227,9 +204,9 @@ def default_model(env) -> str:
     return model.strip() if isinstance(model, str) else ""
 
 
-def model_of(ctx, *, heavy: bool = False, follow: str = "", environ=None) -> str:
+def model_of(ctx, *, follow: str = "", environ=None) -> str:
     """The model id a question (``ask_once``) would run on, a gateway's with its prefix; for Codex's own default the one
     config.toml names (``default_model``), '' when none does. Nothing is started, nothing fetched."""
     env = child_process_env()
-    model, _ = choose(env, heavy=heavy, environ=environ, follow=follow, ctx=ctx)
+    model, _ = choose(env, environ=environ, follow=follow, ctx=ctx)
     return model or default_model(env)

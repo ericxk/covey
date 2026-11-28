@@ -345,7 +345,7 @@ Harness 自己的记忆在代答话题和脱敏的一轮里不读不写，开没
 - **压缩和快照**：Claude Code 和 Antigravity 由 Bridge 压缩（capability `compaction`；Antigravity 用 agy 自己的 `/compact`，见 [harnesses.md](harnesses.md#antigravity)）。Codex 自己压缩，Bridge 看不到，所以每一轮都给完整快照，不只给变了的行。
 - **脱敏**：只有 Claude Code 能脱敏。开着脱敏时不能换到别的 Harness；换过去以后脱敏一行不显示。
 - **专项负责人**：有自己的 Harness、模型和预算（[专项 · 负责人用哪个 Harness](projects.md#负责人用哪个-harness)）：新建时先看管家开专项时你点名的，再看设置卡「配置」页“专项负责人”一段，都没有才照管家的（`app/lead_harness.py` 的 `binding`；管家还没在这个私聊跑过一轮时，照它现在会用的，`app/butler_harness.py` 的 `unwritten_topic`）；之后管家换 Harness 不影响已有的负责人，要换点专项卡上的「换配置」。负责人在哪个 Harness 上都只读（[专项 · 负责人只读](projects.md#负责人只读)）。
-- **后台活跟着管家换**：同时做几件事的分流、整理专项、记忆自己长都经[辅助模型](configuration.md#辅助模型)（`app/assist.py`）：默认“自动（跟随管家）”，管家换到 Codex，它们也跟到 Codex（连同供应商）；设置卡「配置」的「辅助模型」一节可以点名某一个 Harness（只用它，用不了就说明原因、不换别家）或选“不用模型”。管家关着时这一项照样在、照样生效。子 Agent 一项只对 Claude Code 生效。
+- **后台活跟着管家换**：同时做几件事的分流、整理专项、记忆自己长都经[辅助模型](configuration.md#辅助模型)（`app/assist.py`）：默认“自动（跟随管家）”，管家换到 Codex，它们也跟到 Codex（连同模型、思考预算和供应商，几样后台活用同一套）；设置卡「配置」的「辅助模型」一节可以点名某一个 Harness 再选模型和思考预算（只用它，用不了就说明原因、不换别家）或选“不用模型”。管家关着时这一项照样在、照样生效。子 Agent 一项只对 Claude Code 生效。
 - **新装没有 Claude Code 时**：`./install` 第 3 步 Claude Code 没调通、Codex 或 Antigravity 调通了时，在服务第一次启动前把 `harness` 写成调通的第一个（先 Codex 后 Antigravity；`core/butler_settings.py` 的 `preset_harness`，只写这一项，私聊模式照旧由第一次启动写成管家）；专项、整理专项照常开。之后装好 Claude Code 也不自动换回，在这一段换；见[安装 · 没有 Claude Code 时](install.md#没有-claude-code-时)。
 - **回退旧版本**：旧版本不读 `harness`，管家回到 Claude Code，但模型还是新 Harness 的模型 id；回退前先在设置卡上把 Harness 换回 Claude Code。
 

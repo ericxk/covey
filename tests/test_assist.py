@@ -40,13 +40,13 @@ class Spawns:
 
 
 def native_app(name, spawns, *, answer=ANSWER, state):
-    def ask_once(ctx, system, data, *, heavy=False, limit, cwd=None, follow=""):
+    def ask_once(ctx, system, data, *, limit, cwd=None, **kw):
         spawns.calls.append(name)
         if isinstance(answer, BaseException):
             raise answer
         return answer
     backend = SimpleNamespace(capabilities=lambda ctx: HarnessCapabilities(ask_once=True), ask_once=ask_once,
-                              ask_model=lambda ctx, heavy=False, follow="": f"{name}-{'big' if heavy else 'light'}")
+                              ask_model=lambda ctx, follow="": follow or f"{name}-own")
     ctx = SimpleNamespace(backend_cmd=[name], state_dir=state, options={"harness_id": name}, device=None)
     return harness_app(backend, ctx)
 
@@ -156,23 +156,22 @@ class MatrixTest(Case):
 
 
 class FollowedBudgetTest(Case):
-    """T924, the owner (11-28): 自动（跟随管家） means the butler's model and budget. A heavy question (整理专项 and its
-    补话题要点) goes on the followed setting's model at its budget on each Harness, never a lower one put in its place; a
-    light one (分流, 记忆自己长) keeps the light model at its lowest budget; a named Harness or a setting without a model
-    leaves it to the Harness, as before."""
+    """T924, the owner (11-28): 辅助模型 is one setting for every background call (这块不用分开), 自动 the butler's Harness,
+    model and budget, a named Harness with its own model and budget as the sections above; no light model put in for 分流
+    and 记忆自己长, no lower budget for 整理专项."""
 
     def native(self, name):
         asked = []
 
-        def ask_once(ctx, system, data, *, heavy=False, limit, cwd=None, **kw):
-            asked.append({"heavy": heavy, **kw})
+        def ask_once(ctx, system, data, *, limit, cwd=None, **kw):
+            asked.append(kw)
             return ANSWER
         backend = SimpleNamespace(capabilities=lambda ctx: HarnessCapabilities(ask_once=True), ask_once=ask_once,
-                                  ask_model=lambda ctx, heavy=False, follow="": follow or name)
+                                  ask_model=lambda ctx, follow="": follow or name)
         ctx = SimpleNamespace(backend_cmd=[name], state_dir=self.state, options={"harness_id": name}, device=None)
         return harness_app(backend, ctx), asked
 
-    def test_the_route_carries_the_budget_of_the_setting_it_follows(self):
+    def test_the_route_carries_the_model_and_budget_of_the_setting(self):
         topics = self.topics()
         self.setting(SETTINGS["auto"], enabled=True, harness="agy", model="gemini-4-neon", effort="xhigh",
                      topic_defaults=butler_settings.TopicDefaults(harness="claude", model="opus", effort="ultracode"))
@@ -181,45 +180,60 @@ class FollowedBudgetTest(Case):
         self.assertEqual((found.rest[0].follow, found.rest[0].effort), ("opus", "xhigh"))  # Its budget, not the orchestration.
         self.setting(SETTINGS["auto"], enabled=True, harness="agy", model="", effort="xhigh")
         self.assertEqual(assist.route(topics, assist.TIDY).first.effort, "")  # No model named: the Harness's own.
+        self.setting(butler_settings.AssistChoice(harness="codex", model="gpt-big", effort="high"))
+        found = assist.route(topics, assist.TRACK)
+        self.assertEqual((found.first.name, found.first.follow, found.first.effort, found.first.named),
+                         ("codex", "gpt-big", "high", True))
         self.setting(SETTINGS["codex"])
-        self.assertEqual(assist.route(topics, assist.TIDY).first.effort, "")  # Named: nothing followed.
+        self.assertEqual((assist.route(topics).first.follow, assist.route(topics).first.effort), ("", ""))
 
-    def test_a_heavy_question_is_asked_at_the_followed_budget_and_a_light_one_never(self):
+    def test_every_feature_is_asked_on_the_same_model_and_budget(self):
         app, asked = self.native("agy")
         topics = topics_with(self.state, {"claude": claude_app(self.state), "agy": app}, default="claude")
         topics.runtime.log = self.logs.append
         self.setting(SETTINGS["auto"], enabled=True, harness="agy", model="gemini-4-neon", effort="xhigh")
         for feature in (assist.TIDY, assist.BACKFILL, assist.LEARN):
             self.call(topics, feature)
-        self.assertEqual(asked, [{"heavy": True, "follow": "gemini-4-neon", "effort": "xhigh"},
-                                 {"heavy": True, "follow": "gemini-4-neon", "effort": "xhigh"},
-                                 {"heavy": False, "follow": "gemini-4-neon"}])
-        asked.clear()
         assist.judge(self.message(), topics=topics, log=self.logs.append)
-        self.assertEqual(asked, [{"heavy": False, "follow": "gemini-4-neon"}])  # 分流: the light model, no budget given.
+        self.assertEqual(asked, [{"follow": "gemini-4-neon", "effort": "xhigh"}] * 4)
 
-    def test_claude_code_follows_the_settings_model_and_budget_unless_the_variable_names_one(self):
+    def test_claude_code_runs_on_the_settings_model_and_budget_else_the_variable_else_its_own(self):
         topics = self.topics()
         self.setting(SETTINGS["auto"], enabled=True, harness="claude", model="opus", effort="xhigh")
-        self.call(topics, assist.TIDY)
-        self.assertEqual(self.claude_asked, {"model": "opus", "effort": "xhigh"})
+        for feature in (assist.TIDY, assist.LEARN):
+            self.call(topics, feature)
+            self.assertEqual(self.claude_asked, {"model": "opus", "effort": "xhigh"})
         with mock.patch.dict(os.environ, {"COVEY_PROJECT_TIDY_MODEL": "sonnet"}):
             self.call(topics, assist.TIDY)
-        self.assertEqual(self.claude_asked, {"model": "sonnet", "effort": ""})  # Another model: not that setting's budget.
-        self.call(topics, assist.LEARN)
-        self.assertEqual(self.claude_asked, {"model": track_judge.MODEL, "effort": ""})
-        self.setting(SETTINGS["claude"])
+            self.assertEqual(self.claude_asked, {"model": "opus", "effort": "xhigh"})  # The setting's comes first.
+            self.setting(SETTINGS["claude"])
+            self.call(topics, assist.TIDY)
+            self.assertEqual(self.claude_asked, {"model": "sonnet", "effort": ""})  # None named: the variable's.
         self.call(topics, assist.TIDY)
-        self.assertEqual(self.claude_asked, {"model": "sonnet", "effort": ""})  # Named: 整理专项's default, as before.
-        self.setting(SETTINGS["auto"], enabled=True, harness="claude", model="opus", effort="xhigh")
-        self.assertEqual(assist.describe(topics)["heavy"], "opus")
+        self.assertEqual(self.claude_asked, {"model": "", "effort": ""})  # Nothing: Claude Code's own.
+        self.setting(butler_settings.AssistChoice(harness="claude", model="haiku", effort="low"))
+        self.call(topics, assist.LEARN)
+        self.assertEqual(self.claude_asked, {"model": "haiku", "effort": "low"})
+        self.assertEqual(assist.describe(topics)["model"], "haiku")
 
-    def test_the_claude_one_shot_takes_the_budget_on_its_command_line(self):
+    def test_the_claude_one_shot_takes_the_model_and_budget_on_its_command_line_or_none(self):
         backend = SimpleNamespace(wrap_argv=lambda argv, ctx: argv)
         ctx = SimpleNamespace(backend_cmd=["claude"])
         argv = track_judge.claude_argv(backend, ctx, False, model="opus", effort="xhigh")
-        self.assertEqual(argv[argv.index("--effort") + 1], "xhigh")
-        self.assertNotIn("--effort", track_judge.claude_argv(backend, ctx, False, model="haiku"))
+        self.assertEqual((argv[argv.index("--model") + 1], argv[argv.index("--effort") + 1]), ("opus", "xhigh"))
+        argv = track_judge.claude_argv(backend, ctx, False, model="")
+        self.assertNotIn("--model", argv)
+        self.assertNotIn("--effort", argv)
+
+    def test_an_old_settings_file_reads_as_before_and_a_named_harness_keeps_its_model(self):
+        path = butler_settings.path(self.state)
+        path.write_text(json.dumps({"assist": {"harness": "codex"}}))
+        self.assertEqual(butler_settings.load(self.state).assist, butler_settings.AssistChoice(harness="codex"))
+        path.write_text(json.dumps({"assist": {"harness": "agy", "model": "gemini-4-neon", "effort": "xhigh"}}))
+        self.assertEqual(butler_settings.load(self.state).assist,
+                         butler_settings.AssistChoice(harness="agy", model="gemini-4-neon", effort="xhigh"))
+        path.write_text(json.dumps({"assist": {"off": True, "model": "x"}}))
+        self.assertEqual(butler_settings.load(self.state).assist, butler_settings.AssistChoice(off=True))
 
 
 class NoStandbyTest(Case):
@@ -287,10 +301,9 @@ class FallbackTest(Case):
         self.assertEqual(self.call(topics, assist.LEARN).reason, "broken")
         self.assertEqual(self.spawns.calls, [])
         ok = self.topics()
-        self.call(ok, assist.TIDY)  # Another lane of Codex (its 整理 model): not stopped by the light model's break.
-        self.assertEqual(self.spawns.calls, ["codex"])
-        self.assertEqual(records.broken(records.read(self.state, fresh=True), "codex")["model"], "codex-light")
-        self.spawns.calls.clear()
+        self.assertEqual(self.call(ok, assist.TIDY).reason, "broken")  # One setting for every feature: the same lane (T924).
+        self.assertEqual(self.spawns.calls, [])
+        self.assertEqual(records.broken(records.read(self.state, fresh=True), "codex")["model"], "codex-own")
         self.call(ok, assist.LEARN, manual=True)  # The owner's call on the broken lane: tried once, and it clears the break.
         self.assertEqual(self.spawns.calls, ["codex"])
         self.assertIsNone(records.broken(records.read(self.state, fresh=True), "codex"))
@@ -384,7 +397,12 @@ class OtherCasesTest(Case):
     def test_the_description_names_the_models(self):
         topics = self.topics()
         self.setting(SETTINGS["codex"])
-        self.assertEqual(assist.describe(topics)["words"], "现在：轻的判断用 Codex · codex-light，整理用 Codex · codex-big。")
+        self.assertEqual(assist.describe(topics)["words"], "现在：Codex · codex-own，分流、整理专项、记忆自己长都用它。")
+        self.setting(butler_settings.AssistChoice(harness="codex", model="gpt-big", effort="high"))
+        self.assertEqual(assist.describe(topics)["words"], "现在：Codex · gpt-big · high，分流、整理专项、记忆自己长都用它。")
+        self.setting(SETTINGS["auto"], enabled=True, harness="codex", model="gpt-big", effort="xhigh")
+        self.assertEqual(assist.describe(topics)["words"],
+                         "现在：跟随管家，Codex · gpt-big · xhigh，分流、整理专项、记忆自己长都用它。")
         self.setting(SETTINGS["none"])
         self.assertEqual(assist.describe(topics)["words"], "后台活不调模型，只按规则做。")
         self.assertEqual(assist.available(topics)[0], False)
@@ -486,20 +504,20 @@ class LaneTest(Case):
         self.assertEqual(data["breakers"], {})  # The old Harness-wide rows are never written again.
         topics = self.topics(answers={"codex": AskFailed("authentication_error")})
         self.setting(SETTINGS["codex"])
-        self.call(topics, assist.LEARN)  # codex-light breaks.
+        self.call(topics, assist.LEARN)  # codex-own breaks.
         self.spawns.calls.clear()
         ok = self.topics()
         self.assertEqual(self.call(ok, assist.LEARN).reason, "broken")
-        self.assertEqual(track_judge.answer_text(self.call(ok, assist.TIDY), "claude"), ANSWER)  # codex-big goes on.
-        self.assertEqual(self.spawns.calls, ["codex"])
-        self.assertEqual(assist.recent(self.state)[0]["model"], "codex-big")
+        self.assertEqual(self.call(ok, assist.TIDY).reason, "broken")  # One model for every feature (T924): its lane too.
+        self.assertEqual(self.spawns.calls, [])
+        self.assertEqual(records.broken(records.read(self.state, fresh=True), "codex")["model"], "codex-own")
 
     def test_a_refusal_cools_and_counts_for_its_lane_only(self):
         self.setting(SETTINGS["codex"])  # First: a change of the setting clears the coolings.
         for _ in range(records.DAILY_REFUSALS):
-            records.settle(self.state, feature="tidy", harness="codex", model="codex-big", code="policy_refusal", batch=True)
+            records.settle(self.state, feature="tidy", harness="codex", model="codex-own", code="policy_refusal", batch=True)
         data = records.read(self.state, fresh=True)
-        big, light = records.Lane("codex", "codex-big"), records.Lane("codex", "codex-light")
+        big, light = records.Lane("codex", "codex-own"), records.Lane("codex", "codex-light")
         self.assertTrue(records.gated(data, big))
         self.assertIsNotNone(records.cooling(data, big, "tidy"))
         self.assertFalse(records.gated(data, light))
@@ -507,7 +525,7 @@ class LaneTest(Case):
         self.assertEqual(records.refusals_today(data, "codex"), records.DAILY_REFUSALS)
         topics = self.topics()
         self.assertEqual(assist.route(topics, assist.TIDY).why, "cooling")
-        self.assertEqual(assist.route(topics, assist.LEARN).harness, "codex")
+        self.assertEqual(assist.route(topics, assist.LEARN).why, "refusal_gate")  # The same lane: the day's gate holds it.
 
     def test_an_old_record_s_harness_wide_rows_hold_every_lane_until_they_run_out(self):
         now = NOW
@@ -532,14 +550,14 @@ class LaneTest(Case):
     def test_the_owner_s_call_goes_past_a_break_a_cooling_or_the_gate_once_a_lane_a_minute(self):
         topics = self.topics()
         self.setting(SETTINGS["codex"])
-        lane = records.Lane("codex", "codex-big")
+        lane = records.Lane("codex", "codex-own")
         for kept in ({"broken": {"code": "authentication_error", "until": NOW * 2}},
                      {"cooling": {"tidy": {"until": NOW * 2}}},
                      {"refusals": {"day": records.day_of(time_now()), "count": records.DAILY_REFUSALS}}):
             with self.subTest(kept=sorted(kept)):
                 records.forget()
                 records.path(self.state).write_text(json.dumps({"lanes": {lane.key: {"harness": "codex",
-                                                                                     "model": "codex-big", **kept}}}))
+                                                                                     "model": "codex-own", **kept}}}))
                 self.spawns.calls.clear()
                 why = {"broken": "broken", "cooling": "cooling", "refusals": "refusal_gate"}[next(iter(kept))]
                 self.assertEqual(self.call(topics, assist.TIDY).reason, why)  # An automatic call: not asked.

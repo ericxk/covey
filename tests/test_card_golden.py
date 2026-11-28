@@ -1347,12 +1347,13 @@ def settings_cards():
     from covey.cards.redaction_panel import redaction_card
     from covey.cards.settings_hub import folded_hub, tab_row
     from covey.cards.workspace_manager import repos_card
-    from covey.core.butler_settings import LeadModel, ReviewModel, Settings
+    from covey.core.butler_settings import AssistChoice, LeadModel, ReviewModel, Settings
 
     tabs = ["config", "repos", "redaction", "groups"]
     ASSIST_ROW = {"options": [("auto", "自动（跟随管家）"), ("claude", "Claude Code"), ("codex", "Codex"),
                               ("none", "不用模型（只按规则）")],
-                  "current": "auto", "words": "现在：轻的判断用 Claude Code · haiku，整理用 Claude Code · sonnet。"}
+                  "current": "auto", "words": "现在：跟随管家，Claude Code · 当前登录账号的模型，分流、整理专项、记忆自己长都用它。"}
+    ASSIST_NAMED = {**ASSIST_ROW, "current": "codex", "words": "现在：Codex · gpt-6 · high，分流、整理专项、记忆自己长都用它。"}
 
     def row(tab):
         return [tab_row(tab, "c" * 24, tabs)]
@@ -1389,6 +1390,10 @@ def settings_cards():
         # T884: 辅助模型, a section of its own (the owner's choice A), shown with the butler off too.
         "config_assist": butler_panel_card("c" * 24, {**view, "open": "assist"}, Settings(), BUTLER_CHOICES,
                                            ["bridge", "docs"], top=row("config"), page="config", assist=ASSIST_ROW),
+        # T924: one setting for every background call; a Harness named there with its 供应商, 模型 and 思考预算 as 专项负责人's.
+        "config_assist_named": butler_panel_card(
+            "c" * 24, {**view, "open": "assist"}, Settings(assist=AssistChoice(harness="codex", model="gpt-6", effort="high")),
+            LEAD_CHOICES, ["bridge", "docs"], top=row("config"), page="config", assist=ASSIST_NAMED),
         "config_assist_closed": butler_panel_card("c" * 24, view, Settings(enabled=False), BUTLER_CHOICES,
                                                   ["bridge", "docs"], top=row("config"), page="config", assist=ASSIST_ROW,
                                                   butler_on=False, butler_allowed=False),

@@ -16,14 +16,13 @@ turns from one machine), the records are not changed. Every account held out (sp
 ``quota_exhausted``. With one login, a spent quota an earlier turn said resets later (``accounts.holding``) is
 ``quota_exhausted`` too, before anything starts.
 
-The model (``choose``): COVEY_JUDGE_AGY_MODEL when set (an id ``agy models`` lists, its budget in it: gemini-3.8-flash-low);
-else for a light question the first model of the saved catalog (backends/agy/bridge.py model_catalog, the launch card's)
-whose id or name says it is one of Gemini's light ones (``GEMINI_LIGHT``: flash, lite), then any other light word
-(``LIGHT``), at its lowest budget; for a heavy one (整理专项) the model of the setting the question follows (``follow``)
-when the catalog lists it (or there is none), at that setting's budget (``effort``: the butler's xhigh is asked at xhigh)
-when the catalog does not say the model lacks it, else at agy's own budget for it; else agy's own default model and
-budget. ``model_of``: the model a question would run on, without starting anything ('' for agy's own default: which that
-is only agy knows).
+The model (``choose``): every question of the 辅助模型 alike (T924: no light model picked for some of them), the model the
+setting names or follows (``follow``, app/assist.py) when the saved catalog (backends/agy/bridge.py model_catalog, the
+launch card's) lists it or there is none, at the setting's budget (``effort``: the butler's xhigh is asked at xhigh) when
+the catalog does not say the model lacks it, else at agy's own budget for it; with no model there, COVEY_JUDGE_AGY_MODEL
+(an id ``agy models`` lists, its budget in it: gemini-3.8-flash-low); else agy's own default model and budget.
+``model_of``: the model a question would run on, without starting anything ('' for agy's own default: which that is only
+agy knows).
 
 A failed result's reason: what the Harness reads of its error (``classify``: backends/agy/bridge.py error_code, a login,
 a refusal, a model the account cannot use, a spent quota, a limit, a fault), else core/assist.py code_of_text, else
@@ -33,7 +32,6 @@ read from its standard error the same way (core/one_shot.py). Seen on agy 1.5.14
 from __future__ import annotations
 
 import json
-import re
 import time
 from pathlib import Path
 
@@ -48,33 +46,19 @@ from covey.core.process_env import child_process_env
 from covey.core.state import ensure_private_dir
 
 MODEL_ENV = "COVEY_JUDGE_AGY_MODEL"
-# Gemini's light models first (the Gemini quota group's, accounts.group_of), by a word of the id or name.
-GEMINI_LIGHT = re.compile(r"(?<![a-z0-9])(flash|lite)(?![a-z])", re.I)
-# Then any light model, by a word of its id or name (never inside another word: "gemini" holds "mini").
-LIGHT = re.compile(r"(?<![a-z0-9])(flash|lite|mini|nano|small|haiku|luna)(?![a-z])", re.I)
 
 
-def choose(catalog, *, heavy: bool, environ=None, follow: str = "", effort: str = "") -> tuple:
+def choose(catalog, *, environ=None, follow: str = "", effort: str = "") -> tuple:
     """(model, effort) of a question from ``catalog`` ({model: {display_name, supported_reasoning_levels}}): '' for agy's
-    own (see the module docstring). ``effort``: the budget of the setting a heavy question follows."""
-    wanted = str(cenv.get(MODEL_ENV, "", environ) or "").strip()
-    if wanted:
-        return wanted, ""
-    if heavy:
-        if not follow or (catalog and follow not in catalog):
-            return "", ""
+    own (see the module docstring). ``follow``, ``effort``: the model and budget of the setting."""
+    if follow and (not catalog or follow in catalog):
         row = (catalog or {}).get(follow)
         levels = None if row is None else [level.get("effort") for level in row.get("supported_reasoning_levels") or ()
                                            if isinstance(level, dict)]
         # Unknown to the catalog: agy checks the budget itself. Listed without budgets: agy refuses one.
         return follow, (effort if effort and (levels is None or effort in levels) else "")
-    for pattern in (GEMINI_LIGHT, LIGHT):
-        for model, row in (catalog or {}).items():
-            if pattern.search(model) or pattern.search(str(row.get("display_name") or "")):
-                levels = [level.get("effort") for level in row.get("supported_reasoning_levels") or ()
-                          if isinstance(level, dict)]
-                return model, (levels[0] if levels else "")
-    return "", ""
+    wanted = str(cenv.get(MODEL_ENV, "", environ) or "").strip()
+    return (wanted, "") if wanted else ("", "")
 
 
 def argv(ctx, model: str, effort: str, settings) -> list:
@@ -131,15 +115,15 @@ def home_of(ctx, env, model, environ=None) -> dict:
     return env if account.home is None else {**env, "HOME": str(account.home)}
 
 
-def ask_once(backend, ctx, system: str, data: str, *, heavy: bool = False, limit: float, cwd=None, settings,
+def ask_once(backend, ctx, system: str, data: str, *, limit: float, cwd=None, settings,
              follow: str = "", effort: str = "", classify=None, environ=None) -> str:
     """The answer's text to ``data`` under ``system``, within ``limit`` seconds; AskFailed with the reason otherwise.
     ``settings``: the deny rules (backends/agy/bridge.py READ_ONLY_SETTINGS); ``cwd``: the empty directory it runs in
-    (made; default <state>/agy-judge); ``follow``, ``effort``: the model of the setting the question follows and its
-    budget (a heavy question's, ``choose``); ``classify``: the Harness's reading of an error's words (backends/agy/bridge.py error_code)."""
+    (made; default <state>/agy-judge); ``follow``, ``effort``: the model and budget of the setting (``choose``);
+    ``classify``: the Harness's reading of an error's words (backends/agy/bridge.py error_code)."""
     folder = Path(cwd) if cwd is not None else Path(ctx.state_dir) / "agy-judge"
     ensure_private_dir(folder)
-    model, effort = choose(backend.model_catalog(ctx), heavy=heavy, environ=environ, follow=follow, effort=effort)
+    model, effort = choose(backend.model_catalog(ctx), environ=environ, follow=follow, effort=effort)
     env = home_of(ctx, child_process_env(folder), model, environ)
     if not signed_in(env):
         raise AskFailed("not_signed_in")
@@ -150,6 +134,6 @@ def ask_once(backend, ctx, system: str, data: str, *, heavy: bool = False, limit
     return answer_of(rows, classify)
 
 
-def model_of(backend, ctx, *, heavy: bool = False, follow: str = "", environ=None) -> str:
+def model_of(backend, ctx, *, follow: str = "", environ=None) -> str:
     """The model id a question (``ask_once``) would run on; '' for agy's own default. Nothing is started."""
-    return choose(backend.model_catalog(ctx), heavy=heavy, environ=environ, follow=follow)[0]
+    return choose(backend.model_catalog(ctx), environ=environ, follow=follow)[0]

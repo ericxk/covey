@@ -980,8 +980,9 @@ export interface SettingsConfigPage {
   /** v36：专项负责人（开了 COVEY_PROJECTS 才有）：新建的专项，负责人用这里选的 Harness、模型、思考预算；行的 key 是 l_harness、l_provider、l_model、l_effort，
    * 改行同独立复核（settings 的 row）。已有专项的负责人在它自己的配置栏换（话题条目 kind=lead 的 config） */
   lead?: SettingsConfigSection;
-  /** 辅助模型（T884）：分流、整理专项、记忆自己长这些后台活用哪个 Harness。一行（key assist，kind bridge_main_assist_harness，
-   * 改行同别的段：settings 的 row），管家关着也能改；旧版 Covey 不带这一段 */
+  /** 辅助模型（T884）：分流、整理专项、记忆自己长这些后台活都用这一套。行：key assist（kind bridge_main_assist_harness：自动、各 Harness、不用模型）；
+   * T924 起点名了 Harness 再有 a_provider、a_model、a_effort（kind bridge_main_assist_provider/model/effort，同专项负责人）；
+   * 改行同别的段：settings 的 row，管家关着也能改；旧版 Covey 只有 assist 一行，没有这一段的更旧 */
   assist?: SettingsConfigAssist;
   more: SettingsRow[];
   more_note: string;

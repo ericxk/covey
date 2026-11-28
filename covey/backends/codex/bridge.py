@@ -108,18 +108,18 @@ class CodexBackend(BackendRuntime):
                                               # start through compactions (codex-cli 0.172.0, app/rules_sent.py).
                                               system_instructions=True), ctx)
 
-    def ask_once(self, ctx, system, data, *, heavy=False, limit, cwd=None, follow="", effort=""):
+    def ask_once(self, ctx, system, data, *, limit, cwd=None, follow="", effort=""):
         """One question to Codex and nothing else (backends/codex/judge.py): the answer's text, or AskFailed. ``follow``:
-        the model of the setting the question follows (a model gateway's: the question goes to that gateway); ``effort``:
-        its budget (a heavy question's)."""
+        the model of the 辅助模型's setting (a model gateway's: the question goes to that gateway); ``effort``: its
+        budget."""
         from covey.backends.codex.judge import ask_once
-        return ask_once(ctx, system, data, heavy=heavy, limit=limit, cwd=cwd, follow=follow, effort=effort)
+        return ask_once(ctx, system, data, limit=limit, cwd=cwd, follow=follow, effort=effort)
 
-    def ask_model(self, ctx, *, heavy=False, follow=""):
+    def ask_model(self, ctx, *, follow=""):
         """The model id ``ask_once`` would run on (backends/codex/judge.py model_of: a gateway's with its prefix, Codex's own
         default as config.toml names it, '' when unknown); nothing is started or fetched."""
         from covey.backends.codex.judge import model_of
-        return model_of(ctx, heavy=heavy, follow=follow)
+        return model_of(ctx, follow=follow)
 
     # The signed-in account's models plus the gateways' Responses models (<prefix><model>, core/gateways.py).
     def model_catalog(self, ctx: BridgeContext) -> dict:

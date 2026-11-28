@@ -69,7 +69,8 @@ EDITABLE = frozenset({cards.TOPIC_HARNESS, cards.TOPIC_PROVIDER, cards.TOPIC_MOD
                       cards.TOPIC_REDACTION, cards.SUBAGENTS,
                       cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION,
                       cards.MODE, cards.REVIEW_HARNESS, cards.REVIEW_PROVIDER, cards.REVIEW_MODEL, cards.REVIEW_EFFORT,
-                      cards.LEAD_HARNESS, cards.LEAD_PROVIDER, cards.LEAD_MODEL, cards.LEAD_EFFORT, cards.ASSIST})
+                      cards.LEAD_HARNESS, cards.LEAD_PROVIDER, cards.LEAD_MODEL, cards.LEAD_EFFORT, cards.ASSIST,
+                      cards.ASSIST_PROVIDER, cards.ASSIST_MODEL, cards.ASSIST_EFFORT})
 BUTLER_KINDS = frozenset({cards.HARNESS, cards.PROVIDER, cards.MODEL, cards.EFFORT, cards.COMPACT, cards.REDACTION})
 CHANGES = ("row", "untrust", "note", "redaction", "terms", "group", "free", "workspace_add", "workspace_remove", "workspace_prune",
            "node_add", "node_remove", "refresh", "proxy", "repos_set", "repos_add", "repos_remove",
@@ -640,21 +641,24 @@ class WebSettings:
             found["lead"] = {"title": cards.SECTIONS[cards.LEAD_PART], "note": cards.LEAD_NOTE,
                              "rows": rows_of(cards.lead_setting_list(settings, choices, LIMIT))}
         try:  # 辅助模型: whether the butler is on or not (the background calls run without it).
-            found["assist"] = self.assist(ctx, settings)
+            found["assist"] = self.assist(ctx, settings, choices)
         except Exception as exc:  # noqa: BLE001 - the rest of 配置 goes on
             self.env.runtime.log(f"web settings assist unreadable: {type(exc).__name__}")
         return {**found, "more": rows_of([cards.subagent_setting(settings)]), "more_note": cards.SUBAGENT_NOTE,
                 "locked": cards.LOCKED if on else ""}
 
-    def assist(self, ctx, settings) -> dict:
-        """配置's 辅助模型 (app/assist.py): its one row (自动, each Harness that answers one question by itself, 不用模型; the page may
-        change it with the butler off too), ``note`` the card's line under it, ``words`` what it runs on now, and ``recent`` the
+    def assist(self, ctx, settings, choices=None) -> dict:
+        """配置's 辅助模型 (app/assist.py): its rows as the card's section has them (Harness: 自动, each Harness that answers one
+        question by itself, 不用模型; with a Harness named its 供应商, 模型 and 思考预算; the page may change them with the butler
+        off too), ``note`` the card's line under them, ``words`` what it runs on now, and ``recent`` the
         background calls' latest outcome, a row a feature (app/assist.py recent: who, ok or the reason's code and words, ms, at;
         never a word the owner or a model said)."""
         from covey.app import assist
         found = self.panel().assist_row(ctx, settings)
         return {"title": cards.SECTIONS[cards.ASSIST_PART], "note": cards.ASSIST_NOTE, "words": found["words"],
-                "rows": rows_of([cards.assist_setting(found)]), "recent": assist.recent(ctx.state_dir)}
+                "rows": rows_of(cards.assist_setting_list(settings, self.choices(ctx) if choices is None else choices,
+                                                              LIMIT, found)),
+                "recent": assist.recent(ctx.state_dir)}
 
     def topic(self, ctx, settings, choices, chat) -> dict:
         """配置's 新话题: its rows (every one the page may change), in the card's two lines."""

@@ -71,19 +71,13 @@ def raw(name, environ=None) -> str:
 
 
 MODEL_ENV = "COVEY_PROJECT_TIDY_MODEL"
-DEFAULT_MODEL = "sonnet"
 MODEL_RE = re.compile(r"[A-Za-z0-9._:\[\]-]{1,80}")
 
 
 def model(environ=None) -> str:
-    """The Claude Code model that writes a 话题要点 from a whole topic and judges a 整理 when the 辅助模型 follows no Claude
-    Code setting with a model (app/assist.py claude_heavy): COVEY_PROJECT_TIDY_MODEL, else DEFAULT_MODEL (more than the
-    small one: both read whole conversations and name what a matter really is)."""
-    return named_model(environ) or DEFAULT_MODEL
-
-
-def named_model(environ=None) -> str:
-    """COVEY_PROJECT_TIDY_MODEL when it names a model ('' unset or not a model id): it comes before any setting followed."""
+    """The Claude Code model of the 辅助模型's calls (分流, 整理专项, 补话题要点, 记忆自己长) when its setting names none and
+    follows none (app/assist.py claude_model): COVEY_PROJECT_TIDY_MODEL, '' unset or not a model id (Claude Code's own
+    default)."""
     value = str(cenv.get(MODEL_ENV, "", environ) or "").strip()
     return value if MODEL_RE.fullmatch(value) else ""
 

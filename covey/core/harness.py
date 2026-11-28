@@ -132,11 +132,11 @@ class HarnessCapabilities:
     # marker are never touched, and the fork's limits hold for that turn alone. Declared once a real write was refused in
     # such a turn on the installed CLI (C8, docs/architecture.md 多参与者协作 · 能力与预检).
     collab: bool = False
-    # Answers one question by itself (``backend.ask_once(ctx, system, data, *, heavy, limit, cwd, follow, effort)``, the
+    # Answers one question by itself (``backend.ask_once(ctx, system, data, *, limit, cwd, follow, effort)``, the
     # answer's text, or AskFailed): a system prompt and one JSON text in, in a process of its own with no tool that changes
     # anything, no MCP server, no hook and no saved session, its whole process group killed at the limit. ``follow``: the
-    # model of the setting the question follows (a model gateway's goes to that gateway); ``effort``: that setting's budget,
-    # which a heavy question on that model is asked at when the model has it. ``backend.ask_model(ctx, *, heavy, follow)``
+    # model of the 辅助模型's setting ('' the Harness's own; a model gateway's goes to that gateway); ``effort``: that
+    # setting's budget, which the question is asked at when the model has it. ``backend.ask_model(ctx, *, follow)``
     # says which model such a question runs on ('' when only the CLI knows) without starting anything, for the words of
     # the 辅助模型 setting. The background model's questions go there when it is this Harness (app/assist.py); Claude
     # Code's own one-shot is app/track_judge.py's.
