@@ -13,8 +13,9 @@ the checkpoint's plan, the token figures, the time it took and the notes of the 
   ``usage_figures``, core/metrics.py ``run_seconds``). While the turn runs ``seconds`` moves in steps of ``RUNNING_STEP`` and ``speed`` is a
   whole number, so a quiet minute does not change the item's ``rev`` every second.
 - ``notes``: the record's ``memory_notes`` as written by the memory feature ({kind, text, scope, entry_id}); none without the field.
-- ``memory`` (data contract v43): how many memory entries the turn carried, the titles of those it used and their short codes
-  (``memory_of``); a topic item's ``repos`` and ``home_start`` are ``topic_fields``.
+- ``memory`` (data contract v43): how many memory entries the turn carried, the titles of those it used (what the ended turn's
+  checkpoint names in ``memory_used``) and their short codes (``memory_of``); a topic item's ``repos`` and ``home_start`` are
+  ``topic_fields``.
 - ``ran_with`` (data contract v27): the Harness, provider, model, budget, workspace and 敏感词脱敏 the turn ran with (``ran_with``).
 - ``artifacts`` (data contract v32): the turn's 产物 as its answer card lists them, each by its file name only, with its cloud-space link
   and size once uploaded, why it could not be, or that it is going up (``artifacts_of``).
@@ -47,7 +48,7 @@ RUNNING_STEP = 10  # Seconds: the 用时 of a running turn moves by this much.
 LABEL_CHARS = 80
 CHECKPOINT_TITLE = "更新检查点"  # core/trace.py CHECKPOINT_STEP: a command that writes the task's checkpoint.
 DETAIL_CHARS = 400
-NOTE_KINDS = ("remembered", "voided", "undone", "skipped_ask", "reference")
+NOTE_KINDS = ("remembered", "voided", "undone", "skipped_ask", "reference", "superseded", "pending")  # The last two carry 不对 too.
 NOTES_KEPT = 20
 STEP_KINDS = {"读取文件": "read", "浏览目录": "read", "修改文件": "edit", "写入文件": "edit", "执行命令": "command", "后台命令": "command",
               "启动后台命令": "command", "更新检查点": "command", "查找文件": "search", "搜索文件": "search", "分配子任务": "subagent", "子任务": "subagent",
@@ -332,25 +333,32 @@ def topic_fields(topic) -> dict:
     return out
 
 
-def memory_of(state, record) -> dict | None:
+def memory_of(state, record, checkpoint=None) -> dict | None:
     """The turn's ``memory`` {count, used, codes}: how many entries it carried (the record's ``memory_ids``), those it said
-    it used (``memory_used``) as [{code, title}] (core/memstore.py find: the entry's short code, "" while it has none, and its
-    title, the key itself while find cannot tell), and the short codes it carried. None for a turn that carried none.
-    ``used`` and ``codes`` are lists of their own (the page draws each code with its title, never by position)."""
+    it used as [{code, title}] and the short codes it carried. None for a turn that carried none. What it used is what its
+    checkpoint (``checkpoint``, read by the caller once the turn has ended) names in ``memory_used`` (a short code, a ref or an
+    older M number, read against the turn's own ``memory_ids``: core/memstore.py find_in_turn, as app/memory_observe.py
+    counts it), else what an older record kept in ``memory_used``; each the entry's short code ("" while it has none) and its
+    title (the name itself while it cannot be told). ``used`` and ``codes`` are lists of their own (the page draws each code
+    with its title, never by position)."""
     from covey.core import memstore
 
     def code_of(item):  # app/memory_turn.py writes {n: its short code, ref, scope, kind, by}; an older turn a code or an M number.
         if isinstance(item, dict):
             return str(item.get("n") or item.get("ref") or "")
         return str(item)
+    carried = [row for row in (record or {}).get("memory_ids") or () if isinstance(row, dict)]
     ids = [code_of(item) for item in (record or {}).get("memory_ids") or () if code_of(item).strip()]
-    used = [str(item) for item in (record or {}).get("memory_used") or () if str(item).strip()]
+    named = (checkpoint or {}).get("memory_used") if isinstance(checkpoint, dict) else None
+    if not isinstance(named, list) or not named:
+        named = (record or {}).get("memory_used") or ()
+    used = list(dict.fromkeys(str(item).strip() for item in named if isinstance(item, str) and item.strip()))
     if not ids and not used:
         return None
 
     def one(key):
         try:
-            entry = memstore.find(state, key)
+            entry = memstore.find_in_turn(state, key, carried) if carried else memstore.find(state, key)
         except (NotImplementedError, OSError, ValueError, KeyError, TypeError):
             entry = None
         code = str(getattr(entry, "code", "") or (key if memstore.is_code(key) else ""))
@@ -380,24 +388,35 @@ def extras(state, record, running, now=None, snapshot=None) -> dict:
         notes = notes_of(record)
         if notes:
             out["notes"] = notes
-        memory = memory_of(state, record)
+        ended = not running and record.get("status") not in WAITS
+        cp = _checkpoint(record) if ended else {}
+        memory = memory_of(state, record, cp)
         if memory:
             out["memory"] = memory
-        if not running and record.get("status") not in WAITS:
-            out.update(checked(state, record))
+        if ended:
+            out.update(checked(state, record, cp))
     except (OSError, ValueError, KeyError, TypeError):
         return out
     return out
 
 
-def checked(state, record) -> dict:
+def _checkpoint(record) -> dict:
+    """The checkpoint of the turn of ``record`` ({} without one, or one that cannot be read)."""
+    path = str(record.get("checkpoint_path") or "")
+    try:
+        return read_checkpoint(Path(path)) if path else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def checked(state, record, cp=None) -> dict:
     """What an ended turn's checkpoint says of its topic's 完成标准 and of what it delivered (data contract v34), as its answer
     card has it: ``criteria`` [{item, state, evidence}] for each of the topic's criteria (core/criteria.py, the state its
     checkpoint marked, 没查 for one it did not; without criteria on the topic, the checkpoint's own marks), ``delivery``
     {commit, deployed, verified} (core/checkpoint.py checkpoint_delivery) when the card shows 改动 (``shows_change``: a commit,
     or files changed and a delivery written). Neither when there is nothing to say."""
-    path = str(record.get("checkpoint_path") or "")
-    cp = read_checkpoint(Path(path)) if path else {}
+    if cp is None:
+        cp = _checkpoint(record)
     if not cp:
         return {}
     out = {}

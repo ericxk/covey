@@ -15,7 +15,7 @@ from support import UNSET_OFF
 from support import make_context
 from support.records import write_job, write_topic
 
-from covey.app import memory_candidates, memory_collect, memory_learn, memory_turn
+from covey.app import memory_collect, memory_learn, memory_turn
 from covey.app.answers import FEEDBACK_START
 from covey.cards.answer_card import memory_element
 from covey.core import memory, memory_review, memory_usage, memstore, principles, project_memory, projects, topic_memory
@@ -54,9 +54,12 @@ class Case(unittest.TestCase):
         self.count = 4
         self.reviewed = []  # The review queue (core/memory_review.py add) is package M2's other half: a stand-in keeps the items.
 
-        def add(state_dir, item):
+        def add(state_dir, item):  # (its key, whether it is new): a proposal there already says no 待审核 again.
+            same = next((n for n, old in enumerate(self.reviewed) if (old.type, old.text, old.suggest) == (item.type, item.text, item.suggest)), None)
+            if same is not None:
+                return f"review:learn:{same + 1:06x}", False
             self.reviewed.append(item)
-            return f"review:learn:{len(self.reviewed):06x}"
+            return f"review:learn:{len(self.reviewed):06x}", True
         patcher = mock.patch.object(memory_review, "add", side_effect=add)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -192,6 +195,18 @@ class LearnTest(Case):
         self.assertEqual(record["memory_learned"]["state"], "failed")
 
 
+class ProposedOnceTest(Case):
+    def test_a_line_waiting_already_is_not_said_to_wait_again(self):
+        said = "以后汇报都先给结论，再给表"
+        answer = {"remember": [{"quote": said, "text": "汇报先给结论再给表", "scope": "global"}], "void": []}
+        first, _, _ = self.learn(self.turn(said), answer)
+        self.assertEqual([note["kind"] for note in first], ["pending"])
+        self.count += 1
+        again, _, record = self.learn(self.turn(said), answer)
+        self.assertEqual(again, [])  # T914 M1: the item is the one there already: the card says no 待审核 for it.
+        self.assertEqual(len(self.reviewed), 1)
+
+
 class RefusalTest(Case):
     """T852: what the learner must not keep, even when the model says it should."""
 
@@ -200,7 +215,7 @@ class RefusalTest(Case):
         notes, _, record = self.learn(self.turn(said), {"remember": [
             {"quote": said, "text": "汇报按上午已优化的方式处理，不展开中途的汇报", "scope": "workspace"}]})
         self.assertEqual(notes, [])
-        self.assertEqual(memory_candidates.load(self.state)["rows"], [])
+        self.assertEqual(memstore.review_items(self.state), [])
         self.assertEqual(principles.for_turn(self.state, "ws"), ([], []))
         self.assertTrue(any("reason=relative-time" in line for line in self.logs), self.logs)
         self.assertFalse(any("展开" in line for line in self.logs))
@@ -397,7 +412,7 @@ class TurnBlockTest(Case):
                         sender_id=OWNER if owner else "ou_other", topic_id="t1")
 
     def carried(self, text="汇报先给结论", workspace=""):
-        write_json(memory_candidates.path(self.state), {"schema_version": 1, "rows": [
+        write_json(Path(self.state) / "memory-candidates.json", {"schema_version": 1, "rows": [  # An older release's.
             {"id": "c0a1b2c3d", "text": text, "topics": [], "labels": [], "workspace": workspace, "slot": NOW, "at": NOW,
              "state": "open", "carried": True, "source": "repeat"}], "declined": [], "ran": []})
 

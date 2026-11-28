@@ -28,8 +28,8 @@ lead's state pack and the web page alike: the same items, parts and choice, its 
 previous turn. Nothing here reads a file but through those stores, and nothing is written. Standard library and core only.
 
 With COVEY_MEMORY_LEARN=1 as well (``learning``, docs/butler.md 记忆自己长) two more things count. ``drafts``: what the Bridge
-distilled from the owner's repeated words and has not been confirmed or declined (app/memory_candidates.py, ``carried``), an
-item of 它总结的 of 全局 or 工作区 (``ref`` "candidate:<id>"), always after his own words. ``used``: when a turn last used an
+distilled from the owner's repeated words and has not been confirmed or declined (an older release's evening candidates;
+none are made any more), an item of 它总结的 of 全局 or 工作区 (``ref`` "candidate:<id>"), always after his own words. ``used``: when a turn last used an
 item (core/memory_usage.py, ref -> epoch seconds): an item's ``seen`` is the later of its time and that, and "the newest first"
 is by ``seen``. Without either the choice is the one above, word for word."""
 from __future__ import annotations
@@ -57,7 +57,7 @@ SPARE_ORDER = (RULE, DECISION, REFERENCE)  # Who takes, in turn, the room the pa
 REFERENCE_CAP = PART_LIMITS[REFERENCE] * 5 // 4  # 待核对参考 (1000) never takes more than this with lent room: the owner's decisions come first.
 LIMITS = {GLOBAL: 1200, WORKSPACE: 800, PROJECT: sum(PART_LIMITS.values()), TOPIC: 800}  # Characters of a scope's lines.
 OWNER, LEAD = "owner", "lead"
-# The owner's words that start a correction (app/memory_turn.py, app/memory_candidates.py, app/memory_learn.py).
+# The owner's words that start a correction (app/memory_turn.py, app/memory_learn.py).
 CORRECTION_WORDS = ("以后", "每次", "别再", "不要再", "记住", "再也不要", "从现在起")
 OWNER_WORDS = {OWNER: "你说的", LEAD: "它总结的"}
 OWNER_SOURCES = project_memory.OWNERS  # Of a project line: the owner's own words.
@@ -131,7 +131,7 @@ def items(*, principles=((), ()), entries=((), ()), project=(), topic=(), projec
     """The items one turn may read: ``principles`` and ``entries`` are (全局, 工作区) lists as core/principles.py and
     core/knowledge.py for_turn give them (the caller leaves 全局 out of a turn that is not the owner's), ``project`` and ``topic``
     the live rows of those memories. A redacted line is only for a turn with ``redacted`` on. ``drafts`` (全局, 工作区): the
-    candidates carried (app/memory_candidates.py carried, {id, text, at}), 它总结的; ``used``: ref -> when a turn last used it
+    evening candidates an older release carried ({id, text, at}; none now), 它总结的; ``used``: ref -> when a turn last used it
     (core/memory_usage.py last_used), each item's ``seen``."""
     found = []
     for scope, rows in zip((GLOBAL, WORKSPACE), principles):

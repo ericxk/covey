@@ -1079,15 +1079,16 @@ class AssistExitTest(unittest.TestCase):
         self.assertEqual(found, [])
 
     def test_the_features_taken_out_stay_out(self):
-        """T898: the standby, the real-time merge and the patrol are gone; 看看, the evening candidates and 整理记忆 ask no
-        model."""
+        """T898: the standby, the real-time merge and the patrol are gone; 看看 and 整理记忆 ask no model. T914: the evening
+        candidates, the nightly harvest and the Harnesses' memory import are gone."""
         from covey.app import assist
         for rel in ("app/track_standby.py", "app/tidy_realtime.py", "app/patrol.py", "app/patrol_judge.py",
-                    "app/patrol_rules.py", "core/patrol.py"):
+                    "app/patrol_rules.py", "core/patrol.py", "app/memory_candidates.py", "app/memory_harvest.py",
+                    "core/harness_memory.py"):
             self.assertFalse((PACKAGE / rel).exists(), rel)
         self.assertEqual(set(assist.FEATURES), {"track", "tidy", "backfill", "learn"})
         self.assertEqual(assist.SHOWN, ("track", "tidy", "learn"))
-        for rel in ("app/stuck_check.py", "app/memory_candidates.py", "app/memory_tidy.py"):
+        for rel in ("app/stuck_check.py", "app/memory_tidy.py"):
             with self.subTest(rel=rel):
                 self.assertNotIn("assist.ask(", (PACKAGE / rel).read_text())
 
@@ -1254,7 +1255,6 @@ class MemoryWriteTest(unittest.TestCase):
         "covey/app/butler_knowledge.py::memory_save::memstore.add_decision": 1,
         "covey/app/butler_tools.py::principle_save::principles.save": 1,
         "covey/app/knowledge_collect.py::_remember::memstore.add": 1,
-        "covey/app/memory_candidates.py::decide::principles.save": 1,
         "covey/app/memory_collect.py::_take::memstore.add": 1,
         "covey/app/memory_collect.py::promote::principles.save": 1,
         "covey/app/memory_panel.py::MemoryPanel.put_away::memstore.archive": 1,
@@ -1269,7 +1269,6 @@ class MemoryWriteTest(unittest.TestCase):
         "covey/app/web_memory.py::_write_item::memstore.add_decision": 1,
         "covey/app/web_memory.py::edit_v43::memstore.add": 1,
         "covey/app/web_memory.py::edit_v43::memstore.add_decision": 1,
-        "covey/core/harness_memory.py::take::memstore.add": 1,  # 采纳 a Harness's own memory (W1-D).
     }
 
     @classmethod

@@ -1,6 +1,6 @@
 """The web page's 记忆 tab (app/web_memory.py, data contract v37; T748): the ``memory`` item the page reads (全局 and each workspace's
 principles and knowledge entries, the room they use, which the next turn carries, the candidates, the next turn's block) and the
-``memory_edit`` operation (add, edit, 常驻, delete, 记下 and 不用) through the stores the 设置 card uses; and its push (app/web_sync.py
+``memory_edit`` operation (add, edit, 常驻, delete; 记下 and 不用 of an evening candidate say it is gone) through the stores the 设置 card uses; and its push (app/web_sync.py
 push_memory): alone in its request, again only when a file of the memory changed, before the ack of the page's change."""
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest import TestCase, mock
 
 from test_web_sync import WebCase
-from covey.app import memory_candidates, web_memory
+from covey.app import web_memory
 from covey.app.web_ops import Ops
 from covey.core import knowledge, memory, principles
 from covey.core.state import write_json
@@ -71,16 +71,6 @@ class ViewTests(StateCase):
         self.assertGreater(group["left"], 0)
         self.assertEqual(sum(1 for r in group["entries"] if not r["carried"]), group["left"])
 
-    def test_open_candidates_are_listed_with_learning_on(self):
-        write_json(memory_candidates.path(self.state), {"schema": 1, "rows": [
-            {"id": "c0123abcd", "text": "以后先跑测试再提交", "workspace": "", "slot": "s", "at": 100.0, "state": "open", "carried": True},
-            {"id": "c0123abce", "text": "不用了的那条", "workspace": "", "slot": "s", "at": 99.0, "state": "declined"}], "declined": []})
-        with mock.patch.dict(os.environ, {"COVEY_MEMORY_LEARN": "1"}):
-            data = web_memory.view(self.state)
-        self.assertEqual([c["key"] for c in data["candidates"]], ["candidate:c0123abcd"])
-        self.assertTrue(data["candidates"][0]["carried"])
-        drafts = [r for r in self.group(data)["entries"] if r["kind"] == "candidate"]
-        self.assertEqual([(r["by"], r["editable"]) for r in drafts], [(memory.LEAD, False)])  # 它总结的, carried as a draft.
 
 
 class EditTests(StateCase):
@@ -146,17 +136,18 @@ class EditTests(StateCase):
         with self.assertRaisesRegex(ValueError, "不认识的记忆操作"):
             self.edit(action="rm", key=key)
 
-    def test_candidates_kept_become_principles_and_dropped_ones_are_declined(self):
-        rows = [{"id": "c0123abcd", "text": "以后先跑测试再提交", "workspace": "docs", "slot": "s", "at": 100.0, "state": "open"},
-                {"id": "c0123abce", "text": "别再用英文回复", "workspace": "", "slot": "s", "at": 99.0, "state": "open"}]
-        write_json(memory_candidates.path(self.state), {"schema": 1, "rows": rows, "declined": []})
-        self.assertTrue(self.edit(action="keep", key="candidate:c0123abcd").startswith("已记下"))
-        self.assertEqual([(r["workspace"], r["text"]) for r in principles.entries(self.state)], [("docs", "以后先跑测试再提交")])
-        self.assertTrue(self.edit(action="drop", key="candidate:c0123abce").startswith("不用了"))
-        with self.assertRaisesRegex(ValueError, "处理过了"):
-            self.edit(action="keep", key="candidate:c0123abce")
+    def test_an_older_pages_keep_and_drop_of_a_candidate_say_it_is_gone(self):
+        rows = [{"id": "c0123abcd", "text": "以后先跑测试再提交", "workspace": "docs", "slot": "s", "at": 100.0, "state": "open"}]
+        write_json(Path(self.state) / "memory-candidates.json", {"schema": 1, "rows": rows, "declined": []})  # An older release's.
+        with mock.patch.dict(os.environ, {"COVEY_MEMORY_LEARN": "1"}):
+            self.assertEqual(web_memory.view(self.state)["candidates"], [])
+        for action in ("keep", "drop"):
+            with self.assertRaisesRegex(ValueError, "晚间候选已经下线"):
+                self.edit(action=action, key="candidate:c0123abcd")
+        self.assertEqual(principles.entries(self.state), [])
         with self.assertRaisesRegex(ValueError, "候选不能改"):
             self.edit(action="edit", key="candidate:c0123abcd", text="x")
+
 
 
 class T852Tests(StateCase):
@@ -211,12 +202,6 @@ class T852Tests(StateCase):
         self.assertEqual((rows["回复先给结论"]["origin"], rows["回复先给结论"]["quote"]), ("自动学习记的", "我说过很多次了，先给结论"))
         self.assertEqual((rows["网页上记的一条"]["origin"], rows["网页上记的一条"]["quote"]), ("网页上记的", ""))
 
-    def test_a_kept_candidate_says_where_it_was_kept(self):
-        rows = [{"id": "c0123abcd", "text": "以后先跑测试再提交", "workspace": "docs", "slot": "s", "at": 100.0, "state": "open"},
-                {"id": "c0123abce", "text": "别再用英文回复", "workspace": "", "slot": "s", "at": 99.0, "state": "open"}]
-        write_json(memory_candidates.path(self.state), {"schema": 1, "rows": rows, "declined": []})
-        self.assertIn("记到工作区 docs", self.edit(action="keep", key="candidate:c0123abcd"))
-        self.assertIn("记到全局", self.edit(action="keep", key="candidate:c0123abce"))
 
 
 class OpTests(StateCase):

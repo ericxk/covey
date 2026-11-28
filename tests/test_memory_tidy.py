@@ -17,7 +17,7 @@ from unittest import mock
 from support import UNSET_OFF
 from support import make_context
 
-from covey.app import memory_candidates, memory_tidy
+from covey.app import memory_tidy
 from covey.cards.digest import MEMORY_KIND, digest_card, digest_text, memory_elements
 from covey.core import memory, memory_usage, memstore, project_memory, projects
 from covey.core.state import write_json
@@ -168,19 +168,6 @@ class RunTest(Case):
         self.assertNotIn("rules", view)
         self.assertNotIn("cursors", memory_tidy.load(self.state))
 
-    def test_a_carried_candidate_nobody_used_is_let_go_and_undo_opens_it_again(self):
-        write_json(memory_candidates.path(self.state), {"schema_version": 1, "rows": [
-            {"id": "c0a1b2c3d", "text": "汇报先给结论", "workspace": "", "slot": NOW - 40 * DAY, "at": NOW - 40 * DAY,
-             "state": "open", "carried": True, "source": "repeat"},
-            {"id": "c0a1b2c3e", "text": "回复用中文", "workspace": "", "slot": NOW - 40 * DAY, "at": NOW - 40 * DAY,
-             "state": "open", "carried": True, "source": "repeat"}], "declined": [], "ran": []})
-        memory_usage.note(self.state, ["candidate:c0a1b2c3e"], now=NOW - DAY)
-        tidy = self.tidy()
-        run = tidy.run(self.ctx, CHAT, NOW, now=NOW)
-        self.assertEqual(run["expired"], ["c0a1b2c3d"])
-        self.assertEqual([row["id"] for row in memory_candidates.open_carried(self.state)], ["c0a1b2c3e"])
-        tidy.decide(self.ctx, run["id"], "undo")
-        self.assertEqual(len(memory_candidates.open_carried(self.state)), 2)
 
 
 OTHER = "f6e5d4c3b2a1"
@@ -244,13 +231,14 @@ class ElsewhereTest(Case):
         self.assertEqual(self.facts(mine)["part"], memory.RULE)
 
 class CardTest(Case):
-    VIEW = {"run": "t0a1b2c3d", "away": {"idle": 1, "done": 8}, "expired": 2, "undone": False}
+    VIEW = {"run": "t0a1b2c3d", "away": {"idle": 1, "done": 8}, "undone": False}
 
     def test_the_part_says_what_went_away_and_has_its_one_button(self):
         elements = memory_elements({"memory_tidy": self.VIEW})
         text = json.dumps(elements, ensure_ascii=False)
         self.assertIn("收起 9 条：办完的 8 条、很久没用的 1 条", text)
-        self.assertIn("2 条候选很久没用，不再带", text)
+        self.assertNotIn("候选", text)  # The evening candidates are gone.
+        self.assertIn("在网页记录里能放回", text)
         self.assertNotIn("新约定", text)
         self.assertEqual([value["op"] for value in buttons(elements)], ["undo"])
         self.assertTrue(all(value["kind"] == MEMORY_KIND and value["run"] == "t0a1b2c3d" for value in buttons(elements)))

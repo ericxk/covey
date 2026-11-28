@@ -38,10 +38,9 @@ a send not confirmed is tried again RETRY seconds later with the same key and ca
 
 The day's last digest time (``last_of_day``: with 09:30 and 21:30, the 21:30 one) is the evening digest; in the owner's private
 chat it has three parts more (``daily``): 本周找你 N 次 (app/weekly_usage.py ``reached``: the week's questions and stops, counted
-only), 今天代答 (``proxy_view``, when there is a 代答 sender: today's replies sent and not sent) and, with COVEY_MEMORY=1, the
-day's candidates looked for and put in 待审核 (app/memory_candidates.py, the hook ``candidates`` app/unified.py sets; the Harnesses'
-own memory too, ``harvest``), which the card does not list: its 记忆：待审核 N 条 line (``review_view``) says how many wait. 整理记忆
-(``memory_tidy``) is the one part with a button, 撤销. The counts never make a card be sent; what 整理记忆 put away does.
+only) and 今天代答 (``proxy_view``, when there is a 代答 sender: today's replies sent and not sent); with COVEY_MEMORY=1 its
+记忆：待审核 N 条 line (``review_view``) says how many items wait. 整理记忆 (``memory_tidy``) is the one part with a button,
+撤销. The counts never make a card be sent; what 整理记忆 put away does.
 
 看板 (the bot menu's BOARD_KEY, in every deployment, the digest off too) is cards/board.py's card at any time, 随时查看 · HH:MM in its title (the view's ``asked``): what waits and runs now, and what ended since the
 last digest time (``last_slot``, ``board_since``; without the digest, the last day). It reads digest.json and never writes it: the times and their
@@ -210,7 +209,7 @@ def board_since(times, now, last):
 
 def review_view(state_dir, log=lambda _: None) -> dict:
     """{"review": {pending, url}} when the memory has items waiting for the owner (app/web_memory.py overview ``counts.pending``,
-    ``url`` the 网页记忆中心's 待审核 tab with the web page on, else ''): the line ``记忆：待审核 N 条`` of the 早晚汇总. {} with none
+    ``url`` the web page's 记忆, 待审核 on its top, with the web page on, else ''): the line ``记忆：待审核 N 条`` of the 早晚汇总. {} with none
     waiting, or when the memory cannot be read (the digest goes out without the line)."""
     from covey.app import web_memory
 
@@ -218,7 +217,7 @@ def review_view(state_dir, log=lambda _: None) -> dict:
         return {}  # COVEY_MEMORY=0: the digest is as it was without the memory.
     try:
         pending = int(web_memory.overview(state_dir)["counts"]["pending"])
-        url = web_memory.center_url("review")
+        url = web_memory.center_url()
     except Exception as exc:  # noqa: BLE001 - the digest goes out without the line
         log(f"digest review count unreadable: {type(exc).__name__}")
         return {}
@@ -456,9 +455,7 @@ class Digest:
         self.others = {}  # chat_id -> a personal group's Digest (app/group_boards.py): its 看板's clicks are its own.
         self.link = lambda ctx, chat, text, cards=None: linkify(text, ctx.state_dir, chat, profile=ctx.profile, cards=cards)
         self.menu = MenuPanel(self, BOARD_KIND, BOARD_FOLDER, BOARD_KIND)
-        self.candidates = None  # The day's candidates for 待审核 (app/memory_candidates.py Candidates): the private chat's digest only (app/unified.py).
         self.memory_tidy = None  # 整理记忆 (app/memory_tidy.py MemoryTidy, COVEY_MEMORY_LEARN=1): the private chat's digest only.
-        self.harvest = None  # What Codex and Claude Code noted on their own, queued for 待审核 (app/memory_harvest.py Harvest), the same.
 
     def menu_items(self):
         """The bot menu's 看板, always (app/unified.py menu)."""
@@ -734,8 +731,7 @@ class Digest:
 
     def daily(self, ctx, chat, slot, now) -> dict:
         """The evening digest's own parts (the private chat's, the day's last time): 本周找你, 今天代答 and 整理记忆; each one that
-        cannot be read is left out (a log line). With COVEY_MEMORY=1 it also looks for the day's candidates and the Harnesses' own
-        notes, which wait in 待审核 and are not listed here."""
+        cannot be read is left out (a log line)."""
         found = {}
         try:
             found["reached"] = weekly_usage.reached(ctx.state_dir, now, log=self.runtime.log)
@@ -748,13 +744,6 @@ class Digest:
             proxied = {}
         if proxied:
             found["proxy"] = proxied
-        if self.candidates is not None and memory.enabled():
-            try:
-                self.candidates.offer(ctx, chat, slot)
-                if self.harvest is not None and memory.learning():
-                    self.harvest.offer(ctx, slot)  # Never raises.
-            except Exception as exc:  # noqa: BLE001 - the digest goes out without them
-                self.runtime.log(f"digest candidates unreadable: {type(exc).__name__}")
         if self.memory_tidy is not None and memory.learning():
             tidied = self.memory_tidy.view(ctx, chat, slot, now)  # 整理记忆: never raises.
             if tidied:

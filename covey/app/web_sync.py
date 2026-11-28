@@ -31,7 +31,7 @@ there is no thread and no request.
   which member. A turn's process, plan and figures (app/web_turns.py) and a question's times ride on the items; the memory and library rows
   say who wrote them (data contract v3).
 - The ``settings`` items of their own, each built when its few stats moved: 整理专项 (push_tidy), the 记忆 tab of v37 (push_memory), the
-  memory center's ``memory:*`` keys of v43 (push_memory_center: one stat of the memory's sentinel; a key gone taken back), 版本与更新
+  记忆's ``memory:*`` keys of v43/v45 (push_memory_center: one stat of the memory's sentinel; a key gone taken back), 版本与更新
   (push_upgrade) and 账号与额度 (push_quota).
 - The key is read from the config's key_file and appears in no log line and no record.
 
@@ -1027,10 +1027,10 @@ class WebSync:
             if on:
                 if self.memory_center is None:
                     self.memory_center = web_memory.Center(state)
-                built = self.memory_center.build(quick=force)  # Before the page's ack: the previews of the last build.
+                built = self.memory_center.build(quick=force)  # Before the page's ack when forced.
             else:
                 built = {web_memory.INDEX_KEY: web_memory.off_index()}
-            # After a quick one a pass builds it all again (the previews), off the page's ack and CENTER_REST later.
+            # After a forced one a pass builds it again, off the page's ack and CENTER_REST later.
             self.center_stamps, self.center_built, self.center_broken = (None if force and on else stamps), clock, 0
             if force and on:
                 self.center_rest = clock + CENTER_REST

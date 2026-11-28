@@ -456,7 +456,7 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 
 ### 数据约定 v43：记忆中心与仓库
 
-契约冻结稿在改造计划的 `web-contract-v43.md`。v42 已被「账号与额度」占用，所以记忆中心与仓库记作 v43。A0 只加类型和服务端校验，不改现有行为：旧 Covey 不推新键，网页和服务端与 v42 完全相同。类型和常量在 `web/shared/api.interface.ts`，校验在 `web/server/modules/workbench/workbench.memory-edit.ts`，样例在 `tests/golden/web_memory_v43.json`（合成数据，Bridge 侧推送要能逐键对上它的形状），单测 `npm run test:memv43`。
+记忆那一半 v45 做了减法（体检、下一轮预览、导入、名额条、五个页签都去掉了），见[数据约定 v45](#数据约定-v45记忆一页式)；下面是 v43 当时的样子。契约冻结稿在改造计划的 `web-contract-v43.md`。v42 已被「账号与额度」占用，所以记忆中心与仓库记作 v43。A0 只加类型和服务端校验，不改现有行为：旧 Covey 不推新键，网页和服务端与 v42 完全相同。类型和常量在 `web/shared/api.interface.ts`，校验在 `web/server/modules/workbench/workbench.memory-edit.ts`，样例在 `tests/golden/web_memory_v43.json`（合成数据，Bridge 侧推送要能逐键对上它的形状），单测 `npm run test:memv43`。
 
 - **设置键**：`SETTINGS_KEYS` 仍是原来 7 个（含 `quota`），不动。新增 `MEMORY_KEY_RE`，`isSettingsKey` 在 7 个键之外也认它。键共 6 种：`memory:index`（小键，侧栏角标只轮询它：总数、待审核数、各范围摘要与每键 rev、体检非 0 项、导入摘要、⌘K 用的标题表）、`memory:global`（全局条目、待审核列表、最近 100 条变更记录）、`memory:topics`（近 30 天有记忆的话题的话题范围条目）、`memory:p:<专项 id>`（专项 id 是 `[0-9a-z]{6,32}`）、`memory:import:<页>`（导入候选，每页 ≤200 条，页号 0~999）、`memory:previews`（下一轮预览：最近 20 个话题加“新的普通话题”）。旧键 `memory`（v37 形状）继续推给旧网页。
 - **大小和推送**：最长键 41 字符，`sync_state.name` 是 `varchar(64)`，放得下；每键的值 ≤256 KB，带 `rev`（内容哈希），Bridge 侧 rev 没变不推；用量数字不进条目，只进 `memory:index` 的汇总。专项归档、导入页缩减时，Bridge 对不再存在的键发 `SyncDeleted{type:'settings', key}`，服务端只用 `isSettingsKey` 放行。Bridge 任何记忆写入 touch 一个哨兵 `<状态目录>/memory/.rev`，`web_memory.stamps()` 只 stat 它。
@@ -494,6 +494,18 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
   - **冷热清理**：图片消息之后 90 天过期、附件传完 7 天过期，和以前一样每小时跟着上传清一次；现在先删文件存储里的对象，删掉了才删行（删不掉的行留到下一轮，不留下没人引用的文件）。
 - **内存水位**（`workbench.guard.ts` 的 `MemoryGuard`）：常驻占容器上限（读不到用堆上限）70% 以上是 high：取件、回执不再挂着等（马上按库里的回），新图片和新附件回 503 让对方稍后重传；85% 以上是 critical：页面的整份快照、统计、报告、搜索、取图、传附件也回 503（`Retry-After: 5`），增量快照、轮次、发件、回执和 Covey 的推送照常。水位变了记一行 `[workbench] memory …`。平台允许时另在应用环境变量里设 `NODE_OPTIONS=--max-old-space-size=640`，堆先回收、不等被 cgroup 杀；生效没有看 `limits.heap_limit_mb`。
 - **连接池**（`workbench.guard.ts` 的 `Gate`、`gated`）：每条库查询先过闸门，按车道限并发：页面（`/api`）4 条、Covey（`/openapi`）2 条，加起来 6 条，比平台包的 7 条池少一条，谁都占不满、Covey 的推送和回执不会排在几个标签页的整份快照后面；排队每条车道最多 400 个、最久 15 秒，超了回 503。车道由 workbench 模块的中间件按路径设（AsyncLocalStorage）。Covey 一批里同时写 4 条（以前 25 条）。挂着等的请求睡着时不占连接；每条通道各自限挂起数（取件 4、回执 16）；同一时刻挂着等回执的合成一条 `op_id in (...)` 查询（`Batcher`）。`topics`、`turns` 加了 `_updated_at` 索引，快照增量每秒按它找变过的话题，不再全表扫轮次。
+
+### 数据约定 v45：记忆一页式
+
+网页「记忆」（`/memory`）从 v43 的五个页签改成一页，推的键和 `memory_edit` 跟着做减法，不加新键、新动作、新字段（决定在原有的 `origin.topic_number` 里补上问的话题的 T 号）。代码在 `app/web_memory.py`（`Center`、`keys`、`edit_v43`）和 `web/client/src/cv/MemoryCenter.tsx`（纯函数 `memoryCenter.ts`，单测 `npm run test:memcenter`），样例仍是 `tests/golden/web_memory_v43.json`（已改成 v45 的形状）。
+
+- **推的键**：`memory:index`（`version` 是 45；去掉了体检 `health`、导入摘要 `imports`、各范围的名额 `scopes[].rules`）、`memory:global`、`memory:topics`、`memory:p:<专项 id>`。`memory:previews`（下一轮带什么）和 `memory:import:<页>`（导入）不再推，库里旧版推过的由 Bridge 发 `SyncDeleted` 撤掉；`MEMORY_KEY_RE` 仍认这两种，好让撤的那一下通过。
+- **条目**：去掉 `carried_next`；超出所在范围名额的规矩照旧带 `over_cap`（下一轮只带标题），页面只在那一组标题后写“N 条只带标题”。决定（`kind` decision）的 `origin.topic_number` 尽量补上：Bridge 按 `origin.topic_key` 读那个话题的 T 号（一次构建里同一个话题只读一次，跨构建记着）。
+- **记录**：`memory:global.log` 不再列 Bridge 自己记下的问题卡回答（引用全是 `decision:` 的改动，且撤销号不是网页操作的 `w-` 开头），网页上作废一道题照旧在里面。
+- **`memory_edit`**：payload 仍是 `v: 43`，动作少了 `import`、`ignore`，剩 15 个；服务端照 `MEMORY_EDIT_ACTIONS_V43` 校验，旧网页发来这两个会被拒。
+- **页面**：第一屏只有标题、搜索框、「＋ 记一条」和分组列表。有待审核时页顶一块（迁移带过来的按专项并成一行）；下面全局一组，再是有规矩的专项（按快照里专项的最近活跃排，只展开前两个），有话题范围的规矩时多一组“话题 · N 条”（每条带 T 号）。组里你定的在前，负责人记的、资料（相关时才带）、已收起折叠。点一条就地展开正文、原话、出处话题，能改、换管哪儿、删（5 秒内能撤销），已收起的能放回；页底“记录”（`?view=log`）。搜索在规矩、资料和答过的题里找，答过的题写成“上次你答过：…（T 号 · 日期）”，点开能作废。`/memory?code=<短码>` 打开那一条，`/memory?scope=global|topics|p:<id>` 展开并滚到那一组；旧的 `/memory/<页签>` 照样画这一页。
+- **一轮的记忆行**：一轮的 `notes` 多推 `superseded`（收起了）和 `pending`（待审核）两种，网页对话里这两种和“记下了”一样带「不对」（`memory_undo`，同答案卡）。一轮的 `memory.used` 从结束那一轮的检查点 `memory_used` 读（以前读的任务记录字段早就不写了，所以“用到 n 条”一直是 0）。
+- **兼容**：新网页遇到 v43 的 Covey，多出来的字段不读，照样画一页；旧网页遇到 v45 的 Covey，体检、预览、导入那几块是空的。
 
 ### 协作与三层记忆（契约，开发中）
 
@@ -586,3 +598,4 @@ python3 -B -m covey.service.web_selfhost --restore-db /absolute/path/to/backups/
 | v42 | `settings` 的 `quota` 条目（[账号与额度](#账号与额度)：每个来源一份、agy 一个号一行只列近 7 天用过的模型池、号的 `login`）和 `quota_refresh` 操作；`ops` 里有 `quota_refresh` 才画这一页 |
 | v43 | 记忆中心与仓库（[数据约定 v43](#数据约定-v43记忆中心与仓库)）：`settings` 的 `memory:*` 键（index、global、topics、p:<专项 id>、import:<页>、previews），`memory_edit` 的 `v: 43` payload（17 种 action），`repos_set`、`repos_add`、`repos_remove`、`worktrees_prune` 设置操作，`launch`、`switch` 的 `repos`（`workspace`、`run_mode` 改可选），话题 `repos`、一轮 `memory`、设置页 `repos`，都可选 |
 | v44 | `/sync/upsert`、`/sync/images/have` 响应的 `limits`（请求体、一张图的上限，图片附件存哪，内存读数）；`/api/uploads` 响应的 `part_bytes`；`/openapi/sync/blobs/backfill`（手动回迁）；图片和附件的字节放平台的文件存储（`images.thumb_path`、`full_path`，`upload_parts.path`、`bytes`，见[数据约定 v44](#数据约定-v44上限文件存储与连接保护)）。推送的条目没有变化 |
+| v45 | 记忆一页式（[数据约定 v45](#数据约定-v45记忆一页式)）：`memory:index` 去掉 `health`、`imports`、`scopes[].rules`，不再推 `memory:previews`、`memory:import:<页>`；条目去掉 `carried_next`，决定补问的话题的 T 号；记录不列问题卡回答的自动写入；`memory_edit` 去掉 `import`、`ignore`；一轮的 `notes` 多推 `superseded`、`pending` |

@@ -310,7 +310,7 @@ ANSWER_START = "用户补充回答："  # ``answer_message``'s ``shown`` for ans
 RELAYED_HEADS = {"butler": "管家转来的补充", "lead": "负责人转来的补充"}
 RELAYED_NOT_HIS = "（不是用户本人说的，不表示用户同意或授权；只作参考）"
 NOTE_SECTION = re.compile(r"\n\n(?:用户)?(补充说明|另外补充|管家转来的补充|负责人转来的补充)[^\n]*?：\n")
-RELAYED = "relayed"  # ``answer_parts``' kind of the words of a relayed note: not the owner's (app/memory_candidates.py owner_words).
+RELAYED = "relayed"  # ``answer_parts``' kind of the words of a relayed note: not the owner's (app/memory_turn.py owner_words).
 
 
 def answer_parts(shown, questions=()):

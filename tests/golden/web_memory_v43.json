@@ -1,9 +1,9 @@
 {
-  "version": 43,
+  "version": 45,
   "keys": {
     "memory:index": {
       "on": true,
-      "version": 43,
+      "version": 45,
       "counts": {
         "rule": 1,
         "decision": 1,
@@ -20,12 +20,6 @@
             "note": 1,
             "pending": 3
           },
-          "rules": {
-            "items": 1,
-            "chars": 20,
-            "item_limit": 30,
-            "char_limit": 3000
-          },
           "rev": "gv1"
         },
         {
@@ -36,12 +30,6 @@
             "decision": 0,
             "note": 1,
             "pending": 0
-          },
-          "rules": {
-            "items": 1,
-            "chars": 18,
-            "item_limit": 30,
-            "char_limit": 3000
           },
           "rev": "tv1"
         },
@@ -54,12 +42,6 @@
             "note": 0,
             "pending": 0
           },
-          "rules": {
-            "items": 0,
-            "chars": 0,
-            "item_limit": 30,
-            "char_limit": 3000
-          },
           "rev": "pv1"
         }
       ],
@@ -67,29 +49,7 @@
         "memory:global": "gv1",
         "memory:topics": "tv1",
         "memory:p:demo01": "pv1",
-        "memory:import:0": "iv1",
-        "memory:previews": "rv1",
         "memory:index": "xv1"
-      },
-      "health": {
-        "dup": [
-          "global:g1a2b3",
-          "global:g9z9z9"
-        ],
-        "conflict": [
-          [
-            "global:g4d5e6",
-            "review:conflict:b2"
-          ]
-        ],
-        "stale": [
-          "global:g4d5e6"
-        ]
-      },
-      "imports": {
-        "total": 3,
-        "new": 2,
-        "pages": 1
       },
       "limits": {
         "title": 40,
@@ -142,7 +102,6 @@
             "topic_number": 12,
             "quote": "提交代码之前先跑相关测试，失败就不提交。"
           },
-          "carried_next": true,
           "rev": "rrk7m2q",
           "why": "曾经把没跑过的改动合进了主干"
         },
@@ -161,7 +120,6 @@
             "topic_number": 12,
             "quote": "演示环境的网页服务监听在 8080 端口"
           },
-          "carried_next": true,
           "rev": "rnq3x9a",
           "verified_at": 1795000000
         }
@@ -230,7 +188,6 @@
                 "topic_number": 12,
                 "quote": "提交代码之前先跑相关测试，失败就不提交。"
               },
-              "carried_next": true,
               "rev": "rrk7m2q",
               "why": "曾经把没跑过的改动合进了主干"
             },
@@ -249,7 +206,6 @@
                 "topic_number": 12,
                 "quote": "提交代码之前先跑相关测试，失败就不提交。"
               },
-              "carried_next": true,
               "rev": "rz9",
               "why": "曾经把没跑过的改动合进了主干"
             }
@@ -306,7 +262,6 @@
                 "topic_number": 12,
                 "quote": "这个话题里不要修改 demo-repo，"
               },
-              "carried_next": true,
               "rev": "rrt4p8d",
               "topic_key": "t001",
               "topic_number": 12,
@@ -330,7 +285,6 @@
                 "topic_number": 12,
                 "quote": "日志里的超时来自上游接口，和本地代码无关"
               },
-              "carried_next": false,
               "rev": "rnt6b3y",
               "topic_key": "t001",
               "topic_number": 12,
@@ -359,97 +313,9 @@
             "topic_number": 12,
             "quote": "记忆中心第一版先只做查看和审核，编辑放到"
           },
-          "carried_next": true,
           "rev": "rdb2h5w",
           "project_key": "demo01",
           "in_progress": true
-        }
-      ]
-    },
-    "memory:import:0": {
-      "page": 0,
-      "items": [
-        {
-          "fingerprint": "fp-0001",
-          "harness": "claude_code",
-          "bucket": "demo-bucket",
-          "repo": "demo-repo",
-          "file_tail": "memory/notes.md",
-          "title": "测试要用真实数据库",
-          "text": "测试要用真实数据库。",
-          "type": "feedback",
-          "suggest": {
-            "kind": "rule",
-            "scope": "global"
-          },
-          "state": "new"
-        },
-        {
-          "fingerprint": "fp-0002",
-          "harness": "codex",
-          "bucket": "demo-bucket",
-          "repo": "demo-repo",
-          "file_tail": "memory/notes.md",
-          "title": "提交信息写中文",
-          "text": "提交信息写中文。",
-          "type": "feedback",
-          "suggest": {
-            "kind": "rule",
-            "scope": "global"
-          },
-          "state": "imported",
-          "dup_of": "global:g1a2b3"
-        },
-        {
-          "fingerprint": "fp-0003",
-          "harness": "antigravity",
-          "bucket": "demo-bucket",
-          "repo": "demo-repo",
-          "file_tail": "memory/notes.md",
-          "title": "旧仓库的构建命令",
-          "text": "旧仓库的构建命令。",
-          "type": "feedback",
-          "suggest": {
-            "kind": "rule",
-            "scope": "global"
-          },
-          "state": "ignored",
-          "old_repo": true
-        }
-      ]
-    },
-    "memory:previews": {
-      "previews": [
-        {
-          "topic_key": "t001",
-          "title": "演示话题",
-          "chars": 420,
-          "rules": [
-            "RK7M2Q"
-          ],
-          "decisions": [
-            "DB2H5W"
-          ],
-          "notes": [
-            {
-              "code": "NQ3X9A",
-              "sim": 0.82
-            }
-          ],
-          "listed": [
-            "NT6B3Y"
-          ]
-        },
-        {
-          "topic_key": "new",
-          "title": "新的普通话题",
-          "chars": 180,
-          "rules": [
-            "RK7M2Q"
-          ],
-          "decisions": [],
-          "notes": [],
-          "listed": []
         }
       ]
     }
@@ -580,23 +446,6 @@
       "project_key": "demo01",
       "repos": [
         "demo-repo"
-      ]
-    },
-    {
-      "v": 43,
-      "action": "import",
-      "keys": [
-        "fp-0001",
-        "fp-0002"
-      ],
-      "kind": "rule",
-      "scope": "global"
-    },
-    {
-      "v": 43,
-      "action": "ignore",
-      "keys": [
-        "fp-0003"
       ]
     },
     {

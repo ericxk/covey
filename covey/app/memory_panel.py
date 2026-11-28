@@ -1,9 +1,9 @@
 """The 设置 card's 记忆 tab (cards/memory_panel.py), shown when COVEY_MEMORY=1: Feishu keeps the numbers, the light handling of
 待审核 and the way to the web page; managing the memory is the 网页记忆中心's (app/web_memory.py).
 
-What it reads (``facts``), at each draw: ``web_memory.overview`` (the counts of rules, decisions and notes and of 待审核, a line of
-counts for each scope, the open items of 待审核 the oldest first, the rules in use of 全局 and the projects) and the page's
-addresses (``web_memory.center_url``; '' without the web page, then the card lists the rules to 收起).
+What it reads (``facts``), at each draw: ``web_memory.overview`` (the rules in use of 全局, the projects and the topics, and of
+待审核, counted; the open items of 待审核 the oldest first; those rules) and the page's address (``web_memory.center_url``; ''
+without the web page, then the card lists the rules to 收起, the topics' too).
 
 A click (the owner's) acts outside the record's lock, then the whole card is drawn again under it once the click is
 acknowledged (``notice`` says what happened). 采纳 and 不要 on an item of 待审核 go through ``web_memory.review_decide`` (as the page
@@ -39,13 +39,14 @@ def short(text, limit=24) -> str:
 
 
 def facts(state_dir) -> dict:
-    """The tab's data (cards/memory_panel.py): ``web_memory.overview`` and the page's addresses; ``error`` says so when the memory
+    """The tab's data (cards/memory_panel.py): ``web_memory.overview`` and the page's address; ``error`` says so when the memory
     cannot be read (the card is still drawn)."""
     try:
         data = dict(web_memory.overview(state_dir))
     except Exception as exc:  # noqa: BLE001 - A broken store is a line on the card, not a card that does not draw.
-        data = {"counts": {}, "scopes": [], "review": [], "rules": [], "error": f"⚠️ 记忆读不出来（{type(exc).__name__}），稍后再看。"}
-    data["url"], data["review_url"] = web_memory.center_url(), web_memory.center_url("review")
+        data = {"counts": {}, "rules_by": {}, "scopes": [], "review": [], "rules": [],
+                "error": f"⚠️ 记忆读不出来（{type(exc).__name__}），稍后再看。"}
+    data["url"] = web_memory.center_url()
     return data
 
 

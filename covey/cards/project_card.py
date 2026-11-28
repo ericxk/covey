@@ -113,8 +113,8 @@ class Project:
     joins: tuple = ()  # The 归入记录: (line, topic id) each, the newest first; a topic id '' when the line has no 移出 button.
     memory: tuple = ()
     memory_total: int = 0  # How many lines the memory holds in all (``memory`` lists the newest LIST_CAP of them); 0: as many as listed.
-    memory_counts: tuple = ()  # (rules, decisions, notes, waiting for review) of the project's memory (core/memstore.py); () when not read.
-    memory_url: str = ""  # The 网页记忆中心's address (app/web_memory.py center_url); '' without the web page.
+    memory_counts: tuple = ()  # (rules, waiting for review) of the project's memory (core/memstore.py); () when not read.
+    memory_url: str = ""  # The web page's 记忆 at this project's group (app/web_memory.py center_url); '' without the web page.
     library: tuple = ()
     inputs: tuple = ()
     outputs: tuple = ()
@@ -277,19 +277,21 @@ def join_rows(project) -> list:
 
 
 def memory_line(project) -> dict | None:
-    """专项记忆 as a line of counts (``pj_mem``): ``规矩 N · 决定 N · 资料 N`` and ``· 待审核 N`` when some wait, with the web page on a
-    link to the 网页记忆中心. None when the project has none and nothing waits."""
+    """The project's memory as one line (``pj_mem``): ``记忆 · 规矩 N`` and ``（待审核 k）`` when some wait, with the web page on
+    linked to this project's group of the page's 记忆 (no count of decisions or notes: 资料 would read as the 资料库 below).
+    None when the project has no rule and nothing waits."""
     if project.memory_counts:
-        rules, decisions, notes, waiting = project.memory_counts
-        if not (rules or decisions or notes or waiting):
+        rules, waiting = project.memory_counts[0], project.memory_counts[-1]
+        if not (rules or waiting):
             return None
-        words = f"规矩 {rules} · 决定 {decisions} · 资料 {notes}" + (f" · 待审核 {waiting}" if waiting else "")
+        words = f"规矩 {rules}" + (f"（待审核 {waiting}）" if waiting else "")
     elif project.memory_total or project.memory:
         words = f"{max(project.memory_total, len(project.memory))} 条"
     else:
         return None
-    link = f" · [去网页记忆中心]({project.memory_url})" if project.memory_url else ""
-    return md(grey(f"专项记忆 · {words}") + link, element_id="pj_mem", size="notation")
+    if project.memory_url:
+        return md(f"[记忆 · {words} ↗]({project.memory_url})", element_id="pj_mem", size="notation")
+    return md(grey(f"记忆 · {words}"), element_id="pj_mem", size="notation")
 
 
 def library_rows(project) -> list:

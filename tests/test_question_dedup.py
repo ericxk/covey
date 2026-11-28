@@ -519,7 +519,12 @@ class OlderCallersTest(Case):
         done = project_tools.project_remember(env, self.lead_request(kind="rule", text="发版前先跑全量测试", title="发版前跑全量"))
         entry = memstore.find(self.state, done["data"]["id"])
         self.assertEqual((entry.kind, entry.title, entry.said, entry.by, entry.scope), ("rule", "发版前跑全量", "summary", "lead", "project"))
-        self.assertEqual([item["type"] for item in memstore.review_items(self.state)], ["lead"])
+        self.assertEqual(memstore.review_items(self.state), [])  # T914 M1: the owner does not review the lead's rules one by one.
+        self.assertNotIn("待审核", json.dumps(done, ensure_ascii=False))
+        from covey.app import memory_turn
+        from covey.app.prompts import memory_rules_block
+        carried, left = memory_turn.rules_of(self.state, project=PID)
+        self.assertIn("发版前先跑全量测试（负责人记的）", memory_rules_block(carried, left))  # In force at once, marked the lead's.
         note = project_tools.project_remember(env, self.lead_request(kind="note", text="新库在二号机房"))
         self.assertEqual(memstore.find(self.state, note["data"]["id"]).kind, "note")
         with self.assertRaisesRegex(ValueError, "title 最多"):

@@ -7,7 +7,7 @@ import { harnessName, isRunning, isWaiting } from './lib';
 import { MemoryWrong } from './V34Bits';
 
 /* 一轮回答下面的小东西：记忆行、派出去的话题胶囊。对话（聊天样式）和话题时间线共用。 */
-const NOTE_WORD: Record<string, string> = { remembered: '记下了', voided: '作废了', undone: '已撤销', skipped_ask: '没再问', reference: '参考了' };
+const NOTE_WORD: Record<string, string> = { remembered: '记下了', voided: '作废了', undone: '已撤销', skipped_ask: '没再问', reference: '参考了', superseded: '收起了', pending: '待审核' };
 
 /** 这一轮记下的、作废的记忆。刚记下的那条带「不对」（v34 memory_undo，同答案卡上的不对）；Covey 不认这个操作（旧版）时照实写一行灰字 */
 export const Notes: React.FC<{ notes: TurnNote[]; topicKey?: string; jobId?: string | null }> = ({ notes, topicKey, jobId }) => (
@@ -19,7 +19,7 @@ export const Notes: React.FC<{ notes: TurnNote[]; topicKey?: string; jobId?: str
           {NOTE_WORD[n.kind] ?? '记忆'}：{n.text}
           {n.scope ? ` · ${n.scope}` : ''}
         </span>
-        {n.kind === 'remembered' ? <MemoryWrong topicKey={topicKey ?? ''} jobId={jobId} entryId={n.entry_id} /> : null}
+        {n.kind === 'remembered' || n.kind === 'superseded' || n.kind === 'pending' ? <MemoryWrong topicKey={topicKey ?? ''} jobId={jobId} entryId={n.entry_id} /> : null}
       </div>
     ))}
   </>

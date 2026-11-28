@@ -1007,7 +1007,7 @@ def answer_tail_cards():
                 {"kind": "remembered", "text": "选型类的事不用先问侧重点", "scope": "管这个专项", "entry_id": "a1b2c3"},
                 {"kind": "voided", "text": "选型前先问侧重点", "scope": "管这个专项", "entry_id": "d4e5f6"},
                 {"kind": "undone", "text": "产物放 out/", "scope": "管这个话题", "entry_id": "0a1b2c"}], "tf0001", 439, url="")]),
-            # With the web page on, 改 opens the 网页记忆中心 (a URL button); a note with a title says the title.
+            # With the web page on, 改 opens that entry on the page's 记忆 (?code=, a URL button); a note with a title says the title.
             "answer_card_memory_web": answer_card(text, "✅ T439 · 结论", [*tail(files, inputs, outputs), memory_element([
                 {"kind": "remembered", "text": "选型类的事不用先问侧重点，直接开工", "title": "选型不先问侧重点", "code": "R4K2M",
                  "scope": "管这个专项", "entry_id": "a1b2c3"}], "tf0001", 439, url="https://covey.example.test/memory")]),
@@ -1465,8 +1465,9 @@ FULL_TABS = ["config", "repos", "redaction", "groups", "memory", "nodes", "docto
 
 
 def memory_tab_cards():
-    """The 设置 card's 记忆 tab (cards/memory_panel.py, COVEY_MEMORY=1): the counts by scope, 待审核 with 采纳 and 不要, and without the
-    web page the rules to 收起 (one asking 确认收起 on page 2); with the web page the two links and no rules; no memory at all."""
+    """The 设置 card's 记忆 tab (cards/memory_panel.py, COVEY_MEMORY=1): one line of counts (全局 · 专项 · 话题 · 待审核), 待审核 each
+    with what it is and what 采纳 and 不要 do, and without the web page the rules to 收起, a topic's too (one asking 确认收起);
+    with the web page 打开网页 and no rules; no memory at all."""
     from covey.cards.memory_panel import memory_card
     from covey.cards.settings_hub import tab_row
 
@@ -1477,17 +1478,21 @@ def memory_tab_cards():
     review = [{"key": "review:learn:a1b2c3", "type": "learn", "title": "回答先给结论", "text": "你多次说过：回答先给结论，细节放后面",
                "suggest": {"kind": "rule", "scope": "global"}},
               {"key": "review:lead:d4e5f6", "type": "lead", "title": "额度低于 10% 先停新话题", "text": "负责人总结：额度低于 10% 先停新话题",
+               "suggest": {"kind": "rule", "scope": "project", "project_key": "acc0unt1"}},
+              {"key": "review:migrate:a0b1c2", "type": "migrate", "title": "发版前跑全量", "text": "发版前跑全量",
                "suggest": {"kind": "rule", "scope": "project", "project_key": "acc0unt1"}}]
     rules = [{"key": "global:p00000c", "code": "R3K9M", "title": "回答先给结论", "scope": "global", "over_cap": False, "project_key": ""},
              {"key": "global:p0000f0", "code": "R7T2A", "title": "测试通过就合并进 main 并推送", "scope": "global", "over_cap": True,
               "project_key": ""},
              {"key": "project:acc0unt1:a1b2c3", "code": "R5H8Q", "title": "额度低于 10% 先停新话题", "scope": "project", "over_cap": False,
-              "project_key": "acc0unt1"}]
-    base = {"counts": counts, "scopes": scopes, "review": review, "rules": rules}
-    web = {**base, "url": "https://covey.example.test/memory", "review_url": "https://covey.example.test/memory/review"}
-    local = {**base, "url": "", "review_url": ""}
-    empty = {"counts": {"rule": 0, "decision": 0, "note": 0, "pending": 0}, "scopes": scopes[:2], "review": [], "rules": [],
-             "url": "", "review_url": ""}
+              "project_key": "acc0unt1"},
+             {"key": "topic:t0a1:r1b2c3", "code": "R2N6W", "title": "这个话题只读 demo-repo", "scope": "topic", "over_cap": False,
+              "project_key": "", "topic_number": 12}]
+    base = {"counts": counts, "rules_by": {"global": 2, "project": 2, "topic": 1}, "scopes": scopes, "review": review, "rules": rules}
+    web = {**base, "url": "https://covey.example.test/memory"}
+    local = {**base, "url": ""}
+    empty = {"counts": {"rule": 0, "decision": 0, "note": 0, "pending": 0}, "rules_by": {}, "scopes": scopes[:2], "review": [],
+             "rules": [], "url": ""}
     view = {"revision": 3, "hub": True, "token": "c" * 24, "review_page": 0, "rules_page": 0}
     row = [tab_row("memory", "c" * 24, FULL_TABS)]
     return {"memory": memory_card("c" * 24, view, local, top=row),
@@ -1649,9 +1654,9 @@ def digest_cards():
                                                                    "url": "https://applink.feishu.cn/t/488"}]}],
                                  "web": "https://example.invalid/app/covey"}),
             "done_only": digest_card({**view, "waiting": [], "running": [], "done": view["done"][:1]}),
-            # 记忆：待审核 N 条 with the link to the 网页记忆中心's 待审核 tab (app/digest.py review_view).
+            # 记忆：待审核 N 条 with the link to the page's 记忆, 待审核 on its top (app/digest.py review_view).
             "memory_review": digest_card({**view, "waiting": [], "running": [], "done": view["done"][:1],
-                                          "review": {"pending": 3, "url": "https://covey.example.test/memory/review"}}),
+                                          "review": {"pending": 3, "url": "https://covey.example.test/memory"}}),
             # Results not seen that ended before the digest before are listed too, the heading says how many.
             "older_unseen": digest_card({**view, "waiting": [], "running": [], "done": view["done"][:2], "older": 1}),
             "old_questions": digest_card(old),
@@ -1786,9 +1791,9 @@ def evening_digest_cards(view):
     A view of before (``remember``, ``wanted``, rules in 整理记忆) is drawn without them."""
     from covey.cards.digest import digest_card, digest_text
 
-    tidied = {"run": "t0a1b2c3d", "away": {"idle": 1, "done": 8, "foreign": 2}, "expired": 2, "undone": False}
+    tidied = {"run": "t0a1b2c3d", "away": {"idle": 1, "done": 8, "foreign": 2}, "undone": False}
     evening = {**view, "reached": {"questions": 9, "stopped": 3}, "proxy": {"sent": 5, "unsent": 1}, "memory_tidy": tidied,
-               "review": {"pending": 3, "url": "https://covey.example.com/memory?tab=review"}}
+               "review": {"pending": 3, "url": "https://covey.example.com/memory"}}
     alone = {"slot": FROZEN, "since": FROZEN - 9.5 * 3600, "waiting": [], "stale": [], "running": [], "done": [],
              "reached": {"questions": 0, "stopped": 0}, "memory_tidy": tidied}
     undone = {**alone, "memory_tidy": {**tidied, "undone": True}}
@@ -1869,8 +1874,8 @@ def project_cards():
         outputs=("**开始** 09:12　**已运行** 2小时3分", "**token** 33万"), ask_text="把订单库迁到新集群，周末前要有结果",
         ask_at="09:10", ask_url=ask)
     full = pc.Project(**{**work.__dict__, "triage": ("09:40 答了：用哪个库版本？", "10:05 转给你：能不能停服务？"),
-                         "memory": (("m1", "迁移窗口在周六凌晨"), ("m2", "旧集群只读到周日")), "memory_counts": (2, 1, 3, 1),
-                         "memory_url": "https://covey.example.test/memory",
+                         "memory": (("m1", "迁移窗口在周六凌晨"), ("m2", "旧集群只读到周日")), "memory_counts": (2, 1),
+                         "memory_url": "https://covey.example.test/memory?scope=p%3Aa1b2c3d4e5f6",
                          "library": (("迁移方案.md",), ("表清单.csv",))})
     many = tuple(pc.Member(f"{index:02x}" * 3 + "0" * 10, pc.DONE if index % 3 else pc.RUNNING, f"T{600 + index}", f"话题 {index}",
                            "做完了", "5分00秒") for index in range(11))

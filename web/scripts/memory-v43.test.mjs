@@ -1,4 +1,4 @@
-// 数据约定 v43（docs/web.md 数据约定 v43：记忆中心与仓库）：memory:* 键的认法、memory_edit 新旧两种 payload 的校验、
+// 数据约定 v43、v45（docs/web.md：记忆中心与仓库；v45 记忆一页式，golden 已是 v45 形状）：memory:* 键的认法、memory_edit 新旧两种 payload 的校验、
 // settings 新操作和启动、换配置带 repos 的校验，以及 tests/golden/web_memory_v43.json 的形状。跑：npm run test:memv43
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,26 +20,39 @@ test('键：7 个旧键仍认，golden 里每个 memory:* 键都认，写错的�
     assert.equal(isSettingsKey(k), false, k);
   }
   assert.ok(MEMORY_KEY_RE.test('memory:p:' + 'a'.repeat(32)));
+  // v45 起不再推 previews、import:<页>，正则仍认（否则删不掉库里的旧行）
+  assert.equal(isSettingsKey('memory:previews'), true);
+  assert.equal(isSettingsKey('memory:import:0'), true);
   assert.equal('memory:p:'.length + 32 <= 41, true);
 });
 
-test('golden：每种 memory:* 键一份，global 有 ≥2 条待审核和 ≥2 条变更，条目短码前缀对得上 kind', () => {
-  assert.equal(golden.version, 43);
-  assert.deepEqual(Object.keys(golden.keys).sort(), ['memory:global', 'memory:import:0', 'memory:index', 'memory:p:demo01', 'memory:previews', 'memory:topics']);
+test('golden（v45）：4 种 memory:* 键各一份，没有 previews、import；global 有 ≥2 条待审核和 ≥2 条变更，条目短码前缀对得上 kind', () => {
+  assert.equal(golden.version, 45);
+  assert.deepEqual(Object.keys(golden.keys).sort(), ['memory:global', 'memory:index', 'memory:p:demo01', 'memory:topics']);
   const g = golden.keys['memory:global'];
   assert.ok(g.review.length >= 2 && g.log.length >= 2);
   const idx = golden.keys['memory:index'];
-  assert.equal(idx.version, 43);
+  assert.equal(idx.version, 45);
+  for (const k of ['health', 'imports']) assert.equal(k in idx, false, `index 不该有 ${k}`);
+  for (const s of idx.scopes) assert.equal('rules' in s, false, `${s.key} 不该有 rules（配额）`);
   for (const k of Object.keys(idx.revs)) assert.equal(isSettingsKey(k), true, k);
   const entries = [...g.entries, ...golden.keys['memory:p:demo01'].entries, ...golden.keys['memory:topics'].topics.flatMap((t) => t.entries)];
-  for (const e of entries) assert.equal(e.code[0], { rule: 'R', decision: 'D', note: 'N' }[e.kind], e.key);
-  assert.equal(golden.keys['memory:import:0'].items.length <= 200, true);
+  for (const e of entries) {
+    assert.equal(e.code[0], { rule: 'R', decision: 'D', note: 'N' }[e.kind], e.key);
+    assert.equal('carried_next' in e, false, `${e.key} 不该有 carried_next`);
+  }
 });
 
 test('memory_edit v43：golden 里每个 edit 都过，每个 action 至少一份', () => {
   for (const e of golden.edits) ok(e);
   const seen = new Set(golden.edits.map((e) => e.action));
   for (const a of MEMORY_EDIT_ACTIONS_V43) assert.ok(seen.has(a), `golden 缺 ${a}`);
+  // v45：去掉 import、ignore，剩 15 个
+  assert.equal(MEMORY_EDIT_ACTIONS_V43.length, 15);
+  for (const a of ['import', 'ignore']) {
+    assert.equal(seen.has(a), false, a);
+    bad({ v: 43, action: a, keys: ['fp1'] }, /action/u);
+  }
 });
 
 test('memory_edit v43：拒绝超长、缺字段、不认识的值', () => {

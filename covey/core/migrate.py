@@ -30,8 +30,8 @@ it stopped. Nobody sees a change: the records keep what older releases read.
   (core/redaction.py): the list is written again without them (``anywhere`` stays), once. An older release reads a row
   without one as automatic.
 - memory_v2 (docs/operations.md 记忆的存储与迁移, ``RECURRING``): the global memory an older release keeps (principles.json,
-  knowledge/, the open candidates) taken into memory/global.json and 待审核 (core/memstore.py sync_legacy), and the lead's
-  lines a project's turns carried in the last 7 days kept rules until the owner decides (guard_project). The first run
+  knowledge/) taken into memory/global.json and 待审核 (core/memstore.py sync_legacy), and each changed project's lines given
+  their codes. A lead's line puts nothing in 待审核 any more: what an earlier run kept a rule stays one (负责人记的). The first run
   copies those files to backups/memory-v2-<time>/ first. Not done once and for all: what an older release writes after a
   rollback is taken at the next start, so each start compares a few stats (the global files, each project's memory.json)
   with what the last run saw and runs again only when one changed. No topic directory is read: a topic's lines get their
@@ -335,12 +335,8 @@ def memory_v2(state_dir: Path, *, now=None) -> tuple[int, list[str]]:
     seen = seen if isinstance(seen, dict) else {}
     sources = memstore.project_sources(state_dir)
     changed = [pid for pid, sig in sources.items() if seen.get(pid) != sig]
-    carried = None
     for pid in changed:
         try:
-            if memstore.unguarded(state_dir, pid):
-                carried = memstore.carried_refs(state_dir, now=stamp) if carried is None else carried
-                written += memstore.guard_project(state_dir, pid, carried, now=stamp)
             memstore.entries(state_dir, scope="project", owner_key=pid, statuses=None)  # Its codes given now.
             seen[pid] = memstore.project_sources(state_dir).get(pid)
         except Exception:  # noqa: BLE001 - tried again at the next start

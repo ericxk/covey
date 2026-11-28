@@ -9,7 +9,7 @@ import { Head } from './Shell';
 import { Dot } from './ui';
 import { toneOf, toneWord, topicNumberOf } from './lib';
 import { TopicBadge } from './RoleAvatar';
-import { codeHref, searchTitles, TAB_WORD, tabOfCode, type TitleHit } from './memoryCenter';
+import { codeHref, KIND_WORD, kindOfCode, searchTitles, type TitleHit } from './memoryCenter';
 
 const Marked: React.FC<{ text: string; q: string }> = ({ text, q }) => {
   const i: number = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
@@ -83,7 +83,7 @@ const SearchPage: React.FC = () => {
           {memHits.map((m: TitleHit) => (
             <Link key={`mem:${m.key}`} to={codeHref(m.code)} className="old a-shit" data-testid="search-memory-hit">
               <div className="tl1">
-                <span className="a-sst">{TAB_WORD[tabOfCode(m.code)]}</span>
+                <span className="a-sst">{KIND_WORD[kindOfCode(m.code)]}</span>
                 <b><Marked text={m.title} q={term} /></b>
                 <span>{m.code}</span>
               </div>

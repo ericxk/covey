@@ -106,36 +106,31 @@ class MigrateTest(Case):
         self.assertEqual(memstore.find(self.state, self.p1["id"]), glob["回复主人用中文"])
         mine = self.by_text(scope="project", owner_key=PID)
         self.assertEqual({t: (e.kind, e.said) for t, e in mine.items()}, {
-            "同一账号只对应一份额度": ("rule", "owner"), "同事机器只读不改": ("rule", "summary"),
-            "旧的约束没人带": ("note", "summary"), "分层：本机多账号常见": ("rule", "summary"), "包 B 已合入": ("note", "summary"),
+            "同一账号只对应一份额度": ("rule", "owner"), "同事机器只读不改": ("note", "summary"),
+            "旧的约束没人带": ("note", "summary"), "分层：本机多账号常见": ("note", "summary"), "包 B 已合入": ("note", "summary"),
             "并行改要用 worktree": ("rule", "owner"), "汇报先给结论": ("rule", "owner"),
             "主人答：stable 什么时候推？→跑满 12 小时": ("decision", "owner")})
         review = memstore.review_items(self.state)
+        # T914 M1: a lead's line and an evening candidate put nothing in 待审核; the workspace groups still do.
         self.assertEqual(sorted((item["type"], item["text"]) for item in review), [
-            ("candidate", "汇报先给结论再给表"), ("migrate", "分层：本机多账号常见"), ("migrate", "同事机器只读不改"),
             ("migrate", "构建前装依赖"), ("migrate", "这个仓库用 pytest")])
-        carried = next(item for item in review if item["text"] == "同事机器只读不改")
-        self.assertEqual((carried["items"], carried["suggest"]["scope"]),
-                         ([mine["同事机器只读不改"].ref], "project"))
         self.assertTrue(all(memstore.is_code(e.code) for e in memstore.entries(self.state, statuses=None)))
         # Again: nothing more, nothing doubled.
         codes = {e.ref: e.code for e in memstore.entries(self.state, statuses=None)}
         self.assertEqual(self.run_step(NOW + 60), (0, []))
         self.assertEqual({e.ref: e.code for e in memstore.entries(self.state, statuses=None)}, codes)
-        self.assertEqual(len(memstore.review_items(self.state)), 5)
+        self.assertEqual(len(memstore.review_items(self.state)), 2)
         self.assertEqual(migrate._memory_left(self.state), 0)
 
-    def test_the_owner_keeps_or_lets_go_of_a_carried_lead_line(self):
+    def test_a_lead_line_an_earlier_run_kept_a_rule_stays_one_and_none_goes_to_review(self):
+        memstore._put_sidecar(self.state, "project", PID, {self.carried_line["id"]: {  # What an earlier release's guard left.
+            "kind": "rule", "said": "summary", "by": "lead", "guard": {"at": NOW - DAY, "kept": True, "review": "review:migrate:x"}}})
         self.run_step()
         mine = self.by_text(scope="project", owner_key=PID)
-        kept = memstore.confirm(self.state, mine["同事机器只读不改"].ref)
-        self.assertEqual((kept.kind, kept.said), ("rule", "owner"))
-        demoted = memstore.set_kind(self.state, mine["分层：本机多账号常见"].ref, "note")
-        self.assertEqual((demoted.kind, demoted.said), ("note", "summary"))
-        self.run_step(NOW + 60)  # Looked at once: never again.
-        mine = self.by_text(scope="project", owner_key=PID)
+        self.assertEqual((mine["同事机器只读不改"].kind, mine["同事机器只读不改"].said), ("rule", "summary"))
         self.assertEqual(mine["分层：本机多账号常见"].kind, "note")
-        self.assertEqual(len(memstore.review_items(self.state)), 5)
+        self.assertFalse([item for item in memstore.review_items(self.state) if item["suggest"].get("scope") == "project"])
+        self.assertFalse(hasattr(memstore, "guard_project"))
 
     def test_a_rollback_and_an_upgrade_again_lose_nothing(self):
         self.run_step()
@@ -225,17 +220,6 @@ class MigrateTest(Case):
         self.assertEqual(memstore.export_legacy(self.state, now=NOW + 70)["decisions"], 0)  # Once.
         self.assertEqual(memstore.find(self.state, decision.ref).status, "active")
 
-    def test_the_turns_carried_lines_are_read_from_the_job_index_when_there_is_one(self):
-        jobs = Path(self.state, "jobs")
-        (jobs / "j2.json").write_text(json.dumps({"key": "j2", "memory_ids": [{"n": "M15", "ref": "project:x:new"}]}))
-        index = {"saved_at": NOW, "journal": [], "entries": {
-            "j1.json": [1, {"updated_at": "2027-01-14T00:00:00Z"}], "j2.json": [2, {"updated_at": NOW - DAY}],
-            "j0.json": [3, {"updated_at": NOW - 30 * DAY}]}}
-        (jobs / ".index").write_text(json.dumps(index))
-        found = memstore.carried_refs(self.state, now=NOW)
-        self.assertIn("project:x:new", found)
-        self.assertNotIn(f"project:{PID}:{self.idle_line['id']}", found)  # Its record is older than 7 days by the index.
-
     def test_a_deployment_without_memory_gets_no_backup(self):
         empty = state_dir(self)
         self.assertEqual(migrate.memory_v2(empty), (0, []))
@@ -264,7 +248,7 @@ class ScriptTest(Case):
             self.assertEqual(script.main(["--state", str(self.state), "--apply", "--json"]), 0)
         report = json.loads(out.getvalue())
         self.assertEqual(report["entries"]["global"]["rule/active/owner"], 4)
-        self.assertEqual(report["review_open"], 5)
+        self.assertEqual(report["review_open"], 2)
 
 
 if __name__ == "__main__":

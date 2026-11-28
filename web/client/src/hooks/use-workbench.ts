@@ -289,12 +289,13 @@ export const useMemory = (enabled = true) =>
 export const MEMORY_INDEX_KEY = ['memory', 'memory:index'] as const;
 const indexOf = async (): Promise<MemoryKeyResponse<MemoryIndex> | null> => {
   const r = await fetchMemoryKey<MemoryIndex>('memory:index');
-  return r && r.data && (r.data as { version?: unknown }).version === 43 && Array.isArray(r.data.scopes) ? r : null;
+  const v: unknown = r?.data ? (r.data as { version?: unknown }).version : undefined;
+  return r && r.data && typeof v === 'number' && v >= 43 && Array.isArray(r.data.scopes) ? r : null;  // v43 起（v45 是一页式）
 };
 export const useMemoryIndex = (enabled = true) =>
   useQuery<MemoryKeyResponse<MemoryIndex> | null>({ queryKey: MEMORY_INDEX_KEY, queryFn: indexOf, enabled, refetchInterval: 15000, staleTime: 3000, gcTime: KEEP_MS, retry: 1 });
 
-/** v43 还是 v37：先取 memory:index，取到了（version 43）就是记忆中心；取过了没有才退回取旧键 memory（v37 的设置页「记忆」）。
+/** v43 还是 v37：先取 memory:index，取到了（version 43 或更新，v45 是一页式）就是记忆页；取过了没有才退回取旧键 memory（v37 的设置页「记忆」）。
  *  mode：v43 记忆中心、v37 旧页、off 记忆关着或都没推、loading 还在判断 */
 export type MemoryMode = 'v43' | 'v37' | 'off' | 'loading';
 export function useMemoryMode(): { mode: MemoryMode; index: MemoryIndex | null } {

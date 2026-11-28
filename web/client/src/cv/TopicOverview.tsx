@@ -258,7 +258,7 @@ export const MobileProgress: React.FC<{ topicKey: string }> = ({ topicKey }) => 
   const { data } = useTurns(topicKey);
   const v43 = useV43TopicEntries(topicKey);
   const mem = Array.isArray(v43)
-    ? (v43.length ? <div className="a-mobmem"><MemoryList entries={v43} scope="topics" title="这个话题的记忆" /></div> : null)
+    ? (v43.length ? <div className="a-mobmem"><MemoryList entries={v43} scope="topics" /></div> : null)
     : data?.memory?.length ? <div className="a-mobmem"><TopicMemory topicKey={topicKey} items={data.memory} /></div> : null;
   if (v.total <= 0) return mem;
   return (
@@ -335,7 +335,7 @@ export const ProgressRail: React.FC<{ topicKey: string }> = ({ topicKey }) => {
         </>
       ) : null}
       {!v.total && !project ? <p className="a-note">这个话题还没有进度数据。</p> : null}
-      {Array.isArray(v43) ? (v43.length ? <MemoryList entries={v43} scope="topics" title="这个话题的记忆" /> : null) : <TopicMemory topicKey={topicKey} items={data?.memory} />}
+      {Array.isArray(v43) ? (v43.length ? <MemoryList entries={v43} scope="topics" /> : null) : <TopicMemory topicKey={topicKey} items={data?.memory} />}
     </aside>
   );
 };

@@ -182,13 +182,13 @@ class CardTest(UnifiedCase):
 
     def test_the_library_rows_carry_their_delete_button_the_triage_none_and_the_memory_is_one_line_of_counts(self):
         card = view.project_card(project(triage=("答了 一条", "转给你 一条"), memory=(("m1", "窗口在周六"), ("m2", "只读到周日")),
-                                         memory_counts=(3, 1, 2, 4), library=(("方案.md",), ("表清单.csv",))))
+                                         memory_counts=(3, 4), library=(("方案.md",), ("表清单.csv",))))
         for name, count in (("pj_triage", 2), ("pj_lib", 2)):
             fold = find_element(card, name)
             self.assertFalse(fold["expanded"])
             self.assertIn(f"· {count}", fold["header"]["title"]["content"])
-        line = find_element(card, "pj_mem")  # No fold, no rows, no 删除: the counts, 待审核 when some wait.
-        self.assertEqual(line["content"], "<font color='grey'>专项记忆 · 规矩 3 · 决定 1 · 资料 2 · 待审核 4</font>")
+        line = find_element(card, "pj_mem")  # No fold, no rows, no 删除: the rules, 待审核 when some wait; no 决定, 资料.
+        self.assertEqual(line["content"], "<font color='grey'>记忆 · 规矩 3（待审核 4）</font>")
         self.assertNotIn("bridge_project_mem_del", text(card))
         dels = [button for button in iter_buttons(card) if button.get("text", {}).get("content") == "删除"]
         values = [button["behaviors"][0]["value"] for button in dels]
@@ -197,11 +197,12 @@ class CardTest(UnifiedCase):
         self.assertTrue(all(value["project_id"] == PID and value["topic_id"] == LEAD for value in values))
 
     def test_the_memory_line_links_to_the_memory_center_only_with_the_web_page_and_is_left_out_empty(self):
-        linked = view.project_card(project(memory_counts=(1, 0, 0, 0), memory_url="https://covey.example.test/memory"))
-        self.assertEqual(find_element(linked, "pj_mem")["content"],
-                         "<font color='grey'>专项记忆 · 规矩 1 · 决定 0 · 资料 0</font> · [去网页记忆中心](https://covey.example.test/memory)")
-        self.assertNotIn("去网页记忆中心", text(view.project_card(project(memory_counts=(1, 0, 0, 0)))))
-        self.assertIsNone(find_element(view.project_card(project(memory_counts=(0, 0, 0, 0))), "pj_mem"))
+        url = f"https://covey.example.test/memory?scope=p%3A{PID}"
+        linked = view.project_card(project(memory_counts=(1, 0), memory_url=url))
+        self.assertEqual(find_element(linked, "pj_mem")["content"], f"[记忆 · 规矩 1 ↗]({url})")  # This project's group.
+        self.assertNotIn("memory?scope", text(view.project_card(project(memory_counts=(1, 0)))))
+        self.assertIsNone(find_element(view.project_card(project(memory_counts=(0, 0))), "pj_mem"))
+        self.assertIsNotNone(find_element(view.project_card(project(memory_counts=(0, 2))), "pj_mem"))  # Only waiting: shown.
 
     def test_buttons_follow_the_state(self):
         def names(status):
@@ -463,7 +464,8 @@ class RefreshTest(CardCase):
         folder = projects.folder(self.state) / PID
         (folder / "library").mkdir(parents=True)
         (folder / "library" / "方案.md").write_text("x")
-        (folder / "memory.json").write_text(json.dumps({"entries": [{"id": "m1", "text": "窗口在周六"}]}))
+        (folder / "memory.json").write_text(json.dumps({"entries": [{"id": "m1", "text": "窗口在周六", "kind": "constraint",
+                                                                   "source": "owner"}]}))  # A rule: the card's 记忆 line counts rules.
         self.tick(1010.0)
         card = self.put.call_args.args[2]
         self.assertEqual(state_tag(card), ("在做", "blue"))

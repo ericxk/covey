@@ -419,7 +419,7 @@ const Sidebar: React.FC<{ mini: boolean; drawer?: boolean }> = ({ mini, drawer }
             <Link
               to={memoryTo}
               className={`row a-nav ${loc.pathname === memoryTo || loc.pathname.startsWith('/memory/') ? 'on' : ''}`}
-              title={mem.mode === 'v43' ? `记忆：规矩、决定、资料${pending ? ` · 待审核 ${pending} 条` : ''}` : '记忆：全局和各工作区的原则、知识条目'}
+              title={mem.mode === 'v43' ? `记忆：规矩、资料${pending ? ` · 待审核 ${pending} 条` : ''}` : '记忆：全局和各工作区的原则、知识条目'}
               data-testid="nav-memory"
             >
               <Brain className="ic" />

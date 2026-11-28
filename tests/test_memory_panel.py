@@ -118,11 +118,12 @@ class MemoryTabTests(MemoryCase):
         propose(self.state, '发布前跑冒烟')
         self.memory_tab()
         text = text_of(self.card())
-        self.assertEqual(self.card()['header']['subtitle']['content'], '规矩 1 · 决定 0 · 资料 1 · 待审核 1')
-        self.assertIn('全局', text)
-        self.assertIn('发布前跑冒烟', text)  # 待审核 is listed.
+        self.assertEqual(self.card()['header']['subtitle']['content'], '规矩：全局 1 · 专项 0 · 话题 0 · 待审核 1')
+        self.assertEqual(text.count('规矩：全局 1'), 2)  # The subtitle and the card's summary only: one line of counts.
+        self.assertIn('发布前跑冒烟', text)  # 待审核 is listed, with what it is and what the buttons do.
+        self.assertIn(cards.REVIEW_WORDS[('learn', 'global')], text)
         self.assertNotIn('回答先给结论', text)  # The rules are the web page's.
-        self.assertEqual(self.urls(), [(cards.URL_LABEL, URL + '/memory'), (cards.REVIEW_URL_LABEL, URL + '/memory/review')])
+        self.assertEqual(self.urls(), [(cards.URL_LABEL, URL + '/memory')])
         # The URL buttons carry no kind; the older tab's parts are gone.
         for gone in ('下一轮带上什么', '常驻', '升为全局', '工作区 ', '看原文'):
             self.assertNotIn(gone, text)
@@ -207,7 +208,7 @@ class MemoryTabTests(MemoryCase):
                                    {'kind': cards.DELETE, 'key': f'principle:{principle["id"]}', 'op': 'confirm'})):
             self.assertEqual(self.press({**value, 'token': token, 'revision': 1}, f'ev-old{n}'), 'memory_tab')
             text = text_of(self.card())
-            self.assertTrue('这个选项已下线：记忆按范围管，改动到网页记忆中心' in text or '这条已经不在了' in text, value['kind'])
+            self.assertTrue(cards.OFFLINE in text or '这条已经不在了' in text, value['kind'])
         self.assertEqual([(e.ref, e.status) for e in memstore.entries(self.state, statuses=None)], before)
         self.assertEqual([p['id'] for p in principles.entries(self.state)], [principle['id']])
         self.assertEqual(memstore.find(self.state, old.ref).status, 'active')
@@ -228,15 +229,37 @@ class MemoryTabTests(MemoryCase):
             self.memory_tab()
         self.assertIn('记忆读不出来', text_of(self.card()))
 
-    def test_many_scopes_list_the_first_few_and_say_how_many_more(self):
+    def test_the_counts_are_one_line_of_rules_by_scope_and_review_however_many_projects(self):
         scopes = [{'key': 'global', 'title': '全局', 'counts': {}}, {'key': 'topics', 'title': '话题', 'counts': {}},
                   *({'key': f'p:{i}', 'title': f'专项{i}', 'counts': {'rule': i}} for i in range(9))]
-        data = {'counts': {'rule': 9}, 'scopes': scopes, 'review': [], 'rules': [], 'url': URL, 'review_url': URL + '/memory/review'}
-        text = text_of(cards.memory_card('c' * 24, {'revision': 1}, data))
-        self.assertIn('专项4', text)
-        self.assertNotIn('专项5', text)
-        self.assertIn('另有 4 个专项', text)
-        self.assertIn('规矩 4 · 决定 0 · 资料 0 · 待审核 0', text)
+        data = {'counts': {'rule': 9, 'pending': 2}, 'rules_by': {'global': 1, 'project': 36, 'topic': 3}, 'scopes': scopes,
+                'review': [], 'rules': [], 'url': URL}
+        card = cards.memory_card('c' * 24, {'revision': 1}, data)
+        self.assertEqual(card['header']['subtitle']['content'], '规矩：全局 1 · 专项 36 · 话题 3 · 待审核 2')
+        text = text_of(card)
+        self.assertNotIn('专项4', text)  # No line per scope any more.
+        self.assertNotIn('决定', text)
+
+    def test_each_item_of_review_says_what_it_is_and_what_the_buttons_do(self):
+        rows = [{'key': 'review:learn:a', 'type': 'learn', 'title': '甲', 'suggest': {'scope': 'global'}},
+                {'key': 'review:learn:b', 'type': 'learn', 'title': '乙', 'suggest': {'scope': 'project'}},
+                {'key': 'review:migrate:c', 'type': 'migrate', 'title': '丙', 'suggest': {'scope': 'project'}},
+                {'key': 'review:other:d', 'type': 'other', 'title': '丁', 'suggest': {}}]
+        self.assertEqual([cards.review_words(row) for row in rows],
+                         [cards.REVIEW_WORDS[('learn', 'global')], cards.REVIEW_WORDS[('learn', '')],
+                          cards.REVIEW_WORDS[('migrate', 'project')], cards.REVIEW_OTHER])
+        text = text_of(cards.memory_card('c' * 24, {'revision': 1}, {'counts': {'pending': 4}, 'review': rows, 'url': ''}))
+        for row in rows:
+            self.assertIn(cards.review_words(row), text)
+
+    def test_without_the_web_page_a_topics_rules_are_listed_too(self):
+        rules = [{'key': 'topic:t1:r1', 'code': 'R2N6W', 'title': '这个话题只读', 'scope': 'topic', 'over_cap': True, 'topic_number': 12}]
+        text = text_of(cards.memory_card('c' * 24, {'revision': 1}, {'counts': {}, 'rules_by': {'topic': 1}, 'review': [],
+                                                                      'rules': rules, 'url': ''}))
+        self.assertIn('这个话题只读', text)
+        self.assertIn('话题 T12', text)
+        self.assertIn('只带标题', text)
+
 
 
 class WorstCaseTests(HubCase):
@@ -252,7 +275,7 @@ class WorstCaseTests(HubCase):
         top = [tab_row(MEMORY, 'c' * 24, ['topic', 'main', 'workspace', 'redaction', 'groups', 'memory', 'nodes', 'doctor'])]
         for url in ('', URL):
             data = {'counts': {'rule': 99, 'decision': 99, 'note': 99, 'pending': 40}, 'scopes': scopes, 'review': review,
-                    'rules': rules, 'url': url, 'review_url': url and url + '/memory/review'}
+                    'rules': rules, 'url': url}
             for page in (0, 3):
                 view = {'revision': 99999, 'hub': True, 'review_page': page, 'rules_page': page,
                         'confirm': rules[0]['key'], 'notice': '已收起：' + '长' * 24}

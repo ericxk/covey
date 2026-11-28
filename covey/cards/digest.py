@@ -19,7 +19,7 @@ taken off from this card), ``web`` (the web page's address: 打开网页 on the 
 
 The evening digest's own parts (app/digest.py ``daily``), each left out when the view has none: ``reached`` (本周找你 N 次：问题 a
 次、停住 b 次, cards/weekly_usage.py reached_line) and ``proxy`` ({sent, unsent}: 今天代答) as two lines after the topics,
-then ``memory_tidy`` (整理记忆, app/memory_tidy.py view_of: {run, away {idle, done, foreign}, expired, undone}): how many lines it put
+then ``memory_tidy`` (整理记忆, app/memory_tidy.py view_of: {run, away {idle, done, foreign}, undone}): how many lines it put
 away and why, with 「撤销」 (MEMORY_KIND, ``op`` undo). A view an older release saved (``remember``, ``wanted``, a ``rules`` list in
 ``memory_tidy``) is drawn without those parts; ``review`` is the memory's 待审核 line."""
 from __future__ import annotations
@@ -46,7 +46,7 @@ ORIGIN = "digest"  # The stale line's button value's ``from`` (app/overview.py c
 MEMORY_KIND = "bridge_digest_memory"  # 整理记忆's 「撤销」: ``run``, ``op`` undo (an older card's confirm and wrong are retired).
 MEMORY_TITLE = "整理记忆"
 MEMORY_AWAY = {"done": "办完的", "foreign": "别的专项的", "idle": "很久没用的"}
-MEMORY_HINT = "只收起不删除：收起的不再每轮带，用查记忆还能查到。"
+MEMORY_HINT = "只收起不删除：收起的不再每轮带，在网页记录里能放回。"
 GO_LINE = "在菜单「看板」上点「继续」接着做"  # What a project a guard paused waits for (cards/board.py PROJECT_GO_KIND).
 # How an older release's row said a state and a question (``shaped``).
 STATE_WORDS = frozenset({look.word(key) for key in look.STATES} | {word for words in look.RETIRED.values() for word in words})
@@ -237,8 +237,6 @@ def memory_elements(view):
         elements.append(note(f"{away} · 已撤销，都放回去了"))
     elif away:
         elements.append(item(md(away), callback_button("撤销", {**value, "op": "undo"}, style="text", size="small")))
-    if part.get("expired"):
-        elements.append(note(f"{int(part['expired'])} 条候选很久没用，不再带"))
     elements.append(note(MEMORY_HINT))
     return elements
 

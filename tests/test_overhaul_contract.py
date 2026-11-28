@@ -24,7 +24,7 @@ from covey.core.jobs import BridgeReplyJob as ReplyJob
 REPO = Path(__file__).resolve().parents[1]
 API = REPO / "web" / "shared" / "api.interface.ts"
 GOLDEN = REPO / "tests" / "golden" / "web_memory_v43.json"
-ENTRY_FIELDS = {"key", "code", "kind", "scope", "title", "text", "status", "said", "by", "origin", "carried_next", "rev"}
+ENTRY_FIELDS = {"key", "code", "kind", "scope", "title", "text", "status", "said", "by", "origin", "rev"}
 
 
 def ts_array(name: str) -> list[str]:
@@ -45,13 +45,15 @@ class WebContractTest(unittest.TestCase):
 
     def test_the_golden_samples_have_every_key_and_entries_of_the_frozen_shape(self):
         golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
-        self.assertEqual(golden["version"], 43)
+        self.assertEqual(golden["version"], 45)  # v45: the one-page 记忆 (no previews, imports, 体检, rooms).
         keys = set(golden["keys"])
         self.assertTrue(all(web_sync.MEMORY_KEY_RE.match(key) for key in keys), keys)
-        for kind in ("index", "global", "topics", "previews"):
+        for kind in ("index", "global", "topics"):
             self.assertIn(f"memory:{kind}", keys)
         self.assertTrue(any(key.startswith("memory:p:") for key in keys))
-        self.assertTrue(any(key.startswith("memory:import:") for key in keys))
+        self.assertFalse(any(key == "memory:previews" or key.startswith("memory:import:") for key in keys))
+        self.assertEqual(golden["keys"]["memory:index"]["version"], web_memory.V45)
+        self.assertFalse({"health", "imports"} & set(golden["keys"]["memory:index"]))
         entries = [*golden["keys"]["memory:global"]["entries"],
                    *(e for topic in golden["keys"]["memory:topics"]["topics"] for e in topic["entries"]),
                    *next(v for k, v in golden["keys"].items() if k.startswith("memory:p:"))["entries"]]

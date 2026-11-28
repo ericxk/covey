@@ -239,6 +239,7 @@ export interface TokenUsage {
   total?: number;
 }
 export interface TurnNote {
+  /** remembered / voided / undone / skipped_ask / reference；v45 多 superseded（收起了）、pending（待审核） */
   kind: string;
   text: string;
   scope?: string;
@@ -1284,12 +1285,11 @@ export const PROXY_OPS = ['enable', 'disable', 'row', 'pause', 'resume', 'remove
  * memory 是主记忆（v37），upgrade 是版本与更新（v39），quota 是账号与额度（v42） */
 export const SETTINGS_KEYS = ['settings', 'usage', 'tidy', 'asks', 'memory', 'upgrade', 'quota'] as const;
 /** v43 记忆中心的键（≤41 字符，sync_state.name 是 varchar(64)）：
- *  memory:index    小键（侧栏角标只轮询它）：总数、待审核数、各范围摘要与每键 rev、体检非 0 项、导入摘要
+ *  memory:index    小键（侧栏角标只轮询它）：总数、待审核数、各范围摘要与每键 rev（v45 起没有体检、导入摘要、配额）
  *  memory:global   全局条目 + 待审核列表 + 最近 100 条变更记录
  *  memory:topics   活跃话题（近 30 天有记忆）的话题范围条目汇总
  *  memory:p:<专项 id>  一个专项的条目（专项 id 同 core/projects.py 的 [0-9a-z]{6,32}）
- *  memory:import:<页>  导入候选，每页 ≤200 条，页号 0~999
- *  memory:previews 下一轮预览（最近 20 个话题 + “新的普通话题”）
+ *  memory:import:<页>、memory:previews  v45 起不再推（Bridge 会对旧的发 SyncDeleted）；正则仍认，否则删不掉库里的旧行
  *  旧键 memory（v37 形状）继续推给旧网页。每键的值 ≤256 KB，带 rev。 */
 export const MEMORY_KEY_RE = /^memory:(index|global|previews|topics|p:[0-9a-z]{6,32}|import:\d{1,3})$/;
 export const isSettingsKey = (v: string): boolean =>
@@ -1665,7 +1665,9 @@ export interface QuotaResponse {
   at: string;
 }
 
-/* ===== v43：记忆中心与仓库（docs/web.md 数据约定 v43）。全部可选，旧 Covey 不推新键时网页行为与 v42 相同 ===== */
+/* ===== v43：记忆中心与仓库（docs/web.md 数据约定 v43）。全部可选，旧 Covey 不推新键时网页行为与 v42 相同 =====
+ * v45 变化：memory:index 去掉 health、imports、scopes[].rules；不再推 memory:previews、memory:import:<页>；条目去掉 carried_next；
+ * memory_edit 去掉 import、ignore；TurnNote.kind 多 superseded、pending。 */
 
 /** v43：记忆中心的类型。键见 MEMORY_KEY_RE */
 export const MEMORY_KINDS = ['rule', 'decision', 'note'] as const;
@@ -1678,9 +1680,6 @@ export const MEMORY_BY = ['owner', 'lead', 'butler', 'learn', 'import', 'bridge'
 export type MemoryBy = (typeof MEMORY_BY)[number];
 export const MEMORY_REVIEW_TYPES = ['learn', 'candidate', 'lead', 'import', 'conflict', 'tidy', 'class3', 'migrate'] as const;
 export type MemoryReviewType = (typeof MEMORY_REVIEW_TYPES)[number];
-/** 记忆中心 5 个页签（顺序即主导航顺序）；「导入」是顶栏入口，不是页签 */
-export const MEMORY_TABS = ['review', 'rules', 'decisions', 'notes', 'log'] as const;
-export type MemoryTab = (typeof MEMORY_TABS)[number];
 
 export interface MemoryEntryOrigin {
   at: number;
@@ -1705,8 +1704,7 @@ export interface MemoryEntry {
   repos?: string[];
   device?: string;
   verified_at?: number;
-  carried_next: boolean;    // 下一轮是否全文带（规矩恒 true；超额的 false 并带 over_cap）
-  over_cap?: boolean;
+  over_cap?: boolean;       // 规矩超出所在范围的名额：下一轮只带标题
   superseded_by?: string;
   edited?: boolean;
   in_progress?: boolean;    // 决定：在办
@@ -1718,7 +1716,6 @@ export interface MemoryScopeSummary {
   key: string;              // 'global' | 'topics' | 'p:<专项 id>'
   title: string;
   counts: MemoryCounts;
-  rules: { items: number; chars: number; item_limit: number; char_limit: number };
   rev: string;
 }
 export interface MemoryReviewItem {
@@ -1732,11 +1729,6 @@ export interface MemoryReviewItem {
   flags?: ('vague' | 'dynamic' | 'repeat' | 'old_repo')[];
   created_at: number;
 }
-/** 体检：只放非 0 项（全 0 时整个对象为空 {}，网页只出一行“暂无异常”） */
-export interface MemoryHealth {
-  dup?: string[]; conflict?: string[][]; vague?: string[]; stale?: string[];
-  idle?: string[]; over_cap?: string[]; repo_rule?: string[]; skill?: string[];
-}
 export interface MemoryLogItem {
   at: number; who: string; action: string; refs: string[]; title: string;
   because?: { topic_number?: number; quote?: string };
@@ -1745,12 +1737,10 @@ export interface MemoryLogItem {
 /** memory:index（小键） */
 export interface MemoryIndex {
   on: boolean;
-  version: 43;
+  version: number;          // v45 起是 45；老 Covey 还是 43
   counts: MemoryCounts;     // counts.pending 就是侧栏角标
   scopes: MemoryScopeSummary[];
   revs: Record<string, string>;   // 每个 memory:* 键 → rev；网页据此决定拉哪些键
-  health: MemoryHealth;
-  imports: { total: number; new: number; pages: number };
   limits: { title: number; text: number; decision_text: number };
   /** ⌘K 搜记忆的精简标题表：[code, title, key]，≤2000 条，标题已截到 40 字 */
   titles: [string, string, string][];
@@ -1763,33 +1753,15 @@ export interface MemoryProjectData { key: string; title: string; entries: Memory
 export interface MemoryTopicsData {
   topics: { topic_key: string; topic_number?: number; title: string; project_key?: string; entries: MemoryEntry[] }[];
 }
-/** memory:import:<页> */
-export interface MemoryImportItem {
-  fingerprint: string;
-  harness: 'claude_code' | 'codex' | 'antigravity';
-  bucket: string; repo?: string; file_tail: string;
-  title: string; text: string; type: string;
-  suggest: { kind: MemoryKind; scope: MemoryScope; project_key?: string };
-  state: 'new' | 'imported' | 'ignored';
-  dup_of?: string; old_repo?: boolean;
-}
-export interface MemoryImportPage { page: number; items: MemoryImportItem[] }
-/** memory:previews 里每个话题一条 */
-export interface MemoryPreview {
-  topic_key: string; title: string; chars: number;
-  rules: string[]; decisions: string[]; notes: { code: string; sim: number }[]; listed: string[];
-}
-export interface MemoryPreviewsData { previews: MemoryPreview[] }
-
 /** v43：memory_edit 的新 payload（带 v: 43；没有 v 的是 v37 的 MemoryEditPayload） */
 export const MEMORY_EDIT_ACTIONS_V43 = [
   'add', 'edit', 'move', 'archive', 'restore', 'void', 'accept', 'reject', 'accept_all', 'reject_all',
-  'keep_left', 'keep_right', 'keep_both', 'promote', 'import', 'ignore', 'undo',
+  'keep_left', 'keep_right', 'keep_both', 'promote', 'undo',
 ] as const;
 export interface MemoryEditPayloadV43 {
   v: 43;
   action: (typeof MEMORY_EDIT_ACTIONS_V43)[number];
-  keys: string[];           // 条目 ref / 待审核 key / 导入指纹；accept_all/reject_all 可为空数组（= 当前全部待审核）
+  keys: string[];           // 条目 ref / 待审核 key；accept_all/reject_all 可为空数组（= 当前全部待审核）
   title?: string;           // ≤40
   text?: string;            // ≤200；kind=decision 时 ≤600
   why?: string;             // ≤200

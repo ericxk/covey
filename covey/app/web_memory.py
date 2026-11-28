@@ -1,33 +1,33 @@
-"""The web page's memory: the 记忆 tab of data contract v37 (COVEY_MEMORY=1) and the memory center of data contract v43.
+"""The web page's memory: the 记忆 tab of data contract v37 (COVEY_MEMORY=1) and the one-page 记忆 of data contracts v43/v45.
 
 v37 (``view``, ``edit``): the ``settings`` item ``memory`` (app/web_sync.py push_memory), the owner's main memory, 全局 and each
-workspace's, read and changed as the 设置 card's 记忆 tab once did: the principles (core/principles.py), with COVEY_KNOWLEDGE=1
-the knowledge entries (core/knowledge.py) and with COVEY_MEMORY_LEARN=1 the open candidates (app/memory_candidates.py), each
-group with the room it uses of its scope's limit and which entries the next turn carries, through core/memory.py ``items``,
-``fill`` and ``select`` exactly as a turn does, and the block a new topic's turn in each workspace would read (app/prompts.py
-memory_block). ``edit`` is the ``memory_edit`` operation without ``v`` (app/web_ops.py): add a principle or a knowledge entry,
-change its words (only while it still reads ``base``), 常驻 or not, delete a principle or void a knowledge entry, keep (记下)
-or drop (不用) a candidate, each through the store's own function under its own lock. An older page keeps all of it.
+workspace's, read and changed as the 设置 card's 记忆 tab once did: the principles (core/principles.py) and, with
+COVEY_KNOWLEDGE=1, the knowledge entries (core/knowledge.py), each group with the room it uses of its scope's limit and which
+entries the next turn carries, through core/memory.py ``items``, ``fill`` and ``select`` exactly as a turn does, and the block a
+new topic's turn in each workspace would read (app/prompts.py memory_block). ``edit`` is the ``memory_edit`` operation without
+``v`` (app/web_ops.py): add a principle or a knowledge entry, change its words (only while it still reads ``base``), 常驻 or
+not, delete a principle or void a knowledge entry, each through the store's own function under its own lock (an older page's
+keep and drop of an evening candidate say that feature is gone). An older page keeps the rest of it.
 
-v43 (``Center``, ``edit_v43``; docs/web.md 数据约定 v43, tests/golden/web_memory_v43.json): the memory center's ``settings``
-items, each a key of core/web_sync.py ``MEMORY_KEY_RE`` read from the one store (core/memstore.py):
+v45 (``Center``, ``edit_v43``; docs/web.md 数据约定 v45, tests/golden/web_memory_v43.json): the page's ``settings`` items, each
+a key of core/web_sync.py ``MEMORY_KEY_RE`` read from the one store (core/memstore.py):
 
 - ``memory:index``, the small key the page polls: the counts (``counts.pending`` is the badge: the open items of 待审核), each
-  scope's summary with the room its rules use, every other key's ``rev``, the health check's non-zero findings, the imports'
-  summary and the ⌘K title table (``titles``: [code, title, key], at most TITLES).
-- ``memory:global``: the 全局 entries, the open items of 待审核 (``review``) and the latest LOG_SHOWN changes (``log``); past
-  KEY_BYTES the log alone is cut, never the review.
+  scope's counts, every other key's ``rev`` and the ⌘K title table (``titles``: [code, title, key], at most TITLES).
+- ``memory:global``: the 全局 entries, the open items of 待审核 (``review``) and the latest LOG_SHOWN changes (``log``, without
+  the Bridge's own notes of the owner's answers); past KEY_BYTES the log alone is cut, never the review.
 - ``memory:topics``: the entries of the topics with memory written in the last TOPIC_DAYS days (core/memstore.py ``topics``:
-  no topic directory is walked), ``memory:p:<project id>`` one project's.
-- ``memory:import:<page>``: what the Harnesses' own memory offers (core/harness_memory.py ``page``), scanned at most every
-  IMPORT_SECONDS; ``memory:previews``: what the next turn of the PREVIEW_TOPICS latest topics and of a new ordinary topic
-  carries (app/memory_turn.py ``preview`` once it has one, else ``preview_of`` here).
+  no topic directory is walked), ``memory:p:<project id>`` one project's. A rule past its scope's room has ``over_cap`` (the
+  turn lists only its title); a decision's origin names the T number of the topic it was asked in.
+
+v43 had 体检 (``health``), the rooms of the rules, memory:previews and memory:import:<page> besides: gone in v45, with the
+Harnesses' memory import (memory/imports.json stays as it is; nothing reads it).
 
 What a turn did with an entry (how often it was carried, used) is never in an entry: an entry's ``rev`` moves only when what
 the page shows of it does, so a turn does not make every key go again. ``stamps`` stats the one sentinel ``memory/.rev`` that
-every memory write touches (core/memory_rev.py). ``edit_v43`` does the 17 actions of a ``memory_edit`` with ``v: 43`` through
-core/memstore.py, core/harness_memory.py and, for 待审核, core/memory_review.py ``decide``/``decide_all`` (``review_decide``:
-this module's own way while that one is not there); the operation's id is the change's ``undo_token``. No model, no Feishu call.
+every memory write touches (core/memory_rev.py). ``edit_v43`` does the 15 actions of a ``memory_edit`` with ``v: 43`` through
+core/memstore.py and, for 待审核, core/memory_review.py ``decide``/``decide_all`` (``review_decide``: this module's own way
+while that one is not there); the operation's id is the change's ``undo_token``. No model, no Feishu call.
 """
 from __future__ import annotations
 
@@ -37,20 +37,19 @@ import re
 import time
 from pathlib import Path
 
-from covey.app import memory_candidates, memory_turn
+from covey.app import memory_turn
 from covey.app.prompts import memory_block
 from covey.cards.memory_panel import center_url as memory_card_url
-from covey.core import (harness_memory, knowledge, memory, memory_review, memory_rev, memory_usage, memstore, principles,
-                        projects, web_sync)
-from covey.core.jobs import job_path, read_job_record, select_job_records
-from covey.core.state import epoch_seconds, read_object
+from covey.core import knowledge, memory, memory_review, memory_rev, memory_usage, memstore, principles, projects, web_sync
+from covey.core.jobs import job_path, read_job_record
+from covey.core.state import read_object
 from covey.core.topics import topic_file
 from covey.core.workspaces import load_config
 
 GLOBAL, WORKSPACE = memory.GLOBAL, memory.WORKSPACE
 PRINCIPLE, KNOWLEDGE, CANDIDATE = "principle", "knowledge", "candidate"
 ACTIONS = ("add", "edit", "pin", "unpin", "delete", "keep", "drop")
-CANDIDATE_ID = re.compile(r"c[0-9a-f]{8}")  # app/memory_candidates.py ids, as app/memory_panel.py CANDIDATE.
+CANDIDATE_ID = re.compile(r"c[0-9a-f]{8}")  # The evening candidates' ids (an older release's): keep and drop say they are gone.
 PREVIEWS = 24  # Workspaces the next turn is previewed for: the default one and those with entries, the default first.
 DROP_REASON = "主人在网页「记忆」里作废"
 EDIT_REASON = "主人在网页「记忆」里改了"
@@ -177,8 +176,7 @@ def _found(state_dir, workspace, knowledge_on, learn, used):
     """The items a new topic's turn in ``workspace`` reads ('' : 全局 alone)."""
     mine, space = principles.for_turn(state_dir, workspace)
     entries = knowledge.for_turn(state_dir, workspace) if knowledge_on else ((), ())
-    drafts = memory_candidates.carried(state_dir, workspace) if learn else ((), ())
-    return memory.items(principles=(mine, space), entries=entries, drafts=drafts, used=used)
+    return memory.items(principles=(mine, space), entries=entries, drafts=((), ()), used=used)
 
 
 def _row(item, carried, facts) -> dict:
@@ -227,9 +225,6 @@ def view(state_dir, default_workdir=None) -> dict:
                                                           "text": entry["text"], "kind": entry.get("kind", ""), "why": entry.get("why", "")}
                     if scope == knowledge.WORKSPACE and name:
                         spaces.add(name)
-    open_rows = [row for row in memory_candidates.load(state_dir)["rows"] if row.get("state") == memory_candidates.OPEN
-                 and isinstance(row.get("text"), str) and row["text"].strip()] if learn else []
-    spaces |= {str(row.get("workspace") or "") for row in open_rows if row.get("carried") and row.get("workspace")}
     groups, previews = [], {}
     order = list(dict.fromkeys([default, *sorted(spaces)])) if default else sorted(spaces)
     for index, name in enumerate(order or [""]):
@@ -246,15 +241,11 @@ def view(state_dir, default_workdir=None) -> dict:
                               "text": memory_block(kept, left, learn={"search": ""} if learn else None)}
     globals_ = groups[:1]
     groups = globals_ + sorted(groups[1:], key=lambda group: group["workspace"])
-    candidates = [{"key": f"candidate:{row['id']}", "text": " ".join(row["text"].split()), "workspace": str(row.get("workspace") or ""),
-                   "carried": bool(row.get("carried")), "at": float(row.get("at") or 0), "error": str(row.get("error") or ""),
-                   "from": memory_candidates.SOURCE_WORDS.get(str(row.get("source") or ""), "")}
-                  for row in sorted(open_rows, key=lambda row: -float(row.get("at") or 0))]
     return {"on": True, "knowledge": knowledge_on, "learn": learn,
             "limits": {"text": principles.TEXT_LIMIT, "group": principles.GROUP_LIMIT, "pinned": principles.PINNED_LIMIT,
                        GLOBAL: memory.LIMITS[GLOBAL], WORKSPACE: memory.LIMITS[WORKSPACE]},
             "kinds": [{"value": key, "text": word} for key, word in knowledge.KINDS.items()],
-            "default": default, "workspaces": names, "groups": groups, "candidates": candidates, "previews": previews}
+            "default": default, "workspaces": names, "groups": groups, "candidates": [], "previews": previews}
 
 
 def short(text, limit=30) -> str:
@@ -307,22 +298,7 @@ def edit(state_dir, payload) -> str:
             found = knowledge.drop(state_dir, rid, DROP_REASON, source=SOURCE, by="main")
             return "已作废：" + short(found["text"])
         raise ValueError("候选用「不用」，不用删")
-    if kind != CANDIDATE:
-        raise ValueError("记下、不用只对候选")
-    before = next((row for row in memory_candidates.load(state_dir)["rows"] if row.get("id") == rid), None)
-    if before is None:
-        raise _gone("这条候选")
-    if before.get("state") != memory_candidates.OPEN:
-        raise ValueError("这条候选已经处理过了")
-    row = memory_candidates.decide(state_dir, rid, "save" if action == "keep" else "drop")
-    if row is None:
-        raise _gone("这条候选")
-    if row.get("state") == memory_candidates.SAVED:
-        where = f"工作区 {row['workspace']}" if row.get("workspace") else "全局"
-        return f"已记下，记到{where}：" + short(row.get("text"))
-    if row.get("state") == memory_candidates.DECLINED:
-        return "不用了：" + short(row.get("text"))
-    raise ValueError(str(row.get("error") or "这条候选已经处理过了"))
+    raise ValueError("晚间候选已经下线，不用再处理")  # keep / drop of an older page.
 
 
 def _scope(payload) -> tuple[str, str]:
@@ -388,25 +364,17 @@ def _edit(state_dir, kind, rid, payload) -> str:
     raise ValueError("候选不能改，记下以后再改")
 
 
-# ================================================================================ data contract v43: the memory center
+# ================================================================================ data contract v43/v45: the memory center
 
-V43 = 43
-INDEX_KEY, GLOBAL_KEY, TOPICS_KEY, PREVIEWS_KEY = "memory:index", "memory:global", "memory:topics", "memory:previews"
-PROJECT_PREFIX, IMPORT_PREFIX = "memory:p:", "memory:import:"
+V43 = 43  # memory_edit's ``v`` (the payload is v43's, its actions fewer since v45).
+V45 = 45  # memory:index's ``version``: no 体检, previews, imports or rooms since.
+INDEX_KEY, GLOBAL_KEY, TOPICS_KEY = "memory:index", "memory:global", "memory:topics"
+PROJECT_PREFIX = "memory:p:"
 TOPIC_DAYS = 30  # A topic's memory is in memory:topics while something was written to it this recently.
 TITLES = 2000  # Rows of the ⌘K title table.
 KEY_BYTES = 256 * 1024  # Of one key's data as sent (UTF-8).
 LOG_SHOWN = 100  # Latest changes in memory:global's log.
-PREVIEW_TOPICS = 20  # Topics memory:previews shows the next turn of, the latest first (and a new ordinary topic).
-PREVIEW_DAYS = 7  # How far back the latest topics are looked for (the job records updated since; the index, no walk).
-NEW_TOPIC, NEW_TITLE = "new", "新的普通话题"
-# The rules a turn carries whole, per scope: items and characters (MASTER-PLAN 裁决 A9; app/memory_turn.py carries the same).
-# Past them a rule is not dropped: the turn lists its title (``over_cap``), the page's bar turns red.
-RULE_LIMITS = {"global": (15, 1200), "project": (10, 1000), "topic": (5, 400)}
-LISTED = 10  # Codes a preview lists of the notes it does not carry.
-STALE_DAYS, IDLE_DAYS = 60, 30  # 体检: a note not verified this long (core/memory_rank.py freshness), an entry no turn used.
-IMPORT_SECONDS = 600  # The Harnesses' memory files scanned at most this often (core/harness_memory.py scan).
-IMPORT_PAGES = 1000  # memory:import:<page> has three digits.
+LOG_READ = 1000  # Latest lines of memory/log.jsonl read for it (the answers' own writes left out, then LOG_SHOWN kept).
 REBUILD_SECONDS = 300  # A full pass builds the keys again at most this often while the sentinel did not move.
 ORIGIN_TEXT = ("topic_key", "quote", "message_id", "question", "file", "harness")
 FLAGS = ("vague", "dynamic", "repeat", "old_repo")
@@ -427,9 +395,10 @@ def _shown_origin(origin) -> dict:
     return out
 
 
-def entry_view(entry, *, carried, over_cap=False, topic_number=None, live=None) -> dict:
-    """One entry as the page reads it (MemoryEntry): never how often a turn carried or used it. ``live``: whether a decision is
-    在办 (``Store.in_progress``), its status alone when not given."""
+def entry_view(entry, *, over_cap=False, topic_number=None, live=None, asked_number=None) -> dict:
+    """One entry as the page reads it (MemoryEntry): never how often a turn carried or used it. ``over_cap``: a rule past its
+    scope's room (the turn lists only its title). ``live``: whether a decision is 在办 (``Store.in_progress``), its status alone
+    when not given; ``asked_number``: the T number of the topic a decision was asked in, when its origin does not say."""
     origin = _shown_origin(entry.origin)
     if entry.scope == "topic":  # Written in that topic: its own key and number when the line does not say.
         origin.setdefault("topic_key", entry.owner_key)
@@ -437,7 +406,7 @@ def entry_view(entry, *, carried, over_cap=False, topic_number=None, live=None) 
             origin.setdefault("topic_number", topic_number)
     out = {"key": entry.ref, "code": entry.code, "kind": entry.kind, "scope": entry.scope, "title": entry.title,
            "text": entry.text, "status": entry.status, "said": entry.said, "by": entry.by, "origin": origin,
-           "carried_next": bool(carried), "rev": memstore.rev_of(entry)}
+           "rev": memstore.rev_of(entry)}
     if entry.scope == "project":
         out["project_key"] = entry.owner_key
     elif entry.scope == "topic":
@@ -460,6 +429,8 @@ def entry_view(entry, *, carried, over_cap=False, topic_number=None, live=None) 
         out["edited"] = True
     if entry.kind == "decision":
         out["in_progress"] = in_progress(entry) if live is None else bool(live)
+        if type(asked_number) is int and origin.get("topic_key"):
+            origin.setdefault("topic_number", asked_number)
     return out
 
 
@@ -468,25 +439,12 @@ def in_progress(entry) -> bool:
     return entry.kind == "decision" and entry.status == "active"
 
 
-def rule_room(entries, scope) -> tuple[set, dict]:
-    """(the refs of the rules of one store past its room, {items, chars, item_limit, char_limit}): the active rules a turn
-    carries as app/memory_turn.py ``pick_rules`` gives the room (the owner's first, then the newest); never dropped by use
-    (裁决 A9)."""
-    items_limit, chars_limit = RULE_LIMITS[scope]
+def over_room(entries, scope) -> set:
+    """The refs of the rules of one store past its room: the active rules a turn lists only by title as app/memory_turn.py
+    ``pick_rules`` gives the room (the owner's first, then the newest); never dropped by use (裁决 A9)."""
     rules = [e for e in entries if e.kind == "rule" and e.status == "active"]
     _, left = memory_turn.pick_rules(rules, scope)
-    return {e.ref for e in left}, {"items": len(rules), "chars": sum(len(e.text) for e in rules), "item_limit": items_limit,
-                                   "char_limit": chars_limit}
-
-
-def _carried(entry, over, live=None) -> bool:
-    if entry.status != "active":
-        return False
-    if entry.kind == "rule":
-        return entry.ref not in over
-    if entry.kind == "decision":
-        return in_progress(entry) if live is None else bool(live)
-    return True  # A note: carried when the turn finds it relevant (memory:previews says which).
+    return {e.ref for e in left}
 
 
 def _counts(entries, pending=0, migrate=None) -> dict:
@@ -521,10 +479,11 @@ class Store:
     """One read of the memory for a build: every entry of 全局, of each project not cancelled and of the topics with memory
     written in the last TOPIC_DAYS days, each store's rules' room, the open items of 待审核."""
 
-    def __init__(self, state_dir, now=None) -> None:
+    def __init__(self, state_dir, now=None, numbers=None) -> None:
         self.state = Path(state_dir)
         self.now = time.time() if now is None else now
         self.topic_cache = {}
+        self.numbers = {} if numbers is None else numbers  # topic id -> its T number (never changes: kept across builds).
         self.globals = memstore.entries(self.state, scope="global", statuses=None)
         self.projects = {}  # pid -> (title, entries)
         for record in projects.records(self.state):
@@ -544,13 +503,10 @@ class Store:
                 self.topics[tid] = found
         self.review = memstore.review_items(self.state)
         self.live_cache = {}  # app/memory_turn.py in_progress's: each asking topic's job records read once a build.
-        self.over, self.rooms = set(), {}
-        for key, found, scope in [("global", self.globals, "global"),
-                                  *((f"p:{pid}", found, "project") for pid, (_, found) in self.projects.items()),
-                                  *((f"t:{tid}", found, "topic") for tid, found in self.topics.items())]:
-            over, room = rule_room(found, scope)
-            self.over |= over
-            self.rooms[key] = room
+        self.over = set()
+        for found, scope in [(self.globals, "global"), *((found, "project") for _, found in self.projects.values()),
+                             *((found, "topic") for found in self.topics.values())]:
+            self.over |= over_room(found, scope)
 
     def all(self) -> list:
         return [*self.globals, *(e for _, found in self.projects.values() for e in found),
@@ -571,11 +527,22 @@ class Store:
         except (OSError, ValueError, TypeError):
             return in_progress(entry)
 
+    def number(self, tid) -> int | None:
+        """The T number of the topic ``tid`` (its topic.json read once, then kept)."""
+        if tid not in self.numbers:
+            self.numbers[tid] = self.topic(tid)["number"]
+        return self.numbers[tid]
+
     def view(self, entry) -> dict:
         number = self.topic(entry.owner_key)["number"] if entry.scope == "topic" else None
         live = self.in_progress(entry) if entry.kind == "decision" else None
-        return entry_view(entry, carried=_carried(entry, self.over, live), over_cap=entry.ref in self.over,
-                          topic_number=number, live=live)
+        asked = None
+        if entry.kind == "decision":  # 上次你答过：…（T12 · 11-26）, the page's search says where it was asked.
+            origin = entry.origin if isinstance(entry.origin, dict) else {}
+            tid = str(origin.get("topic_key") or "")
+            if tid and type(origin.get("topic_number")) is not int:
+                asked = self.number(tid)
+        return entry_view(entry, over_cap=entry.ref in self.over, topic_number=number, live=live, asked_number=asked)
 
     def pending(self, kind=None) -> dict:
         """Open items of 待审核 per scope summary key ('global', 'topics', 'p:<id>'), by where each would go; of ``kind`` only
@@ -624,12 +591,23 @@ def review_view(item, views) -> dict:
     return out
 
 
+def answered(row) -> bool:
+    """Whether a change of memory/log.jsonl is the Bridge's own note of what the owner answered on a question card (a decision
+    written or settled by itself): not one of the page's (its operation's ``w-`` token), not an undo."""
+    refs = [str(ref) for ref in row.get("refs") or ()]
+    return (bool(refs) and all(ref.startswith("decision:") for ref in refs) and row.get("action") != "undo"
+            and not str(row.get("undo_token") or "").startswith("w-"))
+
+
 def log_view(rows) -> list:
-    """The latest changes (memory/log.jsonl, newest first) as the page reads them (MemoryLogItem): an ``undo_token`` only on a
-    change that can still be taken back (not one undone already, not an undo itself)."""
+    """The latest changes (memory/log.jsonl, newest first) as the page reads them (MemoryLogItem), without the answers' own notes
+    (``answered``: 记录 is what changed what Covey does, not every question answered): an ``undo_token`` only on a change that
+    can still be taken back (not one undone already, not an undo itself)."""
     undone = {str(row.get("undid")) for row in rows if row.get("action") == "undo" and row.get("undid")}
     out = []
     for row in rows:
+        if answered(row):
+            continue
         item = {"at": float(memstore._number(row.get("at"))), "who": str(row.get("who") or "bridge"),
                 "action": str(row.get("action") or ""), "refs": [str(ref) for ref in row.get("refs") or ()],
                 "title": memstore.clean(row.get("title"), memstore.TITLE_CHARS)}
@@ -667,41 +645,6 @@ def _shelved_last(views) -> list:
     return sorted(views, key=lambda view: view["status"] not in LIVE)
 
 
-def health(state_dir, store, now=None) -> dict:
-    """体检's non-zero findings (MemoryHealth; {} when all is well): core/memory_review.py ``health`` once it has one, else
-    what can be told without a model: the same words twice in a store (``dup``), an open conflict (``conflict``), rules past
-    their room (``over_cap``), notes not verified for STALE_DAYS (``stale``), entries no turn used for IDLE_DAYS (``idle``)."""
-    found = _m2(memory_review, "health", ("now",))
-    if found is not None:
-        try:
-            return {key: value for key, value in dict(found(state_dir, now=now) or {}).items() if value}
-        except NotImplementedError:
-            pass
-    now = store.now if now is None else now
-    out = {}
-    groups = {}
-    for entry in store.all():
-        if entry.status == "active" and entry.kind != "decision":
-            groups.setdefault((entry.kind, entry.scope, entry.owner_key, memstore.same_key(entry.text)), []).append(entry.ref)
-    dup = [ref for refs in groups.values() if len(refs) > 1 for ref in refs]
-    conflict = [[str(item["conflict_with"]), str(item["key"])] for item in store.review
-                if item.get("type") == "conflict" and item.get("conflict_with")]
-    stale = [e.ref for e in store.all() if e.kind == "note" and e.status == "active"
-             and (e.verified_at or e.at) and now - (e.verified_at or e.at) > STALE_DAYS * 86400]
-    try:
-        used = memory_usage.counts(state_dir)
-    except (OSError, ValueError, TypeError):
-        used = None
-    idle = [] if used is None else [
-        e.ref for e in store.all() if e.kind != "decision" and e.status == "active" and e.at and now - e.at > IDLE_DAYS * 86400
-        and now - float((used.get(e.ref) or {}).get("last") or 0) > IDLE_DAYS * 86400
-        and not any((used.get(e.ref) or {}).get(key) for key in ("e", "t", "h"))]
-    for key, value in (("dup", dup), ("conflict", conflict), ("stale", stale), ("idle", idle), ("over_cap", sorted(store.over))):
-        if value:
-            out[key] = value
-    return out
-
-
 def _m2(module, name, keywords):
     """``module.name`` when it is package M2's (its keywords include ``keywords``), else None: until M2 is in, this module's own
     way is taken (core/memory_review.py has only A0's shapes)."""
@@ -715,126 +658,42 @@ def _m2(module, name, keywords):
     return found if all(word in params for word in keywords) else None
 
 
-# ---------------------------------------------------------------------------------------------- previews
-
-
-def preview_of(store, topic_key="", *, project_key="", title="") -> dict:
-    """What the next turn of a topic carries (MemoryPreview) as can be told without the search: the rules that fit (全局 on the
-    owner's own turn, the project's, the topic's), the decisions in progress, no note found relevant yet (the search is
-    app/memory_turn.py's), and the codes of the notes it would list by title. ``chars``: the characters of the lines carried."""
-    pool = list(store.globals)
-    if project_key in store.projects:
-        pool += store.projects[project_key][1]
-    if topic_key and topic_key in store.topics:
-        pool += store.topics[topic_key]
-    rules = [e for e in pool if e.kind == "rule" and _carried(e, store.over)]
-    decisions = sorted((e for e in pool if e.kind == "decision" and in_progress(e)), key=lambda e: -e.at)
-    listed = [e.code for e in sorted((e for e in pool if e.kind == "note" and e.status == "active" and e.scope != "global"),
-                                     key=lambda e: -e.at) if e.code][:LISTED]
-    chars = sum(len(e.code) + 1 + len(e.text) for e in (*rules, *decisions))
-    return {"topic_key": topic_key or NEW_TOPIC, "title": title or NEW_TITLE, "chars": chars,
-            "rules": [e.code for e in rules if e.code], "decisions": [e.code for e in decisions if e.code], "notes": [],
-            "listed": listed}
-
-
-def latest_topics(state_dir, store, now=None) -> list:
-    """The topics of the latest job records (updated in the last PREVIEW_DAYS days, the job index: no walk), the latest first,
-    each once, not a 代答 topic (which carries nothing): at most PREVIEW_TOPICS."""
-    cutoff = (store.now if now is None else now) - PREVIEW_DAYS * 86400
-
-    def recent(fields):
-        at = epoch_seconds(fields.get("updated_at"))
-        return at is None or at >= cutoff
-
-    out = []
-    try:
-        records = select_job_records(Path(state_dir), None, narrow=recent)
-    except (OSError, ValueError):
-        return out
-    for record in records:
-        tid = str(record.get("topic_id") or "")
-        if not tid or tid in out or store.topic(tid)["proxy"]:
-            continue
-        out.append(tid)
-        if len(out) >= PREVIEW_TOPICS:
-            break
-    return out
-
-
-def previews(state_dir, store, now=None) -> dict:
-    """memory:previews: each latest topic's next turn, then a new ordinary topic's (app/memory_turn.py ``preview`` once package
-    M2 has one, else ``preview_of``)."""
-    made = _m2(memory_turn, "preview", ("project_key", "title", "query", "repos"))
-    out = []
-    for tid in [*latest_topics(state_dir, store, now), ""]:
-        facts = store.topic(tid) if tid else {"project": "", "title": ""}
-        title = facts["title"] or (f"T{facts['number']}" if facts.get("number") else "")
-        try:
-            shared = {"cache": store.live_cache} if made and "cache" in inspect.signature(made).parameters else {}
-            row = dict(made(state_dir, tid, project_key=facts["project"], title=title, **shared)) if made else None
-        except NotImplementedError:
-            row = None
-        if row is None:
-            row = preview_of(store, tid, project_key=facts["project"], title=title)
-        row["topic_key"] = tid or NEW_TOPIC
-        row["title"] = row.get("title") or title or NEW_TITLE
-        out.append(row)
-    return {"previews": out}
-
-
 # ---------------------------------------------------------------------------------------------- the keys
 
 
 class Center:
-    """The memory center's keys, built by app/web_sync.py push_memory; keeps the last scan of the Harnesses' memory files
-    (``imports``) between builds. ``home``: whose Harness memory is offered (None: this process's user)."""
+    """The memory center's keys, built by app/web_sync.py push_memory; keeps the T numbers of the topics decisions were asked in
+    between builds (they never change)."""
 
     def __init__(self, state_dir, home=None) -> None:
-        self.state, self.home = Path(state_dir), home
-        self.scanned, self.scanned_at = None, None
-        self.last_previews = None  # memory:previews of the last build, for a ``quick`` one.
-
-    def imports(self, now, *, force=False) -> list:
-        """The Harnesses' memory entries (core/harness_memory.py ``scan``), scanned again after IMPORT_SECONDS; [] when they
-        cannot be read."""
-        if force or self.scanned is None or now - (self.scanned_at or 0) >= IMPORT_SECONDS:
-            try:
-                self.scanned = harness_memory.scan(self.state, Path.home() if self.home is None else self.home)
-            except Exception:  # noqa: BLE001 - the center goes on without the imports
-                self.scanned = []
-            self.scanned_at = now
-        return self.scanned
+        self.state = Path(state_dir)
+        self.numbers = {}
 
     def build(self, now=None, *, quick=False) -> dict:
-        """key -> data of every memory:* key, memory:index last (its ``revs`` name the others' revs). ``quick``: the one
-        before the page's ack of its own change (app/web_sync.py push_memory_center ``force``): memory:previews as the last
-        build had it, its 21 previews being most of a build's time; the next build makes them again."""
+        """key -> data of every memory:* key, memory:index last (its ``revs`` name the others' revs). ``quick`` (the one before
+        the page's ack of its own change, app/web_sync.py push_memory_center ``force``) builds the same: there is no preview
+        left to keep from the last build."""
         now = time.time() if now is None else now
-        store = Store(self.state, now)
-        built = keys(self.state, store, self.imports(now), now=now, home=self.home,
-                     previews_from=self.last_previews if quick else None)
-        self.last_previews = built.get(PREVIEWS_KEY)
-        return built
+        return keys(self.state, Store(self.state, now, self.numbers), now=now)
 
 
 def off_index() -> dict:
     """memory:index with the memory off: the page shows that it is, the other keys are taken back."""
-    return {"on": False, "version": V43, "counts": {"rule": 0, "decision": 0, "note": 0, "pending": 0}, "scopes": [], "revs": {},
-            "health": {}, "imports": {"total": 0, "new": 0, "pages": 0},
+    return {"on": False, "version": V45, "counts": {"rule": 0, "decision": 0, "note": 0, "pending": 0}, "scopes": [], "revs": {},
             "limits": {"title": memstore.TITLE_CHARS, "text": memstore.TEXT_CHARS, "decision_text": memstore.DECISION_CHARS},
             "titles": []}
 
 
-def keys(state_dir, store, imported=(), *, now=None, home=None, previews_from=None) -> dict:
-    """Every memory:* key's data of ``store`` (``Store``) and ``imported`` (``harness_memory.scan``'s); ``previews_from``: the
-    memory:previews to use as they are instead of making them (``Center.build`` ``quick``)."""
-    now = store.now if now is None else now
+def keys(state_dir, store, *, now=None) -> dict:
+    """Every memory:* key's data of ``store`` (``Store``): memory:global, memory:topics, each memory:p:<id>, memory:index last.
+    Since v45 no memory:previews, no memory:import:<page> (app/web_sync.py takes back the ones an older release pushed)."""
     views = {entry.ref: store.view(entry) for entry in store.all()}
     pending = store.pending()
     out = {}
+    log = [row for row in memstore.log_read(state_dir, limit=LOG_READ) if not answered(row)][:LOG_SHOWN]
     out[GLOBAL_KEY] = fit({"key": "global", "entries": _shelved_last([views[e.ref] for e in store.globals]),
                            "review": [review_view(item, views) for item in store.review],
-                           "log": log_view(memstore.log_read(state_dir, limit=LOG_SHOWN))}, ("log", "entries"))
+                           "log": log_view(log)}, ("log", "entries"))
     topics = []
     for tid, found in store.topics.items():
         facts = store.topic(tid)
@@ -849,34 +708,20 @@ def keys(state_dir, store, imported=(), *, now=None, home=None, previews_from=No
     for pid, (title, found) in store.projects.items():
         out[PROJECT_PREFIX + pid] = fit({"key": f"p:{pid}", "title": title,
                                          "entries": _shelved_last([views[e.ref] for e in found])}, ("entries",))
-    summary = {"total": 0, "new": 0, "pages": 0}
-    if imported:
-        summary = harness_memory.summary(state_dir, imported)
-        for number in range(min(summary["pages"], IMPORT_PAGES)):
-            out[f"{IMPORT_PREFIX}{number}"] = harness_memory.page(state_dir, Path.home() if home is None else home, number,
-                                                                  items=imported)
-    out[PREVIEWS_KEY] = previews_from if previews_from is not None else previews(state_dir, store, now)
     revs = {key: web_sync.rev(data) for key, data in out.items()}
 
     migrating = store.pending("migrate")
 
-    def scope(key, title, found, room, waiting):
-        return {"key": key, "title": title, "counts": _counts(found, waiting, migrating.get(key, 0)), "rules": room,
+    def scope(key, title, found, waiting):
+        return {"key": key, "title": title, "counts": _counts(found, waiting, migrating.get(key, 0)),
                 "rev": revs.get(GLOBAL_KEY if key == "global" else TOPICS_KEY if key == "topics" else "memory:" + key, "")}
 
-    topic_room = {"items": 0, "chars": 0, "item_limit": 0, "char_limit": 0}
-    for tid in store.topics:
-        for name, value in store.rooms[f"t:{tid}"].items():
-            topic_room[name] += value
-    if not store.topics:
-        topic_room["item_limit"], topic_room["char_limit"] = RULE_LIMITS["topic"]
-    scopes = [scope("global", "全局", store.globals, store.rooms["global"], pending.get("global", 0)),
-              scope("topics", "话题", [e for found in store.topics.values() for e in found], topic_room, pending.get("topics", 0)),
-              *(scope(f"p:{pid}", title, found, store.rooms[f"p:{pid}"], pending.get(f"p:{pid}", 0))
-                for pid, (title, found) in store.projects.items())]
+    scopes = [scope("global", "全局", store.globals, pending.get("global", 0)),
+              scope("topics", "话题", [e for found in store.topics.values() for e in found], pending.get("topics", 0)),
+              *(scope(f"p:{pid}", title, found, pending.get(f"p:{pid}", 0)) for pid, (title, found) in store.projects.items())]
     titled = sorted((e for e in store.all() if e.code and e.status != "void"), key=lambda e: (e.status not in LIVE, -e.at))
-    index = {"on": True, "version": V43, "counts": _counts(store.all(), len(store.review), sum(migrating.values())), "scopes": scopes,
-             "revs": dict(revs), "health": health(state_dir, store, now), "imports": summary,
+    index = {"on": True, "version": V45, "counts": _counts(store.all(), len(store.review), sum(migrating.values())), "scopes": scopes,
+             "revs": dict(revs),
              "limits": {"title": memstore.TITLE_CHARS, "text": memstore.TEXT_CHARS, "decision_text": memstore.DECISION_CHARS},
              "titles": [[e.code, e.title[:memstore.TITLE_CHARS], e.ref] for e in titled[:TITLES]]}
     index["revs"][INDEX_KEY] = web_sync.rev(index)
@@ -884,17 +729,18 @@ def keys(state_dir, store, imported=(), *, now=None, home=None, previews_from=No
     return out
 
 
-def center_url(tab="") -> str:
-    """The memory center's address on the web page (``page_url`` + /memory, a tab after it), '' without the page: the cards'
-    rule (cards/memory_panel.py center_url, which a card reads without importing app/)."""
-    return memory_card_url(tab)
+def center_url(code="", scope="") -> str:
+    """The web page's 记忆 (``page_url`` + /memory, at the entry ``code`` or the group ``scope``), '' without the page: the
+    cards' rule (cards/memory_panel.py center_url, which a card reads without importing app/)."""
+    return memory_card_url(code, scope)
 
 
 def overview(state_dir, now=None) -> dict:
     """What the 设置 card's 记忆 tab and the evening digest show (app/memory_panel.py, app/digest.py): {counts (the active
-    rules, decisions and notes, ``pending`` the open items of 待审核), scopes [{key, title, counts}] (全局, 话题, each project
-    with memory), review: the open items, the oldest first [{key, type, title, text, suggest}], rules: the active rules
-    [{key, code, title, scope, over_cap}] of 全局 and the projects}."""
+    rules, decisions and notes, ``pending`` the open items of 待审核), rules_by (the active rules of 全局, of the projects and
+    of the topics: {global, project, topic}), scopes [{key, title, counts}] (全局, 话题, each project with memory), review: the
+    open items, the oldest first [{key, type, title, text, suggest}], rules: the active rules [{key, code, title, scope,
+    over_cap, project_key, topic_number?}] of 全局, the projects and the topics}."""
     store = Store(state_dir, now)
     pending = store.pending()
     scopes = [{"key": "global", "title": "全局", "counts": _counts(store.globals, pending.get("global", 0))},
@@ -902,11 +748,17 @@ def overview(state_dir, now=None) -> dict:
                                                                      pending.get("topics", 0))},
               *({"key": f"p:{pid}", "title": title, "counts": _counts(found, pending.get(f"p:{pid}", 0))}
                 for pid, (title, found) in store.projects.items())]
-    rules = [{"key": e.ref, "code": e.code, "title": e.title, "scope": e.scope, "over_cap": e.ref in store.over,
-              "project_key": e.owner_key if e.scope == "project" else ""}
-             for e in [*store.globals, *(e for _, found in store.projects.values() for e in found)]
-             if e.kind == "rule" and e.status == "active"]
-    return {"counts": _counts(store.all(), len(store.review)), "scopes": scopes,
+    rules = []
+    for e in store.all():
+        if e.kind != "rule" or e.status != "active":
+            continue
+        row = {"key": e.ref, "code": e.code, "title": e.title, "scope": e.scope, "over_cap": e.ref in store.over,
+               "project_key": e.owner_key if e.scope == "project" else ""}
+        if e.scope == "topic" and store.topic(e.owner_key)["number"] is not None:
+            row["topic_number"] = store.topic(e.owner_key)["number"]
+        rules.append(row)
+    by = {scope: sum(1 for row in rules if row["scope"] == scope) for scope in memstore.SCOPES}
+    return {"counts": _counts(store.all(), len(store.review)), "rules_by": by, "scopes": scopes,
             "review": [review_view(item, {}) for item in store.review], "rules": rules}
 
 
@@ -977,15 +829,6 @@ def _baseline_decide(state_dir, key, action, *, edits, who, token, now) -> list:
     elif action == "accept" and kind == "tidy":
         written = [memstore.archive(state_dir, ref, who=who, token=token, now=now).ref for ref in refs
                    if (found := memstore.find(state_dir, ref)) is not None and found.status in LIVE]
-    elif action == "accept" and kind == "import" and refs:
-        kind3, scope, owner = _place(item, edits)
-        written = [entry.ref for entry in harness_memory.take(state_dir, Path.home(), refs, kind=kind3, scope=scope, owner_key=owner,
-                                                              who=who, token=token, now=now)] or \
-            _write_item(state_dir, item, edits, who=who, token=token, now=now)
-        if written:
-            memstore.imports_set(state_dir, refs, "imported", entry_ref=written[0], now=now)
-    elif action == "reject" and kind == "import" and refs:
-        harness_memory.ignore(state_dir, refs, now=now)
     elif action in ("keep_right",) and item.get("conflict_with") and memstore.find(state_dir, str(item["conflict_with"])):
         written = [memstore.edit(state_dir, str(item["conflict_with"]), text=edits.get("text") or item.get("text"),
                                  title=edits.get("title") or item.get("title") or None, who=who, token=token, now=now).ref]
@@ -1071,7 +914,7 @@ def _decide_one(state_dir, key, action, *, edits, who, token, now) -> list:
 
 
 ACTIONS_V43 = ("add", "edit", "move", "archive", "restore", "void", "accept", "reject", "accept_all", "reject_all",
-               "keep_left", "keep_right", "keep_both", "promote", "import", "ignore", "undo")  # web/shared/api.interface.ts
+               "keep_left", "keep_right", "keep_both", "promote", "undo")  # web/shared/api.interface.ts (v45: no import, ignore)
 DONE_WORDS = {"archive": "已归档", "restore": "已放回", "void": "已作废", "accept": "已采纳", "reject": "不要了", "keep_left": "留了原来的",
               "keep_right": "换成了新的", "keep_both": "两条都留了", "accept_all": "全部采纳", "reject_all": "全部不要"}
 
@@ -1109,7 +952,7 @@ def _short_entry(entry) -> str:
     return short(entry.title or entry.text)
 
 
-def edit_v43(state_dir, payload, *, token="", now=None, home=None) -> dict:
+def edit_v43(state_dir, payload, *, token="", now=None) -> dict:
     """One ``memory_edit`` of data contract v43 (``payload["action"]`` one of ACTIONS_V43), as the owner: {message (the
     receipt the page shows), undo_token (``token``, what ``undo`` takes back; '' for an undo, an ignore or nothing written),
     refs (the entries written)}. ValueError says why nothing changed."""
@@ -1184,25 +1027,6 @@ def edit_v43(state_dir, payload, *, token="", now=None, home=None) -> dict:
         refs = found["refs"]
         count = len(found["decided"])
         message = f"{DONE_WORDS[action]} {count} 条" if action in ALL_ACTIONS else DONE_WORDS[action]
-    elif action == "import":
-        fps = _keys(payload)
-        if not fps:
-            raise ValueError("要选导入哪几条")
-        scope = str(payload.get("scope") or "global")
-        if scope not in memstore.SCOPES:
-            raise ValueError("要选导入到哪个范围")
-        kind = payload.get("kind") if payload.get("kind") in ("rule", "note") else ""
-        made = harness_memory.take(state_dir, Path.home() if home is None else home, fps, kind=kind, scope=scope,
-                                   owner_key=_owner_of(payload, scope), who=who, token=token, now=stamp)
-        if not made:
-            raise ValueError("这几条在原工具里已经找不到了（文件改过或删了），页面会按最新的重画")
-        refs, message = [entry.ref for entry in made], f"已导入 {len(made)} 条"
-    elif action == "ignore":
-        fps = _keys(payload)
-        if not fps:
-            raise ValueError("要选哪几条留在原工具")
-        harness_memory.ignore(state_dir, fps, now=stamp)
-        return {"message": f"{len(fps)} 条留在原工具，不再提", "undo_token": "", "refs": []}
     else:  # undo
         wanted = memstore.clean(payload.get("undo_token"), 64)
         if not wanted:

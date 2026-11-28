@@ -16,10 +16,10 @@ Where each part lies (docs/operations.md 状态目录):
 - Short codes (``CODE_RE``): ``memory/codes.json`` holds every code given and the ref it names (and the old refs, the
   aliases, of the entries that have them). A line of memory.json gets its code the first time something reads it (lazy:
   nothing walks every topic directory), from a hash of its ref, longer only when that one is taken.
-- ``memory/review.json`` (待审核), ``memory/imports.json`` (what the Harnesses' own memory offered, core/harness_memory.py),
-  ``memory/log.jsonl`` (every change, with what it was before and an ``undo_token``), ``memory/topics.json`` (the
-  topics that have memory, so the readers of every topic need no walk) and ``memory/usage.json``
-  (core/memory_usage.py) lie beside them.
+- ``memory/review.json`` (待审核), ``memory/log.jsonl`` (every change, with what it was before and an ``undo_token``),
+  ``memory/topics.json`` (the topics that have memory, so the readers of every topic need no walk) and ``memory/usage.json``
+  (core/memory_usage.py) lie beside them; ``memory/imports.json``, what an older release offered of the Harnesses' own
+  memory, is left as it is and read by nothing.
 
 Every write touches the one sentinel ``memory/.rev`` (``touch_rev``), so the web sync stats a single file. Reads take
 no lock; a write takes the lock of the file it writes (core/locks.py shared_file_lock), never the global ``LOCK``.
@@ -60,7 +60,6 @@ LEGACY_RE = re.compile(r"^(?:p[0-9a-f]{6}|k[0-9a-f]{6}|M\d{2,3})$")
 MEMORY_DIR = memory_rev.MEMORY_DIR  # "memory"
 GLOBAL_FILE = "global.json"
 REVIEW_FILE = "review.json"
-IMPORTS_FILE = "imports.json"
 LOG_FILE = "log.jsonl"
 USAGE_FILE = "usage.json"
 SYNONYMS_FILE = "synonyms.json"
@@ -72,7 +71,8 @@ TOPICS_FILE = "topics.json"
 
 VERSION = 1
 REVIEW_STATES = ("open", "accepted", "rejected", "expired")
-IMPORT_STATES = ("new", "imported", "ignored")
+REVIEW_DAYS = 14  # An item of 待审核 left open this long is closed as expired (review_expire, the daily upkeep).
+REVIEW_HELD = ("open", "accepted", "rejected")  # An item in these keeps the same proposal out (review_put); an expired one does not.
 LOG_DAYS = 90  # Of memory/log.jsonl (core/maintenance_rules.py MemoryLog).
 VOID_DAYS = 30  # A void decision's events go from decisions.jsonl after this (core/maintenance_rules.py Decisions).
 _SNAP = ("title", "text", "why", "kind", "said", "status", "superseded_by", "repos")
@@ -120,10 +120,6 @@ def global_path(state_dir) -> Path:
 
 def review_path(state_dir) -> Path:
     return memory_dir(state_dir) / REVIEW_FILE
-
-
-def imports_path(state_dir) -> Path:
-    return memory_dir(state_dir) / IMPORTS_FILE
 
 
 def log_path(state_dir) -> Path:
@@ -1309,7 +1305,8 @@ def review_fp(item: dict) -> str:
 
 def review_put(state_dir, item: dict, *, now: float | None = None) -> tuple[str, bool]:
     """(its key, whether it is new): ``item`` (ReviewItem's fields; ``key`` and ``created_at`` given here when missing) put in
-    待审核 open. One proposing the same (``review_fp``) still open, or decided already, is the one returned."""
+    待审核 open. One proposing the same (``review_fp``) still open, turned down, or accepted already (``REVIEW_HELD``) is the one
+    returned; one that expired unanswered does not hold it back."""
     return review_put_many(state_dir, [item], now=now)[0]
 
 
@@ -1331,7 +1328,7 @@ def review_put_many(state_dir, items, *, now: float | None = None) -> list[tuple
     out = []
     with shared_file_lock(review_path(state_dir)):
         data = _review_data(state_dir, writing=True)
-        by_fp = {old.get("fp"): old for old in data["items"]}
+        by_fp = {old.get("fp"): old for old in data["items"] if old.get("state", "open") in REVIEW_HELD}
         taken = {old["key"] for old in data["items"]}
         for item in wanted:
             same = by_fp.get(item["fp"])
@@ -1355,6 +1352,24 @@ def review_put_many(state_dir, items, *, now: float | None = None) -> list[tuple
     return out
 
 
+def review_expire(state_dir, *, days: float = REVIEW_DAYS, now: float | None = None) -> int:
+    """The open items of 待审核 older than ``days`` made ``expired`` by the Bridge, in one write (kept, never deleted): how many."""
+    stamp = time.time() if now is None else now
+    cutoff = stamp - days * 86400
+    if not any(_number(item.get("created_at")) < cutoff for item in review_items(state_dir)):
+        return 0  # A read and no write, most days.
+    with shared_file_lock(review_path(state_dir)):
+        data = _review_data(state_dir, writing=True)
+        old = [item for item in data["items"] if item.get("state", "open") == "open" and _number(item.get("created_at")) < cutoff]
+        for item in old:
+            item.update(state="expired", decided_at=stamp, decided_by="bridge")
+        if old:
+            write_json(review_path(state_dir), data, ensure_ascii=False, indent=1)
+    if old:
+        touch_rev(state_dir, stamp)
+    return len(old)
+
+
 def review_set(state_dir, key: str, state: str, *, by: str = "owner", now: float | None = None, **extra) -> dict | None:
     """The item ``key`` made ``state`` (one of REVIEW_STATES) by ``by``, with ``extra`` fields (``refs`` written, …): it as
     it is now; None when there is none."""
@@ -1370,51 +1385,6 @@ def review_set(state_dir, key: str, state: str, *, by: str = "owner", now: float
         write_json(review_path(state_dir), data, ensure_ascii=False, indent=1)
     touch_rev(state_dir, stamp)
     return dict(item)
-
-
-# -------------------------------------------------------------------------------------------------------- imports
-
-
-def imports(state_dir, *, writing=False) -> dict:
-    """memory/imports.json: {items: fingerprint -> {state, harness, file, bucket, at, entry_ref?}, files: file -> [mtime,
-    size] (what the nightly scan saw, core/harness_memory.py fresh)}."""
-    data = (read_for_write if writing else read_object)(imports_path(state_dir))
-    items = data.get("items") if isinstance(data.get("items"), dict) else {}
-    files = data.get("files") if isinstance(data.get("files"), dict) else None
-    return {"items": {str(k): dict(v) for k, v in items.items() if isinstance(v, dict)}, "files": files}
-
-
-def imports_update(state_dir, change) -> dict:
-    """``change(data)`` (``imports``'s, changed in place) written back under the file's lock; the data."""
-    with shared_file_lock(imports_path(state_dir)):
-        data = imports(state_dir, writing=True)
-        change(data)
-        write_json(imports_path(state_dir), {"version": VERSION, "items": data["items"],
-                                             **({"files": data["files"]} if data["files"] is not None else {})},
-                   ensure_ascii=False, separators=(",", ":"))
-    touch_rev(state_dir)
-    return data
-
-
-def imports_set(state_dir, fingerprints, state: str, *, entry_ref: str = "", facts: dict | None = None,
-                now: float | None = None) -> list[str]:
-    """Each of ``fingerprints`` marked ``state`` (IMPORT_STATES; ``entry_ref`` the entry an import made); ``facts``
-    fingerprint -> {harness, file, bucket} for one not seen before. The fingerprints marked."""
-    if state not in IMPORT_STATES:
-        raise ValueError(f"import state {state!r}")
-    stamp = time.time() if now is None else now
-    done = []
-
-    def mark(data):
-        for fp in fingerprints:
-            fp = str(fp)
-            row = data["items"].get(fp) or dict((facts or {}).get(fp) or {})
-            row.update(state=state, at=stamp, **({"entry_ref": entry_ref} if entry_ref else {}))
-            data["items"][fp] = row
-            done.append(fp)
-    imports_update(state_dir, mark)
-    touch_rev(state_dir, stamp)
-    return done
 
 
 # -------------------------------------------------------------------------------------------------------- legacy sync
@@ -1478,7 +1448,7 @@ def sync_legacy(state_dir, *, now: float | None = None) -> dict:
     before whose words or state the older release changed since (a rollback) has that change laid over it, unless the
     entry was changed here after it was taken (then it is left, and the change goes to 待审核 as a conflict); one the
     older release deleted is archived (restorable). Nothing an older release does not write is touched. The workspace
-    groups and the open candidates go to 待审核. {added, updated, archived, reviewed}."""
+    groups go to 待审核. {added, updated, archived, reviewed}."""
     stamp = time.time() if now is None else now
     sources = legacy_sources(state_dir)
     found = {"added": 0, "updated": 0, "archived": 0, "reviewed": 0}
@@ -1555,7 +1525,7 @@ def _conflict(state_dir, row, text, kind, stamp) -> int:
 
 
 def _legacy_reviews(state_dir, stamp) -> int:
-    """The workspace principles and knowledge entries, and the open candidates, put in 待审核 (once each)."""
+    """The workspace principles and knowledge entries put in 待审核 (once each)."""
     made = 0
     proposals = []
     for name, group in principles.load(state_dir)["workspaces"].items():
@@ -1573,77 +1543,11 @@ def _legacy_reviews(state_dir, stamp) -> int:
             proposals.append({"type": "migrate", "title": auto_title(row["text"]), "text": row["text"],
                               "suggest": {"kind": kind, "scope": "global"}, "origin": {"workspace": name},
                               "items": [f"knowledge:{row['id']}"]})
-    rows = read_object(Path(state_dir) / "memory-candidates.json").get("rows")
-    for row in rows if isinstance(rows, list) else ():
-        if isinstance(row, dict) and row.get("state") == "open" and clean(row.get("text")):
-            proposals.append({"type": "candidate", "title": auto_title(row["text"]), "text": row["text"],
-                              "suggest": {"kind": "rule", "scope": "global"}, "origin": {"candidate": str(row.get("id") or "")},
-                              "flags": ["repeat"] if row.get("source") in (None, "repeat") else []})
     try:
         made = sum(1 for _, new in review_put_many(state_dir, proposals, now=stamp) if new)
     except (OSError, ValueError):
         pass
     return made
-
-
-# -------------------------------------------------------------------------------------------------------- guardrail
-
-
-def _carried_in(path: Path, cutoff: float, stat: bool) -> list:
-    """The refs the job record at ``path`` lists in ``memory_ids`` ([] for one older than ``cutoff`` when ``stat``)."""
-    try:
-        if stat and path.stat().st_mtime < cutoff:
-            return []
-        data = path.read_bytes()
-        if b'"memory_ids"' not in data:
-            return []
-        record = json.loads(data)
-    except (OSError, ValueError):
-        return []
-    rows = record.get("memory_ids") if isinstance(record, dict) else None
-    return [row["ref"] for row in rows or () if isinstance(row, dict) and isinstance(row.get("ref"), str)]
-
-
-SCAN_THREADS = 8  # Job records read at a time: on NAS eight at a time took a third of one by one (core/store.py).
-
-
-def carried_refs(state_dir, *, days: int = CARRIED_DAYS, now: float | None = None) -> set:
-    """The refs the turns of the last ``days`` days carried (their job records' ``memory_ids``), and those core/memory_usage.py
-    saw used then: what the migration keeps carried (docs/operations.md 记忆的存储与迁移). Reads the job records changed
-    since: the ones core/store.py's index says, else each one's mtime; eight at a time."""
-    from concurrent.futures import ThreadPoolExecutor
-    stamp = time.time() if now is None else now
-    cutoff = stamp - days * 86400
-    folder = Path(state_dir) / "jobs"
-    index = read_object(folder / ".index").get("entries")  # core/store.py save_index: name -> [inode, fields].
-    if isinstance(index, dict) and index:
-        names, stat = [folder / name for name, row in index.items() if isinstance(row, list) and len(row) > 1
-                       and isinstance(row[1], dict) and _number(row[1].get("updated_at")) >= cutoff], False
-    else:
-        try:
-            with os.scandir(folder) as listing:
-                names = [Path(entry.path) for entry in listing if entry.name.endswith(".json") and not entry.name.startswith(".")]
-        except OSError:
-            names = []
-        stat = True
-    found = set()
-    with ThreadPoolExecutor(max_workers=SCAN_THREADS) as pool:
-        for refs in pool.map(lambda path: _carried_in(path, cutoff, stat), names):
-            found.update(refs)
-    used = read_object(Path(state_dir) / "memory-usage.json").get("refs")
-    for ref, row in (used.items() if isinstance(used, dict) else ()):
-        if isinstance(row, dict) and _number(row.get("last")) >= cutoff:
-            found.add(str(ref))
-    return found
-
-
-def unguarded(state_dir, pid) -> int:
-    """How many of the project's live lines of the lead ``guard_project`` has not looked at yet."""
-    extra = sidecar(state_dir, "project", pid)
-    record = projects.read_record(state_dir, pid)
-    return sum(1 for row in (project_memory.entries(state_dir, record) if record else ())
-               if not row["deleted"] and row.get("source") == "lead" and row.get("kind") in LEAD_HELD
-               and not {"guard", "kind"} & set(extra.get(row["id"], {})))
 
 
 def mark_migrated(state_dir, **fields) -> None:
@@ -1659,38 +1563,6 @@ def mark_migrated(state_dir, **fields) -> None:
 def project_sources(state_dir) -> dict:
     """project id -> [mtime_ns, size] of its memory.json (None: none), of every project: a few stats."""
     return {pid: _sig(project_memory.memory_path(state_dir, pid)) for pid in _project_ids(state_dir)}
-
-
-def guard_project(state_dir, pid, carried: set, *, now: float | None = None) -> int:
-    """The lead's constraints and decisions of the project, live, not confirmed by the owner, that the turns carried lately
-    (``carried``): kept a rule of the project (别人总结的) and put in 待审核 (type migrate) for the owner to keep or let go
-    (core/memory_review.py: accept confirms it, reject makes it a note). A line looked at before is not again. How many.
-    One write of 待审核 and one of the sidecar, however many lines."""
-    stamp = time.time() if now is None else now
-    extra = sidecar(state_dir, "project", pid)
-    record = projects.read_record(state_dir, pid)
-    marks, kept = {}, []
-    for row in project_memory.entries(state_dir, record) if record else ():
-        side = extra.get(row["id"], {})
-        if {"guard", "kind"} & set(side) or row["deleted"] or row.get("source") != "lead" or row.get("kind") not in LEAD_HELD:
-            continue
-        if row.get("asserted_by") == turn_source.PARTY_OWNER or row.get("valid") in project_memory.SETTLED:
-            continue
-        ref = f"project:{pid}:{row['id']}"
-        if ref not in carried:
-            marks[row["id"]] = {"guard": {"at": stamp, "kept": False}}
-            continue
-        kept.append((row, ref))
-    keys = review_put_many(state_dir, [{"type": "migrate", "title": auto_title(row["text"]), "text": row["text"],
-                                        "suggest": {"kind": "rule", "scope": "project", "project_key": pid}, "items": [ref],
-                                        "origin": dict(row.get("origin") or {})} for row, ref in kept], now=stamp)
-    for (row, _), (key, _) in zip(kept, keys):
-        marks[row["id"]] = {"kind": "rule", "said": "summary", "by": "lead", "guard": {"at": stamp, "kept": True, "review": key}}
-    if marks:
-        _put_sidecar(state_dir, "project", pid, marks)
-    if kept:
-        touch_rev(state_dir, stamp)
-    return len(kept)
 
 
 # -------------------------------------------------------------------------------------------------------- export
@@ -1792,9 +1664,11 @@ def _write_lines(path: Path, rows) -> None:
 def upkeep(state_dir, *, now: float | None = None) -> dict:
     """The daily upkeep of the memory files (core/maintenance_rules.py MemoryFiles): the log past LOG_DAYS trimmed, each
     project's and each indexed topic's decisions.jsonl compacted (a void decision past VOID_DAYS gone), the topic index
-    made again (the one walk of the topic directories, never at start). {log, decisions, topics}."""
+    made again (the one walk of the topic directories, never at start), the items of 待审核 left open REVIEW_DAYS closed as
+    expired (``review_expire``, core/memory_review.py expire: kept, never deleted). {log, decisions, topics, expired}."""
     stamp = time.time() if now is None else now
-    out = {"log": trim_log(state_dir, stamp - LOG_DAYS * 86400), "decisions": 0, "topics": 0}
+    out = {"log": trim_log(state_dir, stamp - LOG_DAYS * 86400), "decisions": 0, "topics": 0,
+           "expired": review_expire(state_dir, now=stamp)}
     out["topics"] = seed_topics(state_dir, now=stamp)
     owners = [("project", pid) for pid in _project_ids(state_dir)] + [("topic", tid) for tid in topics(state_dir)]
     for scope, owner in owners:

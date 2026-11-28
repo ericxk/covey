@@ -1,43 +1,38 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronRight, Eye, Import, MoreHorizontal, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronRight, Plus, Search, X } from 'lucide-react';
 import type {
   MemoryEditPayloadV43,
   MemoryEntry,
   MemoryGlobalData,
-  MemoryImportItem,
-  MemoryImportPage,
   MemoryIndex,
   MemoryKind,
   MemoryLogItem,
-  MemoryPreview,
-  MemoryPreviewsData,
   MemoryProjectData,
   MemoryReviewItem,
-  MemoryScopeSummary,
-  MemoryTab,
   MemoryTopicsData,
+  SnapshotProject,
 } from '@shared/api.interface';
-import { newOpId, useMemoryIndex, useMemoryKeys, useMemoryMode } from '@client/src/hooks/use-workbench';
+import { newOpId, useMemoryIndex, useMemoryKeys, useMemoryMode, useSnapshot } from '@client/src/hooks/use-workbench';
 import { Head } from './Shell';
 import { MainMemory } from './MainMemory';
 import { sendOp, type OpResult } from './sendOp';
 import { opWords } from './opWords';
 import {
-  HEALTH_OK, KIND_WORD, TABS, TAB_KIND, TAB_NOTE, TAB_WORD,
-  acceptOp, allOp, archiveOp, decisionCounts, defaultTab, draftProblem, editOp, healthRows, ignoreOp, importChecked, importGroups, importMeta,
-  importOp, isTab, keepOp, keysToLoad, limitsOf, locate, logLine, metaLine, mmdd, moveOp, poolOf, previewSections, projectKeyOf, promoteOp,
-  promoteTarget, rejectOp, restoreOp, reviewItems, reviewMeta, reviewSplit, groupLine, titleShown, todoPending, roomOf, scopeOptions, shelved, tabEntries, titleIndex, undoOp, voidOp, addOp,
-  charCount, headCounts, type DecisionView, type HealthRow, type ReviewGroup, type Place, type Pool, type ScopeFilter,
+  KIND_WORD,
+  acceptOp, addOp, buildGroups, charCount, decisionHit, defaultOpen, draftProblem, editOp, groupLine, keepOp, keysToLoad, limitsOf, locate, logLine, mmdd,
+  moveOp, overLine, parseLink, poolOf, projectKeyOf, rejectOp, restoreOp, reviewLine, reviewSplit, rowTags, searchMemory, titleShown, todoPending, undoOp,
+  updatedOf, voidOp,
+  type Located, type MemGroup, type MemSection, type Place, type Pool, type ReviewGroup, type SearchHit,
 } from './memoryCenter';
 import './memorycenter.css';
 
-/* 记忆中心（数据约定 v43，路由 /memory、/memory/:tab）。侧栏「记忆」只轮询小键 memory:index（角标是待审核数）；这一页按 index.revs
-   取 memory:global、memory:topics、各 memory:p:<专项>，打开预览才取 memory:previews，打开导入才取那一页 memory:import:<页>。
-   没收到 memory:index（旧 Covey 只推 v37 的 memory）时整页退回原来的主记忆页（MainMemory）。
-   做减法（FINAL-SPEC 修订 11）：5 个页签，「导入」在顶栏；体检只画非 0 项；决定默认只看在办；灰字不重复页签说过的；行尾只有「改」和 ⋯。 */
+/* 记忆页（数据约定 v45，路由 /memory，一页式）。侧栏「记忆」只轮询小键 memory:index（角标是待审核数）；这一页按 index.revs
+   取 memory:global、memory:topics、有记忆的专项 memory:p:<专项>。第一屏：标题、搜索框、「＋ 记一条」、待审核块（有才画）、分组列表
+   （全局、各专项、话题；决定不在分组里，只在搜索里以“上次你答过”出现）；页底「记录」。旧路径 /memory/<页签> 照样画这一页。
+   没收到 memory:index（旧 Covey 只推 v37 的 memory）时整页退回原来的主记忆页（MainMemory）。 */
 
 /* ---------- 发一条 memory_edit ---------- */
 interface Receipt {
@@ -55,12 +50,10 @@ function useMemoryOp(): (payload: MemoryEditPayloadV43) => Promise<OpResult> {
 }
 const failWords = (r: OpResult): string => (r.phase === 'done' ? '' : opWords(r.phase === 'timeout' ? 'timeout' : r.phase, r.message));
 
-/** 页面里共用的：池子、范围、发操作、回执、页面级提示（带撤销） */
+/** 页面里共用的：池子、发操作、回执 */
 interface Ctx {
   pool: Pool;
   index: MemoryIndex;
-  scope: ScopeFilter;
-  view: DecisionView;
   receipts: Record<string, Receipt>;
   run: (id: string, payload: MemoryEditPayloadV43, notice?: string) => Promise<boolean>;
   focus: string;
@@ -77,7 +70,7 @@ const ReceiptLine: React.FC<{ r?: Receipt }> = ({ r }) => {
   return <div className={`mc-rc${r.phase === 'failed' ? ' bad' : ''}`} role={r.phase === 'failed' ? 'alert' : 'status'}>{r.message}</div>;
 };
 
-/** 标题、正文、原因的编辑框；add 时多两个下拉（类别、范围）。⌘/Ctrl+Enter 存，Esc 取消 */
+/** 标题、正文、原因的编辑框；记一条时多两个下拉（种类：规矩、资料；管哪儿）。⌘/Ctrl+Enter 存，Esc 取消 */
 const Editor: React.FC<{
   index: MemoryIndex;
   init: { title: string; text: string; why?: string; kind: MemoryKind };
@@ -108,9 +101,9 @@ const Editor: React.FC<{
       {places ? (
         <div className="mc-ed-row">
           <select className="mc-sel" value={kind} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setKind(e.target.value as MemoryKind)} aria-label="记成">
-            {(['rule', 'decision', 'note'] as MemoryKind[]).map((k: MemoryKind) => <option key={k} value={k}>{KIND_WORD[k]}</option>)}
+            {(['rule', 'note'] as MemoryKind[]).map((k: MemoryKind) => <option key={k} value={k}>{KIND_WORD[k]}</option>)}
           </select>
-          <select className="mc-sel" value={to} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTo(e.target.value)} aria-label="记在哪">
+          <select className="mc-sel" value={to} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setTo(e.target.value)} aria-label="管哪儿">
             {places.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
           </select>
         </div>
@@ -139,95 +132,63 @@ const Editor: React.FC<{
   );
 };
 
-/** ⋯ 菜单：点外面、Esc 收起 */
-const More: React.FC<{ items: { word: string; danger?: boolean; on: () => void }[]; label: string }> = ({ items, label }) => {
-  const [open, setOpen] = useState<boolean>(false);
-  const box = useRef<HTMLSpanElement | null>(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const away = (e: MouseEvent): void => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
-    };
-    const esc = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', away);
-    document.addEventListener('keydown', esc);
-    return () => {
-      document.removeEventListener('mousedown', away);
-      document.removeEventListener('keydown', esc);
-    };
-  }, [open]);
-  if (!items.length) return null;
-  return (
-    <span className="mc-more" ref={box}>
-      <button type="button" className="mc-ic" aria-label={label} aria-expanded={open} onClick={() => setOpen(!open)}><MoreHorizontal /></button>
-      {open ? (
-        <span className="mc-menu" role="menu">
-          {items.map((it) => (
-            <button key={it.word} type="button" role="menuitem" className={it.danger ? 'danger' : ''} onClick={() => { setOpen(false); it.on(); }}>{it.word}</button>
-          ))}
-        </span>
-      ) : null}
-    </span>
-  );
-};
-
-/** 记在哪的选项：全局、各专项（话题范围的条目只能从话题里记，这里不列） */
+/** 管哪儿的选项：全局、各专项、近 30 天有记忆的话题 */
 function placeOptions(pool: Pool, index: MemoryIndex): { value: string; label: string }[] {
   const out: { value: string; label: string }[] = [{ value: 'global', label: '全局' }];
-  for (const s of index.scopes) if (s.key.startsWith('p:')) out.push({ value: s.key, label: s.title || pool.projects[s.key.slice(2)] || s.key });
+  for (const s of index.scopes) if (s.key.startsWith('p:')) out.push({ value: s.key, label: `专项「${s.title || pool.projects[s.key.slice(2)] || s.key}」` });
+  const topics = Object.entries(pool.topics).sort((a, b) => (b[1].number ?? 0) - (a[1].number ?? 0));
+  for (const [key, t] of topics) out.push({ value: `t:${key}`, label: `话题 ${t.number ? `T${t.number} ` : ''}${Array.from(t.title).slice(0, 18).join('')}` });
   return out;
 }
-const placeFromValue = (v: string): Place => (v.startsWith('p:') ? { scope: 'project', project_key: v.slice(2) } : { scope: 'global' });
-const placeValue = (e: Pick<MemoryEntry, 'scope' | 'project_key'>): string => (e.scope === 'project' ? `p:${e.project_key ?? ''}` : e.scope === 'global' ? 'global' : 'topic');
+const placeFromValue = (v: string): Place => (v.startsWith('p:') ? { scope: 'project', project_key: v.slice(2) } : v.startsWith('t:') ? { scope: 'topic', topic_key: v.slice(2) } : { scope: 'global' });
+const placeValue = (e: Pick<MemoryEntry, 'scope' | 'project_key' | 'topic_key'>): string =>
+  (e.scope === 'project' ? `p:${e.project_key ?? ''}` : e.scope === 'topic' ? `t:${e.topic_key ?? ''}` : 'global');
 
 /* ---------- 一条 ---------- */
-const EntryRow: React.FC<{ e: MemoryEntry; ctx: Ctx; shelf?: boolean }> = ({ e, ctx, shelf }) => {
+const EntryRow: React.FC<{ e: MemoryEntry; ctx: Ctx; tags?: string[]; meta?: string; shelf?: boolean }> = ({ e, ctx, tags = [], meta, shelf }) => {
   const [open, setOpen] = useState<boolean>(ctx.focus === e.code);
   const [moving, setMoving] = useState<boolean>(false);
+  const decision: boolean = e.kind === 'decision';
   const editing: boolean = ctx.editing === e.key;
   const r: Receipt | undefined = ctx.receipts[e.key];
   const busy: boolean = r?.phase === 'sending';
-  const meta: string[] = metaLine(e, { scope: ctx.scope, view: ctx.view, pool: ctx.pool });
-  const up: Place | null = promoteTarget(e);
-  const upWord: string = up ? (up.scope === 'global' ? '提到全局' : `提到专项「${ctx.pool.projects[up.project_key ?? ''] || '专项'}」`) : '';
-  const items = shelf
-    ? [{ word: '放回', on: () => void ctx.run(e.key, restoreOp(e), '已放回') }]
-    : [
-        ...(up ? [{ word: upWord, on: () => void ctx.run(e.key, promoteOp(e, up), '已换范围') }] : []),
-        ...(e.scope !== 'topic' ? [{ word: '换范围…', on: () => setMoving(true) }] : []),
-        { word: '归档', on: () => void ctx.run(e.key, archiveOp(e), '已归档') },
-        { word: '作废', danger: true, on: () => void ctx.run(e.key, voidOp(e), '已作废') },
-      ];
   useEffect(() => {
     if (ctx.focus === e.code) {
       setOpen(true);
       window.requestAnimationFrame(() => document.getElementById(`mc-${e.code}`)?.scrollIntoView({ block: 'center' }));
     }
   }, [ctx.focus, e.code]);
+  const quote: string = e.origin?.quote ?? '';
+  const showQuote: boolean = !!quote && !e.text.includes(quote.replace(/[。，,.\s]+$/u, ''));
+  const from: string = [e.origin?.topic_number ?? e.topic_number ? `T${e.origin?.topic_number ?? e.topic_number}` : '', e.origin?.at ? mmdd(e.origin.at) : ''].filter(Boolean).join(' · ');
+  const options = useMemo(() => placeOptions(ctx.pool, ctx.index), [ctx.pool, ctx.index]);
   return (
     <li className={`mc-row${ctx.focus === e.code ? ' hit' : ''}${shelf ? ' shelf' : ''}`} id={`mc-${e.code}`}>
-      <div className="mc-line">
-        <button type="button" className="mc-main" aria-expanded={open} onClick={() => setOpen(!open)}>
-          <span className="mc-t1">
-            <span className="mc-title">{e.title}</span>
-            {!e.carried_next && !shelf ? <span className="mc-off short">下一轮不带</span> : null}
-            {shelf ? <span className="mc-off short">{e.status === 'void' ? '已作废' : '已归档'}</span> : null}
-          </span>
-          <span className="mc-meta">{meta.join(' · ')}</span>
-        </button>
-        <span className="mc-acts">
-          {shelf ? null : <button type="button" className="mc-act" disabled={busy} onClick={() => ctx.setEditing(editing ? '' : e.key)}>改</button>}
-          <More items={items} label={`${e.title} 的更多操作`} />
+      <button type="button" className="mc-main" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="mc-t1">
+          <span className="mc-title">{decision ? meta : e.title}</span>
+          {tags.map((t: string) => <span key={t} className="mc-off short">{t}</span>)}
         </span>
-      </div>
+        {meta && !decision ? <span className="mc-meta">{meta}</span> : null}
+      </button>
       {open && !editing ? (
         <div className="mc-body">
+          {decision ? <p className="mc-sub">{e.title}</p> : null}
           <p className="mc-text">{e.text}</p>
           {e.why ? <p className="mc-sub">为什么：{e.why}</p> : null}
-          {e.origin?.quote && !e.text.includes(e.origin.quote.replace(/[。，,.\s]+$/u, '')) ? <p className="mc-sub">原话：“{e.origin.quote}”</p> : null}
-          <p className="mc-sub mono">{[e.code, e.repos?.length ? `仓库 ${e.repos.join('、')}` : '', e.origin?.at ? `记于 ${mmdd(e.origin.at)}` : ''].filter(Boolean).join(' · ')}</p>
+          {showQuote ? <p className="mc-sub">你的原话：“{quote}”</p> : null}
+          {from || e.origin?.topic_key ? (
+            <p className="mc-sub">
+              出处：{e.origin?.topic_key ? <Link to={`/topics/${encodeURIComponent(e.origin.topic_key)}`}>{from || '话题'}</Link> : from}
+              <span className="mono"> · {e.code}</span>
+            </p>
+          ) : <p className="mc-sub mono">{e.code}</p>}
+          <div className="mc-acts">
+            {shelf ? <button type="button" className="mc-act" disabled={busy} onClick={() => void ctx.run(e.key, restoreOp(e), '已放回')}>放回</button> : null}
+            {!shelf && !decision ? <button type="button" className="mc-act" disabled={busy} onClick={() => ctx.setEditing(e.key)}>改</button> : null}
+            {!shelf && !decision ? <button type="button" className="mc-act" disabled={busy} onClick={() => setMoving(!moving)}>换管哪儿</button> : null}
+            {!shelf ? <button type="button" className="mc-act danger" disabled={busy} onClick={() => void ctx.run(e.key, voidOp(e), decision ? '已作废这条决定' : '已删')}>{decision ? '作废' : '删'}</button> : null}
+          </div>
         </div>
       ) : null}
       {moving ? (
@@ -236,13 +197,14 @@ const EntryRow: React.FC<{ e: MemoryEntry; ctx: Ctx; shelf?: boolean }> = ({ e, 
           <select
             className="mc-sel"
             defaultValue={placeValue(e)}
-            aria-label="挪到哪个范围"
+            aria-label="管哪儿"
             onChange={(ev: React.ChangeEvent<HTMLSelectElement>) => {
               setMoving(false);
-              if (ev.target.value !== placeValue(e)) void ctx.run(e.key, moveOp(e, placeFromValue(ev.target.value)), '已换范围');
+              if (ev.target.value !== placeValue(e)) void ctx.run(e.key, moveOp(e, placeFromValue(ev.target.value)), '已换管哪儿');
             }}
           >
-            {placeOptions(ctx.pool, ctx.index).map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            {options.some((p) => p.value === placeValue(e)) ? null : <option value={placeValue(e)}>{e.scope === 'topic' ? '这个话题' : '现在这里'}</option>}
+            {options.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
           </select>
           <button type="button" className="mc-link" onClick={() => setMoving(false)}>取消</button>
         </div>
@@ -255,7 +217,7 @@ const EntryRow: React.FC<{ e: MemoryEntry; ctx: Ctx; shelf?: boolean }> = ({ e, 
           busy={busy}
           onCancel={() => ctx.setEditing('')}
           onSave={(d) => {
-            void ctx.run(e.key, editOp(e, d)).then((ok: boolean) => {
+            void ctx.run(e.key, editOp(e, d), '已改').then((ok: boolean) => {
               if (ok) ctx.setEditing('');
             });
           }}
@@ -266,59 +228,66 @@ const EntryRow: React.FC<{ e: MemoryEntry; ctx: Ctx; shelf?: boolean }> = ({ e, 
   );
 };
 
-const EntryList: React.FC<{ rows: MemoryEntry[]; ctx: Ctx; empty: string }> = ({ rows, ctx, empty }) =>
-  rows.length ? <ul className="mc-list">{rows.map((e: MemoryEntry) => <EntryRow key={e.key} e={e} ctx={ctx} />)}</ul> : <p className="mc-empty">{empty}</p>;
+/* ---------- 一组 ---------- */
+const SectionBox: React.FC<{ s: MemSection; ctx: Ctx; open: boolean; onToggle: () => void }> = ({ s, ctx, open, onToggle }) => (
+  <div className="mc-sec" data-testid="memory-section">
+    <button type="button" className="mc-link mc-sec-h" aria-expanded={open} onClick={onToggle}>
+      <ChevronRight aria-hidden="true" className={open ? 'rot' : ''} />{s.title}
+    </button>
+    {open ? (
+      <ul className="mc-list">
+        {s.rows.map((e: MemoryEntry) => <EntryRow key={e.key} e={e} ctx={ctx} shelf={s.shelf} tags={rowTags(e, { said: s.said, pool: ctx.pool })} />)}
+      </ul>
+    ) : null}
+  </div>
+);
 
-/** 列表底下“已收起 N 条”：归档、作废的，点开能放回 */
-const Shelf: React.FC<{ rows: MemoryEntry[]; ctx: Ctx }> = ({ rows, ctx }) => {
-  const [open, setOpen] = useState<boolean>(false);
-  if (!rows.length) return null;
+const GroupBox: React.FC<{
+  g: MemGroup;
+  ctx: Ctx;
+  open: boolean;
+  onToggle: () => void;
+  secOpen: (sec: string) => boolean;
+  onSec: (sec: string) => void;
+}> = ({ g, ctx, open, onToggle, secOpen, onSec }) => {
+  const over: string = overLine(g.over);
   return (
-    <div className="mc-shelf">
-      <button type="button" className="mc-link" aria-expanded={open} onClick={() => setOpen(!open)}>已收起 {rows.length} 条<ChevronRight className={open ? 'rot' : ''} /></button>
-      {open ? <ul className="mc-list">{rows.map((e: MemoryEntry) => <EntryRow key={e.key} e={e} ctx={ctx} shelf />)}</ul> : null}
-    </div>
-  );
-};
-
-/** 规矩页顶上：每个范围一条配额（只画有规矩的范围） */
-const Rooms: React.FC<{ scopes: MemoryScopeSummary[]; scope: ScopeFilter }> = ({ scopes, scope }) => {
-  const shown: MemoryScopeSummary[] = scopes.filter((s: MemoryScopeSummary) => (scope === 'all' ? s.rules.items > 0 : s.key === scope));
-  if (!shown.length) return null;
-  return (
-    <div className="mc-rooms">
-      {shown.map((s: MemoryScopeSummary) => {
-        const room = roomOf(s);
-        const pct: number = room.limit > 0 ? Math.min(100, Math.round((room.used / room.limit) * 100)) : 0;
-        return (
-          <div key={s.key} className={`mc-room ${room.tone}`}>
-            <span className="mc-room-n">{s.key === 'global' ? '全局' : s.key === 'topics' ? '话题' : s.title}</span>
-            <span className="mc-bar" aria-hidden="true"><i style={{ width: `${pct}%` }} /></span>
-            <span className="mc-room-w">{room.words}</span>
-          </div>
-        );
-      })}
-    </div>
+    <section className="mc-g" id={`mcg-${g.key}`} data-testid="memory-group">
+      <button type="button" className="mc-gh" aria-expanded={open} onClick={onToggle}>
+        <ChevronRight aria-hidden="true" className={open ? 'rot' : ''} />
+        <span className="mc-gt">{g.title}</span>
+        {over ? <span className="mc-over">{over}</span> : null}
+      </button>
+      {open ? (
+        <div className="mc-gb">
+          {g.rules.length ? <ul className="mc-list">{g.rules.map((e: MemoryEntry) => <EntryRow key={e.key} e={e} ctx={ctx} tags={rowTags(e, { said: true, pool: ctx.pool })} />)}</ul> : null}
+          {g.sections.map((s: MemSection) => <SectionBox key={s.key} s={s} ctx={ctx} open={secOpen(s.key)} onToggle={() => onSec(s.key)} />)}
+        </div>
+      ) : null}
+    </section>
   );
 };
 
 /* ---------- 待审核 ---------- */
 const ReviewCard: React.FC<{ r: MemoryReviewItem; ctx: Ctx }> = ({ r, ctx }) => {
-  const [edit, setEdit] = useState<boolean>(false);
-  const [open, setOpen] = useState<boolean>(false);
   const rc: Receipt | undefined = ctx.receipts[r.key];
   const busy: boolean = rc?.phase === 'sending';
   const left: MemoryEntry | undefined = r.conflict_with ? ctx.pool.entries.find((e: MemoryEntry) => e.key === r.conflict_with) : undefined;
-  const meta: string[] = reviewMeta(r, ctx.pool);
+  const line: string = reviewLine(r, ctx.pool);
+  const from: string = r.from?.topic_number ? `T${r.from.topic_number}` : '';
+  const source = from ? (
+    <span className="mc-sub">出处：{r.from?.topic_key ? <Link to={`/topics/${encodeURIComponent(r.from.topic_key)}`}>{from}</Link> : from}</span>
+  ) : null;
   if (r.type === 'conflict') {
     return (
       <li className="mc-rv">
-        <div className="mc-t1"><span className="mc-title">{r.title}</span></div>
-        <div className="mc-meta">{meta.join(' · ')}</div>
+        <div className="mc-t1"><span className="mc-title wrap">{r.title}</span></div>
+        <div className="mc-meta wrap">{line}</div>
         <div className="mc-pair">
           <div><span className="mc-sub">已有的</span><b>{left?.title ?? r.conflict_with}</b><p>{left?.text ?? ''}</p></div>
           <div><span className="mc-sub">新来的</span><b>{r.title}</b><p>{r.text}</p></div>
         </div>
+        {source}
         <div className="mc-rv-acts">
           <button type="button" className="mc-btn" disabled={busy} onClick={() => void ctx.run(r.key, keepOp('keep_left', r))}>留已有的</button>
           <button type="button" className="mc-btn" disabled={busy} onClick={() => void ctx.run(r.key, keepOp('keep_right', r))}>换成新的</button>
@@ -330,35 +299,18 @@ const ReviewCard: React.FC<{ r: MemoryReviewItem; ctx: Ctx }> = ({ r, ctx }) => 
   }
   return (
     <li className="mc-rv">
-      {titleShown(r) ? <div className="mc-t1"><span className="mc-title">{r.title}</span></div> : null}
-      <div className="mc-meta">{meta.join(' · ')}</div>
-      {r.quote ? <button type="button" className={`mc-quote${open ? ' open' : ''}`} onClick={() => setOpen(!open)}>你说：“{r.quote}”</button> : null}
-      {r.text ? <p className="mc-text">{r.text}</p> : null}
+      <div className="mc-t1"><span className="mc-title wrap">{titleShown(r) ? r.title : r.text}</span></div>
+      <div className="mc-meta wrap">{line}</div>
+      {titleShown(r) && r.text ? <p className="mc-text">{r.text}</p> : null}
+      {r.quote ? <p className="mc-sub">你的原话：“{r.quote}”</p> : null}
       {r.items?.length ? (
-        <ul className="mc-tidy">{r.items.map((e: MemoryEntry) => <li key={e.key}><span className="mono">{e.code}</span>{r.type === 'migrate' ? null : e.title}</li>)}</ul>
+        <ul className="mc-tidy">{r.items.map((e: MemoryEntry) => <li key={e.key}><span className="mono">{e.code}</span>{e.title}</li>)}</ul>
       ) : null}
-      {edit ? (
-        <Editor
-          index={ctx.index}
-          init={{ title: r.title, text: r.text, kind: r.suggest.kind }}
-          places={placeOptions(ctx.pool, ctx.index)}
-          place={r.suggest.scope === 'project' ? `p:${r.suggest.project_key ?? ''}` : 'global'}
-          saveWord="采纳"
-          busy={busy}
-          onCancel={() => setEdit(false)}
-          onSave={(d) => {
-            void ctx.run(r.key, acceptOp(r, { title: d.title, text: d.text, kind: d.kind, ...placeFromValue(d.place) })).then((ok: boolean) => {
-              if (ok) setEdit(false);
-            });
-          }}
-        />
-      ) : (
-        <div className="mc-rv-acts">
-          <button type="button" className="mc-btn pri" disabled={busy} onClick={() => void ctx.run(r.key, acceptOp(r))}>采纳</button>
-          <button type="button" className="mc-btn" disabled={busy} onClick={() => setEdit(true)}>改</button>
-          <button type="button" className="mc-link" disabled={busy} onClick={() => void ctx.run(r.key, rejectOp(r))}>不要</button>
-        </div>
-      )}
+      {source}
+      <div className="mc-rv-acts">
+        <button type="button" className="mc-btn pri" disabled={busy} onClick={() => void ctx.run(r.key, acceptOp(r), '已采纳')}>采纳</button>
+        <button type="button" className="mc-btn" disabled={busy} onClick={() => void ctx.run(r.key, rejectOp(r), '已不要')}>不要</button>
+      </div>
       <ReceiptLine r={rc} />
     </li>
   );
@@ -379,42 +331,22 @@ const MigrateGroup: React.FC<{ g: ReviewGroup; ctx: Ctx }> = ({ g, ctx }) => {
   );
 };
 
-const ReviewTab: React.FC<{ rows: MemoryReviewItem[]; ctx: Ctx }> = ({ rows: all, ctx }) => {
-  const [ask, setAsk] = useState<'' | 'accept_all' | 'reject_all'>('');
-  const rc: Receipt | undefined = ctx.receipts['review:all'];
-  const { todo: rows, groups } = useMemo(() => reviewSplit(all, ctx.pool), [all, ctx.pool]);
-  if (!all.length) return <p className="mc-empty">现在没有要你审核的。</p>;
+const ReviewBlock: React.FC<{ rows: MemoryReviewItem[]; ctx: Ctx }> = ({ rows: all, ctx }) => {
+  const { todo, groups } = useMemo(() => reviewSplit(all, ctx.pool), [all, ctx.pool]);
+  if (!todo.length && !groups.length) return null;
   return (
-    <>
-      {rows.length ? (
-        <div className="mc-bulk">
-          {ask ? (
-            <>
-              <span className="mc-sub">{ask === 'accept_all' ? `确认把这 ${rows.length} 条都按建议记下？` : `确认这 ${rows.length} 条都不要？`}</span>
-              <button type="button" className={`mc-btn${ask === 'accept_all' ? ' pri' : ''}`} disabled={rc?.phase === 'sending'} onClick={() => { const a = ask; setAsk(''); void ctx.run('review:all', allOp(a, rows)); }}>
-                {ask === 'accept_all' ? '全部采纳' : '全部不要'}
-              </button>
-              <button type="button" className="mc-link" onClick={() => setAsk('')}>取消</button>
-            </>
-          ) : (
-            <>
-              <button type="button" className="mc-btn" onClick={() => setAsk('accept_all')} data-testid="memory-accept-all">全部采纳</button>
-              <button type="button" className="mc-link" onClick={() => setAsk('reject_all')}>全部不要</button>
-            </>
-          )}
-        </div>
-      ) : <p className="mc-empty">现在没有要你审核的。</p>}
-      <ReceiptLine r={rc} />
-      {rows.length ? <ul className="mc-list">{rows.map((r: MemoryReviewItem) => <ReviewCard key={r.key} r={r} ctx={ctx} />)}</ul> : null}
+    <section className="mc-review" id="mc-review" data-testid="memory-review">
+      {todo.length ? <h3 className="mc-h">待审核 · {todo.length}</h3> : null}
+      {todo.length ? <ul className="mc-list">{todo.map((r: MemoryReviewItem) => <ReviewCard key={r.key} r={r} ctx={ctx} />)}</ul> : null}
       {groups.length ? <div className="mc-grps" aria-label="迁移时带过来的">{groups.map((g: ReviewGroup) => <MigrateGroup key={g.key} g={g} ctx={ctx} />)}</div> : null}
-    </>
+    </section>
   );
 };
 
 /* ---------- 记录 ---------- */
 const at = (sec: number): string =>
   new Date(sec * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/\//gu, '-');
-const LogTab: React.FC<{ rows: MemoryLogItem[]; ctx: Ctx }> = ({ rows, ctx }) => {
+const LogView: React.FC<{ rows: MemoryLogItem[]; ctx: Ctx }> = ({ rows, ctx }) => {
   if (!rows.length) return <p className="mc-empty">还没有变更记录。</p>;
   return (
     <ul className="mc-list">
@@ -426,8 +358,8 @@ const LogTab: React.FC<{ rows: MemoryLogItem[]; ctx: Ctx }> = ({ rows, ctx }) =>
           <li key={`${l.at}:${i}`} className="mc-row">
             <div className="mc-line">
               <div className="mc-main static">
-                <span className="mc-t1"><span className="mc-title">{w.who}{w.action}{w.title ? `「${w.title}」` : ''}</span></span>
-                <span className="mc-meta">{[at(l.at), w.because].filter(Boolean).join(' · ')}</span>
+                <span className="mc-t1"><span className="mc-title wrap">{w.who}{w.action}{w.title ? `「${w.title}」` : ''}</span></span>
+                <span className="mc-meta wrap">{[at(l.at), w.because].filter(Boolean).join(' · ')}</span>
               </div>
               {l.undo_token ? (
                 <span className="mc-acts">
@@ -443,172 +375,58 @@ const LogTab: React.FC<{ rows: MemoryLogItem[]; ctx: Ctx }> = ({ rows, ctx }) =>
   );
 };
 
-/* ---------- 抽屉：下一轮带什么、导入 ---------- */
-const Drawer: React.FC<{ title: string; onClose: () => void; foot?: React.ReactNode; children: React.ReactNode }> = ({ title, onClose, foot, children }) => {
-  useEffect(() => {
-    const esc = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', esc);
-    return () => document.removeEventListener('keydown', esc);
-  }, [onClose]);
-  return (
-    <div className="mc-shade" onMouseDown={(e: React.MouseEvent) => { if (e.target === e.currentTarget) onClose(); }}>
-      <aside className="mc-drawer" role="dialog" aria-label={title}>
-        <header><b>{title}</b><button type="button" className="mc-ic" aria-label="关闭" onClick={onClose}><X /></button></header>
-        <div className="mc-dbody">{children}</div>
-        {foot ? <footer>{foot}</footer> : null}
-      </aside>
-    </div>
-  );
-};
-
-const PreviewDrawer: React.FC<{ data: MemoryPreviewsData | undefined; titleOf: (c: string) => string; onClose: () => void }> = ({ data, titleOf, onClose }) => {
-  const list: MemoryPreview[] = data?.previews ?? [];
-  const [pick, setPick] = useState<string>('');
-  const cur: MemoryPreview | undefined = list.find((p: MemoryPreview) => p.topic_key === pick) ?? list[0];
-  return (
-    <Drawer title="下一轮带什么" onClose={onClose} foot={cur ? <span className="mc-sub">共 {cur.chars.toLocaleString('en-US')} 字</span> : null}>
-      {!data ? <p className="mc-empty">读取中…</p> : !list.length ? <p className="mc-empty">还没有预览。</p> : (
-        <>
-          <select className="mc-sel wide" value={cur?.topic_key ?? ''} aria-label="看哪个话题" onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPick(e.target.value)}>
-            {list.map((p: MemoryPreview) => <option key={p.topic_key} value={p.topic_key}>{p.title}</option>)}
-          </select>
-          {cur ? previewSections(cur, titleOf).map((s) => (
-            <section key={s.key} className="mc-pv">
-              <h4>{s.word}<em>{s.rows.length}</em></h4>
-              <ul>
-                {s.rows.map((r) => (
-                  <li key={r.code}>
-                    <Link to={`/memory?code=${encodeURIComponent(r.code)}`} onClick={onClose} className="mono">{r.code}</Link>
-                    <span className="mc-pv-t">{r.title}</span>
-                    {r.why ? <span className="mc-sub">{r.why}</span> : null}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )) : null}
-        </>
-      )}
-    </Drawer>
-  );
-};
-
-const ImportDrawer: React.FC<{ page: number; pages: number; data: MemoryImportPage | undefined; ctx: Ctx; onPage: (n: number) => void; onClose: () => void }> = ({ page, pages, data, ctx, onPage, onClose }) => {
-  const items: MemoryImportItem[] = useMemo(() => data?.items ?? [], [data]);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [touched, setTouched] = useState<boolean>(false);
-  useEffect(() => {
-    // 换页或数据到了：没动过就按默认勾（默认一条都不勾，主按钮写“先勾选要导入的”）
-    if (!touched) setPicked(new Set(items.filter(importChecked).map((it: MemoryImportItem) => it.fingerprint)));
-  }, [items, touched]);
-  const fresh: MemoryImportItem[] = items.filter((it: MemoryImportItem) => it.state === 'new');
-  const chosen: string[] = fresh.map((it) => it.fingerprint).filter((f: string) => picked.has(f));
-  const rest: string[] = fresh.map((it) => it.fingerprint).filter((f: string) => !picked.has(f));
-  const rc: Receipt | undefined = ctx.receipts['import'];
-  const busy: boolean = rc?.phase === 'sending';
-  const flip = (f: string): void => {
-    setTouched(true);
-    setPicked((s: Set<string>) => {
-      const n = new Set(s);
-      if (n.has(f)) n.delete(f);
-      else n.add(f);
-      return n;
-    });
-  };
-  const foot = (
-    <>
-      <ReceiptLine r={rc} />
-      <span className="sp" />
-      <button type="button" className="mc-link" disabled={busy || !rest.length} onClick={() => void ctx.run('import', ignoreOp(rest))}>其余 {rest.length} 条留在原工具</button>
-      <button type="button" className="mc-btn pri" disabled={busy || !chosen.length} onClick={() => void ctx.run('import', importOp(chosen)).then((ok: boolean) => { if (ok) setTouched(false); })}>{chosen.length ? `导入 ${chosen.length} 条` : '先勾选要导入的'}</button>
-    </>
-  );
-  return (
-    <Drawer title="从 Claude Code、Codex 导入" onClose={onClose} foot={foot}>
-      {pages > 1 ? (
-        <div className="mc-pager">
-          <button type="button" className="mc-link" disabled={page <= 0} onClick={() => { setTouched(false); onPage(page - 1); }}>上一页</button>
-          <span className="mc-sub">第 {page + 1}/{pages} 页</span>
-          <button type="button" className="mc-link" disabled={page >= pages - 1} onClick={() => { setTouched(false); onPage(page + 1); }}>下一页</button>
-        </div>
-      ) : null}
-      {!data ? <p className="mc-empty">读取中…</p> : !items.length ? <p className="mc-empty">这一页没有可导入的。</p> : importGroups(items).map((g) => (
-        <section key={g.label} className="mc-pv">
-          <h4>{g.label}<em>{g.items.length}</em></h4>
-          <ul className="mc-imp">
-            {g.items.map((it: MemoryImportItem) => (
-              <li key={it.fingerprint} className={it.state === 'new' ? '' : 'dim'}>
-                <label>
-                  <input type="checkbox" disabled={it.state !== 'new' || busy} checked={picked.has(it.fingerprint)} onChange={() => flip(it.fingerprint)} />
-                  <span className="mc-imp-b">
-                    <span className="mc-title">{it.title}</span>
-                    <span className="mc-meta">{importMeta(it, ctx.pool).join(' · ')}</span>
-                  </span>
-                </label>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-    </Drawer>
-  );
-};
-
-/* ---------- 体检 ---------- */
-const Health: React.FC<{ rows: HealthRow[]; pick: HealthRow | null; onPick: (r: HealthRow | null) => void }> = ({ rows, pick, onPick }) => (
-  <div className="mc-health" aria-label="体检">
-    <span className="mc-hl">体检</span>
-    {rows.length ? rows.map((r: HealthRow) => (
-      <button key={r.key} type="button" className={`mc-chip${pick?.key === r.key ? ' on' : ''}`} aria-pressed={pick?.key === r.key} onClick={() => onPick(pick?.key === r.key ? null : r)}>
-        {r.word}<em>{r.n}</em>
-      </button>
-    )) : <span className="mc-sub">{HEALTH_OK}</span>}
-  </div>
-);
-
 /* ---------- 整页 ---------- */
 export const MemoryCenter: React.FC<{ index: MemoryIndex }> = ({ index }) => {
   const params = useParams<{ tab?: string }>();
   const [sp, setSp] = useSearchParams();
-  const nav = useNavigate();
   const send = useMemoryOp();
-  const [previewOpen, setPreviewOpen] = useState<boolean>(false);
-  const [importPage, setImportPage] = useState<number | null>(null);
-  const keys = useMemo(() => keysToLoad(index, { previews: previewOpen, importPage }), [index, previewOpen, importPage]);
+  const snap = useSnapshot();
+  const keys = useMemo(() => keysToLoad(index), [index]);
   const got = useMemoryKeys(keys);
   const pool: Pool = useMemo(() => poolOf(
     got.data['memory:global'] as MemoryGlobalData | undefined,
     got.data['memory:topics'] as MemoryTopicsData | undefined,
     keys.filter((k) => projectKeyOf(k.key)).map((k) => got.data[k.key] as MemoryProjectData | undefined),
   ), [got.data, keys]);
-  const scope: ScopeFilter = sp.get('scope') || 'all';
-  const code: string = sp.get('code') ?? '';
-  const [view, setView] = useState<DecisionView>('open');
+  const link = parseLink(params.tab, sp);
   const [query, setQuery] = useState<string>('');
   const [editing, setEditing] = useState<string>('');
   const [adding, setAdding] = useState<boolean>(false);
   const [receipts, setReceipts] = useState<Record<string, Receipt>>({});
   const [notice, setNotice] = useState<{ id: number; text: string; undo?: string } | null>(null);
-  const [healthPick, setHealthPick] = useState<HealthRow | null>(null);
+  const [openG, setOpenG] = useState<Record<string, boolean>>({});
+  const [openS, setOpenS] = useState<Record<string, boolean>>({});
   const timer = useRef<number>(0);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
-  // 链接进来（⌘K、预览、话题页的“带了 N 条记忆”）：?code= 找到那一条，切到它的页签
-  const hit = useMemo(() => (code ? locate(pool, code) : null), [pool, code]);
-  const tab: MemoryTab = isTab(params.tab) ? params.tab : hit ? hit.tab : defaultTab(index);
+  const order: string[] = useMemo(() => index.scopes.filter((s) => s.key.startsWith('p:')).map((s) => s.key.slice(2)), [index.scopes]);
+  const updated = useMemo(() => updatedOf(snap.data?.projects as Pick<SnapshotProject, 'key' | 'updated_at'>[] | undefined), [snap.data]);
+  const groups: MemGroup[] = useMemo(() => buildGroups(pool, order, updated), [pool, order, updated]);
+  const defaults = useMemo(() => defaultOpen(groups), [groups]);
+  const hit: Located | null = useMemo(() => (link.code ? locate(pool, groups, link.code) : null), [pool, groups, link.code]);
+  const isOpenG = (g: MemGroup): boolean => openG[g.key] ?? (link.scope === g.key || hit?.group === g.key || defaults.has(g.key));
+  const isOpenS = (g: MemGroup, s: string): boolean => openS[`${g.key}/${s}`] ?? (hit?.group === g.key && hit.section === s);
+
+  // 链接进来：?scope= 滚到那一组，/memory/review 滚到待审核块（数据到了才滚；每个链接只滚一次）
+  const scrolled = useRef<string>('');
   useEffect(() => {
-    if (hit && hit.view !== 'open') setView(hit.view);
-  }, [hit]);
-  const goTab = (t: MemoryTab): void => {
+    const id: string = link.review ? 'mc-review' : link.scope ? `mcg-${link.scope}` : '';
+    if (!id || scrolled.current === id) return;
+    const el: HTMLElement | null = document.getElementById(id);
+    if (!el) return;
+    scrolled.current = id;
+    window.requestAnimationFrame(() => el.scrollIntoView({ block: 'start' }));
+  }, [link.review, link.scope, groups, pool.review]);
+
+  const setView = (view: '' | 'log'): void => {
     const q = new URLSearchParams(sp);
     q.delete('code');
-    nav({ pathname: `/memory/${t}`, search: q.toString() ? `?${q.toString()}` : '' });
+    if (view) q.set('view', view);
+    else q.delete('view');
+    setSp(q);
   };
-  const setScope = (v: string): void => {
+  const clearCode = (): void => {
     const q = new URLSearchParams(sp);
-    if (v === 'all') q.delete('scope');
-    else q.set('scope', v);
     q.delete('code');
     setSp(q, { replace: true });
   };
@@ -619,7 +437,7 @@ export const MemoryCenter: React.FC<{ index: MemoryIndex }> = ({ index }) => {
     const ok: boolean = res.phase === 'done';
     const message: string = ok ? res.message || done || '已办好' : failWords(res);
     setReceipts((r) => ({ ...r, [id]: { phase: ok ? 'done' : 'failed', message } }));
-    // 撤销条已经关了，回执只在别的页签里画：撤销失败（“这条后来又改过了”）用页面提示告诉用户
+    // 撤销条已经关了，回执只在别处画：撤销失败（“这条后来又改过了”）用页面提示告诉用户
     if (!ok && id.startsWith('undo:')) toast.error(`没撤销成：${message}`);
     if (ok) {
       window.setTimeout(() => setReceipts((r) => {
@@ -629,7 +447,7 @@ export const MemoryCenter: React.FC<{ index: MemoryIndex }> = ({ index }) => {
         return next;
       }), 4000);
       if (done) {
-        // 归档、作废这类：一行页面提示，5 秒内能撤销（撤销码从变更记录里找这一条的）
+        // 删、改、换管哪儿、放回这类：一行页面提示，5 秒内能撤销（撤销码从变更记录里找这一条的）
         window.clearTimeout(timer.current);
         setNotice((n) => ({ id: (n?.id ?? 0) + 1, text: message, undo: payload.keys[0] }));
         timer.current = window.setTimeout(() => setNotice(null), 5000);
@@ -638,126 +456,115 @@ export const MemoryCenter: React.FC<{ index: MemoryIndex }> = ({ index }) => {
     return ok;
   }, [send]);
 
-  const ctx: Ctx = { pool, index, scope, view, receipts, run, focus: hit ? hit.entry.code : '', editing, setEditing };
-  const health: HealthRow[] = healthRows(index.health);
-  const focusRefs: Set<string> | null = healthPick ? new Set(healthPick.refs) : null;
-  const review: MemoryReviewItem[] = reviewItems(pool, scope);
-  const rows: MemoryEntry[] = tabEntries(pool, tab, scope, focusRefs ? 'all' : view, query).filter((e: MemoryEntry) => !focusRefs || focusRefs.has(e.key));
-  const dc = decisionCounts(pool, scope);
-  const titleMap = useMemo(() => titleIndex(pool.entries, index.titles), [pool.entries, index.titles]);
+  const ctx: Ctx = { pool, index, receipts, run, focus: hit ? hit.entry.code : '', editing, setEditing };
   const undoFor = (key: string | undefined): string => {
     if (!key) return '';
     const l: MemoryLogItem | undefined = [...pool.log].sort((a, b) => b.at - a.at).find((x: MemoryLogItem) => x.refs.includes(key) && !!x.undo_token);
     return l?.undo_token ?? '';
   };
   const noticeUndo: string = undoFor(notice?.undo);
-  const options = scopeOptions(index);
-  const total: number = index.counts.rule + index.counts.decision + index.counts.note;
   const loading: boolean = got.loading && !pool.entries.length && !pool.review.length;
-  const empty: string = query ? `没有搜到“${query}”` : focusRefs ? '这一项涉及的条目不在这个页签' : tab === 'decisions' && view === 'open' ? '没有在办的决定' : '这里还没有。';
-  const kindForAdd: MemoryKind = TAB_KIND[tab] ?? 'rule';
-  const headc = headCounts(index, scope, pool);
+  const total: number = index.counts.rule + index.counts.decision + index.counts.note;
+  const q: string = query.trim();
+  // 搜索结果；?code= 是决定时，当作一条展开的搜索结果
+  const asDecision: SearchHit | null = !q && hit?.decision ? decisionHit(pool, link.code) : null;
+  const hits: SearchHit[] = useMemo(() => (q ? searchMemory(pool, index.titles, q) : []), [pool, index.titles, q]);
+  const shown: SearchHit[] = asDecision ? [asDecision] : hits;
+  const searching: boolean = !!q || !!asDecision;
+  const todo: number = todoPending(index.counts);
+  const places = useMemo(() => placeOptions(pool, index), [pool, index]);
+  const addPlace: string = link.scope && places.some((p) => p.value === link.scope) ? link.scope : 'global';
 
   return (
     <div className="mc-page">
-      <Head title="记忆" sub={`规矩 ${headc.rule} · 决定 ${headc.decision} · 资料 ${headc.note}`} />
+      <Head title="记忆" />
       <div className="scroll">
         <div className="mc" data-testid="memory-center">
-          <div className="mc-top">
-            <select className="mc-sel" value={scope} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setScope(e.target.value)} aria-label="范围">
-              {options.map((o) => <option key={o.value} value={o.value}>{o.label}{o.pending ? `（待审核 ${o.pending}）` : ''}{o.over ? ' · 超额' : ''}</option>)}
-            </select>
-            <label className="mc-search">
-              <Search aria-hidden="true" />
-              <input type="search" value={query} placeholder="筛标题、正文、短码" aria-label="筛记忆" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)} />
-            </label>
-            <span className="sp" />
-            <button type="button" className="mc-btn ghost" onClick={() => setPreviewOpen(true)} title="下一轮带什么" data-testid="memory-preview"><Eye /><span className="mc-bw">下一轮带什么</span></button>
-            <button type="button" className="mc-btn ghost" onClick={() => setImportPage(0)} title="从 Claude Code、Codex 导入" data-testid="memory-import">
-              <Import /><span className="mc-bw">导入</span>{index.imports.new ? <em className="mc-n">{index.imports.new}</em> : null}
-            </button>
-            <button type="button" className="mc-btn pri" onClick={() => { setEditing(''); setAdding(true); }} title="记一条" data-testid="memory-new"><Plus /><span className="mc-bw">记一条</span></button>
-          </div>
-          <Health rows={health} pick={healthPick} onPick={(r) => {
-            setHealthPick(r);
-            if (r && tab !== 'log' && tab !== 'review') {
-              const first: MemoryEntry | undefined = pool.entries.find((e: MemoryEntry) => r.refs.includes(e.key));
-              if (first && TAB_KIND[tab] !== first.kind) goTab(({ rule: 'rules', decision: 'decisions', note: 'notes' } as const)[first.kind]);
-            }
-          }} />
-          <nav className="mc-tabs" aria-label="记忆分页">
-            {TABS.map((t: MemoryTab) => (
-              <button key={t} type="button" className={t === tab ? 'on' : ''} aria-current={t === tab ? 'page' : undefined} onClick={() => goTab(t)}>
-                {TAB_WORD[t]}{t === 'review' && todoPending(index.counts) ? <em className="mc-n wait">{todoPending(index.counts)}</em> : null}
-              </button>
-            ))}
-          </nav>
-          {notice ? (
-            <div key={notice.id} className="mc-notice" role="status">
-              <Check aria-hidden="true" /><span>{notice.text}</span>
-              {noticeUndo ? <button type="button" className="mc-link" onClick={() => { setNotice(null); void run(`undo:${noticeUndo}`, undoOp(noticeUndo)); }}>撤销</button> : <span className="mc-sub">可在记录里找回</span>}
-              <button type="button" className="mc-ic" aria-label="知道了" onClick={() => setNotice(null)}><X /></button>
-            </div>
-          ) : null}
-          {healthPick ? (
-            <div className="mc-focus"><span>只看体检“{healthPick.word}”涉及的 {healthPick.refs.length} 条</span><button type="button" className="mc-link" onClick={() => setHealthPick(null)}>看全部</button></div>
-          ) : null}
-          {adding ? (
-            <Editor
-              index={index}
-              init={{ title: '', text: '', kind: kindForAdd }}
-              places={placeOptions(pool, index)}
-              place={scope.startsWith('p:') ? scope : 'global'}
-              saveWord="记下"
-              busy={receipts['new']?.phase === 'sending'}
-              onCancel={() => setAdding(false)}
-              onSave={(d) => {
-                void run('new', addOp({ title: d.title, text: d.text, why: d.why, kind: d.kind, ...placeFromValue(d.place) })).then((ok: boolean) => {
-                  if (ok) setAdding(false);
-                });
-              }}
-            />
-          ) : null}
-          <ReceiptLine r={receipts['new']} />
-          {TAB_NOTE[tab] ? <p className="mc-note">{TAB_NOTE[tab]}</p> : null}
-          {tab === 'decisions' && !focusRefs ? (
-            <div className="mc-seg" role="radiogroup" aria-label="看哪些决定">
-              {(['open', 'all', 'done'] as DecisionView[]).map((v: DecisionView) => (
-                <button key={v} type="button" role="radio" aria-checked={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
-                  {{ open: '在办', all: '全部', done: '不在办' }[v]}<em>{dc[v]}</em>
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {tab === 'rules' ? <Rooms scopes={index.scopes} scope={scope} /> : null}
-          {loading ? <p className="mc-empty">读取中…</p> : !total && !pool.review.length && tab !== 'log' ? (
-            <p className="mc-empty">还没有记忆。在话题里说“以后都……”会记下来。</p>
-          ) : tab === 'review' ? <ReviewTab rows={review} ctx={ctx} />
-            : tab === 'log' ? <LogTab rows={pool.log} ctx={ctx} />
-              : (
+          {link.log ? (
+            <>
+              <div className="mc-top">
+                <button type="button" className="mc-link back" onClick={() => setView('')} data-testid="memory-back">‹ 返回列表</button>
+                <h3 className="mc-h grow">记录</h3>
+              </div>
+              <LogView rows={pool.log} ctx={ctx} />
+            </>
+          ) : (
+            <>
+              <div className="mc-top">
+                <label className="mc-search">
+                  <Search aria-hidden="true" />
+                  <input type="search" value={query} placeholder="搜索记忆" aria-label="搜索记忆" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)} />
+                </label>
+                <button type="button" className="mc-btn pri" onClick={() => { setEditing(''); setAdding(true); }} data-testid="memory-new"><Plus />记一条</button>
+              </div>
+              {notice ? (
+                <div key={notice.id} className="mc-notice" role="status">
+                  <Check aria-hidden="true" /><span>{notice.text}</span>
+                  {noticeUndo ? <button type="button" className="mc-link" onClick={() => { setNotice(null); void run(`undo:${noticeUndo}`, undoOp(noticeUndo)); }}>撤销</button> : <span className="mc-sub">可在记录里找回</span>}
+                  <button type="button" className="mc-ic" aria-label="知道了" onClick={() => setNotice(null)}><X /></button>
+                </div>
+              ) : null}
+              {adding ? (
+                <Editor
+                  index={index}
+                  init={{ title: '', text: '', kind: 'rule' }}
+                  places={places}
+                  place={addPlace}
+                  saveWord="记下"
+                  busy={receipts['new']?.phase === 'sending'}
+                  onCancel={() => setAdding(false)}
+                  onSave={(d) => {
+                    void run('new', addOp({ title: d.title, text: d.text, why: d.why, kind: d.kind, ...placeFromValue(d.place) })).then((ok: boolean) => {
+                      if (ok) setAdding(false);
+                    });
+                  }}
+                />
+              ) : null}
+              <ReceiptLine r={receipts['new']} />
+              {loading ? <p className="mc-empty">读取中…</p> : searching ? (
+                <section className="mc-results" data-testid="memory-results">
+                  {asDecision ? <div className="mc-focus"><span>打开的是你答过的一条决定</span><button type="button" className="mc-link" onClick={clearCode}>回到列表</button></div> : null}
+                  {shown.length ? (
+                    <ul className="mc-list">
+                      {shown.map((h: SearchHit) => (h.entry
+                        ? <EntryRow key={h.key} e={h.entry} ctx={ctx} meta={h.line} shelf={h.entry.kind !== 'decision' && h.entry.status !== 'active'} />
+                        : (
+                          <li key={h.key} className="mc-row">
+                            <div className="mc-main static"><span className="mc-t1"><span className="mc-title">{h.title}</span></span><span className="mc-meta">{h.line} · {h.code}</span></div>
+                          </li>
+                        )))}
+                    </ul>
+                  ) : <p className="mc-empty">没有搜到“{q}”</p>}
+                </section>
+              ) : (
                 <>
-                  <EntryList rows={rows} ctx={ctx} empty={empty} />
-                  {focusRefs || query ? null : <Shelf rows={shelved(pool, tab, scope)} ctx={ctx} />}
+                  <ReviewBlock rows={pool.review} ctx={ctx} />
+                  {groups.map((g: MemGroup) => (
+                    <GroupBox
+                      key={g.key}
+                      g={g}
+                      ctx={ctx}
+                      open={isOpenG(g)}
+                      onToggle={() => setOpenG((m) => ({ ...m, [g.key]: !isOpenG(g) }))}
+                      secOpen={(s: string) => isOpenS(g, s)}
+                      onSec={(s: string) => setOpenS((m) => ({ ...m, [`${g.key}/${s}`]: !isOpenS(g, s) }))}
+                    />
+                  ))}
+                  {!groups.length && !pool.review.length ? (
+                    <p className="mc-empty">{total ? '还没有规矩或资料。' : '还没有记忆。'}在对话里说“以后……”“记住……”“记一下……”，或点上面的「记一条」。</p>
+                  ) : null}
+                  <div className="mc-foot"><button type="button" className="mc-link" onClick={() => setView('log')} data-testid="memory-log-link">记录</button>{todo ? <span className="mc-sub">待审核 {todo}</span> : null}</div>
                 </>
               )}
+            </>
+          )}
         </div>
       </div>
-      {previewOpen ? <PreviewDrawer data={got.data['memory:previews'] as MemoryPreviewsData | undefined} titleOf={(c: string) => titleMap.get(c) ?? ''} onClose={() => setPreviewOpen(false)} /> : null}
-      {importPage !== null ? (
-        <ImportDrawer
-          page={importPage}
-          pages={Math.max(1, index.imports.pages)}
-          data={got.data[`memory:import:${importPage}`] as MemoryImportPage | undefined}
-          ctx={ctx}
-          onPage={setImportPage}
-          onClose={() => setImportPage(null)}
-        />
-      ) : null}
     </div>
   );
 };
 
-/** 路由 /memory：收到 memory:index 是记忆中心；旧 Covey（只推 v37 的 memory）退回原来的主记忆页 */
+/** 路由 /memory（和旧的 /memory/<页签>）：收到 memory:index 是记忆页；旧 Covey（只推 v37 的 memory）退回原来的主记忆页 */
 const MemoryCenterPage: React.FC = () => {
   const { mode, index } = useMemoryMode();
   const idx = useMemoryIndex();

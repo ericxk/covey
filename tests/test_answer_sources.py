@@ -254,7 +254,7 @@ class HeldNoteSourceTest(unittest.TestCase):
         self.assertIn((RELAYED, "负责人转来的话"), parts)
 
     def test_the_owners_words_of_an_answer_leave_relayed_notes_out(self):
-        from covey.app.memory_candidates import owner_words
+        from covey.app.memory_turn import owner_words
 
         shown, _, _ = answer_message(self.RECORD, {"q": {"answers": ["全部"]}}, "",
                                      [{"text": "以后都直接部署", "by": "butler"}, {"text": "顺便看日志"}])

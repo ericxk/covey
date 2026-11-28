@@ -175,24 +175,24 @@ def memory_listing(state_dir, record) -> tuple:
 
 
 def memory_counts(state_dir, project_id) -> tuple:
-    """(rules, decisions, notes, waiting for review) of the project's memory in use (core/memstore.py), and () when the store cannot
-    be read. 待审核 are the open items whose suggestion names this project."""
+    """(rules, waiting for review) of the project's memory in use (core/memstore.py), and () when the store cannot be read. 待审核
+    are the open items whose suggestion names this project."""
     try:
-        found = memstore.entries(state_dir, scope="project", owner_key=project_id)
+        found = memstore.entries(state_dir, scope="project", owner_key=project_id, kinds=("rule",))
         waiting = sum(1 for item in memstore.review_items(state_dir)
                       if isinstance(item.get("suggest"), dict) and item["suggest"].get("scope") == "project"
                       and item["suggest"].get("project_key") == project_id)
     except (OSError, ValueError, KeyError, TypeError):
         return ()
-    return tuple(sum(1 for entry in found if entry.kind == kind) for kind in memstore.KINDS) + (waiting,)
+    return len(found), waiting
 
 
-def memory_url() -> str:
-    """The 网页记忆中心's address, '' without the web page or when it cannot be read."""
+def memory_url(project_id="") -> str:
+    """The web page's 记忆, at the project's group (``scope`` p:<id>); '' without the web page or when it cannot be read."""
     from covey.app import web_memory
 
     try:
-        return web_memory.center_url()
+        return web_memory.center_url(scope=f"p:{project_id}" if project_id else "")
     except (OSError, ValueError, TypeError):
         return ""
 
@@ -274,7 +274,7 @@ def facts(state_dir, record, now, titles=None, links=None, avatar="") -> Project
                    elapsed=elapsed, tokens=tokens,
                    lead_state=projects.reason_words(record) or lead_state(state_dir, record, now), lead_note=lead_note(record),
                    triage=triage_lines(record), joins=join_lines(state_dir, record), memory=listed[0], memory_total=listed[1],
-                   memory_counts=memory_counts(state_dir, pid), memory_url=memory_url(), library=library_rows(state_dir, pid),
+                   memory_counts=memory_counts(state_dir, pid), memory_url=memory_url(pid), library=library_rows(state_dir, pid),
                    inputs=inputs, outputs=tuple(answer_card.output_lines(parts, answer_card.RUNNING_LINES)),
                    ask_text=str(ask.get("text") or ""), ask_at=str(ask.get("at") or ""), ask_url=str(ask.get("url") or ""),
                    origin_note=origin_words((record.get("origin") or {}).get("note") if isinstance(record.get("origin"), dict) else ""))

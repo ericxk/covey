@@ -1,15 +1,15 @@
-/* 记忆中心（v43，MemoryCenter.tsx、MemoryList.tsx）。颜色只用 token，深浅色一套；每条两行：标题 14/20 用 --t1，灰字 12/18 用 --t2
+/* 记忆页（v45，一页式，MemoryCenter.tsx、MemoryList.tsx）。颜色只用 token，深浅色一套；每条两行：标题 14/20 用 --t1，灰字 12/18 用 --t2
    （不用 --t3：深色下 4.23:1 不够，T847）。橙色只给待审核的数（等你定的，docs/ui.md 2.2）。手机 390 不横向滚动。 */
 .cv .mc-page{display:flex;flex-direction:column;flex:1;min-height:0}
 .cv .mc{display:flex;flex-direction:column;gap:10px;max-width:880px;margin:0 auto;width:100%;padding:0 20px 48px;box-sizing:border-box;min-width:0}
 .cv .mc .sp{flex:1}
-.cv .mc .mono,.cv .mc-drawer .mono{font-family:var(--mono);font-size:11.5px;color:var(--t2)}
+.cv .mc .mono{font-family:var(--mono);font-size:11.5px;color:var(--t2)}
 
-/* 顶栏：范围、筛选、预览、导入、记一条 */
+/* 顶栏：搜索、记一条（手机上搜索独占一行宽） */
 .cv .mc-top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0 6px;background:var(--bg)}
 .cv .mc-sel{height:32px;max-width:220px;min-width:0;padding:0 8px;border:1px solid var(--line2);border-radius:8px;background:var(--s1);color:var(--t1);font-size:13px;text-overflow:ellipsis}
 .cv .mc-sel.wide{max-width:none;width:100%}
-.cv .mc-search{display:flex;align-items:center;gap:6px;flex:0 1 240px;min-width:0;height:32px;padding:0 10px;border:1px solid var(--line2);border-radius:8px;background:var(--s1)}
+.cv .mc-search{display:flex;align-items:center;gap:6px;flex:1 1 240px;min-width:0;height:32px;padding:0 10px;border:1px solid var(--line2);border-radius:8px;background:var(--s1)}
 .cv .mc-search:focus-within{border-color:color-mix(in srgb,var(--a1) 60%,transparent)}
 .cv .mc-search svg{width:14px;height:14px;color:var(--t2);flex:none}
 .cv .mc-search input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--t1);font-size:13px}
@@ -29,71 +29,60 @@
 .cv .mc-link:disabled{opacity:.45;cursor:not-allowed}
 .cv .mc-link svg{width:13px;height:13px;transition:transform .15s}
 .cv .mc-link svg.rot{transform:rotate(90deg)}
-.cv :is(.mc-btn,.mc-link,.mc-ic,.mc-act,.mc-tabs button,.mc-chip,.mc-seg button,.mc-main):focus-visible{outline:2px solid var(--a1);outline-offset:1px}
+.cv :is(.mc-btn,.mc-link,.mc-ic,.mc-act,.mc-main,.mc-gh):focus-visible{outline:2px solid var(--a1);outline-offset:1px}
 
-/* 体检：只画非 0 项 */
-.cv .mc-health{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:24px}
-.cv .mc-hl{font-size:11px;letter-spacing:.06em;color:var(--t2)}
-.cv .mc-chip{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border:1px solid var(--line2);border-radius:12px;background:none;color:var(--t2);font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0}
-.cv .mc-chip em{font:11px var(--mono);font-style:normal;color:var(--t1)}
-.cv .mc-chip:hover,.cv .mc-chip.on{color:var(--t1);border-color:color-mix(in srgb,var(--a1) 45%,transparent);background:color-mix(in srgb,var(--a1) 10%,transparent)}
-
-/* 页签：5 个，手机上横滑 */
-.cv .mc-tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
-.cv .mc-tabs::-webkit-scrollbar{display:none}
-.cv .mc-tabs button{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border:0;border-bottom:2px solid transparent;background:none;color:var(--t2);font-size:13.5px;cursor:pointer;white-space:nowrap;flex-shrink:0;margin-bottom:-1px}
-.cv .mc-tabs button:hover{color:var(--t1)}
-.cv .mc-tabs button.on{color:var(--t1);font-weight:500;border-bottom-color:var(--a1)}
-.cv .mc-note{margin:2px 0 0;font-size:12px;color:var(--t2)}
 .cv .mc-focus,.cv .mc-notice{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;background:var(--s2);font-size:12.5px;color:var(--t1)}
 .cv .mc-notice svg{width:14px;height:14px;color:var(--ok, var(--a1))}
 .cv .mc-notice span:first-of-type,.cv .mc-focus span{flex:1;min-width:0}
-.cv .mc-seg{display:inline-flex;align-self:flex-start;gap:2px;padding:2px;border-radius:8px;background:var(--s2)}
-.cv .mc-seg button{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--t2);font-size:12.5px;cursor:pointer;white-space:nowrap}
-.cv .mc-seg button em{font:11px var(--mono);font-style:normal;color:var(--t2)}
-.cv .mc-seg button.on{background:var(--s1);color:var(--t1);box-shadow:0 0 0 1px var(--line2)}
-.cv .mc-bulk{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-
-/* 配额（规矩页，每个范围一条） */
-.cv .mc-rooms{display:flex;flex-direction:column;gap:4px}
-.cv .mc-room{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--t2);min-width:0}
-.cv .mc-room-n{flex:0 0 auto;max-width:9em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t1)}
-.cv .mc-bar{position:relative;flex:0 0 96px;height:5px;border-radius:3px;background:var(--s3);overflow:hidden}
-.cv .mc-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:var(--t3)}
-.cv .mc-room.near .mc-bar i{background:var(--wait)}
-.cv .mc-room.over .mc-bar i{background:var(--fail)}
-.cv .mc-room.over .mc-room-w{color:var(--fail)}
-.cv .mc-room-w{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
-
-/* 一条：两行，行尾「改」和 ⋯ */
+/* 一条：点一行就地展开，操作在展开的正文下面 */
 .cv .mc-list{list-style:none;margin:0;padding:0}
 .cv .mc-row{border-top:1px solid var(--line);padding:2px 0}
 .cv .mc-row:first-child{border-top:0}
 .cv .mc-row.hit{background:color-mix(in srgb,var(--a1) 7%,transparent);border-radius:8px}
 .cv .mc-row.shelf .mc-title{color:var(--t2)}
 .cv .mc-line{display:flex;align-items:flex-start;gap:8px;min-width:0}
-.cv .mc-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;padding:9px 4px;border:0;background:none;text-align:left;cursor:pointer;color:inherit;font:inherit}
+.cv .mc-main{display:flex;flex-direction:column;gap:2px;width:100%;min-width:0;min-height:40px;justify-content:center;padding:8px 4px;border:0;background:none;text-align:left;cursor:pointer;color:inherit;font:inherit;box-sizing:border-box}
+.cv .mc-line .mc-main{flex:1;width:auto}
 .cv .mc-main.static{cursor:default}
 .cv .mc-t1{display:flex;align-items:center;gap:8px;min-width:0}
-.cv .mc-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:20px;font-weight:500;color:var(--t1)}
+.cv .mc-title{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:20px;font-weight:500;color:var(--t1)}
+.cv .mc-title.wrap{white-space:normal;overflow-wrap:anywhere}
 .cv .mc-meta{display:block;font-size:12px;line-height:18px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cv .mc-meta.wrap{white-space:normal;overflow-wrap:anywhere}
 .cv .mc-off{flex-shrink:0;white-space:nowrap;font-size:11px;line-height:18px;padding:0 6px;border-radius:5px;background:var(--s3);color:var(--t2)}
-.cv .mc-acts{display:flex;align-items:center;gap:2px;padding-top:8px;flex-shrink:0}
-.cv .mc-act{height:28px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--t2);font-size:12.5px;cursor:pointer;white-space:nowrap}
-.cv .mc-act:hover:not(:disabled){background:var(--hover);color:var(--t1)}
-.cv .mc-more{position:relative;display:inline-flex}
-.cv .mc-menu{position:absolute;right:0;top:30px;z-index:20;display:flex;flex-direction:column;min-width:150px;padding:4px;border:1px solid var(--line2);border-radius:10px;background:var(--s1);box-shadow:0 8px 24px rgba(0,0,0,.18)}
-.cv .mc-menu button{height:32px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--t1);font-size:13px;text-align:left;cursor:pointer;white-space:nowrap}
-.cv .mc-menu button:hover{background:var(--hover)}
-.cv .mc-menu button.danger{color:var(--fail)}
+.cv .mc-acts{display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding-top:4px;flex-shrink:0}
+.cv .mc-act{height:32px;padding:0 10px;border:1px solid var(--line2);border-radius:7px;background:none;color:var(--t1);font-size:12.5px;cursor:pointer;white-space:nowrap}
+.cv .mc-act:hover:not(:disabled){background:var(--hover)}
+.cv .mc-act:disabled{opacity:.5;cursor:not-allowed}
+.cv .mc-act.danger{color:var(--fail)}
 .cv .mc-body{padding:0 4px 10px}
+.cv .mc-body .mc-sub{margin-bottom:4px}
+.cv .mc-body a,.cv .mc-rv a{color:var(--t1);text-decoration:underline;text-underline-offset:2px}
 .cv .mc-text{margin:0 0 6px;font-size:14px;line-height:22px;color:var(--t1);white-space:pre-wrap;overflow-wrap:anywhere}
 .cv .mc-sub{margin:0;font-size:12px;line-height:18px;color:var(--t2);overflow-wrap:anywhere}
 .cv .mc-empty{margin:0;padding:18px 4px;font-size:13px;color:var(--t2)}
 .cv .mc-rc{padding:0 4px 8px;font-size:12px;color:var(--t2)}
 .cv .mc-rc.bad{color:var(--fail)}
-.cv .mc-shelf{padding-top:6px}
 .cv .mc-move{padding:0 4px 8px}
+
+/* 分组：组头一行，组里先列你定的规矩，下面是折叠的小节 */
+.cv .mc-h{margin:0;font-size:13px;line-height:20px;font-weight:600;color:var(--t1)}
+.cv .mc-h.grow{flex:1}
+.cv .mc-g{border-top:1px solid var(--line);padding-top:2px}
+.cv .mc-gh{display:flex;align-items:center;gap:8px;width:100%;min-height:40px;padding:6px 2px;border:0;background:none;color:var(--t1);text-align:left;cursor:pointer;font:inherit;box-sizing:border-box;flex-wrap:wrap}
+.cv .mc-gh svg{flex:none;width:14px;height:14px;color:var(--t2);transition:transform .15s}
+.cv .mc-gh svg.rot{transform:rotate(90deg)}
+.cv .mc-gt{flex:1 1 0;min-width:0;font-size:14px;line-height:20px;font-weight:600;overflow-wrap:anywhere}
+.cv .mc-over{flex:none;font-size:12px;color:var(--t2)}
+.cv .mc-gb{padding:0 0 8px 20px}
+.cv .mc-sec{padding-top:2px}
+.cv .mc-sec-h{min-height:32px;white-space:normal;text-align:left}
+.cv .mc-sec>.mc-list{padding-left:6px}
+.cv .mc-foot{display:flex;align-items:center;gap:12px;padding:10px 2px 0;border-top:1px solid var(--line)}
+.cv .mc-results .mc-list{border-top:1px solid var(--line)}
+.cv .mc-top .back{flex:none}
+.cv .mc-review{padding:2px 0 8px}
+.cv .mc-review .mc-h{padding:4px 2px}
 
 /* 编辑框 */
 .cv .mc-ed{display:flex;flex-direction:column;gap:8px;padding:10px;margin:4px 0 8px;border:1px solid var(--line2);border-radius:10px;background:var(--s1)}
@@ -121,27 +110,6 @@
 .cv .mc-tidy{list-style:none;margin:0;padding:0 0 0 2px;display:flex;flex-direction:column;gap:2px;font-size:12.5px;color:var(--t1)}
 .cv .mc-tidy .mono{margin-right:6px}
 
-/* 抽屉：下一轮带什么、导入（桌面右侧 440，手机全屏） */
-.cv .mc-shade{position:fixed;inset:0;z-index:60;display:flex;justify-content:flex-end;background:rgba(0,0,0,.35)}
-.cv .mc-drawer{display:flex;flex-direction:column;width:min(440px,100vw);height:100%;background:var(--bg);border-left:1px solid var(--line2);box-sizing:border-box}
-.cv .mc-drawer header{display:flex;align-items:center;justify-content:space-between;gap:8px;height:48px;padding:0 12px 0 16px;border-bottom:1px solid var(--line);font-size:14px;color:var(--t1)}
-.cv .mc-drawer footer{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
-.cv .mc-drawer footer .sp{flex:1}
-.cv .mc-dbody{flex:1;min-height:0;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:12px}
-.cv .mc-pv h4{display:flex;align-items:center;gap:6px;margin:0 0 4px;font-size:11px;letter-spacing:.06em;font-weight:500;color:var(--t2)}
-.cv .mc-pv h4 em{font:11px var(--mono);font-style:normal}
-.cv .mc-pv ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
-.cv .mc-pv li{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:13px;line-height:22px}
-.cv .mc-pv li a{flex-shrink:0;text-decoration:none}
-.cv .mc-pv-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t1)}
-.cv .mc-pv .mc-sub{flex-shrink:0;white-space:nowrap}
-.cv .mc-pager{display:flex;align-items:center;gap:10px}
-.cv .mc-imp li{display:block}
-.cv .mc-imp label{display:flex;align-items:flex-start;gap:8px;padding:6px 0;cursor:pointer;min-width:0}
-.cv .mc-imp input{margin-top:4px;flex-shrink:0}
-.cv .mc-imp-b{display:flex;flex-direction:column;min-width:0}
-.cv .mc-imp li.dim .mc-title{color:var(--t2)}
-
 /* 专项页、话题页右栏的精简清单（MemoryList） */
 .cv .ml{display:flex;flex-direction:column;gap:2px}
 .cv .ml-head{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--t2);text-decoration:none;min-width:0}
@@ -160,23 +128,18 @@
   .cv .mc{padding:0 12px 40px;gap:8px}
   .cv .mc-top{gap:6px}
   .cv .mc-sel{flex:1 1 40%;max-width:none;height:40px;padding-right:30px}
-  /* 范围下拉在手机上独占一行：“全局（待审核 12）”这类标签和搜索框挤一行时右括号会被省略号吃掉（CUA 复验） */
-  .cv .mc-top > .mc-sel{flex:1 1 100%}
   .cv .mc-search{flex:1 1 50%;height:40px}
   .cv .mc-search input{height:100%;min-height:40px}
-  .cv .mc-top .sp{display:none}
-  .cv .mc-btn{height:40px;flex:1 1 0;justify-content:center;padding:0 8px}
-  .cv .mc-btn{font-size:12.5px;gap:4px}
-  .cv .mc-tabs button{height:40px;padding:0 10px}
+  .cv .mc-btn{height:40px;justify-content:center;padding:0 12px;font-size:12.5px;gap:4px}
   .cv .mc-act,.cv .mc-ic{min-height:40px;min-width:40px}
-  .cv .mc-menu button{height:40px}
-  .cv .mc-chip{min-height:40px;padding:0 12px}
-  .cv .mc-link,.cv .mc-seg button{min-height:40px;min-width:40px;display:inline-flex;align-items:center;justify-content:center}
+  .cv .mc-link{min-height:40px;min-width:40px;display:inline-flex;align-items:center;justify-content:center}
+  .cv .mc-sec-h{justify-content:flex-start}
   .cv .ml-head,.cv .ml-row,.cv .ml-more{min-height:40px;align-items:center}
   .cv .ml-more{display:flex}
   .cv .mc-pair{grid-template-columns:1fr}
-  .cv .mc-drawer{width:100vw;border-left:0}
-  .cv .mc-room-w{white-space:normal}
+  .cv .mc-gb{padding-left:8px}
+  .cv .mc-ed-foot .mc-btn{flex:1 1 0}
+  .cv .mc-rv-acts .mc-btn{flex:1 1 0}
 }
 /* 迁移项的专项组（待审核里“N 条负责人约束在按规矩带”） */
 .cv .mc-grps{display:flex;flex-direction:column;gap:6px;margin-top:6px}

@@ -15,10 +15,9 @@ holds, never the style line):
    deleted: a line put away is read back by 查记忆 (core/memory_search.py) and 撤销 puts it back. What is put away is also one
    line of 记录 (core/memstore.py ``log_change``, with the entries as they were).
 
-The candidates carried (app/memory_candidates.py) that no turn used for IDLE_DAYS are let go (``expire``).
-
 The record, <state>/memory-tidy.json: {schema_version, runs: [{id, slot, chat_id, at, projects: [{id, name, settled: [[entry,
-before, why]], failed?}], expired: [candidate ids], undone?}]}, the last RUNS_KEPT; a slot is tidied once. A record an older
+before, why]], failed?}], undone?}]}, the last RUNS_KEPT; a slot is tidied once (an older release's run also lists the evening
+candidates it let go, ``expired``: that feature is gone, 撤销 leaves them as they are). A record an older
 release wrote (``cursors``, a ``rules`` list per project, why ``superseded``) is read the same: those fields are ignored, a
 ``superseded`` line counts as ``done``. ``view`` is what the evening digest card shows of a run (cards/digest.py
 memory_elements): how many lines went away and why, with 撤销. Written under its own lock, never across a Feishu call
@@ -29,7 +28,6 @@ import secrets
 import time
 from pathlib import Path
 
-from covey.app import memory_candidates
 from covey.core import memory, memory_usage, memstore, project_memory, projects
 from covey.core.locks import resource_lock
 from covey.core.state import read_object, write_json
@@ -141,11 +139,8 @@ class MemoryTidy:
             found.append({"id": pid, "name": str(record.get("name") or ""),
                           "settled": [[entry, before, why.get(entry, DONE)] for entry, before in settled]})
             self.runtime.log(f"memory tidy project={pid} put_away={len(settled)}")
-        expired = [row["id"] for row in memory_candidates.expire(state, [
-            row["id"] for row in memory_candidates.open_carried(state)
-            if memory_usage.idle(usage, f"candidate:{row['id']}", row["at"], now=now)], now=now)]
         run = {"id": "t" + secrets.token_hex(4), "slot": slot, "chat_id": chat, "at": now,
-               "projects": [item for item in found if item["settled"]], "expired": expired}
+               "projects": [item for item in found if item["settled"]]}
         with lock(state):
             data = load(state)
             if not any(old.get("slot") == slot for old in data["runs"]):
@@ -182,8 +177,8 @@ class MemoryTidy:
             self.runtime.log(f"memory tidy log failed: {type(exc).__name__}")
 
     def decide(self, ctx, run_id, op, *, now=None) -> dict | None:
-        """A click on the digest's 整理记忆 (the owner's): ``op`` undo (撤销: every line the run put away back, its expired
-        candidates open again). The run as it is then; None when there is none. A run undone before, or any other ``op`` (the
+        """A click on the digest's 整理记忆 (the owner's): ``op`` undo (撤销: every line the run put away back). The run as it is
+        then; None when there is none. A run undone before, or any other ``op`` (the
         retired 确认长期 and 不对), is left as it is (a click delivered twice)."""
         state = Path(ctx.state_dir)
         with lock(state):
@@ -196,7 +191,6 @@ class MemoryTidy:
                                         now=now)
             except KeyError:
                 continue
-        memory_candidates.reopen(state, run.get("expired") or ())
         with lock(state):
             data = load(state)
             for old in data["runs"]:
@@ -209,15 +203,14 @@ class MemoryTidy:
 
 
 def view_of(run) -> dict:
-    """What the digest card shows of ``run``: {run, away {idle, done, foreign}, expired, undone}; {} when it put nothing in
-    order. A line an older release put away as ``superseded`` counts as ``done``."""
+    """What the digest card shows of ``run``: {run, away {idle, done, foreign}, undone}; {} when it put nothing in order. A line
+    an older release put away as ``superseded`` counts as ``done``."""
     if not isinstance(run, dict):
         return {}
     away = {IDLE: 0, DONE: 0, FOREIGN: 0}
     for item in run.get("projects") or ():
         for _, _, why in item.get("settled") or ():
             away[why if why in away else DONE] += 1
-    expired = len(run.get("expired") or ())
-    if not (sum(away.values()) or expired):
+    if not sum(away.values()):
         return {}
-    return {"run": run.get("id") or "", "away": away, "expired": expired, "undone": bool(run.get("undone"))}
+    return {"run": run.get("id") or "", "away": away, "undone": bool(run.get("undone"))}

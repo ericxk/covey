@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from covey.app import assist, knowledge_turn, memory_candidates, project_context
+from covey.app import assist, knowledge_turn, project_context
 from covey.app.prompts import memory_rules_block, memory_tail_block
 from covey.core import (knowledge, memory, memory_review, memory_search, memory_usage, memstore, principles, projects,
                         topic_gist, topic_memory)
@@ -70,10 +70,20 @@ class Plan:
 
 
 def owner_words(record, state_dir=None) -> str:
-    """The owner's own words of the turn of job ``record`` (app/memory_candidates.py owner_words, which the evening candidates
-    read the same way): its ``user_text``, but of an answer's turn only what he answered and the notes he added, of a feedback
-    only the feedback; the question's own words, written by the Bridge or a model, are never his."""
-    return memory_candidates.owner_words(record, state_dir)
+    """The owner's own words of the turn of job ``record``: its ``user_text``, but of an answer's turn (app/answers.py
+    answer_message) only what he answered and the notes he added, and of a feedback only the feedback; the question's own
+    words, written by the Bridge or a model, are never his. ``state_dir``: where the question record is, to tell an answer of
+    several lines from its question exactly (app/answer_cards.py asked_questions)."""
+    from covey.app.answer_cards import asked_questions
+    from covey.app.answers import FEEDBACK_START, answer_parts
+    said = str(record.get("user_text") or "")
+    if said.startswith(FEEDBACK_START):
+        return said[len(FEEDBACK_START):]
+    asked = asked_questions(state_dir, str(record.get("message_id") or "")) if state_dir is not None else []
+    parts = answer_parts(said, asked)
+    if parts:
+        return "\n".join(text for kind, text in parts if kind in ("answer", "note"))
+    return said
 
 
 def active(ctx) -> bool:

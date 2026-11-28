@@ -279,19 +279,19 @@
 
 - `COVEY_MEMORY`：默认开，设 `0`、`off`、`false`、`no` 才关（[管家 · 记忆](butler.md#记忆)）。不依赖别的开关：原则一直有，`COVEY_KNOWLEDGE` 开着时知识条目也进来，专项和 `COVEY_PROJECT_MEMORY` 都开着时专项记忆也进来；话题自己的记忆放在 `<state>/topics/<话题>/memory.json`，有记忆才会有。
 - 关着（`COVEY_MEMORY=0`）：规则、续接提醒、答案卡和任务记录都和没有这个功能时一样，不读不写话题的 `memory.json`，设置卡没有「记忆」标签。
-- 开着时设置卡有一个「记忆」标签（`app/memory_panel.py`）：只看数、处理待审核、去网页。副标题是规矩、决定、资料、待审核各多少条，各范围一行计数；待审核每条“采纳”或“不要”（走网页记忆中心同一套 `review_decide`）；有网页（`COVEY_WEB=1` 且配了 `page_url`）时给“打开网页记忆中心”和“去网页逐条看”链接，没有时列出规矩的标题，每条能“收起”。常驻、工作区、下一轮带上什么都不在这里了，管理都去网页记忆中心。
-- 升为全局：飞书上已下线。答案卡上“记下了”那一行只有“不对”（有网页时多一个“改”，打开网页记忆中心）；要把一条提到更大的范围，到网页记忆中心做。旧卡片上点“升为全局”只回一句“升为全局已下线：到网页记忆中心把它提到更大的范围”，不改东西、不开任务。
-- 开着且[早晚汇总](#早晚汇总)也开着时，每天的晚间汇总时找一次“你反复说的”（`app/memory_candidates.py`，汇总卡上不再列）：从那之前 24 小时里结束的普通话题（不读开了脱敏的话题、管家话题、代答话题，只读主人自己那一轮的原话里带纠正字眼的句子）找主人在两个以上话题里重复说的纠正，最多 3 条，每天看一次。只按“几乎一样的话”分组，不调模型。找到的放进待审核（设置卡「记忆」页签、网页记忆中心），采纳才记成一条原则（来源话题都在一个工作区就记到那个工作区，否则通用），不要以后不再提同一句；旧版留在 `<state>/memory-candidates.json` 里的行照旧可读。日志：`memory candidates found=N sentences=N`、`memory candidates none: …`，不写原话。
+- 开着时设置卡有一个「记忆」标签（`app/memory_panel.py`）：只看数、处理待审核、去网页。副标题是一行“规矩：全局 N · 专项 N · 话题 N · 待审核 N”；待审核每条写明是哪一种、点「采纳」「不要」各会怎样（走网页「记忆」同一套 `review_decide`）；有网页（`COVEY_WEB=1` 且配了 `page_url`）时给“打开网页”链接，没有时列出全局、专项和话题规矩的标题，每条能“收起”。常驻、工作区、下一轮带上什么都不在这里了，管理都去网页的「记忆」。
+- 升为全局：飞书上已下线。答案卡上“记下了”那一行只有“不对”（有网页时多一个“改”，打开网页「记忆」里的那一条，`/memory?code=<短码>`）；要把一条提到更大的范围，到网页的「记忆」做。旧卡片上点“升为全局”只回一句已下线，不改东西、不开任务。
+- 晚间候选（晚间汇总时找“你反复说的”放进待审核）已下线：不再找、不再进待审核，`<state>/memory-candidates.json` 里旧版留下的行不再读；待审核里旧版放进去的候选照旧能采纳或不要。
+- 待审核：开着的项 14 天没处理，每天的维护（`core/maintenance_rules.py` 的 `MemoryFiles`，`memstore.upkeep`）关成过期，留着不删；同一条提议还开着、被拒过或采纳过时不再进来，过期的可以再提。负责人用 `project_remember` 记的规矩当场在专项里生效、标“负责人记的”，不进待审核。
 - 关掉：按[改开关三步](#改开关三步)设成 `0`；已经写下的记忆留着，标了常驻的原则在原则块里照样不被挤掉。
 - 日志：`memory lines written=N of M job=#…`、`memory lines ignored reason=… job=#…`、`memory lines failed job=#…`、`memory line refused by the gate reason=… job=#…`。
 - `COVEY_MEMORY_LEARN=1`（只认 `1`，要 `COVEY_MEMORY` 开着）：记忆自己长，仍然默认关（[管家 · 记忆自己长](butler.md#记忆自己长开关默认关)）。关着时以下都没有，记忆和上面写的一字不差。
-  - 每轮之后（`app/memory_learn.py`）：主人自己的一轮正常结束，他原话里有纠正的字眼，就由 Bridge 用[辅助模型](#辅助模型)（最多 45 秒，一次只问一轮）读一遍，引用核对过的长期要求这样记：只对这件事的当场记到专项或话题，答案卡上一行“记下了”带“不对”；通用的、某个工作区的先放进待审核（`memory/review.json`，类型 `learn`，带他的原话），采纳后才成条目，答案卡上写“待审核”。不读：代答话题、负责人的话题、开了脱敏的话题、管家转交的轮次、协作轮。这时规则里不再有“以后/别再”那句检查点约定；辅助模型选了“不用模型”时这一遍读不了，那句检查点约定照旧带上。
+  - 每轮之后（`app/memory_learn.py`）：主人自己的一轮正常结束，他原话里有纠正的字眼，就由 Bridge 用[辅助模型](#辅助模型)（最多 45 秒，一次只问一轮）读一遍，引用核对过的长期要求这样记：只对这件事的当场记到专项或话题，答案卡上一行“记下了”带“不对”；通用的、某个工作区的先放进待审核（`memory/review.json`，类型 `learn`，带他的原话），采纳后才成条目，答案卡上写“待审核”（同一条已在待审核里或处理过就不再写）。不读：代答话题、负责人的话题、开了脱敏的话题、管家转交的轮次、协作轮。这时规则里不再有“以后/别再”那句检查点约定；辅助模型选了“不用模型”时这一遍读不了，那句检查点约定照旧带上。
   - 用到才留：这一轮在检查点 `memory_used` 里写的编号和回复里提到的编号，记进 `<state>/memory/usage.json`（旧的 `<state>/memory-usage.json` 只在整理记忆算闲置时一起读）；同一个范围放不下时最近用过的先带。
-  - 你反复说的：晚间汇总新找到的那几条进待审核，汇总卡不列；旧版标“它总结的”先生效的那几条不再新增。
-  - 整理记忆（`app/memory_tidy.py`，要早晚汇总，只按规则、不调模型）：晚间汇总时，每个在做的专项（每晚最多 4 个）里 30 天没用过的、问的事已经办完的、说的是别的专项的当前决定和待核对参考收起。只收起不删除，卡上「撤销」放回去；30 天没用的候选也不再带。以前的“被新回答替代”和“新约定”（含「确认长期」「不对」）已下线。记录在 `<state>/memory-tidy.json`。
-  - 别处学到的（`app/memory_harvest.py`，要早晚汇总）：晚间汇总时只读一遍各 Harness 的记忆文件，新的或变了的条目放进待审核（类型“导入”），不调模型，汇总卡上没有这一节。不写 Harness 自己的文件。记录在 `<state>/memory/imports.json`。
+  - 整理记忆（`app/memory_tidy.py`，要早晚汇总，只按规则、不调模型）：晚间汇总时，每个在做的专项（每晚最多 4 个）里 30 天没用过的、问的事已经办完的、说的是别的专项的当前决定和待核对参考收起。只收起不删除，卡上「撤销」放回去。以前的“被新回答替代”和“新约定”（含「确认长期」「不对」）已下线。记录在 `<state>/memory-tidy.json`。
+  - 别处学到的（Harness 记忆导入）已下线：晚间不再读各 Harness 的记忆文件，网页上没有导入入口；`<state>/memory/imports.json` 原样留着，不再读写。
   - 查记忆：每轮的记忆块末尾多一行 `bin/covey_memory.py search` 的命令（设备上的话题没有），放不下的、收起的、答过的题都能查。
-  - 日志：`memory learned written=N of M job=#…`、`memory learn skipped reason=… job=#…`、`memory learn failed reason=… job=#…`、`memory learn superseded …`、`memory learn dropped …`、`memory tidy project=… put_away=N`、`memory tidy undo run=…`、`memory import queued=N`、`memory import failed: …`，都不写原话。
+  - 日志：`memory learned written=N of M job=#…`、`memory learn skipped reason=… job=#…`、`memory learn failed reason=… job=#…`、`memory learn superseded …`、`memory learn dropped …`、`memory tidy project=… put_away=N`、`memory tidy undo run=…`，都不写原话。
 
 ### 辅助模型
 
@@ -593,7 +593,7 @@
 | `COVEY_STATE` | `core/repomap.py`（`bin/covey_repo.py` 找仓库地图和话题记录） | Bridge 给每个本机的 Harness 进程设成状态目录（`core/home.py` 的 `env`），不要手设；空时 `covey repo list` 说地图是空的，见[主目录与仓库地图](#主目录与仓库地图) | 否 |
 | `COVEY_HOME` | `core/repomap.py`（`bin/covey_repo.py`：相对路径从这里算）、`backends/claude/tool_guard.py`（只读首轮的钩子：命令里的 `$COVEY_HOME` 按它解开） | Bridge 给每个本机的 Harness 进程设成主目录（服务的 `--workdir`），不要手设，见[主目录与仓库地图](#主目录与仓库地图) | 否 |
 | `COVEY_TOPIC` | `core/repomap.py`（`bin/covey_repo.py`） | Bridge 给每个本机的 Harness 进程设成这一轮的话题 id，`covey repo` 据此找本话题的 worktree 目录和用到的仓库，不要手设 | 否 |
-| `CODEX_HOME` | `core/paths.py`（`codex_home`，Codex 的会话目录从它取）、`core/model_settings.py`、`backends/codex/consult.py`（协作咨询轮的私有 home 从它链接）、`app/memory_harvest.py`（记忆自己长读 Codex 的记忆摘要）、`core/same_account.py`（读它的 config.toml / settings.json，看自己的登录和哪个模型网关是同一账号） | `~/.codex` | 否 |
+| `CODEX_HOME` | `core/paths.py`（`codex_home`，Codex 的会话目录从它取）、`core/model_settings.py`、`backends/codex/consult.py`（协作咨询轮的私有 home 从它链接）、`core/same_account.py`（读它的 config.toml / settings.json，看自己的登录和哪个模型网关是同一账号） | `~/.codex` | 否 |
 | `COVEY_CLAUDE_HOOKS` | `backends/claude/hooks.py`（`enabled`：`TurnHooks.registration` 据此在每轮 Claude Code 的 initialize 里注册 SDK hook） | 开：子 Agent（Explore 除外）开工时收到守则（`SubagentStart`），子 Agent 调 `mcp__bridge__*` 被拒（`PreToolUse`），管家这一轮自己调满 6 次非 Bridge 工具时提醒一次交给话题（`PostToolUse`，主人说了“你直接做”的那一轮没有）；`0` 关：不注册，每轮和原来一样 | 否 |
 | `CLAUDE_CONFIG_DIR` | `backends/claude/sessions.py`、`backends/claude/redaction.py`、`core/maintenance_rules.py`、`core/claude_retention.py`（只读它的 `settings.json`，诊断页和 `./install` 提示会话保留几天）、`core/same_account.py`（读它的 config.toml / settings.json，看自己的登录和哪个模型网关是同一账号） | `~/.claude` | 否 |
 | `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`、`CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING` | `backends/claude/bridge.py`（Bridge 的环境里设了就用它的值，否则给 claude 子进程设成 `1`） | `1` | 否 |

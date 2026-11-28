@@ -66,9 +66,10 @@ KINDS) as the owner's own and says (state, message) for the ack.
 - ``memory_undo`` (data contract v34): 不对 on a turn's "记下了" line as on its answer card (app/memory_collect.py take_back); a line taken
   back already says so, ``done``.
 - ``memory_edit`` (data contract v37): the 记忆 tab's add, edit (only while the entry still reads ``base``), pin, unpin, delete of a
-  principle or a knowledge entry and keep, drop of a candidate (app/web_memory.py edit); the owner's only. With ``v: 43`` (the memory
-  center): add, edit, move, archive, restore, void, accept, reject, accept_all, reject_all, keep_left, keep_right, keep_both,
-  promote, import, ignore, undo of the one store (app/web_memory.py edit_v43), the operation's id the change's ``undo_token``.
+  principle or a knowledge entry (app/web_memory.py edit; keep, drop of an evening candidate say it is gone); the owner's only. With
+  ``v: 43`` (the page's 记忆): add, edit, move, archive, restore, void, accept, reject, accept_all, reject_all, keep_left,
+  keep_right, keep_both, promote, undo of the one store (app/web_memory.py edit_v43; import and ignore are gone since v45), the
+  operation's id the change's ``undo_token``.
 - ``revisit_cancel`` (data contract v35): 取消 on a topic's 定时回看, ``payload.set_at`` the time it was asked for (core/revisits.py cancel);
   gone already says so, ``done``; one Covey is looking at now, or a newer one that replaced it, is ``failed`` and stays.
 The topic or project has to be the owner's private chat's, known and not over; anything else is ``failed`` with the reason.
@@ -894,10 +895,10 @@ class Ops:
         return refresher.ask()
 
     def memory_edit(self, state, chat, row, payload) -> str:
-        """The page's memory, the owner's only. ``v`` 43 (the memory center, data contract v43): one of the 17 actions through
+        """The page's memory, the owner's only. ``v`` 43 (the page's 记忆, data contracts v43/v45): one of the 15 actions through
         core/memstore.py (app/web_memory.py edit_v43), the operation's id the change's undo token (the receipt says so in the log
         the page reads). No ``v`` (an older page's 记忆 tab, v37): add, change, 常驻, delete a principle or a knowledge entry of 全局 or
-        a workspace, 记下 or 不用 a candidate, through the stores' own functions (app/web_memory.py edit)."""
+        a workspace, through the stores' own functions (app/web_memory.py edit)."""
         if not web_memory.enabled():
             raise ValueError("记忆没开（COVEY_MEMORY）")
         if self.runtime.access.is_owner(self.runtime.owner_open_id or "") is not True:

@@ -1,10 +1,12 @@
-"""The memory center's keys (data contract v43, app/web_memory.py Center, app/web_sync.py push_memory_center): every memory:*
-key built from the one store has the fields and the types of its golden sample (tests/golden/web_memory_v43.json), key by key;
-the change sentinel is the one file stat'ed; a key whose rev did not change is not sent again, and what a turn did with an
-entry never moves one; a key gone is taken back (SyncDeleted); the old ``memory`` key (v37) still goes alone; and the 17
-actions of a ``memory_edit`` with ``v: 43`` (app/web_ops.py) each change the store as the receipt says, with the operation's
-id as the undo token. Package M2's functions (core/memory_review.py decide/decide_all/health, app/memory_turn.py preview)
-are taken when they have the agreed signatures: stand-ins of the same signatures show it."""
+"""The page's 记忆 keys (data contract v45, app/web_memory.py Center, app/web_sync.py push_memory_center): every memory:* key
+built from the one store has the fields and the types of its golden sample (tests/golden/web_memory_v43.json, v45's shape),
+key by key, and nothing of 体检, the previews, the imports or the rooms; the change sentinel is the one file stat'ed; a key
+whose rev did not change is not sent again, and what a turn did with an entry never moves one; a key gone is taken back
+(SyncDeleted), an older release's previews and import pages too; the old ``memory`` key (v37) still goes alone; the log
+leaves out the Bridge's own notes of the owner's answers; a decision says the T number it was asked in; and the 15 actions
+of a ``memory_edit`` with ``v: 43`` (app/web_ops.py) each change the store as the receipt says, with the operation's id as
+the undo token (import and ignore refused). Package M2's functions (core/memory_review.py decide/decide_all) are taken when
+they have the agreed signatures: stand-ins of the same signatures show it."""
 from __future__ import annotations
 
 import json
@@ -19,10 +21,10 @@ from unittest import mock
 from support.records import state_dir, write_job, write_topic
 from test_web_sync import WebCase
 
-from covey.app import memory_turn, web_memory
+from covey.app import web_memory
 from covey.app import web_sync as web_sync_mod
 from covey.app.web_ops import Ops
-from covey.core import harness_memory, memory_review, memory_usage, memstore, principles, projects, web_sync
+from covey.core import memory_review, memory_usage, memstore, principles, projects, web_sync
 
 GOLDEN = json.loads((Path(__file__).resolve().parents[1] / "tests" / "golden" / "web_memory_v43.json").read_text(encoding="utf-8"))
 CHAT = "oc_owner_dm"
@@ -33,8 +35,7 @@ NOW = time.time()
 EXTRA = {"entry": {"project_key", "topic_key", "topic_number", "why", "repos", "device", "verified_at", "over_cap",
                    "superseded_by", "edited", "in_progress"},
          "origin": {"topic_key", "topic_number", "quote", "message_id", "question", "file", "harness"},
-         "review": {"quote", "from", "conflict_with", "items", "flags"},
-         "import": {"repo", "dup_of", "old_repo"}}
+         "review": {"quote", "from", "conflict_with", "items", "flags"}}
 
 
 def kind_of(value) -> str:
@@ -63,7 +64,7 @@ def schema(samples) -> dict:
     return out
 
 
-OPEN = ("revs", "health")  # Maps: any key, the golden's values' type.
+OPEN = ("revs",)  # Maps: any key, the golden's values' type.
 
 
 def check(test, shape, ours, where, seen, extra_of):
@@ -107,14 +108,12 @@ def golden_paths(shape, where, out) -> set:
 
 def extra_fields(path) -> set:
     tail = path.rsplit(".", 1)[-1]
-    if tail in ("entries[]", "items[]") and ".memory:import" not in path and "review[]" not in path:
+    if tail in ("entries[]", "items[]") and "review[]" not in path:
         return EXTRA["entry"]
     if tail == "origin":
         return EXTRA["origin"]
     if tail == "review[]":
         return EXTRA["review"]
-    if tail == "items[]" and ".memory:import" in path:
-        return EXTRA["import"]
     if tail == "items[]" and "review[]" in path:
         return EXTRA["entry"]
     if tail == "topics[]":
@@ -132,13 +131,6 @@ def extra_fields(path) -> set:
     return set()
 
 
-def own_home(test, home):
-    """This process's user's Harness folders made ``home``'s (core/harness_memory.py roots reads CLAUDE_CONFIG_DIR, CODEX_HOME)."""
-    test.enterContext(mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(home / ".claude"), "CODEX_HOME": str(home / ".codex"),
-                                                   "HOME": str(home)}))
-    test.enterContext(mock.patch.object(pathlib.Path, "home", return_value=home))
-
-
 class Case(unittest.TestCase):
     def setUp(self):
         self.enterContext(mock.patch.dict(os.environ, {"COVEY_MEMORY": "1", "COVEY_KNOWLEDGE": "0", "COVEY_MEMORY_LEARN": ""}))
@@ -150,14 +142,14 @@ class Case(unittest.TestCase):
 
     def seed(self):
         """A store with every part the golden samples show: 全局 rules and notes (two saying the same), a topic's rule and note,
-        a project's decision, 待审核 of each kind the golden has, the log, the imports in each state."""
+        a project's decision, 待审核 of each kind the golden has, the log."""
         s = self.state
         self.rule = memstore.add(s, kind="rule", scope="global", text="提交代码之前先跑相关测试，失败就不提交。", title="提交前先跑测试",
                                  why="曾经把没跑过的改动合进了主干", origin={"topic_number": 12, "quote": "提交代码之前先跑相关测试"},
                                  token="u-0001", now=NOW - 100)
         self.note = memstore.add(s, kind="note", scope="global", text="演示环境的网页服务监听在 8080 端口。", title="部署机用的端口",
                                  said="summary", by="learn", verified_at=NOW - 90 * 86400, now=NOW - 90 * 86400)
-        data = json.loads(memstore.global_path(s).read_text())  # The same words twice (体检 dup): written as an older store would.
+        data = json.loads(memstore.global_path(s).read_text())  # The same words twice: written as an older store would.
         twin = dict(data["entries"][0], id="g9z9z9", code="")
         data["entries"].append(twin)
         memstore.global_path(s).write_text(json.dumps(data, ensure_ascii=False))
@@ -185,20 +177,10 @@ class Case(unittest.TestCase):
                                                        "suggest": {"kind": "rule", "scope": "project", "project_key": PID}})
         memstore.log_change(s, who="owner", action="accept", refs=[self.rule.ref], title="提交前先跑测试",
                             because={"topic_number": 12, "quote": "提交之前先跑测试"}, token="u-0002", now=NOW - 10)
-        bucket = self.home / ".claude" / "projects" / "-absolute-demo-repo" / "memory"
-        bucket.mkdir(parents=True)
-        for name, text in (("a.md", "测试要用真实数据库。"), ("b.md", "提交代码之前先跑相关测试，失败就不提交。"), ("c.md", "旧仓库的构建命令。")):
-            (bucket / name).write_text(f"---\nname: {name}\nmetadata:\n  type: feedback\n---\n\n{text}\n")
-        (s / "repos.json").write_text(json.dumps({"repos": [{"name": "demo-repo", "path": "/absolute/demo-repo", "status": "frozen"}]}))
-        items = harness_memory.scan(s, self.home)
-        by_name = {Path(item.file).name: item.fingerprint for item in items}
-        memstore.imports_set(s, [by_name["b.md"]], "imported", entry_ref=self.rule.ref)
-        memstore.imports_set(s, [by_name["c.md"]], "ignored")
-        self.fps = by_name
         write_job(s, "k-t001", topic_id=TID, chat_id=CHAT, job_id=12, status="done", updated_at=NOW - 5)
 
     def build(self, now=None):
-        return web_memory.Center(self.state, home=self.home).build(now=now or NOW)
+        return web_memory.Center(self.state).build(now=now or NOW)
 
 
 class GoldenShapeTest(Case):
@@ -225,7 +207,12 @@ class GoldenShapeTest(Case):
         self.assertEqual(set(index["revs"]), set(built))
         self.assertEqual(index["counts"]["pending"], 4)
         self.assertEqual(index["counts"]["migrate"], 0)
-        self.assertTrue({"dup", "conflict", "stale", "over_cap"} <= set(index["health"]), index["health"])
+        self.assertEqual(index["version"], 45)
+        for gone in ("health", "imports"):  # v45: no 体检, no import.
+            self.assertNotIn(gone, index)
+        self.assertEqual([sorted(row) for row in index["scopes"]], [["counts", "key", "rev", "title"]] * len(index["scopes"]))
+        self.assertFalse([key for key in built if key == "memory:previews" or key.startswith("memory:import:")])
+        self.assertNotIn("carried_next", json.dumps(built, ensure_ascii=False))
         for key, data in built.items():
             self.assertLessEqual(len(json.dumps(data, ensure_ascii=False).encode()), web_memory.KEY_BYTES, key)
 
@@ -252,11 +239,7 @@ class GoldenShapeTest(Case):
         for key in before:
             if key != "memory:index":
                 self.assertEqual(web_sync.rev(before[key]), web_sync.rev(after[key]), key)
-        same = [{k: v if k != "revs" else {n: r for n, r in v.items() if n != "memory:index"} for k, v in data["memory:index"].items()
-                 if k != "health"} for data in (before, after)]
-        self.assertEqual(same[0], same[1])  # Only 体检's 很久没用 reads the use: an entry used again is not idle.
-        self.assertEqual({k: v for k, v in before["memory:index"]["health"].items() if k != "idle"},
-                         {k: v for k, v in after["memory:index"]["health"].items() if k != "idle"})
+        self.assertEqual(before["memory:index"], after["memory:index"])
         text = json.dumps(after["memory:global"], ensure_ascii=False)
         for word in ('"e"', '"t"', '"h"', '"n"', '"last"', "usage"):
             self.assertNotIn(word + ":", text)
@@ -288,9 +271,27 @@ class GoldenShapeTest(Case):
         self.assertEqual(len(rules), 7)
         over = [e for e in rules if e.get("over_cap")]
         self.assertTrue(over)
-        self.assertTrue(all(not e["carried_next"] for e in over))
-        self.assertTrue(all(e["carried_next"] for e in rules if not e.get("over_cap")))
+        self.assertLess(len(over), len(rules))  # The page says “N 条只带标题” of these.
         self.assertEqual(topic["entries"][0]["topic_number"], 12)
+
+    def test_a_decision_says_the_topic_it_was_asked_in(self):
+        self.seed()
+        asked = memstore.add_decision(self.state, scope="project", owner_key=PID, question="要不要发版？", answer="先不发",
+                                      origin={"topic_key": TID}, now=NOW - 5)
+        rows = {row["key"]: row for row in self.build()["memory:p:" + PID]["entries"]}
+        self.assertEqual(rows[asked.ref]["origin"]["topic_number"], 12)  # 上次你答过：…（T12 · 日期）on the page's search.
+        self.assertEqual(rows[self.decision.ref]["origin"]["topic_number"], 12)  # Said in its own origin: kept.
+
+    def test_the_log_leaves_out_the_bridges_own_notes_of_the_owners_answers(self):
+        self.seed()
+        answered = memstore.add_decision(self.state, scope="project", owner_key=PID, question="先做哪个？", answer="先做 A",
+                                         origin={"topic_key": TID}, who="owner", now=NOW - 3)
+        web = memstore.add_decision(self.state, scope="project", owner_key=PID, text="网页上记的决定", said="owner", by="web",
+                                    who="owner", token="w-op-d", now=NOW - 2)
+        refs = [ref for row in self.build()["memory:global"]["log"] for ref in row["refs"]]
+        self.assertNotIn(answered.ref, refs)
+        self.assertIn(web.ref, refs)  # The owner's own, from the page: in 记录.
+        self.assertIn(self.rule.ref, refs)
 
     def test_topics_older_than_thirty_days_are_not_read(self):
         self.seed()
@@ -330,14 +331,13 @@ class StampTest(Case):
 
 
 class ActionsTest(Case):
-    """The 17 actions, each through app/web_ops.py as the page sends them, with the operation's id as the undo token."""
+    """The 15 actions, each through app/web_ops.py as the page sends them, with the operation's id as the undo token."""
 
     def setUp(self):
         super().setUp()
         self.seed()
         runtime = SimpleNamespace(owner_open_id="ou_owner", access=SimpleNamespace(is_owner=lambda open_id: True), log=lambda line: None)
         self.ops = SimpleNamespace(runtime=runtime)
-        own_home(self, self.home)
 
     def run_op(self, op_id, action, keys=(), **payload):
         row = {"op_id": op_id, "kind": "memory_edit"}
@@ -405,15 +405,12 @@ class ActionsTest(Case):
         self.assertEqual(self.run_op("op-b", "keep_both", [self.note.ref, other]), "两条都留了")
         self.assertEqual(len(memstore.entries(self.state, scope="global")), before + 1)
 
-    def test_import_ignore_and_undo(self):
-        said = self.run_op("op-i", "import", [self.fps["a.md"]], kind="rule", scope="global")
-        self.assertEqual(said, "已导入 1 条")
+    def test_import_and_ignore_are_gone_and_undo_takes_a_change_back(self):
+        for action in ("import", "ignore"):
+            with self.assertRaisesRegex(ValueError, "不认识的记忆操作"):
+                self.run_op("op-" + action, action, ["fp1"], kind="rule", scope="global")
+        self.assertTrue(self.run_op("op-i", "add", title="新的一条", text="测试要用真实数据库。", kind="rule", scope="global").startswith("已记下"))
         made = next(e for e in memstore.entries(self.state, scope="global") if e.text == "测试要用真实数据库。")
-        self.assertEqual((made.by, made.said), ("import", "owner"))
-        self.assertEqual(memstore.imports(self.state)["items"][self.fps["a.md"]]["state"], "imported")
-        self.assertIn("留在原工具", self.run_op("op-g", "ignore", [self.fps["c.md"]]))
-        with self.assertRaisesRegex(ValueError, "找不到"):
-            self.run_op("op-i2", "import", ["fp-not-there"])
         self.assertTrue(self.run_op("op-u", "undo", undo_token="w-op-i").startswith("已撤销"))
         self.assertEqual(memstore.find(self.state, made.ref).status, "void")
         with self.assertRaisesRegex(ValueError, "撤销过了"):
@@ -471,33 +468,6 @@ class PackageM2Test(Case):
         self.assertEqual(calls[1][:2], ("all", "reject_all"))
         self.assertEqual(set(calls[1][2]), {self.conflict, self.tidy, self.project_item})
 
-    def test_health_and_previews_come_from_m2_when_it_has_them(self):
-        self.seed()
-
-        def health(state_dir, *, now=None):
-            return {"vague": ["global:g1"], "dup": []}
-
-        def preview(state_dir, topic_key="", *, project_key="", title="", query="", repos=()):
-            return {"topic_key": topic_key, "title": title, "chars": 9, "rules": [], "decisions": [], "notes": [{"code": "N1234", "sim": 0.5}],
-                    "listed": []}
-
-        with mock.patch.object(memory_review, "health", health, create=True), mock.patch.object(memory_turn, "preview", preview, create=True):
-            built = self.build()
-        self.assertEqual(built["memory:index"]["health"], {"vague": ["global:g1"]})
-        rows = built["memory:previews"]["previews"]
-        self.assertEqual([(r["topic_key"], r["chars"]) for r in rows], [(TID, 9), ("new", 9)])
-        check(self, schema([GOLDEN["keys"]["memory:previews"]]), built["memory:previews"], "memory:previews", set(), extra_fields)
-        self.assertEqual(rows[-1]["title"], "新的普通话题")
-
-    def test_without_m2_the_baseline_previews_carry_rules_and_open_decisions(self):
-        self.seed()
-        rows = self.build()["memory:previews"]["previews"]
-        self.assertEqual([r["topic_key"] for r in rows], [TID, "new"])
-        topic, new = rows
-        self.assertIn(memstore.find(self.state, self.rule.ref).code, topic["rules"])
-        self.assertIn(memstore.find(self.state, self.decision.ref).code, topic["decisions"])
-        self.assertEqual(new["decisions"], [])
-        self.assertEqual(topic["notes"], [])
 
 
 class IntegratedM2Test(Case):
@@ -505,24 +475,20 @@ class IntegratedM2Test(Case):
     to this module's baseline), and 在办 is app/memory_turn.py's rule (FINAL-SPEC 修订 5 as docs/butler.md 记忆 says it)."""
 
     def test_the_probes_pick_m2s_real_functions(self):
-        for module, name, words in ((memory_review, "decide", ("who", "token")), (memory_review, "decide_all", ("keys", "who", "token")),
-                                    (memory_review, "health", ("now",)), (memory_turn, "preview", ("project_key", "title", "query", "repos"))):
+        for module, name, words in ((memory_review, "decide", ("who", "token")), (memory_review, "decide_all", ("keys", "who", "token"))):
             found = getattr(module, name)
             self.assertIs(web_memory._m2(module, name, words), found, name)
-            self.assertIn(found.__module__, ("covey.core.memory_review", "covey.app.memory_turn"))
+            self.assertEqual(found.__module__, "covey.core.memory_review")
 
-    def test_review_previews_and_health_never_take_the_baseline(self):
+    def test_review_never_takes_the_baseline(self):
         self.seed()
         refuse = mock.Mock(side_effect=AssertionError("the baseline was taken"))
-        with mock.patch.object(web_memory, "_baseline_decide", refuse), mock.patch.object(web_memory, "preview_of", refuse):
-            built = self.build()
+        with mock.patch.object(web_memory, "_baseline_decide", refuse):
             found = web_memory.review_decide(self.state, [self.learn], "accept", token="w-m2-1")
             web_memory.review_decide(self.state, [self.project_item], "reject", token="w-m2-2")
         self.assertTrue(found["refs"], found)
         states = {item["key"]: item["state"] for item in memstore.review_items(self.state, states=None)}
         self.assertEqual((states[self.learn], states[self.project_item]), ("accepted", "rejected"))
-        self.assertEqual([row["topic_key"] for row in built["memory:previews"]["previews"]], [TID, "new"])
-        self.assertIsInstance(built["memory:index"]["health"], dict)
 
     def test_a_turns_memory_reads_m2s_memory_ids(self):
         """A turn's ``memory`` on the page (app/web_turns.py memory_of): app/memory_turn.py writes ``memory_ids`` as
@@ -551,24 +517,6 @@ class IntegratedM2Test(Case):
         self.assertEqual(found["used"], [{"code": made[2].code, "title": "规矩2"}, {"code": "", "title": "M9"}])
         carried_only = web_turns.memory_of(self.state, {"memory_ids": record["memory_ids"]})
         self.assertEqual((carried_only["count"], carried_only["used"]), (3, []))  # Still drawn, open-able, by its codes.
-
-    def test_the_build_before_the_pages_ack_takes_the_last_previews(self):
-        """CUA C6 (T870): the ack of the page's own change waited for a whole build, 21 previews most of it; a quick build
-        takes the last ones, the next full build makes them again."""
-        self.seed()
-        center = web_memory.Center(self.state, home=self.home)
-        made = mock.Mock(side_effect=web_memory.previews)
-        with mock.patch.object(web_memory, "previews", made):
-            first = center.build(now=NOW)
-            quick = center.build(now=NOW, quick=True)
-            self.assertEqual(made.call_count, 1)
-            self.assertEqual(quick[web_memory.PREVIEWS_KEY], first[web_memory.PREVIEWS_KEY])
-            center.build(now=NOW)
-            self.assertEqual(made.call_count, 2)
-        fresh = web_memory.Center(self.state, home=self.home)
-        with mock.patch.object(web_memory, "previews", made):
-            fresh.build(now=NOW, quick=True)  # Nothing built before: made all the same.
-        self.assertEqual(made.call_count, 3)
 
     def test_a_decision_is_in_progress_by_m2s_rule(self):
         self.seed()
@@ -600,7 +548,6 @@ class CenterPushTest(WebCase):
         super().setUp()
         self.enterContext(mock.patch.dict(os.environ, {"COVEY_MEMORY": "1", "COVEY_KNOWLEDGE": "0"}))
         memstore._cache.clear()
-        own_home(self, self.state / "home")
 
     def keys_sent(self):
         return [each["key"] for batch in self.web.upserts for each in batch["items"]]
@@ -615,7 +562,7 @@ class CenterPushTest(WebCase):
         self.assertEqual(keys[-1], "memory:index")
         self.assertEqual(sent, len(keys))
         self.assertEqual({key for key in keys if not key.startswith("memory:p:")},
-                         {"memory:index", "memory:global", "memory:topics", "memory:previews"})
+                         {"memory:index", "memory:global", "memory:topics"})
         self.assertEqual(self.sync.push_memory_center(), 0)  # The sentinel did not move.
         self.assertEqual(self.sync.push_memory_center(force=True), 0)  # Built again: the same revs.
         memory_usage.carried(self.state, [e.ref for e in memstore.entries(self.state)])
@@ -637,19 +584,13 @@ class CenterPushTest(WebCase):
         self.assertIn({"type": "settings", "key": f"memory:p:{PID}"}, self.deleted())
         self.assertNotIn(("settings", f"memory:p:{PID}"), self.sync.sent)
 
-    def test_fewer_import_pages_take_the_last_back(self):
-        bucket = self.state / "home" / ".claude" / "projects" / "-absolute-x" / "memory"
-        bucket.mkdir(parents=True)
-        for n in range(3):
-            (bucket / f"{n}.md").write_text(f"第 {n} 条要记住的话\n")
-        with mock.patch.object(harness_memory, "PAGE", 2):
-            self.sync.push_memory_center()
-            self.assertIn("memory:import:1", self.keys_sent())
-            (bucket / "2.md").unlink()
-            self.sync.memory_center.scanned = None  # The next scan is due.
-            memstore.touch_rev(self.state)
-            self.sync.push_memory_center()
-        self.assertIn({"type": "settings", "key": "memory:import:1"}, self.deleted())
+    def test_the_previews_and_import_pages_an_older_release_pushed_are_taken_back(self):
+        memstore.add(self.state, kind="rule", scope="global", text="提交前先跑测试")
+        for key in ("memory:previews", "memory:import:0", "memory:import:1"):
+            self.sync.sent[("settings", key)] = "old-rev"
+        self.sync.push_memory_center()
+        self.assertEqual({row["key"] for row in self.deleted()}, {"memory:previews", "memory:import:0", "memory:import:1"})
+        self.assertFalse([key for kind, key in self.sync.sent if key == "memory:previews" or key.startswith("memory:import:")])
 
     def test_the_old_memory_key_still_goes_alone_and_off_takes_the_center_back(self):
         principles.save(self.state, principles.OWNER, "先给结论")
@@ -662,7 +603,7 @@ class CenterPushTest(WebCase):
             index = [each for batch in self.web.upserts for each in batch["items"] if each["key"] == "memory:index"][-1]
             self.assertFalse(index["data"]["on"])
             self.assertEqual({row["key"] for row in self.deleted() if not row["key"].startswith("memory:p:")},
-                             {"memory:global", "memory:topics", "memory:previews"})
+                             {"memory:global", "memory:topics"})
             self.assertEqual(self.sync.push_memory_center(full=True), 0)
 
     def test_never_on_never_pushed(self):
@@ -700,7 +641,6 @@ class CenterRaceTest(WebCase):
         super().setUp()
         self.enterContext(mock.patch.dict(os.environ, {"COVEY_MEMORY": "1", "COVEY_KNOWLEDGE": "0"}))
         memstore._cache.clear()
-        own_home(self, self.state / "home")
         memstore.add(self.state, kind="rule", scope="global", text="提交前先跑测试")
         self.sync.push_memory_center()
 
@@ -728,7 +668,7 @@ class CenterRaceTest(WebCase):
         self.assertEqual(made, [True, True])
         self.sync.center_rest = 0.0
         self.sync.push_memory_center()
-        self.assertEqual(made, [True, True, False])  # Then the whole of it, the previews too.
+        self.assertEqual(made, [True, True, False])  # Then a pass's own build.
 
     def test_the_push_before_the_ack_waits_for_the_build_in_the_making(self):
         import threading

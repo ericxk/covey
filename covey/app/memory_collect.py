@@ -122,7 +122,8 @@ def _take(ctx, record, text, marked, quote="", *, everywhere=False, log=None):
                          origin=origin, redacted=marked, now=stamp)
     new = entry.at >= stamp - 1
     return ({"kind": "remembered", "text": entry.text, "scope": words, "entry_id": memstore.parse_ref(entry.ref)[2],
-             "ref": entry.ref, **({"redacted": True} if marked else {})} if new else None)
+             "ref": entry.ref, **({"code": entry.code} if entry.code else {}), **({"redacted": True} if marked else {})}
+            if new else None)
 
 
 def _void(ctx, record, item):
@@ -210,8 +211,8 @@ UNDOABLE = ("remembered", "superseded", "pending")  # The kinds of a note 不对
 def take_back(state, topic_id, record, entry_id):
     """不对 on the entry ``entry_id`` the turn of job ``record`` (of ``topic_id``) wrote, the card's and the web page's
     (app/web_ops.py memory_undo, data contract v34): the entry a tombstone, its note ``undone`` in the job record. A line the
-    learner put out of the way (``superseded``, app/memory_learn.py) is back as it was, a candidate it proposed (``pending``) is
-    dropped. The job's notes as they are now (the caller redraws the answer card's lines from them); None when there is no such
+    learner put out of the way (``superseded``, app/memory_learn.py) is back as it was, an item it put in 待审核 (``pending``)
+    is turned down. The job's notes as they are now (the caller redraws the answer card's lines from them); None when there is no such
     note still in force (taken back already, or not this turn's), nothing changed."""
     notes = [dict(note) for note in record.get("memory_notes") or ()]
     note = next((note for note in notes if note.get("kind") in UNDOABLE and note.get("entry_id") == entry_id), None)
@@ -226,9 +227,7 @@ def take_back(state, topic_id, record, entry_id):
             topic_memory.restore(state, topic_id, entry_id)
     elif entry_id.startswith("review:"):
         memstore.review_set(state, entry_id, "rejected", by="owner")
-    else:
-        from covey.app import memory_candidates
-        memory_candidates.decide(state, entry_id, "drop")
+    # A pending line of an older release names an evening candidate: that feature is gone, the line only says 已撤销.
     note["kind"] = "undone"
     notes = [note if old.get("entry_id") == entry_id and old.get("kind") in UNDOABLE else old for old in notes]
     upsert_job_record(state, str(record["key"]), memory_notes=notes)

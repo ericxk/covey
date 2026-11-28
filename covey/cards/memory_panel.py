@@ -1,14 +1,14 @@
 """The 设置 card's 记忆 tab (app/memory_panel.py, COVEY_MEMORY=1): the memory's counts, the 待审核 to decide, and the way to the web.
 
 Feishu keeps three things of the memory: looking at the numbers, the light handling of 待审核 (采纳 or 不要, one item at a time),
-and the way to the 网页记忆中心 (managing it all is there: editing, moving to another scope, 作废). One layer under the tab row:
+and the way to the web page's 记忆 (managing it all is there: editing, moving to another scope, 删). One layer under the tab row:
 
-- the header's subtitle ``规矩 N · 决定 N · 资料 N · 待审核 N``; a line of counts for each scope (全局, 话题, the projects: the
-  first PROJECTS of them, then 另有 N 个专项);
-- 待审核: the oldest items (title and a line of text), each with 采纳 and 不要, a page of REVIEW_PAGE with 上一页 / 下一页;
-  with the web page on (``url``) a button 打开网页记忆中心 and, under 待审核, one 去网页逐条看 (URL buttons, they carry no kind);
-- without the web page: the titles of the 全局 and the projects' rules (short code and title, 超额 marked), each with 收起
-  (two steps: 收起, then 确认收起 or 取消; core/memstore.py archive), a page of RULE_PAGE.
+- one line of counts, the header's subtitle: ``规矩：全局 N · 专项 N · 话题 N · 待审核 N`` (``counts_line``);
+- 待审核: the oldest items, each its title, one grey line of what kind it is and what each button does (``review_words``) and
+  采纳 / 不要, a page of REVIEW_PAGE with 上一页 / 下一页; with the web page on (``url``) one button 打开网页 (a URL button: it
+  carries no kind);
+- without the web page: the titles of the rules of 全局, the projects and the topics (short code, title, where; 只带标题 marked),
+  each with 收起 (two steps: 收起, then 确认收起 or 取消; core/memstore.py archive), a page of RULE_PAGE.
 
 The buttons keep the kinds the tab had (the closed set of kinds is frozen, tests/golden/concepts.json): ``ACCEPT`` is
 ``bridge_memory_pin`` (it was 常驻), ``DELETE`` is 不要 on a 待审核 item (``key`` ``review:…``, ``op`` reject) and 收起 on a rule
@@ -40,22 +40,24 @@ REVIEW = "review"  # OPEN's ``scope`` of the 待审核 list.
 RULES = "rules"  # OPEN's ``scope`` of the rules list (without the web page).
 REVIEW_PAGE = 5  # Items of 待审核 a page shows.
 RULE_PAGE = 8  # Rules a page shows.
-PROJECTS = 5  # Projects whose counts get a line.
 TITLE_CHARS = 30  # Characters of an item's or a rule's title.
 TEXT = 60  # Characters of an item's line of text.
-URL_LABEL = "打开网页记忆中心"
-REVIEW_URL_LABEL = "去网页逐条看"
-OFFLINE = "这个选项已下线：记忆按范围管，改动到网页记忆中心"
+URL_LABEL = "打开网页"
+URL_NOTE = "看全部、改、删、换管哪儿，在网页的「记忆」"
+OFFLINE = "这个选项已下线：记忆按范围管，改动到网页的「记忆」"
 EMPTY = "还没有记忆：你在话题里说“以后…”“别再…”这类长期要求，那一轮结束后会记下。"
 
 
-def center_url(tab="") -> str:
-    """The 网页记忆中心's address (app/web_memory.py center_url, the same rule: a card may not import app/): ``page_url`` +
-    /memory[/tab], '' without the web page."""
+def center_url(code="", scope="") -> str:
+    """The web page's 记忆 (app/web_memory.py center_url, the same rule: a card may not import app/): ``page_url`` + /memory,
+    with ``?code=<short code>`` opening that entry or ``?scope=<global|topics|p:id>`` that group; '' without the web page."""
+    from urllib.parse import quote
+
     url = web_sync.page_url()
     if not url or "?" in url or "#" in url:
         return url
-    return url.rstrip("/") + "/memory" + (f"/{tab}" if tab else "")
+    query = f"?code={quote(code)}" if code else f"?scope={quote(scope)}" if scope else ""
+    return url.rstrip("/") + "/memory" + query
 
 
 def url_button(label, url):
@@ -64,25 +66,35 @@ def url_button(label, url):
             "behaviors": [{"type": "open_url", "default_url": url}]}
 
 
-def counts_words(counts, *, pending=True) -> str:
-    """``规矩 N · 决定 N · 资料 N`` and ``· 待审核 N``."""
-    counts = counts or {}
-    parts = [f"规矩 {counts.get('rule', 0)}", f"决定 {counts.get('decision', 0)}", f"资料 {counts.get('note', 0)}"]
-    if pending:
-        parts.append(f"待审核 {counts.get('pending', 0)}")
-    return " · ".join(parts)
+def counts_line(data) -> str:
+    """``规矩：全局 N · 专项 N · 话题 N · 待审核 N`` of app/memory_panel.py facts (the rules in use by scope, the open items)."""
+    by = data.get("rules_by") or {}
+    pending = (data.get("counts") or {}).get("pending", 0)
+    return (f"规矩：全局 {by.get('global', 0)} · 专项 {by.get('project', 0)} · 话题 {by.get('topic', 0)} · "
+            f"待审核 {pending}")
 
 
-def scope_lines(scopes, projects=PROJECTS) -> list:
-    """A line of counts for 全局, 话题 and the first ``projects`` projects, one more line for the rest."""
-    scopes = list(scopes or ())
-    fixed = [row for row in scopes if row.get("key") in ("global", "topics")]
-    each = [row for row in scopes if str(row.get("key") or "").startswith("p:")]
-    lines = [md(f"**{literal(cut(row.get('title') or '', 24))}** · {counts_words(row.get('counts'))}", size="notation")
-             for row in [*fixed, *each[:projects]]]
-    if len(each) > projects:
-        lines.append(note(f"另有 {len(each) - projects} 个专项"))
-    return lines
+# What an item of 待审核 is and what 采纳 / 不要 do to it (core/memory_review.py decide), by its type (and where it would go).
+REVIEW_WORDS = {
+    ("learn", "global"): "推断要管全局 · 采纳后每一轮都照做，不要就不记",
+    ("learn", ""): "自动学到的 · 采纳后在这里照做，不要就不记",
+    ("lead", ""): "负责人记的规矩 · 它已在这个专项照做，采纳或不要都只关掉这一项",
+    ("migrate", "project"): "迁移带过来的负责人约束 · 采纳算你定的，不要就改成资料",
+    ("migrate", ""): "旧版工作区里的一条 · 采纳后管全局，不要就不带过来",
+    ("conflict", ""): "和已有的一条说法不同 · 采纳换成新的说法，不要留原来的",
+    ("tidy", ""): "整理记忆收起了一组 · 采纳就保持收起，不要就放回",
+    ("class3", ""): "同类的题第三次了 · 采纳后这类按这次的做，不要就照旧问你",
+    ("candidate", ""): "晚间候选（旧版留下的） · 采纳后记成全局规矩，不要就不记",
+    ("import", ""): "别的工具里记的（旧版留下的） · 采纳后记下，不要就不记",
+}
+REVIEW_OTHER = "采纳后生效，不要就不记"
+
+
+def review_words(row) -> str:
+    """The grey line of an item of 待审核: what kind it is and what 采纳 and 不要 do (REVIEW_WORDS)."""
+    kind = str(row.get("type") or "")
+    scope = str((row.get("suggest") or {}).get("scope") or "")
+    return REVIEW_WORDS.get((kind, scope)) or REVIEW_WORDS.get((kind, "")) or REVIEW_OTHER
 
 
 def pager(scope, page, pages, value):
@@ -101,7 +113,7 @@ def page_of(rows, view, field, size):
 
 
 def review_elements(review, view, value, data, size=REVIEW_PAGE):
-    """待审核: the oldest items with 采纳 and 不要, the way to the web page when there is one."""
+    """待审核: the oldest items, each with what it is and what the buttons do (``review_words``), 采纳 and 不要."""
     elements = [section(f"待审核（{len(review)}）")]
     if not review:
         return [*elements, note("没有待审核的")]
@@ -111,25 +123,27 @@ def review_elements(review, view, value, data, size=REVIEW_PAGE):
         line = f"**{literal(cut(row.get('title') or row.get('text') or '', TITLE_CHARS))}**"
         text = literal(cut(row.get("text") or "", TEXT))
         if text and text != literal(cut(row.get("title") or "", TITLE_CHARS)):
-            line += "\n" + grey(text)
+            line += "\n" + text
+        line += "\n" + grey(review_words(row))
         elements.append(item(md(line, size="normal_v2"), text_button("采纳", value(ACCEPT, key=key, op="accept")),
                              text_button("不要", value(DELETE, key=key, op="reject"))))
     if pages > 1:
         elements.append(pager(REVIEW, page, pages, value))
-    if data.get("review_url"):
-        elements.append(item(note("每条的全文、改了再采纳、归到别的范围，在网页上"), url_button(REVIEW_URL_LABEL, data["review_url"])))
     return elements
 
 
 def rule_line(row, titles) -> str:
-    where = "全局" if row.get("scope") == "global" else titles.get(f"p:{row.get('project_key')}", "专项")
-    over = " " + grey("· 超额") if row.get("over_cap") else ""
+    if row.get("scope") == "topic":
+        where = f"话题 T{row['topic_number']}" if type(row.get("topic_number")) is int else "话题"
+    else:
+        where = "全局" if row.get("scope") == "global" else titles.get(f"p:{row.get('project_key')}", "专项")
+    over = " " + grey("· 只带标题") if row.get("over_cap") else ""
     return (f"{grey(str(row.get('code') or ''))} {literal(cut(row.get('title') or '', TITLE_CHARS))} "
             f"{grey('· ' + literal(cut(where, 12)))}{over}")
 
 
 def rule_elements(rules, scopes, view, value, size=RULE_PAGE):
-    """Without the web page: the titles of the rules in use, each 收起 (two steps)."""
+    """Without the web page: the titles of the rules in use (全局, the projects', the topics'), each 收起 (two steps)."""
     elements = [section(f"规矩（{len(rules)}）")]
     if not rules:
         return [*elements, note("没有")]
@@ -148,20 +162,20 @@ def rule_elements(rules, scopes, view, value, size=RULE_PAGE):
     return elements
 
 
-# A card too much for CardKit is drawn again with fewer rows: (items of 待审核, rules, projects).
-LESS = ((REVIEW_PAGE, RULE_PAGE, PROJECTS), (3, 4, 3), (2, 2, 1))
+# A card too much for CardKit is drawn again with fewer rows: (items of 待审核, rules).
+LESS = ((REVIEW_PAGE, RULE_PAGE), (3, 4), (2, 2))
 
 
 def memory_card(token, view, data, *, top=()):
     """The tab for ``view`` over ``data`` (app/memory_panel.py facts)."""
-    for review, rules, projects in LESS:
-        card = _memory_card(token, view, data, top, review, rules, projects)
+    for review, rules in LESS:
+        card = _memory_card(token, view, data, top, review, rules)
         if element_count(card["body"]["elements"]) <= CARD_NODES and json_size(card) <= CARD_BYTES:
             break
     return card
 
 
-def _memory_card(token, view, data, top, review_size, rule_size, projects):
+def _memory_card(token, view, data, top, review_size, rule_size):
     def value(kind, **more):
         return {"kind": kind, "token": token, "revision": view.get("revision", 1), **more}
 
@@ -173,11 +187,10 @@ def _memory_card(token, view, data, top, review_size, rule_size, projects):
         elements.append(md(literal(data["error"])))
     elif not any(counts.get(name) for name in ("rule", "decision", "note", "pending")):
         elements.append(md(EMPTY))
+    subtitle = counts_line(data)
     if data.get("url"):
-        elements.append(item(note("记忆按范围管：看全貌、改、整理，都在网页记忆中心"), url_button(URL_LABEL, data["url"])))
-    elements += scope_lines(data.get("scopes"), projects)
+        elements.append(item(note(URL_NOTE), url_button(URL_LABEL, data["url"])))
     elements += review_elements(data.get("review") or [], view, value, data, review_size)
     if not data.get("url"):
         elements += rule_elements(data.get("rules") or [], data.get("scopes"), view, value, rule_size)
-    subtitle = counts_words(counts)
     return styled_panel(panel_header(ICON, TITLE, subtitle), elements, f"{TITLE} · {subtitle}")

@@ -7,10 +7,10 @@ model to put ``memory`` into its checkpoint (app/memory_collect.py, which almost
 
 - The owner's words: of a turn that ended well, his own (app/access.py
   owner_turn), whose words are his: by the turn's source (core/turn_source.py) and, with none, by the message id and the way the
-  text begins (app/memory_candidates.py not_owner_reason: never a revisit, a Bridge wake-up or note, a hand-on, a review, a
+  text begins (``not_owner_reason``: never a revisit, a Bridge wake-up or note, a hand-on, a review, a
   协作 turn, a 管家 or lead's hand-on), in an ordinary topic, the butler's or a project's lead's (not a 代答 topic, not one with
   redaction on or whose setting cannot be read: nothing of it is sent to a model), whose words (app/memory_turn.py owner_words:
-  never a question's own) hold one of a correction's words (app/memory_candidates.py CUES: only "from now on" words; in a lead's
+  never a question's own) hold one of a correction's words (``CUES``: only "from now on" words; in a lead's
   topic only memory's own CORRECTION_WORDS), and that app/memory_collect.py took nothing from. An answer to a question card
   goes with the card's words and options (``asked``), which are never his; it is read when its answer holds a cue or the
   question speaks of the memory (ASKS). The small model (app/track_judge.py ask: the
@@ -39,11 +39,10 @@ import json
 import re
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 from covey.app import assist, memory_collect, memory_turn, track_judge
-from covey.app import memory_candidates
-from covey.app.memory_candidates import CUES
 from covey.app.track_judge import Failed
 from covey.core import memory, memory_gate, memory_review, memstore, project_memory, projects, topic_memory, turn_source
 from covey.core.butler_opened import handed_on
@@ -54,6 +53,12 @@ from covey.core.state import read_object
 from covey.core.text import cut
 from covey.core.topics import label_title, proxy_topic
 
+# A correction's words: memory's own (core/memory.py CORRECTION_WORDS) and the ones a repeated correction is said with.
+# Only words that say "from now on" (T852): everyday ones (先, 不要, 别, 不是, 应该, 改成, 又, 必须, 记得) are in nearly every message
+# and sent a small model after each of them for nothing.
+CUES = (*memory.CORRECTION_WORDS, "一律", "永远", "总是", "老是", "说过", "规则是", "默认")
+BRIDGE_IDS = ("revisit-", "main-", "review-", "lead-")  # Message ids the Bridge makes up for a turn nobody spoke: 回看, a hand-on, 复核, a lead woken.
+BRIDGE_TEXT = ("[Bridge", "【Bridge")  # What the Bridge starts its own messages with (叫醒, 唤醒, 说明, 协作…).
 PER_TURN = 2  # Lines remembered, and lines struck out, a turn.
 SECONDS = 45
 SAID = 1500  # Characters of the owner's words sent: the start and the end of longer ones.
@@ -124,7 +129,7 @@ def reason_to_skip(runtime, ctx, job, record, checkpoint) -> str:
         return "collected"  # The turn wrote its own lines (app/memory_collect.py).
     if handed_on(record.get("message_id") or getattr(job, "message_id", "")):
         return "handed-on"
-    if memory_candidates.not_owner_reason(job, record, text=record.get("user_text")):
+    if not_owner_reason(job, record, text=record.get("user_text")):
         return "not-owner-words"  # A revisit, a wake-up, a note, a hand-on, a 协作 turn: not his words (the source decides).
     if not runtime.access.owner_turn(chat, str(record.get("sender_id") or getattr(job, "sender_id", "") or "")):
         return "not-owner"
@@ -260,9 +265,6 @@ def _text_of(state_dir, record, ref) -> str:
         if kind == "topic":
             return next((row["text"] for row in topic_memory.live(state_dir, str(record.get("topic_id") or ""))
                          if row["id"] == rest), "")
-        if kind == "candidate":
-            from covey.app import memory_candidates
-            return next((row["text"] for row in memory_candidates.load(state_dir)["rows"] if row["id"] == rest), "")
     except Exception:  # noqa: BLE001 - a line that cannot be read is not listed
         return ""
     return ""
@@ -302,6 +304,28 @@ def parse(text) -> tuple[list, list, list]:
     raise Failed("bad_output")
 
 
+def not_owner_reason(*items, text="") -> str:
+    """Why the words of the turn of ``items`` (a job and its record) are not the owner's own ('' when they are): the turn's
+    source (core/turn_source.py) decides, by its level and whether its words are the owner's, and only his own message or answer passes; a
+    turn with none is as before, and then the message id the Bridge makes up (BRIDGE_IDS: a revisit, a hand-on, a review) and,
+    as a last resort, the way its text begins (BRIDGE_TEXT) say it is the Bridge's."""
+    value = turn_source.of(*items)
+    if value is not None:
+        found = turn_source.kind(*items)
+        asserted = value.get("asserted_by") if isinstance(value, Mapping) else ""
+        if (not turn_source.behavior(*items).owner_words or found not in (turn_source.OWNER, turn_source.ANSWER)
+                or asserted != turn_source.PARTY_OWNER
+                or (found == turn_source.ANSWER and turn_source.level(*items) != turn_source.LEVEL_OWNER)):
+            return "source"  # A hand-on, a wake-up, a lead's answer for him, a 协作 turn; an answer of his own passes.
+    for item in items:
+        message = item.get("message_id") if isinstance(item, Mapping) else getattr(item, "message_id", "")
+        if isinstance(message, str) and message.startswith(BRIDGE_IDS):
+            return "bridge-id"
+    if str(text or "").lstrip().startswith(BRIDGE_TEXT):
+        return "bridge-text"
+    return ""
+
+
 QUESTION = re.compile(r"[?？]\s*$|[吗么呢][?？。!！~]?\s*$")
 RECURRING = ("每天", "每周", "每月", "每晚", "每早", "每个", "定时", "按时")  # A time that comes round again is no moment's.
 
@@ -335,10 +359,11 @@ def _propose(ctx, record, text, quote, scope, why="", project=""):
     if not text:
         return None
     suggest = {"kind": "rule", "scope": "project", "project_key": project} if project else {"kind": "rule", "scope": scope}
-    key = memory_review.add(ctx.state_dir, memory_review.ReviewItem(
+    key, new = memory_review.add(ctx.state_dir, memory_review.ReviewItem(
         key="", type="learn", title=memstore.auto_title(text, "rule"), text=text, suggest=suggest, created_at=time.time(),
         quote=quote, origin=_origin(ctx, record), flags=tuple(verdict.flags)))
-    return {"kind": "pending", "text": text + why, "scope": PENDING_WORDS, "entry_id": key} if key else None
+    # One there already (waiting, turned down, accepted) is not said to wait again.
+    return {"kind": "pending", "text": text + why, "scope": PENDING_WORDS, "entry_id": key} if key and new else None
 
 
 def _remember(ctx, record, text, quote, scope, *, lead=False):

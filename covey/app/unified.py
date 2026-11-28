@@ -175,8 +175,6 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
         from covey.app.app_setup import AppSetup
         from covey.app.bot_menu import BotMenu, Panels, known_chats
         from covey.app.digest import Digest
-        from covey.app.memory_candidates import Candidates
-        from covey.app.memory_harvest import Harvest
         from covey.app.memory_tidy import MemoryTidy
         from covey.app.directory_picker import DirectoryPicker
         from covey.app.dispatch_cards import DispatchCards
@@ -269,11 +267,8 @@ class UnifiedBridgeApp(CardRouting, JobDispatch):
             self.storage_alerts = StorageAlerts(self.runtime, self.messenger, self.voice)
             # 早晚汇总 (app/digest.py), when COVEY_DIGEST_TIMES is set: a card in the owner's private chat.
             self.digest = Digest(self.runtime, self.messenger, self.voice)
-            # The day's candidates for 待审核, found at the evening digest (app/memory_candidates.py), COVEY_MEMORY=1: rules only.
-            self.digest.candidates = Candidates(self.runtime)
             # 整理记忆 on the evening digest (app/memory_tidy.py), COVEY_MEMORY_LEARN=1: rules only.
             self.digest.memory_tidy = MemoryTidy(self.runtime)
-            self.digest.harvest = Harvest(self.runtime)  # Codex's and Claude Code's own notes as candidates.
             # Its line of old questions has 手上的事's 这些都不用回答了: the click is 手上的事's, then the digest card's.
             self.overview.handed[self.digest.origin] = self.digest.dismissed
             self.overview.unhanded[self.digest.origin] = self.digest.undismissed  # 撤销 under its 已撤下 line.

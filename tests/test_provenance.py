@@ -120,7 +120,7 @@ class ReadersTest(unittest.TestCase):
         self.assertIs(butler_asks.retried, __import__("covey.app.provenance", fromlist=["x"]).retried)
 
     def test_memory_takes_no_candidate_from_a_hand_on_and_one_from_his_answer(self):
-        from covey.app.memory_candidates import not_owner_reason
+        from covey.app.memory_learn import not_owner_reason
 
         self.assertEqual(not_owner_reason({"message_id": "om_9", "turn_source": RELAY_OF}, text="以后都这样"), "source")
         self.assertEqual(not_owner_reason({"message_id": "om_9", "turn_source": LEAD_OF}, text="以后都这样"), "source")

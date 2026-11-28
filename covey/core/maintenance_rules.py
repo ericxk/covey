@@ -552,8 +552,8 @@ class ProjectMemories(Rule):
 
 class MemoryFiles(Rule):
     """The memory's own files (core/memstore.py upkeep): memory/log.jsonl past 90 days trimmed, each decisions.jsonl
-    compacted (a void decision past 30 days gone), memory/topics.json made again from the topic directories. Not in the plan
-    or the dry run."""
+    compacted (a void decision past 30 days gone), memory/topics.json made again from the topic directories, 待审核 left
+    open 14 days closed as expired. Not in the plan or the dry run."""
 
     def apply(self, run, plan):
         try:

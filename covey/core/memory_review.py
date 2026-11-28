@@ -1,20 +1,20 @@
 """The one review queue of the memory (待审核, ``memory/review.json``): what someone other than the owner proposes waits here.
 
-Everything the owner did not say himself goes here before it counts: the memory's own learning, a lead's proposal, an
-import, a conflict, a tidy proposal, the third same-class question (class3) and what the migration could not place
-(a lead's unconfirmed constraint carried in the last 7 days stays carried as a project rule
-and is also put here, until the owner decides). Only the owner's submit moves an item out; a lead answering for him
-never writes a rule (docs/butler.md 记忆, docs/operations.md 记忆的存储与迁移). The queue itself is core/memstore.py's
-(memory/review.json); this module is what an item means when decided.
+What the memory's own learning would make reach past its topic, a conflict, a tidy proposal and the third same-class
+question (class3) wait here for the owner's word; a lead's rule does not (it holds in its project at once, 负责人记的).
+Items older releases put here (a lead's rule, an evening candidate, a Harness's import, a lead's line the migration
+carried) stay readable and decidable until they are decided or expire: an open item EXPIRE_DAYS old is closed as expired
+by the daily upkeep (core/memstore.py upkeep), kept, never deleted. Only the owner's submit moves an item out otherwise; a
+lead answering for him never writes a rule (docs/butler.md 记忆, docs/operations.md 记忆的存储与迁移). The queue itself is
+core/memstore.py's (memory/review.json); this module is what an item means when decided.
 """
 from __future__ import annotations
 
 import secrets
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 
-from covey.core import harness_memory, memory_gate, memory_rank, memory_search, memory_usage, memstore
+from covey.core import memory_usage, memstore
 
 TYPES = ("learn", "candidate", "lead", "import", "conflict", "tidy", "class3", "migrate")
 
@@ -34,10 +34,7 @@ class ReviewItem:
     flags: tuple = ()  # core/memory_gate.py FLAGS
 
 
-EXPIRE_DAYS = 14  # An open item older than this is ``expired`` (kept, never deleted).
-IDLE_SHOWN = 10  # A note carried this often with no sign of use is idle.
-DUP_MUTUAL = 0.5  # Two entries of one scope and kind this alike (``mutual_similarity``, and covered) are a duplicate.
-DUP_PER_SCOPE = 200  # Entries of one scope compared for duplicates (the pairs grow with the square).
+EXPIRE_DAYS = memstore.REVIEW_DAYS  # An open item older than this is ``expired`` (kept, never deleted).
 # A scope's rules past either number are over the cap: (entries, characters).
 RULE_CAPS = {"global": (15, 1200), "project": (10, 1000), "topic": (5, 400)}
 ACTIONS = ("accept", "reject", "keep_left", "keep_right", "keep_both")
@@ -54,11 +51,12 @@ def items(state_dir) -> list[ReviewItem]:
     return [_item(row) for row in memstore.review_items(state_dir)]
 
 
-def add(state_dir, item: ReviewItem) -> str:
-    """Put ``item`` in the queue (one per proposal, ``memstore.review_fp``); its key, the existing one's for a proposal that is
-    there already (open or decided)."""
+def add(state_dir, item: ReviewItem) -> tuple[str, bool]:
+    """Put ``item`` in the queue (one per proposal, ``memstore.review_fp``): (its key, whether it is new). One that is there
+    already (open, turned down or accepted; not one that expired) gives the existing key and False: the caller does not say
+    待审核 again for it."""
     row = {name: getattr(item, name) for name in _FIELDS if name != "key" or item.key}
-    return memstore.review_put(state_dir, row)[0]
+    return memstore.review_put(state_dir, row)
 
 
 def _need(state_dir, key: str) -> dict:
@@ -123,14 +121,6 @@ def _written(state_dir, row: dict, action: str, who, token, now) -> list[str]:
             for ref in refs:
                 written.append(memstore.restore(state_dir, ref, who=who, token=token, now=now).ref)
         return written
-    if kind == "import":
-        scope, owner = _where(row)
-        if action == "accept":
-            made = harness_memory.take(state_dir, Path.home(), refs, kind=str(suggest.get("kind") or ""), scope=scope,
-                                       owner_key=owner, who=who, token=token, now=now)
-            return [entry.ref for entry in made]
-        harness_memory.ignore(state_dir, refs, now=now)
-        return []
     if action == "reject":
         return []
     return _add(state_dir, row, who, token, now, by=_BY.get(kind, "bridge"))
@@ -176,73 +166,6 @@ def decide_all(state_dir, action: str, *, keys: list[str] | None = None, who: st
 
 
 def expire(state_dir, *, now: float | None = None) -> int:
-    """Open items older than ``EXPIRE_DAYS`` marked ``expired`` (kept, never deleted); how many."""
-    stamp = time.time() if now is None else now
-    count = 0
-    for row in memstore.review_items(state_dir):
-        if stamp - float(row.get("created_at") or 0) > EXPIRE_DAYS * 86400:
-            memstore.review_set(state_dir, row["key"], "expired", by="bridge", now=stamp)
-            count += 1
-    return count
-
-
-def _over_cap(entries) -> list[str]:
-    rules: dict = {}
-    for entry in entries:
-        if entry.kind == "rule":
-            rules.setdefault((entry.scope, entry.owner_key), []).append(entry)
-    over = []
-    for (scope, owner), rows in rules.items():
-        most, chars = RULE_CAPS[scope]
-        if len(rows) > most or sum(len(row.text) for row in rows) > chars:
-            over.append(scope if scope == "global" else f"{scope}:{owner}")
-    return sorted(over)
-
-
-def _duplicates(state_dir, entries) -> list[str]:
-    groups: dict = {}
-    for entry in entries:
-        groups.setdefault((entry.scope, entry.owner_key, entry.kind), []).append(entry)
-    if not any(len(rows) > 1 for rows in groups.values()):
-        return []
-    corpus = memory_search.index(state_dir)
-    idf = corpus.idfs()
-    docs = {entry.ref: memory_search.text_doc(entry.text) for entry in entries}
-    dup: list = []
-    for rows in groups.values():
-        rows = rows[:DUP_PER_SCOPE]
-        for i, one in enumerate(rows):
-            mine = docs[one.ref]
-            for other in rows[i + 1:]:
-                theirs = docs[other.ref]
-                if not memory_rank.covered(mine[0].keys() & theirs[0].keys(), idf):
-                    continue  # Too few words in common to be alike: not worth the four scores.
-                sim, covered = memory_search.mutual_docs(corpus, mine, theirs)
-                if covered and sim >= DUP_MUTUAL:
-                    dup += [ref for ref in (one.ref, other.ref) if ref not in dup]
-    return dup
-
-
-def health(state_dir, *, now: float | None = None) -> dict:
-    """What looks unwell in the memory, as web contract MemoryHealth: only the non-empty lists; ``{}`` when all is well.
-    ``dup``: active entries of one scope and kind whose texts are alike (``memory_search.mutual_similarity``, the words
-    weighed by the whole memory's index, covered and at or over ``DUP_MUTUAL``; at most ``DUP_PER_SCOPE`` entries of a scope
-    compared). ``conflict``: [old ref, item key] of each open
-    conflict item. ``vague``: active rules and notes the gate flags vague. ``stale``: notes verified more than
-    ``memory_rank.STALE_DAYS`` ago. ``idle``: notes carried ``IDLE_SHOWN`` times or more and never used. ``over_cap``: scope
-    keys (global, project:<id>, topic:<id>) whose rules are over ``RULE_CAPS``. ``repo_rule`` and ``skill`` are not worked out."""
-    stamp = time.time() if now is None else now
-    entries = memstore.entries(state_dir, kinds=("rule", "note"))
-    used = memory_usage.counts(state_dir)
-    found = {
-        "dup": _duplicates(state_dir, entries),
-        "conflict": [[row["conflict_with"], row["key"]] for row in memstore.review_items(state_dir)
-                     if row.get("type") == "conflict" and row.get("conflict_with")],
-        "vague": [entry.ref for entry in entries if "vague" in memory_gate.check(entry.text, kind=entry.kind, title=entry.title).flags],
-        "stale": [entry.ref for entry in entries if entry.kind == "note" and entry.verified_at
-                  and stamp - entry.verified_at > memory_rank.STALE_DAYS * 86400],
-        "idle": [entry.ref for entry in entries if entry.kind == "note"
-                 and used.get(entry.ref, {}).get("e", 0) >= IDLE_SHOWN and not used.get(entry.ref, {}).get("h", 0)],
-        "over_cap": _over_cap(entries),
-    }
-    return {name: value for name, value in found.items() if value}
+    """Open items older than ``EXPIRE_DAYS`` marked ``expired`` (kept, never deleted); how many. The daily upkeep does it
+    (core/memstore.py upkeep, the same ``review_expire``)."""
+    return memstore.review_expire(state_dir, days=EXPIRE_DAYS, now=now)

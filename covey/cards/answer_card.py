@@ -319,9 +319,12 @@ EDIT_LABEL = "改"
 def memory_element(notes, topic_id="", job_id="", url=None):
     """The grey lines at the bottom of a turn's answer card (COVEY_MEMORY=1, app/memory_collect.py): one per note of the job
     record's ``memory_notes`` ({kind, text, scope, entry_id, title?, code?, redacted?}), "记下了：<title, else text> · 管这个专项" and a
-    不对 button that takes it back (``MEMORY_WRONG_KIND``), then with the web page on a 改 button that opens the 网页记忆中心 (``url``,
-    default: the page's address; no button without the page); "作废了：<text>", "已撤销：<text>" once taken back. There is no
-    升为全局 here: moving an entry to a larger scope is the page's. None without a note."""
+    不对 button that takes it back (``MEMORY_WRONG_KIND``), then with the web page on a 改 button that opens that entry on the
+    web page's 记忆 (``url`` + ``?code=<the note's short code>``; ``url`` default: the page's /memory; no button without the
+    page); "作废了：<text>", "已撤销：<text>" once taken back. There is no 升为全局 here: moving an entry to a larger scope is the
+    page's. None without a note."""
+    from urllib.parse import quote
+
     from covey.cards.memory_panel import center_url, url_button
 
     url = center_url() if url is None else url
@@ -337,7 +340,9 @@ def memory_element(notes, topic_id="", job_id="", url=None):
             value = {"topic_id": topic_id, "job_id": job_id, "entry_id": str(note.get("entry_id") or "")}
             buttons = [text_button("不对", {"kind": MEMORY_WRONG_KIND, **value})]
             if url:
-                buttons.append(url_button(EDIT_LABEL, url))
+                code = str(note.get("code") or "")
+                at = f"{url}?code={quote(code)}" if code and "?" not in url and "#" not in url else url
+                buttons.append(url_button(EDIT_LABEL, at))
             rows.append(item(line, *buttons))
         else:
             rows.append(line)

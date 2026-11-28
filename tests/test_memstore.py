@@ -367,12 +367,19 @@ class QueueTest(Case):
         with self.assertRaises(ValueError):
             memstore.review_put(self.state, {"type": "other", "text": "x"})
 
-    def test_import_states(self):
-        memstore.imports_set(self.state, ["fp1", "fp2"], "ignored", facts={"fp1": {"harness": "codex", "file": "/x"}}, now=NOW)
-        memstore.imports_set(self.state, ["fp2"], "imported", entry_ref="global:g1", now=NOW)
-        items = memstore.imports(self.state)["items"]
-        self.assertEqual((items["fp1"]["state"], items["fp1"]["harness"]), ("ignored", "codex"))
-        self.assertEqual((items["fp2"]["state"], items["fp2"]["entry_ref"]), ("imported", "global:g1"))
+    def test_an_expired_item_lets_the_same_proposal_in_again_and_expiring_is_one_write(self):
+        item = {"type": "learn", "text": "回复先给结论", "suggest": {"kind": "rule", "scope": "global"}}
+        old, _ = memstore.review_put(self.state, {**item, "created_at": NOW - 15 * 86400}, now=NOW)
+        kept, _ = memstore.review_put(self.state, {**item, "text": "新的一条", "created_at": NOW - 86400}, now=NOW)
+        with mock.patch.object(memstore, "write_json", wraps=memstore.write_json) as wrote:
+            self.assertEqual(memstore.review_expire(self.state, now=NOW), 1)
+        self.assertEqual(wrote.call_count, 1)
+        self.assertEqual(memstore.review_expire(self.state, now=NOW), 0)
+        again, new = memstore.review_put(self.state, item, now=NOW)
+        self.assertTrue(new)
+        self.assertNotEqual(again, old)
+        self.assertEqual({row["key"] for row in memstore.review_items(self.state)}, {again, kept})
+
 
 
 class UpkeepTest(Case):
@@ -387,14 +394,14 @@ class UpkeepTest(Case):
         topic_memory.add(self.state, TID, "话题里的")
         memstore.topics_path(self.state).unlink()  # Lost: the walk lists it again.
         out = memstore.upkeep(self.state, now=NOW + 100 * 86400)
-        self.assertEqual(out, {"log": 5, "decisions": 4, "topics": 1})
+        self.assertEqual(out, {"log": 5, "decisions": 4, "topics": 1, "expired": 0})
         (line,) = [json.loads(text) for text in path.read_text().splitlines()]
         self.assertEqual((line["op"], line["title"], line["status"]), ("add", "新题", "done"))
         self.assertEqual(memstore.find(self.state, kept.code).title, "新题")
         self.assertIsNone(memstore.find(self.state, old.ref))
         self.assertIn(TID, memstore.topics(self.state))
         self.assertEqual(memstore.log_read(self.state), [])
-        self.assertEqual(memstore.upkeep(self.state, now=NOW + 100 * 86400), {"log": 0, "decisions": 0, "topics": 1})
+        self.assertEqual(memstore.upkeep(self.state, now=NOW + 100 * 86400), {"log": 0, "decisions": 0, "topics": 1, "expired": 0})
 
 
 class UsageTest(Case):

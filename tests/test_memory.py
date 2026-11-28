@@ -322,8 +322,9 @@ class CollectTest(CollectCase):
         record = self.collect(job)
         live = topic_memory.live(self.state, "t1")
         self.assertEqual([r["text"] for r in live], [self.LINE["text"]])
+        code = memstore.find(self.state, f"topic:t1:{live[0]['id']}").code  # 改 on the card opens it on the web page (?code=).
         self.assertEqual(record["memory_notes"], [{"kind": "remembered", "text": self.LINE["text"], "scope": "管这个话题",
-                                                  "entry_id": live[0]["id"], "ref": f"topic:t1:{live[0]['id']}"}])
+                                                  "entry_id": live[0]["id"], "ref": f"topic:t1:{live[0]['id']}", "code": code}])
         sent = self.messenger.patch_card.call_args.args[2]
         element = sent["body"]["elements"][-1]
         self.assertEqual(element["element_id"], cards.MEMORY_ID)

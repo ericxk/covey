@@ -19,7 +19,7 @@ app/butler_env.py describes them; app/butler_tools.py puts them with the butler'
   kind ``ask`` of W0-2 is taken one release more and asked with ``project_ask``),
   ``project_goal`` (the goal and its done-when as the lead keeps them, ``lead_goal``: the web page shows it under the project's name),
   ``project_remember`` (the project's memory: ``kind`` rule or note with a ``title`` of at most 40 characters goes to
-  core/memstore.py add, a rule the lead sets also to 待审核 for the owner; the older kinds as before; a line that is a snapshot,
+  core/memstore.py add, 负责人记的: it holds at once in the project and waits for no one; the older kinds as before; a line that is a snapshot,
   ``SNAPSHOT``, is refused: it goes to ``project_note``), ``project_memory_revise`` (the lead updates, replaces or puts away a
   line of it, by its id or short code, ``revise_refusal`` says whose lines it may not touch; a decision of decisions.jsonl
   through core/memstore.py), ``project_style``, ``project_finish`` write the project's record
@@ -602,8 +602,9 @@ def project_remember(env, request):
 
 
 def remember_new(state, pid, kind, text, request):
-    """project_remember of a rule or a note (core/memstore.py add): the lead's, 它总结的; a rule also goes to 待审核 for the
-    owner to make it his (core/memstore.py review_put, type lead). ValueError for what memstore refuses (a title too long)."""
+    """project_remember of a rule or a note (core/memstore.py add): the lead's (负责人记的), in force in the project at once; it
+    goes to no 待审核 (the owner does not review the lead's lines one by one). ValueError for what memstore refuses (a title too
+    long)."""
     title = " ".join(str(request.args.get("title") or "").split())
     if len(title) > memstore.TITLE_CHARS:
         raise ValueError(f"title 最多 {memstore.TITLE_CHARS} 个字，这次 {len(title)} 个：写一句短的标题。")
@@ -611,18 +612,10 @@ def remember_new(state, pid, kind, text, request):
     entry = memstore.add(state, kind=kind, scope="project", owner_key=pid, text=text, title=title, said="summary", by="lead",
                          origin={"job": str(request.job_key or "")}, who="lead")
     new = entry.ref not in before
-    if new and kind == "rule":
-        try:
-            memstore.review_put(state, {"type": "lead", "title": entry.title, "text": entry.text, "items": [entry.ref],
-                                        "suggest": {"kind": "rule", "scope": "project", "project_key": pid},
-                                        "origin": {"job": str(request.job_key or "")}})
-        except Exception:  # noqa: BLE001 - the rule is kept, 它总结的, whether or not it is offered to the owner
-            pass
     words = "规矩" if kind == "rule" else "资料"
     if not new:
         return reply(True, f"专项记忆里已有这条（{entry.code}），没有重复记。", id=entry.code, ref=entry.ref, new=False)
-    told = "，主人在待审核里确认后算他定的" if kind == "rule" else ""
-    return reply(True, f"已记进专项{words}（{entry.code}）{entry.title}：{entry.text}{told}。", id=entry.code, ref=entry.ref, new=True)
+    return reply(True, f"已记进专项{words}（{entry.code}）{entry.title}：{entry.text}。", id=entry.code, ref=entry.ref, new=True)
 
 
 def revise_refusal(action, entry, other=None) -> str:

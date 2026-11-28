@@ -60,7 +60,10 @@ class AnswerCardTests(unittest.TestCase):
         self.assertEqual(open_urls(plain), [])  # No page, no 改.
         with mock.patch("covey.core.web_sync.page_url", return_value=URL):
             linked = cards.memory_element([NOTE], "t1", 7)
-        self.assertEqual(open_urls(linked), [("改", URL + "/memory")])
+        self.assertEqual(open_urls(linked), [("改", URL + "/memory")])  # A note without its code: the page's 记忆.
+        with mock.patch("covey.core.web_sync.page_url", return_value=URL):
+            coded = cards.memory_element([{**NOTE, "code": "R4K2M"}], "t1", 7)
+        self.assertEqual(open_urls(coded), [("改", URL + "/memory?code=R4K2M")])  # That entry, opened on the page.
         self.assertIn('"kind": "bridge_memory_wrong"', text_of(linked))  # 不对 is the same button as it was.
         self.assertNotIn("升为全局", text_of(linked))
 
@@ -122,15 +125,18 @@ class ProjectMemoryTests(unittest.TestCase):
         for scope, key in (("project", self.pid), ("project", "0f9e8d7c6b5a"), ("global", "")):
             memstore.review_put(self.state, {"type": "learn", "title": f"待定 {scope}{key}", "text": "x",
                                              "suggest": {"kind": "rule", "scope": scope, **({"project_key": key} if key else {})}})
-        self.assertEqual(project_facts.memory_counts(self.state, self.pid), (2, 1, 1, 1))
+        self.assertEqual(project_facts.memory_counts(self.state, self.pid), (2, 1))  # Rules in use, items waiting: no 决定, 资料.
 
     def test_the_line_is_in_the_projects_facts_with_the_web_page_address(self):
         memstore.add(self.state, kind="rule", scope="project", owner_key=self.pid, title="发布前跑冒烟", text="发布前跑一遍冒烟")
         with mock.patch("covey.core.web_sync.page_url", return_value=URL):
             shown = project_facts.facts(self.state, projects.read_record(self.state, self.pid), 1100.0, {})
-        self.assertEqual((shown.memory_counts, shown.memory_url), ((1, 0, 0, 0), URL + "/memory"))
-        self.assertIn("规矩 1 · 决定 0 · 资料 0", memory_line(shown)["content"])
-        self.assertIn(URL + "/memory", memory_line(shown)["content"])
+        self.assertEqual((shown.memory_counts, shown.memory_url), ((1, 0), f"{URL}/memory?scope=p%3A{self.pid}"))
+        line = memory_line(shown)["content"]
+        self.assertIn("记忆 · 规矩 1", line)
+        self.assertNotIn("决定", line)
+        self.assertNotIn("资料", line)  # Not to be read as the 资料库 under it.
+        self.assertIn(f"{URL}/memory?scope=p%3A{self.pid}", line)  # This project's group on the page.
 
     def test_a_memory_that_cannot_be_read_is_no_counts_not_a_failure(self):
         with mock.patch.object(project_facts.memstore, "entries", side_effect=OSError("nfs")):
@@ -168,7 +174,7 @@ class DigestReviewTests(unittest.TestCase):
     def test_review_view_reads_the_overview_and_is_empty_when_it_fails(self):
         with mock.patch("covey.core.web_sync.page_url", return_value=URL), \
                 mock.patch("covey.app.web_memory.overview", return_value={"counts": {"pending": 2}}):
-            self.assertEqual(review_view("state"), {"review": {"pending": 2, "url": URL + "/memory/review"}})
+            self.assertEqual(review_view("state"), {"review": {"pending": 2, "url": URL + "/memory"}})
         with mock.patch("covey.app.web_memory.overview", return_value={"counts": {"pending": 0}}):
             self.assertEqual(review_view("state"), {})
         logs = []
@@ -201,7 +207,7 @@ class DigestTickTests(test_digest.Records, unittest.TestCase):
         with mock.patch("covey.core.web_sync.page_url", return_value=URL), \
                 mock.patch("covey.app.web_memory.overview", return_value={"counts": {"pending": 2}}):
             self.feature.tick(self.ctx, self.times, now=self.slot + 5)
-        self.assertIn("记忆：待审核 2 条 · [去网页处理](" + URL + "/memory/review)", text_of(self.messenger.sends[0]["card"]))
+        self.assertIn("记忆：待审核 2 条 · [去网页处理](" + URL + "/memory)", text_of(self.messenger.sends[0]["card"]))
         self.assertIn("记忆：待审核 2 条", self.messenger.sends[0]["text"])
         self.assertEqual(self.messenger.sends[0]["card"]["body"]["elements"].count(None), 0)
 

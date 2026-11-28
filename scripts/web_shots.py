@@ -9,9 +9,9 @@ the page logs in (a login request, the owner's approval pushed as Covey pushes i
     <python with Pillow> -B scripts/web_shots.py --out /absolute/shots --install   # the four README ones into docs/media/screenshots
 
 Every page (看板, 专项, 大厅, a topic) at a desktop and a phone size, dark and light: web-<page>-<size>-<theme>.png.
-Two more, asked by name (``--pages assist,tidy``; their demo data is pushed only then, so the README's four stay as they
-are): 设置's 辅助模型 with its 后台活最近一次 (``assist``, the section alone) and the 看板's 整理专项 after a 整理 that failed
-(``tidy``). ``--variants`` shoots the samples of docs/ui.md 第 12 节 too (VARIANTS: A is the page as built, B and C are drawn
+Three more, asked by name (``--pages assist,tidy,memory``; their demo data is pushed only then, so the README's four stay as
+they are): 设置's 辅助模型 with its 后台活最近一次 (``assist``, the section alone), the 看板's 整理专项 after a 整理 that failed
+(``tidy``) and the one-page 记忆 (``memory``: 待审核 on top, 全局, three projects, a topic's rule; ``demo_memory``). ``--variants`` shoots the samples of docs/ui.md 第 12 节 too (VARIANTS: A is the page as built, B and C are drawn
 over it in the browser only, never in the page's code): web-<page>-<variant>-<size>-<theme>.png.
 Only demo data: a demo-app story (a topic waiting on a question, one running, one stopped, one with an unseen result, a
 project with its lead and memory, the butler), no real name, chat, open_id or path. The server listens on 127.0.0.1
@@ -42,7 +42,7 @@ TITLES = {"claude": "Claude Code", "codex": "Codex"}  # The Harnesses the demo r
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 PAGES = {"board": "/", "project": f"/projects/{PID}", "hall": "/butler", "topic": "/topics/" + "7" * 32}
 README_PAGES = ("board", "project", "hall", "topic")  # The default: the README's.
-EXTRA = {"assist": "/settings/config", "tidy": "/"}  # Shot only when named (T884's samples).
+EXTRA = {"assist": "/settings/config", "tidy": "/", "memory": "/memory"}  # Shot only when named (samples, the one-page 记忆).
 FOCUS = {"assist": ".st-assist", "tidy": ".td-panel"}  # What of the page is shot (assist: that element alone; tidy: scrolled to).
 # The samples (docs/ui.md 第 12 节) drawn over the built page in the browser: (sizes, CSS, script). A is the page itself.
 SAMPLE_CSS = {
@@ -169,6 +169,35 @@ def demo_state(state, now):
                        origin={"question": "tokdemo0006"})
     project_memory.add(state, PID, "邮件模板中英文各一份，放在 templates/mail/", kind="fact", source="lead", now=now - 6500)
     record_reads(state, {t9: now - 6000, t4: now - 88000}, now=now)  # Two results read already; T6's not.
+
+
+def demo_memory(state, now):
+    """The one-page 记忆's demo (``--pages memory``): rules of 全局 (yours, one the learner summed up, one put away), a note,
+    the project's (the owner's and the lead's) and two more projects', a topic's rule and an item waiting in 待审核. Made-up
+    words only, through core/memstore.py."""
+    from covey.core import memstore, projects
+    t7 = "7" * 32
+    for text, title, said, by in (("回复先给结论，再展开原因", "回复先给结论", "owner", "owner"),
+                                  ("改完代码先跑相关测试，过了再合并", "改完先跑测试", "owner", "owner"),
+                                  ("写文档只写实际有的数据，不写估出来的数", "文档只写实际数据", "owner", "owner"),
+                                  ("汇报里不贴整段日志，只贴关键几行", "汇报不贴整段日志", "summary", "learn")):
+        memstore.add(state, kind="rule", scope="global", text=text, title=title, said=said, by=by, now=now - 50000,
+                     origin={"topic_key": t7, "topic_number": 7, "quote": text})
+    gone = memstore.add(state, kind="rule", scope="global", text="周五下午不发版", title="周五下午不发版", now=now - 90000)
+    memstore.archive(state, gone.ref, now=now - 80000)
+    memstore.add(state, kind="note", scope="global", text="演示环境的网页服务监听在 8080 端口", title="演示环境端口", said="summary",
+                 by="learn", now=now - 40000)
+    memstore.add(state, kind="rule", scope="project", owner_key=PID, text="发版前先在预发环境跑一遍冒烟", title="发版前跑冒烟",
+                 said="summary", by="lead", now=now - 30000)
+    for n, (name, text) in enumerate((("demo-app 发布流程", "发布单要写清回滚步骤"), ("demo-app 数据看板", "看板数字以日报口径为准"))):
+        pid = f"d3m0e{n}f1a2b3"
+        projects.create(state, projects.new_record(chat_id=CHAT, name=name, project_id=pid, now=now - 70000 - n * 9000))
+        memstore.add(state, kind="rule", scope="project", owner_key=pid, text=text, now=now - 60000 - n * 9000)
+    memstore.add(state, kind="rule", scope="topic", owner_key=t7, text="这个话题只改登录页，不动注册页", title="只改登录页",
+                 now=now - 5000)
+    memstore.review_put(state, {"type": "learn", "title": "以后回复都用中文", "text": "以后回复都用中文，会话再长也不换成英文",
+                                "quote": "以后回复都用中文吧", "origin": {"topic_key": t7, "topic_number": 7},
+                                "suggest": {"kind": "rule", "scope": "global"}}, now=now - 2000)
 
 
 def demo_assist(state, now):
@@ -358,6 +387,8 @@ def main(argv=None):
             demo_state(state, now)
             pages = [name for name in args.pages.split(",") if name]
             extra = demo_assist(state, now) if any(name in EXTRA for name in pages) else ()
+            if "memory" in pages:
+                demo_memory(state, now)
             print("pushed", push(state, base, key_file, now, extra), "items")
             shoot(base, login(base, key_file.read_text().strip()), out, args.browser, pages, args.variants)
         finally:
